@@ -4,10 +4,10 @@ package org.z2six.ezvillagerreroll.network;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.server.TradeLockService;
 
 public final class Network {
 
@@ -22,6 +22,7 @@ public final class Network {
             r.playToServer(PacketRequestReroll.TYPE, PacketRequestReroll.STREAM_CODEC,
                     (msg, ctx) -> handleRerollServer(msg, ctx));
 
+            // Trade lock feature
             r.playToServer(PacketTradeLocksQuery.TYPE, PacketTradeLocksQuery.STREAM_CODEC,
                     (msg, ctx) -> handleTradeLocksQueryServer(msg, ctx));
             r.playToServer(PacketToggleTradeLock.TYPE, PacketToggleTradeLock.STREAM_CODEC,
@@ -32,6 +33,7 @@ public final class Network {
             r.playToClient(PacketSyncConfig.TYPE, PacketSyncConfig.STREAM_CODEC,
                     (msg, ctx) -> handleSyncConfigClient(msg, ctx));
 
+            // Trade lock feature
             r.playToClient(PacketTradeLocks.TYPE, PacketTradeLocks.STREAM_CODEC,
                     (msg, ctx) -> handleTradeLocksClient(msg, ctx));
 
@@ -63,7 +65,7 @@ public final class Network {
         ctx.enqueueWork(() -> {
             try {
                 var player = ctx.player();
-                if (!(player instanceof ServerPlayer sp)) return;
+                if (!(player instanceof net.minecraft.server.level.ServerPlayer sp)) return;
 
                 var data = org.z2six.ezvillagerreroll.server.TooltipService
                         .computeSnapshot(sp, msg.traderEntityId());
@@ -78,11 +80,10 @@ public final class Network {
     private static void handleTradeLocksQueryServer(PacketTradeLocksQuery msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             try {
-                var player = ctx.player();
-                if (!(player instanceof ServerPlayer sp)) return;
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
 
-                var data = org.z2six.ezvillagerreroll.server.TradeLockService.computeSnapshot(sp, msg.traderEntityId());
-                ctx.reply(data);
+                // compute based on CURRENT open merchant menu
+                ctx.reply(TradeLockService.computeSnapshot(sp));
 
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] TradeLocksQuery handler error", t);
@@ -93,7 +94,7 @@ public final class Network {
     private static void handleToggleTradeLockServer(PacketToggleTradeLock msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             try {
-                org.z2six.ezvillagerreroll.network.ServerHandlers.handleToggleTradeLock(msg, ctx);
+                ServerHandlers.handleToggleTradeLock(msg, ctx);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] ToggleTradeLock handler error", t);
             }
@@ -123,8 +124,6 @@ public final class Network {
     private static void handleTradeLocksClient(PacketTradeLocks msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             try {
-                // INFO so you can see it without enabling debug logging
-                EZVillagerReroll.LOG().info("[EZVR] Client received PacketTradeLocks (class={})", msg == null ? "null" : msg.getClass().getName());
                 ClientTradeLockCache.set(msg);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] TradeLocks client handler error", t);

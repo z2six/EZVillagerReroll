@@ -7,34 +7,23 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.z2six.ezvillagerreroll.Constants;
 
-public final class PacketTradeLocks implements CustomPacketPayload {
+public record PacketTradeLocks(int containerId, long mask) implements CustomPacketPayload {
 
     public static final Type<PacketTradeLocks> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "trade_locks"));
 
-    public int traderEntityId;
-    public long mask;
-
-    public PacketTradeLocks() {}
-
-    public PacketTradeLocks(int traderEntityId, long mask) {
-        this.traderEntityId = traderEntityId;
-        this.mask = mask;
-    }
-
     public static final StreamCodec<FriendlyByteBuf, PacketTradeLocks> STREAM_CODEC = new StreamCodec<>() {
         @Override
         public PacketTradeLocks decode(FriendlyByteBuf buf) {
-            PacketTradeLocks p = new PacketTradeLocks();
-            p.traderEntityId = buf.readVarInt();
-            p.mask = buf.readLong();
-            return p;
+            int cid = buf.readVarInt();
+            long mask = buf.readLong();
+            return new PacketTradeLocks(cid, mask);
         }
 
         @Override
-        public void encode(FriendlyByteBuf buf, PacketTradeLocks p) {
-            buf.writeVarInt(p.traderEntityId);
-            buf.writeLong(p.mask);
+        public void encode(FriendlyByteBuf buf, PacketTradeLocks msg) {
+            buf.writeVarInt(msg.containerId());
+            buf.writeLong(msg.mask());
         }
     };
 
