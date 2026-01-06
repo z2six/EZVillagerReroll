@@ -1,40 +1,39 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/network/Network.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/Network.java
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
-import net.neoforged.fml.common.EventBusSubscriber;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 
-@EventBusSubscriber(modid = EZVillagerReroll.MODID)
 public final class Network {
 
     private Network() {}
 
-    public static void init() {
-        // Intentionally empty. Payload registration is handled by the RegisterPayloadHandlersEvent listener.
-    }
+    /**
+     * MOD BUS hook:
+     * RegisterPayloadHandlersEvent is an IModBusEvent and MUST be handled on the MOD event bus.
+     */
+    public static void onRegisterPayloadHandlers(final RegisterPayloadHandlersEvent e) {
+        try {
+            var r = e.registrar("ezvillagerreroll");
 
-    @net.neoforged.bus.api.SubscribeEvent
-    public static void register(final RegisterPayloadHandlersEvent e) {
-        var r = e.registrar(EZVillagerReroll.MODID);
+            r.playToServer(PacketTooltipQuery.TYPE, PacketTooltipQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleTooltipQueryServer(msg, ctx));
+            r.playToServer(PacketRequestReroll.TYPE, PacketRequestReroll.STREAM_CODEC,
+                    (msg, ctx) -> handleRerollServer(msg, ctx));
 
-        // Client -> Server
-        r.playToServer(PacketTooltipQuery.TYPE, PacketTooltipQuery.STREAM_CODEC,
-                (msg, ctx) -> handleTooltipQueryServer(msg, ctx));
-        r.playToServer(PacketRequestReroll.TYPE, PacketRequestReroll.STREAM_CODEC,
-                (msg, ctx) -> handleRerollServer(msg, ctx));
+            r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
+                    (msg, ctx) -> handleTooltipDataClient(msg, ctx));
+            r.playToClient(PacketSyncConfig.TYPE, PacketSyncConfig.STREAM_CODEC,
+                    (msg, ctx) -> handleSyncConfigClient(msg, ctx));
 
-        // Server -> Client
-        r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
-                (msg, ctx) -> handleTooltipDataClient(msg, ctx));
-        r.playToClient(PacketSyncConfig.TYPE, PacketSyncConfig.STREAM_CODEC,
-                (msg, ctx) -> handleSyncConfigClient(msg, ctx));
-
-        EZVillagerReroll.LOG().info("[EZVR] Network payloads registered.");
+            EZVillagerReroll.LOG().info("[EZVR] Network payloads registered.");
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Network payload registration failed.", t);
+        }
     }
 
     public static void sendToServer(CustomPacketPayload payload) {
@@ -59,7 +58,9 @@ public final class Network {
                 var player = ctx.player();
                 if (!(player instanceof net.minecraft.server.level.ServerPlayer sp)) return;
 
-                PacketTooltipData data = org.z2six.ezvillagerreroll.server.TooltipService.computeSnapshot(sp, msg.traderEntityId());
+                var data = org.z2six.ezvillagerreroll.server.TooltipService
+                        .computeSnapshot(sp, msg.traderEntityId());
+
                 ctx.reply(data);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] TooltipQuery handler error", t);
@@ -90,7 +91,7 @@ public final class Network {
     private static void handleSyncConfigClient(PacketSyncConfig msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             try {
-                ClientSyncedConfig.setFrom(msg);
+                ClientSyncedConfig.applyFromServer(msg);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] SyncConfig client handler error", t);
             }

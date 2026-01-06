@@ -1,4 +1,4 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/network/ClientSyncedConfig.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/ClientSyncedConfig.java
 package org.z2six.ezvillagerreroll.network;
 
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
@@ -34,6 +34,7 @@ public final class ClientSyncedConfig {
 
     private static volatile Snapshot last;
 
+    // Your existing method name:
     public static void setFrom(PacketSyncConfig msg) {
         try {
             Snapshot s = new Snapshot();
@@ -56,6 +57,11 @@ public final class ClientSyncedConfig {
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Failed to apply synced config on client", t);
         }
+    }
+
+    // Network.java calls applyFromServer(...) in your pasted code -> provide it:
+    public static void applyFromServer(PacketSyncConfig msg) {
+        setFrom(msg);
     }
 
     public static Snapshot get() {

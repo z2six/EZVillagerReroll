@@ -1,16 +1,16 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/network/PacketRequestReroll.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/PacketRequestReroll.java
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.Constants;
 
 public record PacketRequestReroll() implements CustomPacketPayload {
 
     public static final Type<PacketRequestReroll> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath(EZVillagerReroll.MODID, "req_reroll"));
+            new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "req_reroll"));
 
     public static final StreamCodec<FriendlyByteBuf, PacketRequestReroll> STREAM_CODEC =
             StreamCodec.unit(new PacketRequestReroll());

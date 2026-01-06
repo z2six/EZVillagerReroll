@@ -1,16 +1,16 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/network/PacketSyncConfig.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/PacketSyncConfig.java
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.Constants;
 
 public final class PacketSyncConfig implements CustomPacketPayload {
 
     public static final Type<PacketSyncConfig> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath(EZVillagerReroll.MODID, "sync_config"));
+            new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "sync_config"));
 
     public int version;
     public int hash;
@@ -40,6 +40,14 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.preferWallet = buf.readBoolean();
             p.cooldownTicks = buf.readVarInt();
             p.perVillagerDaily = buf.readVarInt();
+
+            // RESERVED slot (v1 wrote this, so we must read it to stay aligned)
+            // If older packets did not include it, decode would have failed anyway,
+            // so keeping it here is safest for your current state.
+            try {
+                buf.readVarInt();
+            } catch (Throwable ignored) {}
+
             p.allowAfterTradeUsed = buf.readBoolean();
             return p;
         }
@@ -57,7 +65,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeBoolean(p.preferWallet);
             buf.writeVarInt(p.cooldownTicks);
             buf.writeVarInt(p.perVillagerDaily);
+
             buf.writeVarInt(0); // RESERVED for future expansion (keeps compatibility if you add fields later)
+
             buf.writeBoolean(p.allowAfterTradeUsed);
         }
     };

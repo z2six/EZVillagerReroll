@@ -1,4 +1,4 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/config/ClientConfig.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/config/ClientConfig.java
 package org.z2six.ezvillagerreroll.config;
 
 import net.neoforged.neoforge.common.ModConfigSpec;

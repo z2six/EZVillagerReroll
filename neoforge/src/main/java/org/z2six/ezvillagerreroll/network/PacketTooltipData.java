@@ -1,16 +1,16 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/network/PacketTooltipData.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/PacketTooltipData.java
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.Constants;
 
 public final class PacketTooltipData implements CustomPacketPayload {
 
     public static final Type<PacketTooltipData> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath(EZVillagerReroll.MODID, "tooltip_data"));
+            new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "tooltip_data"));
 
     public static final class Cost {
         public ResourceLocation item;     // null if tag or invalid

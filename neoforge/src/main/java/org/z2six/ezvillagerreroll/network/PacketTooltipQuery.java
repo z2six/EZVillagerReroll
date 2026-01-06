@@ -1,4 +1,4 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/network/PacketTooltipQuery.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/PacketTooltipQuery.java
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.network.FriendlyByteBuf;
@@ -6,12 +6,12 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.Constants;
 
 public record PacketTooltipQuery(int traderEntityId) implements CustomPacketPayload {
 
     public static final Type<PacketTooltipQuery> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath(EZVillagerReroll.MODID, "tooltip_query"));
+            new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "tooltip_query"));
 
     public static final StreamCodec<FriendlyByteBuf, PacketTooltipQuery> STREAM_CODEC =
             StreamCodec.composite(
