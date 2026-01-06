@@ -50,7 +50,7 @@ public final class TradeLockState {
     }
 
     /**
-     * Clears bits >= size (or if size <= 0, clears all).
+     * Clears bits larger than size (or if size smaller than 0, clears all).
      */
     public static long sanitizeMaskForSize(long mask, int size) {
         if (size <= 0) return 0L;
