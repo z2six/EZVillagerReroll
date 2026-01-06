@@ -2,15 +2,15 @@
   "required": true,
   "minVersion": "0.8",
   "package": "org.z2six.ezvillagerreroll.mixin",
-  "compatibilityLevel": "JAVA_21",
-  "mixins": [],
-  "client": [
-    "MixinTitleScreen",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
     "AbstractVillagerAccessor",
     "MerchantMenuAccessor",
     "VillagerAccessor"
   ],
-  "server": [],
+  "client": [
+    "MixinTitleScreen"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

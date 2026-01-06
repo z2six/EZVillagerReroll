@@ -62,7 +62,20 @@ public final class ServerConfig {
                     """).defineListAllowEmpty(
                     List.of("cost.levelCosts"),
                     () -> List.of(0, 16, 52, 64, 96),
-                    o -> o instanceof Integer i && i >= 0 && i <= 640
+                    o -> {
+                        // NOTE:
+                        // TOML configs commonly deserialize numerics as Long/Number, not strictly Integer.
+                        // If we require Integer here, NeoForge treats the config as invalid, writes a .bak,
+                        // and regenerates defaults (your exact symptom).
+                        try {
+                            if (!(o instanceof Number n)) return false;
+                            long v = n.longValue();
+                            return v >= 0 && v <= 640;
+                        } catch (Throwable t) {
+                            EZVillagerReroll.LOG().debug("[EZVR] LEVEL_COSTS validator exception for entry='{}': {}", o, t.toString());
+                            return false;
+                        }
+                    }
             );
 
     public static final ModConfigSpec.IntValue COOLDOWN_TICKS =
@@ -79,7 +92,6 @@ public final class ServerConfig {
 
     public static final ModConfigSpec SPEC = B.build();
 
-    // ---- Runtime mirrors (server-authoritative) ----
     public static String costSpec = "minecraft:emerald";
     public static boolean preferWallet = true;
     public static boolean autoPreferLCIfPresent = true;
@@ -88,10 +100,8 @@ public final class ServerConfig {
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
 
-    // length 5 for villager levels 1..5
     private static int[] levelCosts = new int[]{0, 16, 52, 64, 96};
 
-    // Used by tooltip + client sync
     private static volatile int cfgVersion = 1;
     private static volatile int cfgHash = 0;
 
@@ -163,6 +173,7 @@ public final class ServerConfig {
             }
             return h;
         } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] computeHash failed: {}", t.toString());
             return 0;
         }
     }
@@ -172,9 +183,19 @@ public final class ServerConfig {
         try {
             if (raw == null || raw.isEmpty()) return out;
 
+            // Be defensive: some backends may return odd list impls; accept Number and coerce.
             List<Integer> cleaned = new ArrayList<>();
             for (Object o : raw) {
-                if (o instanceof Integer i) cleaned.add(Math.max(0, i));
+                if (o instanceof Number n) {
+                    long v = n.longValue();
+                    if (v < 0) v = 0;
+                    if (v > Integer.MAX_VALUE) v = Integer.MAX_VALUE;
+                    cleaned.add((int) v);
+                } else if (o instanceof Integer i) {
+                    cleaned.add(Math.max(0, i));
+                } else {
+                    EZVillagerReroll.LOG().debug("[EZVR] parseLevelCosts skipping non-number entry: {}", o == null ? "null" : o.getClass().getName());
+                }
             }
 
             for (int i = 0; i < 5; i++) {
