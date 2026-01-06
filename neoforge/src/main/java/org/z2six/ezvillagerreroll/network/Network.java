@@ -2,8 +2,10 @@
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
@@ -12,10 +14,6 @@ public final class Network {
 
     private Network() {}
 
-    /**
-     * MOD BUS hook:
-     * RegisterPayloadHandlersEvent is an IModBusEvent and MUST be handled on the MOD event bus.
-     */
     public static void onRegisterPayloadHandlers(final RegisterPayloadHandlersEvent e) {
         try {
             var r = e.registrar("ezvillagerreroll");
@@ -25,10 +23,20 @@ public final class Network {
             r.playToServer(PacketRequestReroll.TYPE, PacketRequestReroll.STREAM_CODEC,
                     (msg, ctx) -> handleRerollServer(msg, ctx));
 
+            // Trade lock feature
+            r.playToServer(PacketTradeLocksQuery.TYPE, PacketTradeLocksQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleTradeLocksQueryServer(msg, ctx));
+            r.playToServer(PacketToggleTradeLock.TYPE, PacketToggleTradeLock.STREAM_CODEC,
+                    (msg, ctx) -> handleToggleTradeLockServer(msg, ctx));
+
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> handleTooltipDataClient(msg, ctx));
             r.playToClient(PacketSyncConfig.TYPE, PacketSyncConfig.STREAM_CODEC,
                     (msg, ctx) -> handleSyncConfigClient(msg, ctx));
+
+            // Trade lock feature
+            r.playToClient(PacketTradeLocks.TYPE, PacketTradeLocks.STREAM_CODEC,
+                    (msg, ctx) -> handleTradeLocksClient(msg, ctx));
 
             EZVillagerReroll.LOG().info("[EZVR] Network payloads registered.");
         } catch (Throwable t) {
@@ -51,6 +59,8 @@ public final class Network {
 
     public static void sendToServer(PacketRequestReroll msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketTooltipQuery msg)  { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketTradeLocksQuery msg) { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketToggleTradeLock msg) { sendToServer((CustomPacketPayload) msg); }
 
     private static void handleTooltipQueryServer(PacketTooltipQuery msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
@@ -64,6 +74,31 @@ public final class Network {
                 ctx.reply(data);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] TooltipQuery handler error", t);
+            }
+        });
+    }
+
+    private static void handleTradeLocksQueryServer(PacketTradeLocksQuery msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                var player = ctx.player();
+                if (!(player instanceof ServerPlayer sp)) return;
+
+                var data = org.z2six.ezvillagerreroll.server.TradeLockService.computeSnapshot(sp, msg.traderEntityId());
+                ctx.reply(data);
+
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] TradeLocksQuery handler error", t);
+            }
+        });
+    }
+
+    private static void handleToggleTradeLockServer(PacketToggleTradeLock msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                org.z2six.ezvillagerreroll.network.ServerHandlers.handleToggleTradeLock(msg, ctx);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] ToggleTradeLock handler error", t);
             }
         });
     }
@@ -84,6 +119,16 @@ public final class Network {
                 ClientTooltipCache.set(msg);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] TooltipData client handler error", t);
+            }
+        });
+    }
+
+    private static void handleTradeLocksClient(PacketTradeLocks msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ClientTradeLockCache.set(msg);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] TradeLocks client handler error", t);
             }
         });
     }

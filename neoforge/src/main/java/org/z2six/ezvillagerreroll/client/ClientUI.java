@@ -1,12 +1,13 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/client/ClientUI.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/ClientUI.java
 package org.z2six.ezvillagerreroll.client;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
-import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
@@ -19,12 +20,16 @@ import org.z2six.ezvillagerreroll.config.ClientConfig;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 import org.z2six.ezvillagerreroll.network.ClientSyncedConfig;
 import org.z2six.ezvillagerreroll.network.ClientTooltipCache;
+import org.z2six.ezvillagerreroll.network.ClientTradeLockCache;
 import org.z2six.ezvillagerreroll.network.Network;
 import org.z2six.ezvillagerreroll.network.PacketRequestReroll;
+import org.z2six.ezvillagerreroll.network.PacketToggleTradeLock;
 import org.z2six.ezvillagerreroll.network.PacketTooltipData;
 import org.z2six.ezvillagerreroll.network.PacketTooltipQuery;
+import org.z2six.ezvillagerreroll.network.PacketTradeLocksQuery;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -38,6 +43,7 @@ public final class ClientUI {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenInitPost);
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenRenderPost);
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenClosed);
+        NeoForge.EVENT_BUS.addListener(ClientUI::onMouseClickedPre);
         EZVillagerReroll.LOG().info("[EZVR] ClientUI.registerRuntimeClientEvents(): handlers added");
     }
 
@@ -45,9 +51,7 @@ public final class ClientUI {
         try {
             if (!(e.getScreen() instanceof MerchantScreen screen)) return;
 
-            // bake client config lazily (in case user changes without restart)
             ClientConfig.bake();
-
             int left = (screen.width - 276) / 2;
             int top = (screen.height - 166) / 2;
 
@@ -84,6 +88,9 @@ public final class ClientUI {
                     x, y, baseX, baseY, ClientConfig.buttonOffsetX, ClientConfig.buttonOffsetY
             );
 
+            // Request initial lock state for this villager so indicators show immediately
+            trySendTradeLocksQuery(screen);
+
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] onScreenInitPost exception", t);
         }
@@ -92,6 +99,11 @@ public final class ClientUI {
     private static void onScreenRenderPost(final ScreenEvent.Render.Post e) {
         try {
             if (!(e.getScreen() instanceof MerchantScreen screen)) return;
+
+            // Render trade lock markers (subtle)
+            renderTradeLockIndicators(e, screen);
+
+            // Existing reroll button tooltip rendering
             Button btn = REROLL_BUTTONS.get(screen);
             if (btn == null) return;
 
@@ -102,7 +114,6 @@ public final class ClientUI {
 
                 List<Component> lines = buildTooltipLines(ClientTooltipCache.get());
                 if (lines.isEmpty()) {
-                    // If we haven't received anything yet, show sync state
                     ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
                     if (cfg != null) {
                         lines = List.of(Component.literal("Syncing… (cfg v" + cfg.version + ")"));
@@ -123,8 +134,168 @@ public final class ClientUI {
     private static void onScreenClosed(final ScreenEvent.Closing e) {
         try {
             REROLL_BUTTONS.remove(e.getScreen());
+
+            if (e.getScreen() instanceof MerchantScreen ms) {
+                int traderId = resolveTraderEntityId(ms);
+                if (traderId >= 0) {
+                    ClientTradeLockCache.clear(traderId);
+                    EZVillagerReroll.LOG().debug("[EZVR] Cleared ClientTradeLockCache for traderId={}", traderId);
+                }
+            }
+
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] onScreenClosed exception", t);
+        }
+    }
+
+    /**
+     * RMB on a trade button toggles lock.
+     */
+    private static void onMouseClickedPre(final ScreenEvent.MouseButtonPressed.Pre e) {
+        try {
+            if (!(e.getScreen() instanceof MerchantScreen screen)) return;
+
+            // Button: 1 = right click
+            if (e.getButton() != 1) return;
+
+            int traderId = resolveTraderEntityId(screen);
+            if (traderId < 0) {
+                EZVillagerReroll.LOG().debug("[EZVR] RMB trade lock ignored: could not resolve trader entity id");
+                return;
+            }
+
+            List<AbstractWidget> tradeButtons = findTradeOfferButtons(screen);
+            if (tradeButtons.isEmpty()) return;
+
+            double mx = e.getMouseX();
+            double my = e.getMouseY();
+
+            int hoveredIndex = -1;
+            for (int i = 0; i < tradeButtons.size(); i++) {
+                AbstractWidget w = tradeButtons.get(i);
+                if (w == null || !w.visible) continue;
+                if (w.isMouseOver(mx, my)) {
+                    hoveredIndex = i;
+                    break;
+                }
+            }
+
+            if (hoveredIndex < 0) return;
+
+            Network.sendToServer(new PacketToggleTradeLock(traderId, hoveredIndex));
+            EZVillagerReroll.LOG().debug("[EZVR] RMB trade lock toggle: traderId={} index={} -> sent PacketToggleTradeLock",
+                    traderId, hoveredIndex);
+
+            e.setCanceled(true);
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] onMouseClickedPre exception", t);
+        }
+    }
+
+    private static void renderTradeLockIndicators(ScreenEvent.Render.Post e, MerchantScreen screen) {
+        try {
+            int traderId = resolveTraderEntityId(screen);
+            if (traderId < 0) return;
+
+            long mask = ClientTradeLockCache.getMask(traderId);
+            if (mask == 0L) return;
+
+            List<AbstractWidget> tradeButtons = findTradeOfferButtons(screen);
+            if (tradeButtons.isEmpty()) return;
+
+            GuiGraphics gg = e.getGuiGraphics();
+
+            final int outlineColor = 0xFF66FF66;
+            final int markerFill = 0xAA66FF66;
+
+            for (int i = 0; i < tradeButtons.size(); i++) {
+                if ((mask & (1L << i)) == 0L) continue;
+
+                AbstractWidget w = tradeButtons.get(i);
+                if (w == null || !w.visible) continue;
+
+                int x = w.getX();
+                int y = w.getY();
+                int ww = w.getWidth();
+                int hh = w.getHeight();
+
+                try {
+                    gg.renderOutline(x, y, ww, hh, outlineColor);
+                } catch (Throwable t) {
+                    gg.fill(x, y, x + ww, y + 1, outlineColor);
+                    gg.fill(x, y + hh - 1, x + ww, y + hh, outlineColor);
+                    gg.fill(x, y, x + 1, y + hh, outlineColor);
+                    gg.fill(x + ww - 1, y, x + ww, y + hh, outlineColor);
+                }
+
+                int mSize = 6;
+                int mx = x - (mSize + 2);
+                int my = y + (hh - mSize) / 2;
+
+                gg.fill(mx, my, mx + mSize, my + mSize, markerFill);
+                try {
+                    gg.renderOutline(mx, my, mSize, mSize, outlineColor);
+                } catch (Throwable t) {
+                    gg.fill(mx, my, mx + mSize, my + 1, outlineColor);
+                    gg.fill(mx, my + mSize - 1, mx + mSize, my + mSize, outlineColor);
+                    gg.fill(mx, my, mx + 1, my + mSize, outlineColor);
+                    gg.fill(mx + mSize - 1, my, mx + mSize, my + mSize, outlineColor);
+                }
+            }
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] renderTradeLockIndicators exception", t);
+        }
+    }
+
+    /**
+     * Finds the trade offer buttons without any mixin:
+     * - Iterate screen children and collect AbstractWidget instances
+     * - Keep only those whose runtime class name contains "TradeOfferButton"
+     * - Sort by (y, x) for stable index mapping (top-to-bottom)
+     *
+     * This avoids referencing MerchantScreen.TradeOfferButton (package-private) at compile time.
+     */
+    private static List<AbstractWidget> findTradeOfferButtons(MerchantScreen screen) {
+        List<AbstractWidget> out = new ArrayList<>();
+        try {
+            for (GuiEventListener child : screen.children()) {
+                if (!(child instanceof AbstractWidget w)) continue;
+
+                String cn = w.getClass().getName();
+                if (cn == null) continue;
+
+                if (cn.contains("MerchantScreen") && cn.contains("TradeOfferButton")) {
+                    out.add(w);
+                }
+            }
+
+            out.sort(Comparator
+                    .comparingInt(AbstractWidget::getY)
+                    .thenComparingInt(AbstractWidget::getX));
+
+            // Debug (kept low-noise)
+            if (!out.isEmpty()) {
+                EZVillagerReroll.LOG().debug("[EZVR] Found {} trade offer button(s) via child scan.", out.size());
+            }
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] findTradeOfferButtons failed", t);
+        }
+        return out;
+    }
+
+    private static int resolveTraderEntityId(MerchantScreen screen) {
+        try {
+            if (!(screen.getMenu() instanceof MerchantMenu menu)) return -1;
+
+            var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+            if (trader instanceof Entity ent) return ent.getId();
+            if (trader instanceof AbstractVillager av) return av.getId();
+            return -1;
+        } catch (Throwable t) {
+            return -1;
         }
     }
 
@@ -146,6 +317,19 @@ public final class ClientUI {
         }
     }
 
+    private static void trySendTradeLocksQuery(MerchantScreen screen) {
+        try {
+            int traderId = resolveTraderEntityId(screen);
+            if (traderId < 0) return;
+
+            Network.sendToServer(new PacketTradeLocksQuery(traderId));
+            EZVillagerReroll.LOG().debug("[EZVR] Sent trade locks query for traderId={}", traderId);
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Client send trade locks query failed", t);
+        }
+    }
+
     private static List<Component> buildTooltipLines(PacketTooltipData d) {
         List<Component> lines = new ArrayList<>();
         if (d == null) return lines;
@@ -157,12 +341,11 @@ public final class ClientUI {
         } else {
             String itemName = "Unknown Item";
             try {
-                ResourceLocation id = d.cost.item;
-                if (id != null) {
-                    var item = BuiltInRegistries.ITEM.get(id);
+                if (d.cost.itemOrTag != null && d.cost.itemOrTag.startsWith("#")) {
+                    itemName = d.cost.itemOrTag;
+                } else if (d.cost.item != null) {
+                    var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(d.cost.item);
                     if (item != null) itemName = new net.minecraft.world.item.ItemStack(item).getHoverName().getString();
-                } else if (d.cost.itemOrTag != null && d.cost.itemOrTag.startsWith("#")) {
-                    itemName = d.cost.itemOrTag; // tag literal
                 }
             } catch (Throwable ignored) {}
 
@@ -191,7 +374,6 @@ public final class ClientUI {
             }
         }
 
-        // Optional: show server cfg version/hash for debugging packs
         if (d.cfg.version > 0) {
             lines.add(Component.literal("Config: v" + d.cfg.version + " (hash " + d.cfg.hash + ")"));
         }

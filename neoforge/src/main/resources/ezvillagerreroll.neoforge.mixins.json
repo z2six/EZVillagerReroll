@@ -9,7 +9,8 @@
     "VillagerAccessor"
   ],
   "client": [
-    "MixinTitleScreen"
+    "MixinTitleScreen",
+    "MerchantScreenTradeLockRightClickMixin"
   ],
   "injectors": {
     "defaultRequire": 1
