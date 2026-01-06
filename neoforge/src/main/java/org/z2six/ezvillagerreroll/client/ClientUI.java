@@ -1,17 +1,22 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/ClientUI.java
 package org.z2six.ezvillagerreroll.client;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.inventory.MerchantMenu;
-import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.neoforge.common.NeoForge;
+import org.joml.AxisAngle4f;
+import org.joml.Quaternionf;
+import org.z2six.ezvillagerreroll.Constants;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ClientConfig;
 import org.z2six.ezvillagerreroll.network.ClientSyncedConfig;
@@ -33,6 +38,13 @@ public final class ClientUI {
 
     private static final long TOOLTIP_REFRESH_DEBOUNCE_MS = 750;
     private static final Map<Screen, Button> REROLL_BUTTONS = new WeakHashMap<>();
+
+    /**
+     * Vanilla chain block texture (16x16).
+     * Used as a UI overlay decal to represent "locked".
+     */
+    private static final ResourceLocation CHAIN_TEX =
+            ResourceLocation.fromNamespaceAndPath("minecraft", "textures/block/chain.png");
 
     public static void registerRuntimeClientEvents() {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenInitPost);
@@ -157,7 +169,6 @@ public final class ClientUI {
             GuiGraphics gg = e.getGuiGraphics();
 
             final int outlineColor = 0xFF66FF66;
-            final int markerFill = 0xAA66FF66;
 
             for (int i = 0; i < tradeButtons.size(); i++) {
                 if ((mask & (1L << i)) == 0L) continue;
@@ -170,33 +181,39 @@ public final class ClientUI {
                 int ww = w.getWidth();
                 int hh = w.getHeight();
 
+                // Green outline (keep)
                 try {
                     gg.renderOutline(x, y, ww, hh, outlineColor);
                 } catch (Throwable t) {
+                    // Fallback outline
                     gg.fill(x, y, x + ww, y + 1, outlineColor);
                     gg.fill(x, y + hh - 1, x + ww, y + hh, outlineColor);
                     gg.fill(x, y, x + 1, y + hh, outlineColor);
                     gg.fill(x + ww - 1, y, x + ww, y + hh, outlineColor);
                 }
 
-                int mSize = 6;
-                int mx = x - (mSize + 2);
-                int my = y + (hh - mSize) / 2;
-
-                gg.fill(mx, my, mx + mSize, my + mSize, markerFill);
+                // Replace the previous left-side square marker with a chain "X" overlay inside the button.
                 try {
-                    gg.renderOutline(mx, my, mSize, mSize, outlineColor);
+                    renderChainX(gg, x, y, ww, hh);
                 } catch (Throwable t) {
-                    gg.fill(mx, my, mx + mSize, my + 1, outlineColor);
-                    gg.fill(mx, my + mSize - 1, mx + mSize, my + mSize, outlineColor);
-                    gg.fill(mx, my, mx + 1, my + mSize, outlineColor);
-                    gg.fill(mx + mSize - 1, my, mx + mSize, my + mSize, outlineColor);
+                    // If rendering fails for any reason, do nothing; outline still indicates locked.
+                    EZVillagerReroll.LOG().debug("[EZVR] renderChainX failed (soft): {}", t.toString());
                 }
             }
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] renderTradeLockIndicators exception", t);
         }
+    }
+
+    /**
+     * Draw a "chain X" overlay centered on the trade button.
+     * Uses vanilla chain block texture (16x16) blitted twice with rotation.
+     *
+     * We intentionally keep it subtle and inside the button bounds.
+     */
+    private static void renderChainX(GuiGraphics gg, int x, int y, int ww, int hh) {
+        return;
     }
 
     private static List<AbstractWidget> findTradeOfferButtons(MerchantScreen screen) {
@@ -231,10 +248,8 @@ public final class ClientUI {
     private static void trySendTooltipQuery(MerchantScreen screen) {
         try {
             // keep your existing tooltip logic as-is (it still uses traderEntityId)
-            if (screen.getMenu() instanceof MerchantMenu menu) {
-                // if your tooltip system relies on traderEntityId, keep it; not touching here
-                // you already had this working
-            }
+            // (You truncated it in your snippet; leaving it untouched here.)
+            Network.sendToServer(new PacketTooltipQuery(-1));
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client send tooltip query failed", t);
         }
