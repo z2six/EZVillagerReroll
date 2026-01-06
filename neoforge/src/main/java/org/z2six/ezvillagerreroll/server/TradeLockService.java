@@ -13,6 +13,11 @@ public final class TradeLockService {
     public static PacketTradeLocks computeSnapshot(ServerPlayer player, int traderEntityId) {
         PacketTradeLocks out = new PacketTradeLocks(traderEntityId, 0L);
         try {
+            if (player == null) {
+                EZVillagerReroll.LOG().warn("[EZVR] TradeLockService snapshot: player is null; returning empty");
+                return out;
+            }
+
             Villager vill = null;
 
             if (traderEntityId >= 0) {
@@ -32,11 +37,16 @@ public final class TradeLockService {
             long sanitized = TradeLockState.sanitizeMaskForSize(mask, size);
             if (sanitized != mask) {
                 TradeLockState.setMask(vill, sanitized);
+                EZVillagerReroll.LOG().debug("[EZVR] TradeLockService snapshot: sanitized mask (villager={} size={} before={} after={})",
+                        vill.getUUID(), size, Long.toUnsignedString(mask), Long.toUnsignedString(sanitized));
                 mask = sanitized;
             }
 
             out.traderEntityId = traderEntityId;
-            out.lockedMask = mask;
+            out.mask = mask;
+
+            EZVillagerReroll.LOG().debug("[EZVR] TradeLockService snapshot: traderEntityId={} mask={}",
+                    traderEntityId, Long.toUnsignedString(mask));
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] TradeLockService.computeSnapshot failed", t);

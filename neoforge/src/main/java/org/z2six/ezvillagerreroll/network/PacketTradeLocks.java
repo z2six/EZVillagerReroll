@@ -13,13 +13,13 @@ public final class PacketTradeLocks implements CustomPacketPayload {
             new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "trade_locks"));
 
     public int traderEntityId;
-    public long lockedMask;
+    public long mask;
 
     public PacketTradeLocks() {}
 
-    public PacketTradeLocks(int traderEntityId, long lockedMask) {
+    public PacketTradeLocks(int traderEntityId, long mask) {
         this.traderEntityId = traderEntityId;
-        this.lockedMask = lockedMask;
+        this.mask = mask;
     }
 
     public static final StreamCodec<FriendlyByteBuf, PacketTradeLocks> STREAM_CODEC = new StreamCodec<>() {
@@ -27,17 +27,19 @@ public final class PacketTradeLocks implements CustomPacketPayload {
         public PacketTradeLocks decode(FriendlyByteBuf buf) {
             PacketTradeLocks p = new PacketTradeLocks();
             p.traderEntityId = buf.readVarInt();
-            p.lockedMask = buf.readLong();
+            p.mask = buf.readLong();
             return p;
         }
 
         @Override
         public void encode(FriendlyByteBuf buf, PacketTradeLocks p) {
             buf.writeVarInt(p.traderEntityId);
-            buf.writeLong(p.lockedMask);
+            buf.writeLong(p.mask);
         }
     };
 
     @Override
-    public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
 }

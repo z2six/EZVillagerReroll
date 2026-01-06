@@ -2,7 +2,6 @@
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerPlayer;
@@ -23,7 +22,6 @@ public final class Network {
             r.playToServer(PacketRequestReroll.TYPE, PacketRequestReroll.STREAM_CODEC,
                     (msg, ctx) -> handleRerollServer(msg, ctx));
 
-            // Trade lock feature
             r.playToServer(PacketTradeLocksQuery.TYPE, PacketTradeLocksQuery.STREAM_CODEC,
                     (msg, ctx) -> handleTradeLocksQueryServer(msg, ctx));
             r.playToServer(PacketToggleTradeLock.TYPE, PacketToggleTradeLock.STREAM_CODEC,
@@ -34,7 +32,6 @@ public final class Network {
             r.playToClient(PacketSyncConfig.TYPE, PacketSyncConfig.STREAM_CODEC,
                     (msg, ctx) -> handleSyncConfigClient(msg, ctx));
 
-            // Trade lock feature
             r.playToClient(PacketTradeLocks.TYPE, PacketTradeLocks.STREAM_CODEC,
                     (msg, ctx) -> handleTradeLocksClient(msg, ctx));
 
@@ -66,7 +63,7 @@ public final class Network {
         ctx.enqueueWork(() -> {
             try {
                 var player = ctx.player();
-                if (!(player instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+                if (!(player instanceof ServerPlayer sp)) return;
 
                 var data = org.z2six.ezvillagerreroll.server.TooltipService
                         .computeSnapshot(sp, msg.traderEntityId());
@@ -126,6 +123,8 @@ public final class Network {
     private static void handleTradeLocksClient(PacketTradeLocks msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             try {
+                // INFO so you can see it without enabling debug logging
+                EZVillagerReroll.LOG().info("[EZVR] Client received PacketTradeLocks (class={})", msg == null ? "null" : msg.getClass().getName());
                 ClientTradeLockCache.set(msg);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] TradeLocks client handler error", t);

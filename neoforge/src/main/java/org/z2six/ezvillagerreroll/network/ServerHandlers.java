@@ -2,7 +2,6 @@
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -10,7 +9,6 @@ import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.logic.RerollExecutor;
 import org.z2six.ezvillagerreroll.logic.TradeLockState;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
-import org.z2six.ezvillagerreroll.server.TradeLockSyncService;
 
 public final class ServerHandlers {
 
@@ -18,81 +16,81 @@ public final class ServerHandlers {
 
     public static void handleReroll(PacketRequestReroll msg, IPayloadContext ctx) {
         try {
-            var p = ctx.player();
-            if (!(p instanceof ServerPlayer sp)) {
-                EZVillagerReroll.LOG().warn("[EZVR] Reroll request without ServerPlayer context");
-                return;
-            }
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
             RerollExecutor.tryReroll(sp);
+
+            // Optional: after reroll, send current lock mask snapshot so client stays correct
+            // (harmless even if unchanged)
+            try {
+                sendCurrentTradeLocksSnapshot(sp, ctx);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] Post-reroll lock snapshot failed (soft): {}", t.toString());
+            }
+
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().error("[EZVR] handleReroll exception", t);
+            EZVillagerReroll.LOG().error("[EZVR] handleReroll failed", t);
         }
     }
 
     public static void handleToggleTradeLock(PacketToggleTradeLock msg, IPayloadContext ctx) {
         try {
-            var p = ctx.player();
-            if (!(p instanceof ServerPlayer sp)) {
-                EZVillagerReroll.LOG().warn("[EZVR] ToggleTradeLock without ServerPlayer context");
-                return;
-            }
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
-            int traderId = msg.traderEntityId();
             int idx = msg.tradeIndex();
-
-            if (idx < 0 || idx >= 63) { // we store in a long bitmask; keep safe
-                EZVillagerReroll.LOG().warn("[EZVR] ToggleTradeLock rejected: invalid index={} (player={})", idx, sp.getGameProfile().getName());
+            if (idx < 0 || idx > 63) {
+                EZVillagerReroll.LOG().warn("[EZVR] ToggleTradeLock: invalid idx={} (player={})", idx, sp.getGameProfile().getName());
                 return;
             }
 
-            Villager vill = null;
-
-            // Prefer resolving through current MerchantMenu (prevents spoofing other villager IDs)
-            if (sp.containerMenu instanceof MerchantMenu menu) {
-                try {
-                    var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-                    if (trader instanceof Villager v) vill = v;
-                    else if (trader instanceof Entity ent && ent instanceof Villager v2) vill = v2;
-                } catch (Throwable ignored) {}
-            }
-
-            // Fallback: resolve from world entity id, but still validate it's a villager
-            if (vill == null && traderId >= 0) {
-                try {
-                    Entity e = sp.level().getEntity(traderId);
-                    if (e instanceof Villager v) vill = v;
-                } catch (Throwable ignored) {}
-            }
-
-            if (vill == null) {
-                EZVillagerReroll.LOG().warn("[EZVR] ToggleTradeLock failed: could not resolve villager (player={}, traderId={})",
-                        sp.getGameProfile().getName(), traderId);
+            if (!(sp.containerMenu instanceof MerchantMenu menu)) {
+                EZVillagerReroll.LOG().debug("[EZVR] ToggleTradeLock ignored: player not in MerchantMenu (player={})", sp.getGameProfile().getName());
                 return;
             }
 
-            // Ensure index is within current offer size (or allow locking empty spots? better: reject)
+            var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+            if (!(trader instanceof Villager vill)) {
+                EZVillagerReroll.LOG().debug("[EZVR] ToggleTradeLock ignored: trader is not Villager (player={}, trader={})",
+                        sp.getGameProfile().getName(), trader == null ? "null" : trader.getClass().getName());
+                return;
+            }
+
+            long next = TradeLockState.toggle(vill, idx);
+
+            // sanitize just in case offers shrunk / changed
             int offerSize = (vill.getOffers() == null) ? 0 : vill.getOffers().size();
-            if (idx >= offerSize) {
-                EZVillagerReroll.LOG().warn("[EZVR] ToggleTradeLock rejected: idx={} >= offers={} (villager={}, player={})",
-                        idx, offerSize, vill.getUUID(), sp.getGameProfile().getName());
-                return;
+            long sanitized = TradeLockState.sanitizeMaskForSize(next, offerSize);
+            if (sanitized != next) {
+                TradeLockState.setMask(vill, sanitized);
+                next = sanitized;
             }
 
-            long before = TradeLockState.getMask(vill);
-            long after = TradeLockState.toggle(vill, idx);
+            EZVillagerReroll.LOG().info("[EZVR] ToggleTradeLock: OK (player={}, villager={}, idx={}, mask={})",
+                    sp.getGameProfile().getName(), vill.getUUID(), idx, Long.toUnsignedString(next));
 
-            EZVillagerReroll.LOG().info("[EZVR] ToggleTradeLock: villager={} idx={} {} -> {} (player={})",
-                    vill.getUUID(), idx,
-                    Long.toUnsignedString(before),
-                    Long.toUnsignedString(after),
-                    sp.getGameProfile().getName()
-            );
-
-            // Sync to all players currently trading with that villager (including this player)
-            TradeLockSyncService.syncToActiveTraders(vill, after);
+            // Reply to the toggling player so the client UI updates immediately
+            try {
+                ctx.reply(new PacketTradeLocks(vill.getId(), next));
+                EZVillagerReroll.LOG().debug("[EZVR] ToggleTradeLock: replied PacketTradeLocks(traderId={}, mask={})",
+                        vill.getId(), Long.toUnsignedString(next));
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().warn("[EZVR] ToggleTradeLock: reply PacketTradeLocks failed (soft): {}", t.toString());
+            }
 
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().error("[EZVR] handleToggleTradeLock exception", t);
+            EZVillagerReroll.LOG().error("[EZVR] handleToggleTradeLock failed", t);
+        }
+    }
+
+    private static void sendCurrentTradeLocksSnapshot(ServerPlayer sp, IPayloadContext ctx) {
+        try {
+            if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
+            var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+            if (!(trader instanceof Villager vill)) return;
+
+            long mask = TradeLockState.getMask(vill);
+            ctx.reply(new PacketTradeLocks(vill.getId(), mask));
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] sendCurrentTradeLocksSnapshot failed: {}", t.toString());
         }
     }
 }

@@ -7,9 +7,6 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.npc.AbstractVillager;
-import net.minecraft.world.inventory.MerchantMenu;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -22,15 +19,6 @@ import org.z2six.ezvillagerreroll.network.PacketToggleTradeLock;
 import java.lang.reflect.Field;
 import java.util.List;
 
-/**
- * RMB on a trade offer toggles lock.
- *
- * We inject into AbstractContainerScreen#mouseClicked because MerchantScreen may not override mouseClicked
- * (so a MerchantScreen-targeted inject can be a silent no-op).
- *
- * We do NOT reference MerchantScreen.TradeOfferButton (package-private).
- * We detect it by runtime class name and read its "index" field reflectively.
- */
 @Mixin(AbstractContainerScreen.class)
 public abstract class MerchantScreenTradeLockRightClickMixin {
 
@@ -46,21 +34,13 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
     )
     private void ezvr$mouseClicked(double mouseX, double mouseY, int button, CallbackInfoReturnable<Boolean> cir) {
         try {
-            // Only RMB
             if (button != 1) return;
 
             Minecraft mc = Minecraft.getInstance();
             Screen current = mc == null ? null : mc.screen;
             if (!(current instanceof MerchantScreen screen)) return;
 
-            // INFO (not debug) so you WILL see it in normal logs
             EZVillagerReroll.LOG().info("[EZVR] RMB on MerchantScreen at ({}, {})", mouseX, mouseY);
-
-            int traderId = ezvr$resolveTraderEntityId(screen);
-            if (traderId < 0) {
-                EZVillagerReroll.LOG().info("[EZVR] RMB MerchantScreen: could not resolve trader entity id.");
-                return;
-            }
 
             int idx = ezvr$findHoveredTradeIndex(screen, mouseX, mouseY);
             if (idx < 0) {
@@ -73,10 +53,9 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
                 return;
             }
 
-            Network.sendToServer(new PacketToggleTradeLock(traderId, idx));
-            EZVillagerReroll.LOG().info("[EZVR] Toggled trade lock: traderId={}, index={}", traderId, idx);
+            Network.sendToServer(new PacketToggleTradeLock(idx));
+            EZVillagerReroll.LOG().info("[EZVR] Sent PacketToggleTradeLock(idx={})", idx);
 
-            // Consume RMB so vanilla doesn't handle it
             cir.setReturnValue(true);
 
         } catch (Throwable t) {
@@ -85,27 +64,11 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
     }
 
     @Unique
-    private static int ezvr$resolveTraderEntityId(MerchantScreen screen) {
-        try {
-            if (!(screen.getMenu() instanceof MerchantMenu menu)) return -1;
-
-            Object trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-            if (trader instanceof Entity ent) return ent.getId();
-            if (trader instanceof AbstractVillager av) return av.getId();
-            return -1;
-        } catch (Throwable t) {
-            return -1;
-        }
-    }
-
-    @Unique
     private static int ezvr$findHoveredTradeIndex(MerchantScreen screen, double mouseX, double mouseY) {
         try {
-            // Primary: screen.children() is the supported API
             int idx = ezvr$scanChildrenForTradeIndex(screen.children(), mouseX, mouseY);
             if (idx >= 0) return idx;
 
-            // Fallback: reflection scan for any list-like fields that may contain widgets/listeners
             idx = ezvr$scanViaReflection(screen, mouseX, mouseY);
             return idx;
 
@@ -129,7 +92,7 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
                 if (!w.isMouseOver(mouseX, mouseY)) continue;
 
                 int index = ezvr$readTradeButtonIndexReflective(w);
-                EZVillagerReroll.LOG().info("[EZVR] Hovered trade widget found via children() -> class={}, index={}", cn, index);
+                EZVillagerReroll.LOG().info("[EZVR] Hovered trade widget via children() -> class={}, index={}", cn, index);
                 return index;
             }
 
@@ -143,8 +106,6 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
     @Unique
     private static int ezvr$scanViaReflection(MerchantScreen screen, double mouseX, double mouseY) {
         try {
-            // Walk the class hierarchy and scan declared fields for List<?> that contains AbstractWidget instances.
-            // This is intentionally defensive: Mojang can reshuffle widget storage.
             Class<?> c = screen.getClass();
             while (c != null && c != Object.class) {
                 for (Field f : c.getDeclaredFields()) {
@@ -154,7 +115,6 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
                     Object v = f.get(screen);
                     if (!(v instanceof List<?> list) || list.isEmpty()) continue;
 
-                    // Try scanning this list for the trade offer widgets
                     for (Object o : list) {
                         if (!(o instanceof AbstractWidget w)) continue;
 
@@ -164,14 +124,12 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
                         if (!w.isMouseOver(mouseX, mouseY)) continue;
 
                         int index = ezvr$readTradeButtonIndexReflective(w);
-                        EZVillagerReroll.LOG().info("[EZVR] Hovered trade widget found via reflection -> field={}, class={}, index={}",
-                                f.getName(), cn, index);
+                        EZVillagerReroll.LOG().info("[EZVR] Hovered trade widget via reflection -> field={}, index={}", f.getName(), index);
                         return index;
                     }
                 }
                 c = c.getSuperclass();
             }
-
             return -1;
 
         } catch (Throwable t) {
@@ -191,7 +149,6 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
             } catch (NoSuchFieldException ignored) {}
 
             if (f == null) {
-                // Defensive scan for an int field that looks like index
                 for (Field candidate : c.getDeclaredFields()) {
                     if (candidate.getType() != int.class) continue;
                     String n = candidate.getName();
