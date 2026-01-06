@@ -1,12 +1,12 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "com.example.examplemod.mixin",
+  "package": "org.z2six.ezvillagerreroll.mixin",
   "refmap": "${mod_id}.refmap.json",
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
   "client": [
-    "MixinTitleScreen"
+    "org.z2six.ezvillagerreroll.mixin.MixinTitleScreen"
   ],
   "server": [],
   "injectors": {

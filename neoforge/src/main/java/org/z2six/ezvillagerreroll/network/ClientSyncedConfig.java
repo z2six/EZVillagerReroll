@@ -1,0 +1,66 @@
+// MainFile: src/main/java/org/z2six/ezvillagerreroll/network/ClientSyncedConfig.java
+package org.z2six.ezvillagerreroll.network;
+
+import org.z2six.ezvillagerreroll.EZVillagerReroll;
+
+import java.util.Arrays;
+
+public final class ClientSyncedConfig {
+
+    public static final class Snapshot {
+        public int version;
+        public int hash;
+        public String costItemOrTag;
+        public int[] costsByLevel; // len 6
+        public boolean preferWallet;
+        public int cooldownTicks;
+        public int perVillagerDaily;
+        public boolean allowAfterTradeUsed;
+
+        @Override
+        public String toString() {
+            return "Snapshot{" +
+                    "version=" + version +
+                    ", hash=" + hash +
+                    ", costItemOrTag='" + costItemOrTag + '\'' +
+                    ", costsByLevel=" + Arrays.toString(costsByLevel) +
+                    ", preferWallet=" + preferWallet +
+                    ", cooldownTicks=" + cooldownTicks +
+                    ", perVillagerDaily=" + perVillagerDaily +
+                    ", allowAfterTradeUsed=" + allowAfterTradeUsed +
+                    '}';
+        }
+    }
+
+    private static volatile Snapshot last;
+
+    public static void setFrom(PacketSyncConfig msg) {
+        try {
+            Snapshot s = new Snapshot();
+            s.version = msg.version;
+            s.hash = msg.hash;
+            s.costItemOrTag = msg.costItemOrTag;
+            s.costsByLevel = msg.costsByLevel != null ? msg.costsByLevel.clone() : new int[]{0,0,0,0,0,0};
+            if (s.costsByLevel.length != 6) {
+                int[] fixed = new int[6];
+                for (int i = 0; i < 6 && i < s.costsByLevel.length; i++) fixed[i] = Math.max(0, s.costsByLevel[i]);
+                s.costsByLevel = fixed;
+            }
+            s.preferWallet = msg.preferWallet;
+            s.cooldownTicks = msg.cooldownTicks;
+            s.perVillagerDaily = msg.perVillagerDaily;
+            s.allowAfterTradeUsed = msg.allowAfterTradeUsed;
+            last = s;
+
+            EZVillagerReroll.LOG().info("[EZVR] Client received synced SERVER config: {}", s);
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Failed to apply synced config on client", t);
+        }
+    }
+
+    public static Snapshot get() {
+        return last;
+    }
+
+    private ClientSyncedConfig() {}
+}

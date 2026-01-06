@@ -1,0 +1,11 @@
+{
+  "ezvr.ui.reroll": "Reroll Villager",
+
+  "ezvr.msg.mid_trade": "Finish the current trade first.",
+  "ezvr.msg.not_villager": "This trader cannot be rerolled.",
+  "ezvr.msg.cooldown_or_cap": "This villager cannot be rerolled yet.",
+  "ezvr.msg.after_used_disabled": "Reroll is disabled after trades have been used.",
+  "ezvr.msg.not_enough": "You don't have enough to pay the reroll cost.",
+  "ezvr.msg.failed": "Reroll failed.",
+  "ezvr.msg.success": "Rerolled."
+}
