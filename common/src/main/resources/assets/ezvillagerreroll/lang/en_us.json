@@ -15,6 +15,6 @@
 
   "ezvr.busy.header": "Villager's request",
   "ezvr.busy.subheader": "Villager is currently looking for:",
-  "ezvr.busy.cancel": "Cancel request",
-  "ezvr.busy.continue": "Continue searching"
+  "ezvr.busy.cancel": "Cancel",
+  "ezvr.busy.continue": "Continue"
 }

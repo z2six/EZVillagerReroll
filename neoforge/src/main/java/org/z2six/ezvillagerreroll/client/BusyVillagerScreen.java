@@ -1,6 +1,7 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/BusyVillagerScreen.java
 package org.z2six.ezvillagerreroll.client;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -13,20 +14,31 @@ import org.z2six.ezvillagerreroll.network.PacketContinueAutoSearch;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Shown when a villager is "busy" auto-rerolling for requested items.
- */
 public final class BusyVillagerScreen extends Screen {
 
     private final int villagerEntityId;
     private final List<ItemStack> requested;
+
     private Button btnCancel;
     private Button btnContinue;
+
+    // Grid/scroll
+    private int scrollRow = 0;
+
+    private static final int ITEM_SIZE = 18;
+    private static final int PAD = 4;
+    private static final int SCROLLBAR_W = 8;
+
+    private SimpleScrollBar scrollBar;
 
     public BusyVillagerScreen(int villagerEntityId, List<ItemStack> requested) {
         super(Component.translatable("ezvr.busy.title"));
         this.villagerEntityId = villagerEntityId;
         this.requested = requested == null ? List.of() : new ArrayList<>(requested);
+    }
+
+    public int getVillagerEntityIdSafe() {
+        return villagerEntityId;
     }
 
     @Override
@@ -66,8 +78,66 @@ public final class BusyVillagerScreen extends Screen {
             addRenderableWidget(btnCancel);
             addRenderableWidget(btnContinue);
 
+            // Scrollbar
+            int gridTop = 20 + 18 + 18 + 6; // header + subheader + padding
+            int gridBottom = this.height - 70;
+            int gridH = Math.max(1, gridBottom - gridTop);
+
+            scrollBar = new SimpleScrollBar(
+                    this.width - 20 - SCROLLBAR_W,
+                    gridTop,
+                    SCROLLBAR_W,
+                    gridH
+            );
+
+            clampScroll();
+
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] BusyVillagerScreen.init failed", t);
+        }
+    }
+
+    private void clampScroll() {
+        try {
+            int totalRows = computeTotalRows();
+            int visibleRows = computeVisibleRows();
+            int maxRow = Math.max(0, totalRows - visibleRows);
+            if (scrollRow < 0) scrollRow = 0;
+            if (scrollRow > maxRow) scrollRow = maxRow;
+        } catch (Throwable ignored) {}
+    }
+
+    private int computeCols() {
+        try {
+            int usableW = (this.width - 40 - SCROLLBAR_W - 2);
+            return Math.max(1, usableW / (ITEM_SIZE + PAD));
+        } catch (Throwable t) {
+            return 1;
+        }
+    }
+
+    private int computeVisibleRows() {
+        try {
+            int gridTop = 20 + 18 + 18 + 6;
+            int gridBottom = this.height - 70;
+            int gridH = Math.max(1, gridBottom - gridTop);
+            return Math.max(1, gridH / (ITEM_SIZE + PAD));
+        } catch (Throwable t) {
+            return 1;
+        }
+    }
+
+    private int computeTotalRows() {
+        try {
+            int cols = computeCols();
+            int count = 0;
+            for (ItemStack s : requested) {
+                if (s == null || s.isEmpty()) continue;
+                count++;
+            }
+            return (count + cols - 1) / cols;
+        } catch (Throwable t) {
+            return 0;
         }
     }
 
@@ -77,6 +147,55 @@ public final class BusyVillagerScreen extends Screen {
         } catch (Throwable t) {
             EZVillagerReroll.LOG().debug("[EZVR] BusyVillagerScreen.tryClose failed (soft): {}", t.toString());
         }
+    }
+
+    /**
+     * MC 1.21.1 ContainerEventHandler signature uses 4 params:
+     * mouseScrolled(mouseX, mouseY, scrollX, scrollY)
+     */
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        try {
+            if (scrollY == 0) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+
+            int step = (scrollY > 0) ? -1 : 1;
+            scrollRow += step;
+            clampScroll();
+
+            EZVillagerReroll.LOG().debug("[EZVR] BusyVillagerScreen mouseScrolled scrollY={} -> scrollRow={}", scrollY, scrollRow);
+            return true;
+        } catch (Throwable t) {
+            return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        }
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        try {
+            if (scrollBar != null && scrollBar.mouseClicked(mouseX, mouseY, button)) return true;
+        } catch (Throwable ignored) {}
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        try {
+            if (scrollBar != null && scrollBar.mouseReleased(mouseX, mouseY, button)) return true;
+        } catch (Throwable ignored) {}
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        try {
+            if (scrollBar != null && scrollBar.mouseDragged(mouseX, mouseY, button, dragX, dragY)) {
+                int maxRow = Math.max(0, computeTotalRows() - computeVisibleRows());
+                scrollRow = scrollBar.getScrollRowFromThumb(scrollRow, maxRow);
+                clampScroll();
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
     }
 
     @Override
@@ -90,31 +209,56 @@ public final class BusyVillagerScreen extends Screen {
 
             gg.drawCenteredString(this.font, Component.translatable("ezvr.busy.header"), cx, y, 0xFFFFFF);
             y += 18;
-
             gg.drawCenteredString(this.font, Component.translatable("ezvr.busy.subheader"), cx, y, 0xB0B0B0);
-            y += 18;
 
-            int size = 18;
-            int pad = 4;
-            int cols = Math.max(1, (this.width - 40) / (size + pad));
-            int startX = 20;
-            int x = startX;
-            int col = 0;
+            // Grid bounds
+            int gridTop = 20 + 18 + 18 + 6;
+            int gridBottom = this.height - 70;
+            int gridLeft = 20;
 
+            int cols = computeCols();
+            int visibleRows = computeVisibleRows();
+
+            // Flatten non-empty
+            List<ItemStack> flat = new ArrayList<>();
             for (ItemStack s : requested) {
                 if (s == null || s.isEmpty()) continue;
+                flat.add(s);
+            }
 
-                gg.renderItem(s, x, y);
-                gg.renderItemDecorations(this.font, s, x, y);
+            int startIndex = scrollRow * cols;
+            int endIndex = Math.min(flat.size(), startIndex + visibleRows * cols);
 
-                col++;
-                x += size + pad;
-                if (col >= cols) {
-                    col = 0;
-                    x = startX;
-                    y += size + pad;
-                    if (y > this.height - 70) break;
+            // Render centered PER ROW
+            int rowY = gridTop;
+            int idx = startIndex;
+
+            for (int row = 0; row < visibleRows && idx < endIndex; row++) {
+                int remaining = endIndex - idx;
+                int countThisRow = Math.min(cols, remaining);
+
+                int rowWidth = countThisRow * ITEM_SIZE + Math.max(0, countThisRow - 1) * PAD;
+                int startX = (this.width - rowWidth - SCROLLBAR_W - 2) / 2; // center relative to content area
+                if (startX < gridLeft) startX = gridLeft;
+
+                int x = startX;
+
+                for (int c = 0; c < countThisRow && idx < endIndex; c++, idx++) {
+                    ItemStack s = flat.get(idx);
+                    gg.renderItem(s, x, rowY);
+                    gg.renderItemDecorations(this.font, s, x, rowY);
+                    x += ITEM_SIZE + PAD;
                 }
+
+                rowY += ITEM_SIZE + PAD;
+                if (rowY > gridBottom - ITEM_SIZE) break;
+            }
+
+            // Scrollbar
+            int totalRows = computeTotalRows();
+            int maxRow = Math.max(0, totalRows - visibleRows);
+            if (scrollBar != null) {
+                scrollBar.render(gg, scrollRow, maxRow, totalRows, visibleRows);
             }
 
         } catch (Throwable t) {
@@ -125,5 +269,91 @@ public final class BusyVillagerScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    // ------------------------------------------------------------
+    // Minimal draggable scrollbar helper (no dependencies)
+    // ------------------------------------------------------------
+    private static final class SimpleScrollBar {
+        private final int x, y, w, h;
+
+        private boolean dragging = false;
+        private double lastMouseY = 0;
+
+        SimpleScrollBar(int x, int y, int w, int h) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+        }
+
+        void render(GuiGraphics gg, int scrollRow, int maxRow, int totalRows, int visibleRows) {
+            try {
+                // Track
+                gg.fill(x, y, x + w, y + h, 0x80000000);
+
+                if (totalRows <= visibleRows) {
+                    // Full thumb
+                    gg.fill(x, y, x + w, y + h, 0xA0FFFFFF);
+                    return;
+                }
+
+                int thumbH = Math.max(12, (int) Math.round((h * (visibleRows / (double) totalRows))));
+                int travel = Math.max(1, h - thumbH);
+
+                double t = (maxRow <= 0) ? 0.0 : (scrollRow / (double) maxRow);
+                int thumbY = y + (int) Math.round(travel * t);
+
+                gg.fill(x, thumbY, x + w, thumbY + thumbH, dragging ? 0xE0FFFFFF : 0xC0FFFFFF);
+            } catch (Throwable ignored) {}
+        }
+
+        private boolean isOver(double mx, double my) {
+            return mx >= x && mx < (x + w) && my >= y && my < (y + h);
+        }
+
+        boolean mouseClicked(double mx, double my, int button) {
+            try {
+                if (button != 0) return false;
+                if (!isOver(mx, my)) return false;
+
+                dragging = true;
+                lastMouseY = my;
+                return true;
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+
+        boolean mouseReleased(double mx, double my, int button) {
+            if (button != 0) return false;
+            if (!dragging) return false;
+            dragging = false;
+            return true;
+        }
+
+        boolean mouseDragged(double mx, double my, int button, double dragX, double dragY) {
+            if (!dragging || button != 0) return false;
+            lastMouseY = my;
+            return true;
+        }
+
+        int getScrollRowFromThumb(int currentRow, int maxRow) {
+            try {
+                if (!dragging) return currentRow;
+                if (maxRow <= 0) return 0;
+
+                double rel = (lastMouseY - y) / (double) h;
+                if (rel < 0) rel = 0;
+                if (rel > 1) rel = 1;
+
+                int next = (int) Math.round(maxRow * rel);
+                if (next < 0) next = 0;
+                if (next > maxRow) next = maxRow;
+                return next;
+            } catch (Throwable ignored) {
+                return currentRow;
+            }
+        }
     }
 }

@@ -7,14 +7,6 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.server.TradeLockService;
 
-/**
- * COMMON/DEDICATED-SERVER SAFE network registration + send helpers.
- *
- * IMPORTANT:
- * - Payload IDs must be registered on BOTH sides (client and server) for NeoForge handshake.
- * - This class MUST NOT reference any net.minecraft.client.* types.
- * - Client-only behavior is delegated via reflection.
- */
 public final class Network {
 
     private static final String CLIENT_HANDLERS_CLASS = "org.z2six.ezvillagerreroll.client.ClientNetworkHandlers";
@@ -22,30 +14,21 @@ public final class Network {
 
     private Network() {}
 
-    // ============================================================
-    // Registration
-    // ============================================================
-
     public static void onRegisterPayloadHandlers(final RegisterPayloadHandlersEvent e) {
         try {
             var r = e.registrar("ezvillagerreroll");
 
-            // -------------------------
-            // Serverbound packets
-            // (must be registered on both sides; received on server)
-            // -------------------------
+            // ---- Serverbound ----
             r.playToServer(PacketTooltipQuery.TYPE, PacketTooltipQuery.STREAM_CODEC,
                     (msg, ctx) -> handleTooltipQueryServer(msg, ctx));
             r.playToServer(PacketRequestReroll.TYPE, PacketRequestReroll.STREAM_CODEC,
                     (msg, ctx) -> handleRerollServer(msg, ctx));
 
-            // Trade lock feature
             r.playToServer(PacketTradeLocksQuery.TYPE, PacketTradeLocksQuery.STREAM_CODEC,
                     (msg, ctx) -> handleTradeLocksQueryServer(msg, ctx));
             r.playToServer(PacketToggleTradeLock.TYPE, PacketToggleTradeLock.STREAM_CODEC,
                     (msg, ctx) -> handleToggleTradeLockServer(msg, ctx));
 
-            // Auto-search feature (serverbound)
             r.playToServer(PacketSearchCatalogQuery.TYPE, PacketSearchCatalogQuery.STREAM_CODEC,
                     (msg, ctx) -> handleSearchCatalogQueryServer(msg, ctx));
             r.playToServer(PacketStartAutoSearch.TYPE, PacketStartAutoSearch.STREAM_CODEC,
@@ -55,12 +38,7 @@ public final class Network {
             r.playToServer(PacketContinueAutoSearch.TYPE, PacketContinueAutoSearch.STREAM_CODEC,
                     (msg, ctx) -> handleContinueAutoSearchServer(msg, ctx));
 
-            // -------------------------
-            // Clientbound packets
-            // CRITICAL: must ALSO be registered on dedicated server for handshake!
-            // Handler will only run on client (since server won't receive these),
-            // but the registration must exist on both sides.
-            // -------------------------
+            // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTooltipData", msg, ctx));
             r.playToClient(PacketSyncConfig.TYPE, PacketSyncConfig.STREAM_CODEC,
@@ -68,11 +46,14 @@ public final class Network {
             r.playToClient(PacketTradeLocks.TYPE, PacketTradeLocks.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTradeLocks", msg, ctx));
 
-            // Auto-search clientbound
             r.playToClient(PacketSearchCatalogData.TYPE, PacketSearchCatalogData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onSearchCatalogData", msg, ctx));
             r.playToClient(PacketOpenBusyScreen.TYPE, PacketOpenBusyScreen.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onOpenBusyScreen", msg, ctx));
+
+            // NEW: auto-search completion notification
+            r.playToClient(PacketAutoSearchDone.TYPE, PacketAutoSearchDone.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onAutoSearchDone", msg, ctx));
 
             EZVillagerReroll.LOG().info("[EZVR] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {
@@ -80,31 +61,20 @@ public final class Network {
         }
     }
 
-    /**
-     * Dispatches to client-only handler methods via reflection.
-     *
-     * On dedicated server:
-     * - this will never be invoked in practice (no clientbound packets received),
-     *   but if it is, it safely no-ops.
-     */
     private static void dispatchToClientHandler(String methodName, Object msg, IPayloadContext ctx) {
         try {
             if (!isClientDist()) {
-                // Shouldn't happen in normal flow; keep it soft.
                 EZVillagerReroll.LOG().debug("[EZVR] dispatchToClientHandler({}) called on non-client dist; ignoring.", methodName);
                 return;
             }
 
             Class<?> c = Class.forName(CLIENT_HANDLERS_CLASS);
-            // signature: (Object msg, IPayloadContext ctx) OR (ConcreteMsg, IPayloadContext)
-            // We'll try exact concrete signature first; if it fails, fall back to (Object, IPayloadContext).
             try {
                 c.getMethod(methodName, msg.getClass(), IPayloadContext.class).invoke(null, msg, ctx);
             } catch (NoSuchMethodException ex) {
                 c.getMethod(methodName, Object.class, IPayloadContext.class).invoke(null, msg, ctx);
             }
         } catch (ClassNotFoundException cnf) {
-            // If this happens on client, the mod is broken; log loudly.
             EZVillagerReroll.LOG().error("[EZVR] Missing client handler class {} (cannot handle {}).", CLIENT_HANDLERS_CLASS, methodName);
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client handler dispatch failed for {}", methodName, t);
@@ -121,23 +91,11 @@ public final class Network {
         }
     }
 
-    // ============================================================
-    // Client -> Server send helpers (server-safe via reflection)
-    // ============================================================
-
-    /**
-     * Sends a payload to server on the client.
-     *
-     * Dedicated server safety:
-     * - Never references Minecraft client classes.
-     * - Delegates to ClientNetwork via reflection only on client dist.
-     */
     public static void sendToServer(CustomPacketPayload payload) {
         try {
             if (payload == null) return;
 
             if (!isClientDist()) {
-                // Common code might call this defensively; just drop on server.
                 EZVillagerReroll.LOG().debug("[EZVR] Network.sendToServer called on non-client dist; dropping {}", payload.type());
                 return;
             }
@@ -150,7 +108,6 @@ public final class Network {
         }
     }
 
-    // Convenience overloads
     public static void sendToServer(PacketRequestReroll msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketTooltipQuery msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketTradeLocksQuery msg) { sendToServer((CustomPacketPayload) msg); }
@@ -159,10 +116,6 @@ public final class Network {
     public static void sendToServer(PacketStartAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketCancelAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketContinueAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
-
-    // ============================================================
-    // Server-side packet handlers
-    // ============================================================
 
     private static void handleTooltipQueryServer(PacketTooltipQuery msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {

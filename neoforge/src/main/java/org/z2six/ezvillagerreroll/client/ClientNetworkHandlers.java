@@ -4,27 +4,11 @@ package org.z2six.ezvillagerreroll.client;
 import net.minecraft.client.Minecraft;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
-import org.z2six.ezvillagerreroll.network.ClientSyncedConfig;
-import org.z2six.ezvillagerreroll.network.ClientTooltipCache;
-import org.z2six.ezvillagerreroll.network.ClientTradeLockCache;
-import org.z2six.ezvillagerreroll.network.PacketOpenBusyScreen;
-import org.z2six.ezvillagerreroll.network.PacketSearchCatalogData;
-import org.z2six.ezvillagerreroll.network.PacketSyncConfig;
-import org.z2six.ezvillagerreroll.network.PacketTooltipData;
-import org.z2six.ezvillagerreroll.network.PacketTradeLocks;
+import org.z2six.ezvillagerreroll.network.*;
 
-/**
- * CLIENT-ONLY packet handlers.
- *
- * Network.java calls these via reflection, so signatures must remain stable.
- */
 public final class ClientNetworkHandlers {
 
     private ClientNetworkHandlers() {}
-
-    // ---------------------------------------------------------------------
-    // Reflection-friendly overloads (Object, IPayloadContext)
-    // ---------------------------------------------------------------------
 
     public static void onTooltipData(Object msg, IPayloadContext ctx) {
         try {
@@ -66,9 +50,13 @@ public final class ClientNetworkHandlers {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Concrete signatures (preferred)
-    // ---------------------------------------------------------------------
+    public static void onAutoSearchDone(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketAutoSearchDone m) onAutoSearchDone(m, ctx);
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Client handler onAutoSearchDone(Object) failed", t);
+        }
+    }
 
     public static void onTooltipData(PacketTooltipData msg, IPayloadContext ctx) {
         try {
@@ -120,15 +108,7 @@ public final class ClientNetworkHandlers {
                     if (mc == null) return;
 
                     if (mc.screen instanceof SearchCatalogScreen sc) {
-                        // Your screen expects (villagerEntityId, catalog)
-                        int vid;
-                        try {
-                            vid = msg.villagerEntityId();
-                        } catch (Throwable t) {
-                            EZVillagerReroll.LOG().warn("[EZVR] PacketSearchCatalogData missing villagerEntityId(); defaulting -1");
-                            vid = -1;
-                        }
-
+                        int vid = msg.villagerEntityId();
                         sc.applyCatalogFromServer(vid, msg.catalog());
                     } else {
                         EZVillagerReroll.LOG().debug(
@@ -151,7 +131,6 @@ public final class ClientNetworkHandlers {
                 try {
                     Minecraft mc = Minecraft.getInstance();
                     if (mc == null) return;
-
                     mc.setScreen(new BusyVillagerScreen(msg.villagerEntityId(), msg.requested()));
                 } catch (Throwable t) {
                     EZVillagerReroll.LOG().error("[EZVR] Client handler onOpenBusyScreen failed", t);
@@ -159,6 +138,32 @@ public final class ClientNetworkHandlers {
             });
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client handler onOpenBusyScreen enqueue failed", t);
+        }
+    }
+
+    public static void onAutoSearchDone(PacketAutoSearchDone msg, IPayloadContext ctx) {
+        try {
+            ctx.enqueueWork(() -> {
+                try {
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    if (mc.screen instanceof BusyVillagerScreen bs) {
+                        int currentVill = bs.getVillagerEntityIdSafe();
+                        if (currentVill == msg.villagerEntityId()) {
+                            EZVillagerReroll.LOG().info("[EZVR] Auto-search done -> closing BusyVillagerScreen (villagerEntityId={})", currentVill);
+                            mc.setScreen(null);
+                        } else {
+                            EZVillagerReroll.LOG().debug("[EZVR] Auto-search done for villagerEntityId={} but busy screen is for {} -> no action",
+                                    msg.villagerEntityId(), currentVill);
+                        }
+                    }
+                } catch (Throwable t) {
+                    EZVillagerReroll.LOG().error("[EZVR] Client handler onAutoSearchDone failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Client handler onAutoSearchDone enqueue failed", t);
         }
     }
 }

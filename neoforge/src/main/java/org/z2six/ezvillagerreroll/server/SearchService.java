@@ -12,17 +12,12 @@ import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
 import org.z2six.ezvillagerreroll.logic.TradeUtil;
+import org.z2six.ezvillagerreroll.network.PacketAutoSearchDone;
 import org.z2six.ezvillagerreroll.network.PacketOpenBusyScreen;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Server-side auto-search state + tick loop.
- *
- * This exists primarily to fix compilation and to provide a real place for your feature logic.
- * It is intentionally conservative: it never crashes the server; it logs and skips.
- */
 public final class SearchService {
 
     private SearchService() {}
@@ -54,7 +49,6 @@ public final class SearchService {
         }
     }
 
-    // villagerUuid -> task
     private static final Map<UUID, Task> TASKS = new ConcurrentHashMap<>();
 
     public static boolean isBusy(Villager vill) {
@@ -91,8 +85,13 @@ public final class SearchService {
                     cooldown
             );
 
-            // Immediately close menu client-side is already done by the client screen.
-            // If a player tries to interact, BusyVillagerBlocker will open Busy screen.
+            // Immediate match check (fast path)
+            if (containsAnyRequested(vill, t.requestedKeys)) {
+                EZVillagerReroll.LOG().info("[EZVR] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
+                        vill.getUUID(), vill.getId(), t.requestedKeys.size());
+                TASKS.remove(vill.getUUID());
+                notifyOwnerDone(sp.server, t);
+            }
 
         } catch (Throwable e) {
             EZVillagerReroll.LOG().error("[EZVR] SearchService.start failed", e);
@@ -127,9 +126,6 @@ public final class SearchService {
             Task t = TASKS.get(vill.getUUID());
             if (t == null) return;
 
-            // Send busy screen packet to client.
-            // You already have a safe "send custom payload" path elsewhere; here we use ctx.reply in handlers,
-            // but in event code we must send manually. The simplest is using ServerPlayer#connection.
             try {
                 sp.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
                         new PacketOpenBusyScreen(vill.getId(), t.requested)
@@ -149,7 +145,6 @@ public final class SearchService {
             if (server == null) return;
             if (TASKS.isEmpty()) return;
 
-            // Iterate tasks; resolve villager by UUID each time (safe across chunk unloads).
             Iterator<Map.Entry<UUID, Task>> it = TASKS.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<UUID, Task> en = it.next();
@@ -160,10 +155,7 @@ public final class SearchService {
                 }
 
                 Villager vill = resolveVillagerByUuid(server, task.villagerUuid);
-                if (vill == null) {
-                    // Villager not loaded; keep task but don't spam.
-                    continue;
-                }
+                if (vill == null) continue;
 
                 long now = vill.level().getGameTime();
                 if (now < task.nextRerollGameTime) continue;
@@ -171,16 +163,14 @@ public final class SearchService {
                 int cooldown = Math.max(1, ServerConfig.cooldownTicks);
                 task.nextRerollGameTime = now + cooldown;
 
-                // If already contains requested, finish immediately.
                 if (containsAnyRequested(vill, task.requestedKeys)) {
                     EZVillagerReroll.LOG().info("[EZVR] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
                             vill.getUUID(), vill.getId(), task.requestedKeys.size());
                     it.remove();
+                    notifyOwnerDone(server, task);
                     continue;
                 }
 
-                // Perform one reroll pass (must preserve locked trades; TradeUtil already handles that).
-                // We do NOT sync GUI here; no player GUI should be open during busy state.
                 try {
                     TradeUtil.rebuildOffersInternal(vill, null, false);
                 } catch (Throwable rerollErr) {
@@ -189,16 +179,41 @@ public final class SearchService {
                     continue;
                 }
 
-                // Check for requested outputs after reroll.
                 if (containsAnyRequested(vill, task.requestedKeys)) {
                     EZVillagerReroll.LOG().info("[EZVR] Auto-search FOUND match: villager={} entityId={} requestedKeys={}",
                             vill.getUUID(), vill.getId(), task.requestedKeys.size());
                     it.remove();
+                    notifyOwnerDone(server, task);
                 }
             }
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] SearchService.tick failed", t);
+        }
+    }
+
+    private static void notifyOwnerDone(MinecraftServer server, Task task) {
+        try {
+            if (server == null || task == null) return;
+
+            ServerPlayer owner = server.getPlayerList().getPlayer(task.ownerPlayerUuid);
+            if (owner == null) {
+                EZVillagerReroll.LOG().debug("[EZVR] notifyOwnerDone: owner offline (playerUuid={})", task.ownerPlayerUuid);
+                return;
+            }
+
+            try {
+                owner.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
+                        new PacketAutoSearchDone(task.villagerEntityId)
+                ));
+                EZVillagerReroll.LOG().debug("[EZVR] notifyOwnerDone: sent PacketAutoSearchDone(villagerEntityId={}) to {}",
+                        task.villagerEntityId, owner.getGameProfile().getName());
+            } catch (Throwable sendErr) {
+                EZVillagerReroll.LOG().warn("[EZVR] notifyOwnerDone: send failed (soft): {}", sendErr.toString());
+            }
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] notifyOwnerDone failed", t);
         }
     }
 
@@ -239,7 +254,6 @@ public final class SearchService {
         try {
             if (server == null || uuid == null) return null;
 
-            // Search loaded levels only (safe).
             for (ServerLevel lvl : server.getAllLevels()) {
                 Entity e = lvl.getEntity(uuid);
                 if (e instanceof Villager v) return v;
