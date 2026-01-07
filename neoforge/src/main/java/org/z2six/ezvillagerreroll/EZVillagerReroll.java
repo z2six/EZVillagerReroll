@@ -14,6 +14,7 @@ import org.z2six.ezvillagerreroll.client.ClientUI;
 import org.z2six.ezvillagerreroll.config.ClientConfig;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
 import org.z2six.ezvillagerreroll.network.Network;
+import org.z2six.ezvillagerreroll.server.BusyVillagerBlocker;
 import org.z2six.ezvillagerreroll.server.ServerEvents;
 
 @Mod(Constants.MOD_ID)
@@ -65,12 +66,21 @@ public final class EZVillagerReroll {
         }
 
         // --- GAMEPLAY BUS listeners (NeoForge bus) ---
-        // ServerEvents are gameplay/runtime events => NeoForge.EVENT_BUS is correct.
+        // IMPORTANT: gameplay/runtime events => NeoForge.EVENT_BUS
         try {
+            // Tick + server start/stop (persistence)
             ServerEvents.register(NeoForge.EVENT_BUS);
             LOG.info("[EZVR] Registered ServerEvents on NeoForge EVENT bus.");
         } catch (Throwable t) {
             LOG.error("[EZVR] Failed to register ServerEvents (continuing).", t);
+        }
+
+        try {
+            // RMB interception for busy villagers (this is the logic you said got "destroyed" because it wasn't wired)
+            BusyVillagerBlocker.register(NeoForge.EVENT_BUS);
+            LOG.info("[EZVR] Registered BusyVillagerBlocker on NeoForge EVENT bus.");
+        } catch (Throwable t) {
+            LOG.error("[EZVR] Failed to register BusyVillagerBlocker (continuing).", t);
         }
     }
 
