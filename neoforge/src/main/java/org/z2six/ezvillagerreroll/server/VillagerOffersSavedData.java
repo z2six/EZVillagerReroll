@@ -38,7 +38,7 @@ import java.util.UUID;
  * Using plain NbtOps can cause partial decode failures (dropping offers).
  *
  * Storage format:
- * - Root: { Version:int, Entries:[{ UUID:string, Offers:[{v:<Tag>}, ...] }, ...] }
+ * - Root: { Version:int, Entries:[{ UUID:string, Offers:[{v:Tag}, ...] }, ...] }
  * - Offers list is ALWAYS a list of CompoundTag wrappers, even if the encoded tag isn't a compound.
  */
 public final class VillagerOffersSavedData extends SavedData {
