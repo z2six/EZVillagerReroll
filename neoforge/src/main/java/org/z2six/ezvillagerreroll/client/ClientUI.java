@@ -237,9 +237,11 @@ public final class ClientUI {
 
     private static void trySendTooltipQuery(MerchantScreen screen) {
         try {
-            // keep your existing tooltip logic as-is (it still uses traderEntityId)
-            // (You truncated it in your snippet; leaving it untouched here.)
-            Network.sendToServer(new PacketTooltipQuery(-1));
+            int traderId = resolveTraderEntityId(screen);
+
+            Network.sendToServer(new PacketTooltipQuery(traderId));
+
+            EZVillagerReroll.LOG().debug("[EZVR] Sent tooltip query (traderEntityId={})", traderId);
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client send tooltip query failed", t);
         }
@@ -258,8 +260,153 @@ public final class ClientUI {
         List<Component> lines = new ArrayList<>();
         if (d == null) return lines;
 
+        // Title
         lines.add(Component.translatable("ezvr.ui.reroll"));
+
+        try {
+            final int cost = d.cost != null ? d.cost.scaledCost : 0;
+            final Integer next = (d.cost != null) ? d.cost.nextCostIfUsed : null;
+
+            final String spec = (d.cost != null) ? d.cost.itemOrTag : null;
+            final String pretty = prettyCostSpec(spec);
+
+            // Current cost
+            if (cost <= 0) {
+                lines.add(Component.literal("Cost: Free"));
+            } else {
+                lines.add(Component.literal("Cost: " + cost + " × " + pretty));
+            }
+
+            // Next level cost (only when present)
+            if (next != null && next > 0) {
+                lines.add(Component.literal("Next level: " + next + " × " + pretty));
+            }
+
+            // (Optional but useful) affordability hint
+            if (d.afford != null) {
+                String src = d.afford.source == null ? "none" : d.afford.source;
+                if (cost > 0) {
+                    lines.add(Component.literal(d.afford.canAfford ? "Affordable (" + src + ")" : "Not affordable (" + src + ")"));
+                }
+            }
+
+            // (Optional) villager info (kept subtle)
+            if (d.villager != null && d.villager.level > 0) {
+                lines.add(Component.literal("Villager level: " + d.villager.level));
+            }
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] buildTooltipLines failed (soft): {}", t.toString());
+        }
+
         return lines;
+    }
+    
+    private static String prettyCostSpec(String spec) {
+        try {
+            if (spec == null || spec.isBlank()) return "unknown";
+
+            String s = spec.trim();
+            if (s.startsWith("#")) {
+                // tag
+                String tag = s.substring(1);
+                int colon = tag.indexOf(':');
+                if (colon >= 0 && colon + 1 < tag.length()) tag = tag.substring(colon + 1);
+                return "#" + tag;
+            }
+
+            // item id
+            int colon = s.indexOf(':');
+            if (colon >= 0 && colon + 1 < s.length()) return s.substring(colon + 1);
+            return s;
+        } catch (Throwable t) {
+            return "unknown";
+        }
+    }
+
+    // It tries hard to find an Entity (Villager) reference from the screen/menu.
+    // If it can't, it returns -1 (server will fall back to level 1 behavior).
+    private static int resolveTraderEntityId(MerchantScreen screen) {
+        try {
+            if (screen == null) return -1;
+
+            // 1) Try menu fields first
+            try {
+                MerchantMenu menu = (screen.getMenu() instanceof MerchantMenu mm) ? mm : null;
+                if (menu != null) {
+                    Integer id = reflectFindEntityId(menu);
+                    if (id != null) return id;
+                }
+            } catch (Throwable ignored) {}
+
+            // 2) Try screen fields
+            try {
+                Integer id = reflectFindEntityId(screen);
+                if (id != null) return id;
+            } catch (Throwable ignored) {}
+
+            return -1;
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    private static Integer reflectFindEntityId(Object holder) {
+        try {
+            if (holder == null) return null;
+
+            Class<?> c = holder.getClass();
+            while (c != null && c != Object.class) {
+                java.lang.reflect.Field[] fields = c.getDeclaredFields();
+                for (java.lang.reflect.Field f : fields) {
+                    try {
+                        f.setAccessible(true);
+                        Object v = f.get(holder);
+                        if (v == null) continue;
+
+                        // Direct entity reference?
+                        if (v instanceof net.minecraft.world.entity.Entity ent) {
+                            return ent.getId();
+                        }
+
+                        // Sometimes stored as merchant/trader object that may itself be an entity
+                        // or may contain an entity field; do a shallow one-level dive for common cases.
+                        if (!(v instanceof Number) && !(v instanceof String) && !(v.getClass().isPrimitive())) {
+                            Integer nested = reflectFindEntityIdShallow(v);
+                            if (nested != null) return nested;
+                        }
+                    } catch (Throwable ignoredField) {
+                        // Keep scanning
+                    }
+                }
+                c = c.getSuperclass();
+            }
+            return null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    // Shallow scan only (prevents runaway recursion).
+    private static Integer reflectFindEntityIdShallow(Object holder) {
+        try {
+            if (holder == null) return null;
+
+            Class<?> c = holder.getClass();
+            java.lang.reflect.Field[] fields = c.getDeclaredFields();
+            for (java.lang.reflect.Field f : fields) {
+                try {
+                    f.setAccessible(true);
+                    Object v = f.get(holder);
+                    if (v instanceof net.minecraft.world.entity.Entity ent) {
+                        return ent.getId();
+                    }
+                } catch (Throwable ignored) {}
+            }
+            return null;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private ClientUI() {}
