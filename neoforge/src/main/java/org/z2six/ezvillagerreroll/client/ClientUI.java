@@ -15,6 +15,7 @@ import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ClientConfig;
+import org.z2six.ezvillagerreroll.mixin.MerchantScreenAccessor;
 import org.z2six.ezvillagerreroll.network.ClientSyncedConfig;
 import org.z2six.ezvillagerreroll.network.ClientTooltipCache;
 import org.z2six.ezvillagerreroll.network.ClientTradeLockCache;
@@ -23,6 +24,7 @@ import org.z2six.ezvillagerreroll.network.PacketTooltipData;
 import org.z2six.ezvillagerreroll.network.PacketTooltipQuery;
 import org.z2six.ezvillagerreroll.network.PacketTradeLocksQuery;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -36,6 +38,9 @@ public final class ClientUI {
 
     private static final ResourceLocation CHAIN_TEX =
             ResourceLocation.fromNamespaceAndPath("minecraft", "textures/block/chain.png");
+
+    private static final String EZVR_TRADE_BUTTON_CLASS =
+            "net.minecraft.client.gui.screens.inventory.MerchantScreen$TradeOfferButton";
 
     public static void registerRuntimeClientEvents() {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenInitPost);
@@ -63,10 +68,7 @@ public final class ClientUI {
 
             EZVillagerReroll.LOG().info("[EZVR] Opening search catalog UI (villagerEntityId={})", villagerEntityId);
 
-            // Query server for catalog
             ClientNetwork.sendToServer(new org.z2six.ezvillagerreroll.network.PacketSearchCatalogQuery(villagerEntityId));
-
-            // Open loading screen immediately
             mc.setScreen(new SearchCatalogScreen(parent));
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] openSearchCatalogScreen failed", t);
@@ -158,13 +160,8 @@ public final class ClientUI {
 
             if (e.getScreen() instanceof MerchantScreen ms) {
                 int cid = resolveContainerId(ms);
-                if (cid >= 0) {
-                    ClientTradeLockCache.clearContainer(cid);
-                    EZVillagerReroll.LOG().debug("[EZVR] Cleared ClientTradeLockCache for containerId={}", cid);
-                } else {
-                    ClientTradeLockCache.clearAll();
-                    EZVillagerReroll.LOG().debug("[EZVR] Cleared ClientTradeLockCache (all) on MerchantScreen close");
-                }
+                if (cid >= 0) ClientTradeLockCache.clearContainer(cid);
+                else ClientTradeLockCache.clearAll();
             }
 
         } catch (Throwable t) {
@@ -172,6 +169,12 @@ public final class ClientUI {
         }
     }
 
+    /**
+     * Render outlines for locked trades.
+     *
+     * Correct mapping:
+     * - Button row index (0..6) + scroll offset => absolute offer index.
+     */
     private static void renderTradeLockIndicators(ScreenEvent.Render.Post e, MerchantScreen screen) {
         try {
             int cid = resolveContainerId(screen);
@@ -180,23 +183,35 @@ public final class ClientUI {
             long mask = ClientTradeLockCache.getMaskForContainer(cid);
             if (mask == 0L) return;
 
+            int offerCount = safeOfferCount(screen);
+            if (offerCount <= 0) return;
+
+            int scrollOff = readScrollOffset(screen, offerCount);
+
             List<AbstractWidget> tradeButtons = findTradeOfferButtons(screen);
             if (tradeButtons.isEmpty()) return;
 
             GuiGraphics gg = e.getGuiGraphics();
-
             final int outlineColor = 0xFF66FF66;
 
-            for (int i = 0; i < tradeButtons.size(); i++) {
-                if ((mask & (1L << i)) == 0L) continue;
-
-                AbstractWidget w = tradeButtons.get(i);
+            for (AbstractWidget w : tradeButtons) {
                 if (w == null || !w.visible) continue;
+
+                int rowIdx = readTradeButtonRowIndex(w);
+                if (rowIdx < 0 || rowIdx > 63) continue;
+
+                int absoluteIdx = scrollOff + rowIdx;
+
+                // Must be dynamic and safe: only render if that offer exists.
+                if (absoluteIdx < 0 || absoluteIdx >= offerCount) continue;
+
+                if ((mask & (1L << absoluteIdx)) == 0L) continue;
 
                 int x = w.getX();
                 int y = w.getY();
                 int ww = w.getWidth();
                 int hh = w.getHeight();
+                if (ww <= 0 || hh <= 0) continue;
 
                 try {
                     gg.renderOutline(x, y, ww, hh, outlineColor);
@@ -218,19 +233,84 @@ public final class ClientUI {
         try {
             for (GuiEventListener child : screen.children()) {
                 if (!(child instanceof AbstractWidget w)) continue;
-
                 String cn = w.getClass().getName();
-                if (cn == null) continue;
-
-                if (cn.contains("MerchantScreen") && cn.contains("TradeOfferButton")) out.add(w);
+                if (EZVR_TRADE_BUTTON_CLASS.equals(cn)) out.add(w);
             }
-
             out.sort(Comparator.comparingInt(AbstractWidget::getY).thenComparingInt(AbstractWidget::getX));
-
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] findTradeOfferButtons failed", t);
         }
         return out;
+    }
+
+    private static int readTradeButtonRowIndex(AbstractWidget w) {
+        try {
+            Field f = null;
+            Class<?> c = w.getClass();
+
+            try {
+                f = c.getDeclaredField("index");
+            } catch (NoSuchFieldException ignored) {}
+
+            if (f == null) {
+                for (Field candidate : c.getDeclaredFields()) {
+                    if (candidate.getType() != int.class) continue;
+                    String n = candidate.getName();
+                    if (n != null && (n.equals("index") || n.toLowerCase().contains("index"))) {
+                        f = candidate;
+                        break;
+                    }
+                }
+            }
+
+            if (f == null) return -1;
+
+            f.setAccessible(true);
+            return f.getInt(w);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    /**
+     * Read scroll offset robustly.
+     * Prefer accessor; fallback reflection only on fields with "scroll" in name AND within [0..offerCount-7].
+     */
+    private static int readScrollOffset(MerchantScreen screen, int offerCount) {
+        try {
+            int maxScroll = Math.max(0, offerCount - 7);
+
+            try {
+                int raw = ((MerchantScreenAccessor) screen).ezvr$getScrollOff();
+                return clamp(raw, 0, maxScroll);
+            } catch (Throwable ignored) {}
+
+            Class<?> c = screen.getClass();
+            while (c != null && c != Object.class) {
+                for (Field f : c.getDeclaredFields()) {
+                    try {
+                        if (f.getType() != int.class) continue;
+                        String n = f.getName();
+                        if (n == null || !n.toLowerCase().contains("scroll")) continue;
+
+                        f.setAccessible(true);
+                        int v = f.getInt(screen);
+                        if (v >= 0 && v <= maxScroll) return v;
+                    } catch (Throwable ignoredField) {}
+                }
+                c = c.getSuperclass();
+            }
+
+            return 0;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private static int clamp(int v, int min, int max) {
+        if (v < min) return min;
+        if (v > max) return max;
+        return v;
     }
 
     private static int resolveContainerId(MerchantScreen screen) {
@@ -242,11 +322,20 @@ public final class ClientUI {
         }
     }
 
+    private static int safeOfferCount(MerchantScreen screen) {
+        try {
+            if (!(screen.getMenu() instanceof MerchantMenu menu)) return -1;
+            var offers = menu.getOffers();
+            return offers == null ? 0 : offers.size();
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
     private static void trySendTooltipQuery(MerchantScreen screen) {
         try {
             int traderId = resolveTraderEntityId(screen);
             ClientNetwork.sendToServer(new PacketTooltipQuery(traderId));
-            EZVillagerReroll.LOG().debug("[EZVR] Sent tooltip query (traderEntityId={})", traderId);
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client send tooltip query failed", t);
         }
@@ -255,7 +344,6 @@ public final class ClientUI {
     private static void trySendTradeLocksQuery() {
         try {
             ClientNetwork.sendToServer(new PacketTradeLocksQuery());
-            EZVillagerReroll.LOG().debug("[EZVR] Sent trade locks query (current menu)");
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client send trade locks query failed", t);
         }
