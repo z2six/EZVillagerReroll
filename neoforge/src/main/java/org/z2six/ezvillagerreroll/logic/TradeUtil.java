@@ -94,8 +94,10 @@ public final class TradeUtil {
                     }
                 }
 
+                /*
                 EZVillagerReroll.LOG().info("[EZVR] Preserved {} locked offers (villager={}, mask={})",
                         preserved, vill.getUUID(), Long.toUnsignedString(afterMask));
+                 */
             }
 
             // Optional GUI sync
