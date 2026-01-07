@@ -6,7 +6,8 @@
   "mixins": [
     "AbstractVillagerAccessor",
     "MerchantMenuAccessor",
-    "VillagerAccessor"
+    "VillagerAccessor",
+    "VillagerDisableVanillaAutoTradeRefreshMixin"
   ],
   "client": [
     "MixinTitleScreen",

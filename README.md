@@ -12,8 +12,8 @@ It is designed for modded servers where villager rerolling should be controlled,
 - Lock individual trades so they are excluded from rerolls
 - Server-authoritative logic (no client-side cheating)
 - Fully configurable costs, cooldowns, and limits
+- Disables daily reset of trades
 - Optional integration with Lightman’s Currency
-- Works on NeoForge 1.21.1
 
 ---
 
