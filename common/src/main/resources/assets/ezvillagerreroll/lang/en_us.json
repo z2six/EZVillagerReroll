@@ -13,8 +13,8 @@
   "ezvr.catalog.cancel": "Cancel",
   "ezvr.catalog.request": "Request",
 
-  "ezvr.busy.header": "Villager's request",
-  "ezvr.busy.subheader": "Villager is currently looking for:",
+  "ezvr.busy.header": "Merchant's request",
+  "ezvr.busy.subheader": "Merchant is currently looking for:",
   "ezvr.busy.cancel": "Cancel",
   "ezvr.busy.continue": "Continue"
 }

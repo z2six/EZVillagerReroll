@@ -27,13 +27,24 @@ import java.util.*;
  * - Server-safe.
  * - Includes modded items (by using VillagerTrades / listings).
  * - For randomized listings, sample multiple times to capture possibilities.
- * - Special-case librarian enchanted books to include all registry enchantments (vanilla + modded).
+ * - Librarian special-case: include registry enchantments (vanilla + modded) for enchanted books.
+ *
+ * NOTE (important):
+ * There is no universal "enumerate all possible offers" API for all modded merchants.
+ * Sampling offer generators is the only general mechanism; for villagers we can go further later
+ * by simulating rerolls with snapshot+restore (next step).
  */
 public final class CatalogBuilder {
 
     // Safety caps
-    private static final int MAX_TOTAL_ITEMS = 4096;
-    private static final int MAX_SAMPLE_PER_LISTING = 96; // enough to capture many random listings without being too heavy
+    // Keep transport caps in mind (PacketSearchCatalogData also caps count).
+    private static final int MAX_TOTAL_ITEMS = 16384;
+
+    // Enough to capture many random listings without being too heavy
+    private static final int MAX_SAMPLE_PER_LISTING = 128;
+
+    // Cap how many levels we enumerate per enchantment (mods can go extreme)
+    private static final int MAX_ENCHANTABILITY_LEVEL_ENUM = 20;
 
     private CatalogBuilder() {}
 
@@ -66,16 +77,20 @@ public final class CatalogBuilder {
                 EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: failed reading current offers (soft): {}", t.toString());
             }
 
-            // 2) Add possible outputs from VillagerTrades listings
+            // 2) Add possible outputs from VillagerTrades listings (sampling)
             addTradesFromVillagerTrades(vill, prof, level, unique);
 
-            // 3) Special-case librarian enchanted books: include all registry enchantments (vanilla + modded)
-            // This makes the catalog "truly accurate" for librarians even when listing randomness would miss items.
+            // 3) Special-case librarian enchanted books: include all registry enchantments (vanilla + modded),
+            // including all levels 1..maxLevel (bounded by MAX_ENCHANTABILITY_LEVEL_ENUM).
             tryAddAllEnchantedBooksIfLibrarian(vill, prof, unique);
 
             // Finalize
             List<ItemStack> out = new ArrayList<>(unique.values());
-            if (out.size() > MAX_TOTAL_ITEMS) out = out.subList(0, MAX_TOTAL_ITEMS);
+            if (out.size() > MAX_TOTAL_ITEMS) {
+                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder.buildCatalog: truncating catalog {} -> MAX_TOTAL_ITEMS={}",
+                        out.size(), MAX_TOTAL_ITEMS);
+                out = out.subList(0, MAX_TOTAL_ITEMS);
+            }
 
             EZVillagerReroll.LOG().info("[EZVR] CatalogBuilder.buildCatalog: villager={} catalogSize={}",
                     vill.getUUID(), out.size());
@@ -149,6 +164,7 @@ public final class CatalogBuilder {
                             return;
                         }
 
+                        // Move RNG along even if listing ignores it (best-effort variability)
                         try {
                             rand.nextInt();
                         } catch (Throwable ignored) {}
@@ -161,7 +177,6 @@ public final class CatalogBuilder {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static VillagerTrades.ItemListing[] getListingsForLevel(Object byProfession, int lvl) {
         try {
             if (byProfession == null) return null;
@@ -221,7 +236,6 @@ public final class CatalogBuilder {
         try {
             if (vill == null || prof == null) return;
 
-            // Vanilla constant is VillagerProfession.LIBRARIAN
             if (prof != VillagerProfession.LIBRARIAN) return;
 
             Registry<Enchantment> reg;
@@ -232,68 +246,122 @@ public final class CatalogBuilder {
                 return;
             }
 
-            int added = 0;
-            int scanned = 0;
+            final int before = unique.size();
 
+            int scannedEnchantments = 0;
+            int attemptedBooks = 0;
+            int addedBooks = 0;
+            int skippedCap = 0;
+            int skippedErr = 0;
+
+            // reg.holders() is a Stream<Holder.Reference<Enchantment>> in your mappings.
+            // Use forEach to avoid generic iterator casting issues.
             try {
-                for (Holder<Enchantment> holder : reg.asHolderIdMap()) {
-                    // asHolderIdMap() is iterable-ish in some mappings; if this doesn't compile on your side,
-                    // swap to reg.holders().forEach(...) pattern below.
-                    scanned++;
+                reg.holders().forEach(holder -> {
+                    // We can’t mutate local primitives in lambda without wrappers; do minimal work here.
+                    // We’ll do a second, explicit loop path below if this ever causes trouble.
+                });
+            } catch (Throwable ignored) {
+                // no-op, just ensuring reg.holders() exists
+            }
+
+            // Explicit forEach with local state stored in arrays (simple mutable wrappers)
+            final int[] scanned = new int[] {0};
+            final int[] attempted = new int[] {0};
+            final int[] added = new int[] {0};
+            final int[] skippedCapArr = new int[] {0};
+            final int[] skippedErrArr = new int[] {0};
+
+            reg.holders().forEach(holder -> {
+                try {
+                    scanned[0]++;
+
+                    if (unique.size() >= MAX_TOTAL_ITEMS) {
+                        skippedCapArr[0]++;
+                        return;
+                    }
 
                     Enchantment ench;
                     try {
                         ench = holder.value();
-                    } catch (Throwable ignored) {
-                        continue;
+                    } catch (Throwable t) {
+                        skippedErrArr[0]++;
+                        return;
                     }
 
                     int max = 1;
                     try {
                         max = Math.max(1, ench.getMaxLevel());
-                    } catch (Throwable ignored) {}
+                    } catch (Throwable ignoredMax) {}
 
-                    ItemStack book;
-                    try {
-                        book = EnchantedBookItem.createForEnchantment(new EnchantmentInstance(holder, max));
-                    } catch (Throwable t) {
-                        // Some modded enchantments may throw; skip softly
-                        continue;
+                    if (max > MAX_ENCHANTABILITY_LEVEL_ENUM) {
+                        // Avoid log spam; debug only
+                        try {
+                            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder: enchant {} maxLevel={} exceeds cap {}; enumerating 1..{} only.",
+                                    safeHolderId(reg, holder), max, MAX_ENCHANTABILITY_LEVEL_ENUM, MAX_ENCHANTABILITY_LEVEL_ENUM);
+                        } catch (Throwable ignoredLog) {}
+                        max = MAX_ENCHANTABILITY_LEVEL_ENUM;
                     }
 
-                    if (book == null || book.isEmpty()) continue;
+                    for (int lvl = 1; lvl <= max; lvl++) {
+                        if (unique.size() >= MAX_TOTAL_ITEMS) {
+                            skippedCapArr[0]++;
+                            break;
+                        }
 
-                    String k = keyOf(book);
-                    if (unique.putIfAbsent(k, book) == null) added++;
+                        attempted[0]++;
 
-                    if (unique.size() >= MAX_TOTAL_ITEMS) break;
-                }
-            } catch (Throwable fallback) {
-                // Fallback: stream holders() if asHolderIdMap() isn’t iterable in your mappings
-                try {
-                    reg.holders().forEach(holder -> {
+                        ItemStack book;
                         try {
-                            Enchantment ench = holder.value();
-                            int max = Math.max(1, ench.getMaxLevel());
-                            ItemStack book = EnchantedBookItem.createForEnchantment(new EnchantmentInstance(holder, max));
-                            if (book == null || book.isEmpty()) return;
-                            String k = keyOf(book);
-                            if (unique.putIfAbsent(k, book) == null) {
-                                // cannot mutate added easily in lambda without AtomicInteger; keep logging minimal here
-                            }
-                        } catch (Throwable ignoredEach) {}
-                    });
-                    EZVillagerReroll.LOG().info("[EZVR] CatalogBuilder: librarian enchanted book expansion used fallback reg.holders() iteration.");
-                } catch (Throwable ignoredToo) {
-                    EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: failed iterating enchantment registry (soft): {}", ignoredToo.toString());
-                }
-            }
+                            // EnchantmentInstance in your environment accepts Holder<Enchantment> (holder ref is fine)
+                            book = EnchantedBookItem.createForEnchantment(new EnchantmentInstance(holder, lvl));
+                        } catch (Throwable t) {
+                            skippedErrArr[0]++;
+                            continue;
+                        }
 
-            EZVillagerReroll.LOG().info("[EZVR] CatalogBuilder: librarian enchanted book expansion scanned={} added~={} (catalogNow={})",
-                    scanned, added, unique.size());
+                        if (book == null || book.isEmpty()) {
+                            skippedErrArr[0]++;
+                            continue;
+                        }
+
+                        String k = keyOf(book);
+                        if (unique.putIfAbsent(k, book) == null) {
+                            added[0]++;
+                        }
+                    }
+                } catch (Throwable t) {
+                    skippedErrArr[0]++;
+                }
+            });
+
+            scannedEnchantments = scanned[0];
+            attemptedBooks = attempted[0];
+            addedBooks = added[0];
+            skippedCap = skippedCapArr[0];
+            skippedErr = skippedErrArr[0];
+
+            EZVillagerReroll.LOG().info("[EZVR] CatalogBuilder: librarian enchanted-book expansion scannedEnchants={} attemptedBooks={} addedBooks={} skippedCap={} skippedErr={} size {}->{}",
+                    scannedEnchantments, attemptedBooks, addedBooks, skippedCap, skippedErr, before, unique.size());
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder.tryAddAllEnchantedBooksIfLibrarian failed (soft): {}", t.toString());
+        }
+    }
+
+    private static String safeHolderId(Registry<Enchantment> reg, Holder<Enchantment> holder) {
+        try {
+            if (holder == null) return "null";
+            try {
+                Enchantment e = holder.value();
+                if (e != null && reg != null) {
+                    Object key = reg.getKey(e);
+                    if (key != null) return String.valueOf(key);
+                }
+            } catch (Throwable ignored) {}
+            return String.valueOf(holder);
+        } catch (Throwable t) {
+            return "<?>";
         }
     }
 

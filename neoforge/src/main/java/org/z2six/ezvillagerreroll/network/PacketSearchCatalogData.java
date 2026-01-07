@@ -18,6 +18,12 @@ public record PacketSearchCatalogData(int villagerEntityId, List<ItemStack> cata
             new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "search_catalog_data"));
 
     /**
+     * Keep this in sync with server-side MAX_TOTAL_ITEMS conceptually.
+     * This is the transport safety cap.
+     */
+    private static final int MAX_ITEMS_ON_WIRE = 16384;
+
+    /**
      * Backwards-friendly alias for call-sites that used "items()".
      */
     public List<ItemStack> items() {
@@ -31,7 +37,11 @@ public record PacketSearchCatalogData(int villagerEntityId, List<ItemStack> cata
                 int id = buf.readVarInt();
                 int n = buf.readVarInt();
                 if (n < 0) n = 0;
-                if (n > 4096) n = 4096;
+                if (n > MAX_ITEMS_ON_WIRE) {
+                    EZVillagerReroll.LOG().warn("[EZVR] PacketSearchCatalogData.decode: item count {} exceeds cap {}; truncating.",
+                            n, MAX_ITEMS_ON_WIRE);
+                    n = MAX_ITEMS_ON_WIRE;
+                }
 
                 List<ItemStack> list = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) {
@@ -50,8 +60,13 @@ public record PacketSearchCatalogData(int villagerEntityId, List<ItemStack> cata
             try {
                 buf.writeVarInt(msg.villagerEntityId());
                 List<ItemStack> list = msg.catalog() == null ? List.of() : msg.catalog();
-                int n = Math.min(4096, list.size());
+                int raw = list.size();
+                int n = Math.min(MAX_ITEMS_ON_WIRE, raw);
                 buf.writeVarInt(n);
+
+                if (raw > n) {
+                    EZVillagerReroll.LOG().warn("[EZVR] PacketSearchCatalogData.encode: truncating catalog {} -> {} (cap).", raw, n);
+                }
 
                 for (int i = 0; i < n; i++) {
                     ItemStack s = list.get(i);
