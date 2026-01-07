@@ -194,7 +194,7 @@ public final class ClientUI {
 
                 // Replace the previous left-side square marker with a chain "X" overlay inside the button.
                 try {
-                    renderChainX(gg, x, y, ww, hh);
+                    // renderChainX(gg, x, y, ww, hh);
                 } catch (Throwable t) {
                     // If rendering fails for any reason, do nothing; outline still indicates locked.
                     EZVillagerReroll.LOG().debug("[EZVR] renderChainX failed (soft): {}", t.toString());
@@ -204,16 +204,6 @@ public final class ClientUI {
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] renderTradeLockIndicators exception", t);
         }
-    }
-
-    /**
-     * Draw a "chain X" overlay centered on the trade button.
-     * Uses vanilla chain block texture (16x16) blitted twice with rotation.
-     *
-     * We intentionally keep it subtle and inside the button bounds.
-     */
-    private static void renderChainX(GuiGraphics gg, int x, int y, int ww, int hh) {
-        return;
     }
 
     private static List<AbstractWidget> findTradeOfferButtons(MerchantScreen screen) {
