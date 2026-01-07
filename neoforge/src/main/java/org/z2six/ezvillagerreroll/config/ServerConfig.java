@@ -115,7 +115,7 @@ public final class ServerConfig {
     public static boolean preferWallet = true;
     public static boolean autoPreferLCIfPresent = true;
 
-    public static int cooldownTicks = 200;
+    public static int cooldownTicks = 20;
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
 

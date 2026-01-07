@@ -2,11 +2,17 @@
 package org.z2six.ezvillagerreroll.server;
 
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.npc.AbstractVillager;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.inventory.MerchantMenu;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 
 /**
  * Gameplay/runtime event wiring (NeoForge.EVENT_BUS).
@@ -14,6 +20,7 @@ import org.z2six.ezvillagerreroll.EZVillagerReroll;
  * Responsibilities:
  * - Drive SearchService tick loop.
  * - Load/Save persisted auto-search tasks on server start/stop (SearchSavedData).
+ * - Restore/capture villager offers on MerchantMenu open (trade persistence).
  *
  * NOTE:
  * BusyVillagerBlocker is intentionally NOT registered here anymore;
@@ -42,9 +49,73 @@ public final class ServerEvents {
             bus.addListener(ServerEvents::onServerStarted);
             bus.addListener(ServerEvents::onServerStopping);
 
+            // Trade persistence hook
+            bus.addListener(ServerEvents::onContainerOpen);
+
             EZVillagerReroll.LOG().info("[EZVR] ServerEvents registered on gameplay bus.");
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] ServerEvents.register failed", t);
+        }
+    }
+
+    private static void onContainerOpen(PlayerContainerEvent.Open e) {
+        try {
+            if (e == null) return;
+
+            if (!(e.getEntity() instanceof ServerPlayer sp)) return;
+            if (!(e.getContainer() instanceof MerchantMenu menu)) return;
+
+            // Resolve the merchant behind the menu.
+            var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+            if (!(trader instanceof AbstractVillager merchant)) return;
+
+            // Only do persistence for Villager-type merchants (this mod is villager-centric).
+            // If you later want Wandering Trader too, remove this guard.
+            if (!(merchant instanceof Villager vill)) return;
+
+            var level = sp.serverLevel();
+            if (level == null) return;
+
+            VillagerOffersSavedData data = VillagerOffersSavedData.get(level);
+            if (data == null) {
+                EZVillagerReroll.LOG().warn("[EZVR] onContainerOpen: offers saved data unavailable; skipping (player={})", sp.getGameProfile().getName());
+                return;
+            }
+
+            boolean had = data.has(vill.getUUID());
+
+            if (had) {
+                boolean applied = data.apply(vill);
+                if (applied) {
+                    // Ensure the currently open menu immediately reflects the restored canonical offers.
+                    VillagerOffersSavedData.syncOffersToPlayerIfPossible(sp, menu, vill);
+
+                    EZVillagerReroll.LOG().info(
+                            "[EZVR] onContainerOpen: restored canonical offers for villager={} (player={}, offers={})",
+                            vill.getUUID(),
+                            sp.getGameProfile().getName(),
+                            (vill.getOffers() == null ? -1 : vill.getOffers().size())
+                    );
+                } else {
+                    EZVillagerReroll.LOG().debug(
+                            "[EZVR] onContainerOpen: had entry but apply failed; leaving vanilla state (villager={}, player={})",
+                            vill.getUUID(),
+                            sp.getGameProfile().getName()
+                    );
+                }
+            } else {
+                // First time we've seen this villager: store whatever it currently has.
+                data.capture(vill);
+
+                EZVillagerReroll.LOG().info(
+                        "[EZVR] onContainerOpen: captured initial offers as canonical for villager={} (player={}, offers={})",
+                        vill.getUUID(),
+                        sp.getGameProfile().getName(),
+                        (vill.getOffers() == null ? -1 : vill.getOffers().size())
+                );
+            }
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] onContainerOpen failed", t);
         }
     }
 

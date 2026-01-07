@@ -93,11 +93,6 @@ public final class TradeUtil {
                         EZVillagerReroll.LOG().warn("[EZVR] Failed to preserve locked offer idx={} villager={} {}", i, vill.getUUID(), t.toString());
                     }
                 }
-
-                /*
-                EZVillagerReroll.LOG().info("[EZVR] Preserved {} locked offers (villager={}, mask={})",
-                        preserved, vill.getUUID(), Long.toUnsignedString(afterMask));
-                 */
             }
 
             // Optional GUI sync
@@ -129,6 +124,21 @@ public final class TradeUtil {
                 } catch (Throwable t) {
                     EZVillagerReroll.LOG().debug("[EZVR] Failed to sync sanitized lock mask to active traders: {}", t.toString());
                 }
+            }
+
+            // ---- NEW: Persist canonical offers after every rebuild (manual reroll + auto-search reroll) ----
+            try {
+                var level = vill.level();
+                if (level != null && !level.isClientSide()) {
+                    var data = org.z2six.ezvillagerreroll.server.VillagerOffersSavedData.get(level);
+                    if (data != null) {
+                        data.capture(vill);
+                        EZVillagerReroll.LOG().debug("[EZVR] Persisted rebuilt offers to world data (villager={}, offers={})",
+                                vill.getUUID(), (vill.getOffers() == null ? -1 : vill.getOffers().size()));
+                    }
+                }
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] Persist rebuilt offers failed (soft): {}", t.toString());
             }
 
             return true;
