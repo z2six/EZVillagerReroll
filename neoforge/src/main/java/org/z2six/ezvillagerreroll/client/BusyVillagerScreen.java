@@ -214,7 +214,7 @@ public final class BusyVillagerScreen extends Screen {
             // Grid bounds
             int gridTop = 20 + 18 + 18 + 6;
             int gridBottom = this.height - 70;
-            int gridLeft = 20;
+            int gridLeftMin = 20;
 
             int cols = computeCols();
             int visibleRows = computeVisibleRows();
@@ -229,6 +229,9 @@ public final class BusyVillagerScreen extends Screen {
             int startIndex = scrollRow * cols;
             int endIndex = Math.min(flat.size(), startIndex + visibleRows * cols);
 
+            // Track hovered stack while we render; then render tooltip once at end (vanilla-style)
+            ItemStack hovered = ItemStack.EMPTY;
+
             // Render centered PER ROW
             int rowY = gridTop;
             int idx = startIndex;
@@ -238,20 +241,53 @@ public final class BusyVillagerScreen extends Screen {
                 int countThisRow = Math.min(cols, remaining);
 
                 int rowWidth = countThisRow * ITEM_SIZE + Math.max(0, countThisRow - 1) * PAD;
-                int startX = (this.width - rowWidth - SCROLLBAR_W - 2) / 2; // center relative to content area
-                if (startX < gridLeft) startX = gridLeft;
+
+                // Center relative to content area; keep space for scrollbar at right
+                int contentAreaW = this.width - (gridLeftMin * 2) - SCROLLBAR_W - 2;
+                if (contentAreaW < ITEM_SIZE) contentAreaW = ITEM_SIZE;
+
+                int startX = gridLeftMin + Math.max(0, (contentAreaW - rowWidth) / 2);
 
                 int x = startX;
 
                 for (int c = 0; c < countThisRow && idx < endIndex; c++, idx++) {
                     ItemStack s = flat.get(idx);
+
+                    // Render
                     gg.renderItem(s, x, rowY);
                     gg.renderItemDecorations(this.font, s, x, rowY);
+
+                    // Hover detection
+                    if (!s.isEmpty()
+                            && mouseX >= x && mouseX < (x + ITEM_SIZE)
+                            && mouseY >= rowY && mouseY < (rowY + ITEM_SIZE)) {
+                        hovered = s;
+                    }
+
                     x += ITEM_SIZE + PAD;
                 }
 
                 rowY += ITEM_SIZE + PAD;
                 if (rowY > gridBottom - ITEM_SIZE) break;
+            }
+
+            // Tooltip (vanilla look): same path as inventory hover
+            if (hovered != null && !hovered.isEmpty()) {
+                try {
+                    gg.renderTooltip(this.font, hovered, mouseX, mouseY);
+                } catch (Throwable t) {
+                    // Soft fallback: at least show item name (avoid crash)
+                    try {
+                        gg.renderTooltip(
+                                this.font,
+                                java.util.List.of(hovered.getHoverName()),
+                                java.util.Optional.empty(),
+                                mouseX,
+                                mouseY
+                        );
+                    } catch (Throwable ignored) {}
+                    EZVillagerReroll.LOG().debug("[EZVR] BusyVillagerScreen tooltip render failed (soft): {}", t.toString());
+                }
             }
 
             // Scrollbar
