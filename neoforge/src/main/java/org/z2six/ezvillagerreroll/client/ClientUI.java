@@ -1,7 +1,6 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/ClientUI.java
 package org.z2six.ezvillagerreroll.client;
 
-import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -14,15 +13,11 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
-import org.joml.AxisAngle4f;
-import org.joml.Quaternionf;
-import org.z2six.ezvillagerreroll.Constants;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ClientConfig;
 import org.z2six.ezvillagerreroll.network.ClientSyncedConfig;
 import org.z2six.ezvillagerreroll.network.ClientTooltipCache;
 import org.z2six.ezvillagerreroll.network.ClientTradeLockCache;
-import org.z2six.ezvillagerreroll.network.Network;
 import org.z2six.ezvillagerreroll.network.PacketRequestReroll;
 import org.z2six.ezvillagerreroll.network.PacketTooltipData;
 import org.z2six.ezvillagerreroll.network.PacketTooltipQuery;
@@ -39,10 +34,6 @@ public final class ClientUI {
     private static final long TOOLTIP_REFRESH_DEBOUNCE_MS = 750;
     private static final Map<Screen, Button> REROLL_BUTTONS = new WeakHashMap<>();
 
-    /**
-     * Vanilla chain block texture (16x16).
-     * Used as a UI overlay decal to represent "locked".
-     */
     private static final ResourceLocation CHAIN_TEX =
             ResourceLocation.fromNamespaceAndPath("minecraft", "textures/block/chain.png");
 
@@ -51,8 +42,35 @@ public final class ClientUI {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenRenderPost);
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenClosed);
 
-        // IMPORTANT: RMB toggling is handled via mixin now. Do NOT also do it here (double toggles).
         EZVillagerReroll.LOG().info("[EZVR] ClientUI.registerRuntimeClientEvents(): handlers added");
+    }
+
+    public static Button getRerollButtonFor(Screen screen) {
+        try {
+            if (screen == null) return null;
+            return REROLL_BUTTONS.get(screen);
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] ClientUI.getRerollButtonFor failed (soft): {}", t.toString());
+            return null;
+        }
+    }
+
+    public static void openSearchCatalogScreen(MerchantScreen parent, int villagerEntityId) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+            if (parent == null) return;
+
+            EZVillagerReroll.LOG().info("[EZVR] Opening search catalog UI (villagerEntityId={})", villagerEntityId);
+
+            // Query server for catalog
+            ClientNetwork.sendToServer(new org.z2six.ezvillagerreroll.network.PacketSearchCatalogQuery(villagerEntityId));
+
+            // Open loading screen immediately
+            mc.setScreen(new SearchCatalogScreen(parent));
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] openSearchCatalogScreen failed", t);
+        }
     }
 
     private static void onScreenInitPost(final ScreenEvent.Init.Post e) {
@@ -74,7 +92,7 @@ public final class ClientUI {
 
             Button reroll = Button.builder(Component.literal("↻"), btn -> {
                         try {
-                            Network.sendToServer(new PacketRequestReroll());
+                            ClientNetwork.sendToServer(new PacketRequestReroll());
                             EZVillagerReroll.LOG().debug("[EZVR] Client clicked reroll button; sent PacketRequestReroll");
                         } catch (Throwable t) {
                             EZVillagerReroll.LOG().error("[EZVR] Client send reroll packet failed", t);
@@ -97,7 +115,6 @@ public final class ClientUI {
                     x, y, baseX, baseY, ClientConfig.buttonOffsetX, ClientConfig.buttonOffsetY
             );
 
-            // Request initial lock state for this currently-open merchant menu
             trySendTradeLocksQuery();
 
         } catch (Throwable t) {
@@ -181,23 +198,13 @@ public final class ClientUI {
                 int ww = w.getWidth();
                 int hh = w.getHeight();
 
-                // Green outline (keep)
                 try {
                     gg.renderOutline(x, y, ww, hh, outlineColor);
                 } catch (Throwable t) {
-                    // Fallback outline
                     gg.fill(x, y, x + ww, y + 1, outlineColor);
                     gg.fill(x, y + hh - 1, x + ww, y + hh, outlineColor);
                     gg.fill(x, y, x + 1, y + hh, outlineColor);
                     gg.fill(x + ww - 1, y, x + ww, y + hh, outlineColor);
-                }
-
-                // Replace the previous left-side square marker with a chain "X" overlay inside the button.
-                try {
-                    // renderChainX(gg, x, y, ww, hh);
-                } catch (Throwable t) {
-                    // If rendering fails for any reason, do nothing; outline still indicates locked.
-                    EZVillagerReroll.LOG().debug("[EZVR] renderChainX failed (soft): {}", t.toString());
                 }
             }
 
@@ -238,9 +245,7 @@ public final class ClientUI {
     private static void trySendTooltipQuery(MerchantScreen screen) {
         try {
             int traderId = resolveTraderEntityId(screen);
-
-            Network.sendToServer(new PacketTooltipQuery(traderId));
-
+            ClientNetwork.sendToServer(new PacketTooltipQuery(traderId));
             EZVillagerReroll.LOG().debug("[EZVR] Sent tooltip query (traderEntityId={})", traderId);
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client send tooltip query failed", t);
@@ -249,7 +254,7 @@ public final class ClientUI {
 
     private static void trySendTradeLocksQuery() {
         try {
-            Network.sendToServer(new PacketTradeLocksQuery());
+            ClientNetwork.sendToServer(new PacketTradeLocksQuery());
             EZVillagerReroll.LOG().debug("[EZVR] Sent trade locks query (current menu)");
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client send trade locks query failed", t);
@@ -260,7 +265,6 @@ public final class ClientUI {
         List<Component> lines = new ArrayList<>();
         if (d == null) return lines;
 
-        // Title
         lines.add(Component.translatable("ezvr.ui.reroll"));
 
         try {
@@ -270,27 +274,16 @@ public final class ClientUI {
             final String spec = (d.cost != null) ? d.cost.itemOrTag : null;
             final String pretty = prettyCostSpec(spec);
 
-            // Current cost
-            if (cost <= 0) {
-                lines.add(Component.literal("Cost: Free"));
-            } else {
-                lines.add(Component.literal("Cost: " + cost + " × " + pretty));
-            }
+            if (cost <= 0) lines.add(Component.literal("Cost: Free"));
+            else lines.add(Component.literal("Cost: " + cost + " × " + pretty));
 
-            // Next level cost (only when present)
-            if (next != null && next > 0) {
-                lines.add(Component.literal("Next level: " + next + " × " + pretty));
-            }
+            if (next != null && next > 0) lines.add(Component.literal("Next level: " + next + " × " + pretty));
 
-            // (Optional but useful) affordability hint
             if (d.afford != null) {
                 String src = d.afford.source == null ? "none" : d.afford.source;
-                if (cost > 0) {
-                    lines.add(Component.literal(d.afford.canAfford ? "Affordable (" + src + ")" : "Not affordable (" + src + ")"));
-                }
+                if (cost > 0) lines.add(Component.literal(d.afford.canAfford ? "Affordable (" + src + ")" : "Not affordable (" + src + ")"));
             }
 
-            // (Optional) villager info (kept subtle)
             if (d.villager != null && d.villager.level > 0) {
                 lines.add(Component.literal("Villager level: " + d.villager.level));
             }
@@ -298,24 +291,21 @@ public final class ClientUI {
         } catch (Throwable t) {
             EZVillagerReroll.LOG().debug("[EZVR] buildTooltipLines failed (soft): {}", t.toString());
         }
-
         return lines;
     }
-    
+
     private static String prettyCostSpec(String spec) {
         try {
             if (spec == null || spec.isBlank()) return "unknown";
 
             String s = spec.trim();
             if (s.startsWith("#")) {
-                // tag
                 String tag = s.substring(1);
                 int colon = tag.indexOf(':');
                 if (colon >= 0 && colon + 1 < tag.length()) tag = tag.substring(colon + 1);
                 return "#" + tag;
             }
 
-            // item id
             int colon = s.indexOf(':');
             if (colon >= 0 && colon + 1 < s.length()) return s.substring(colon + 1);
             return s;
@@ -324,13 +314,10 @@ public final class ClientUI {
         }
     }
 
-    // It tries hard to find an Entity (Villager) reference from the screen/menu.
-    // If it can't, it returns -1 (server will fall back to level 1 behavior).
-    private static int resolveTraderEntityId(MerchantScreen screen) {
+    public static int resolveTraderEntityId(MerchantScreen screen) {
         try {
             if (screen == null) return -1;
 
-            // 1) Try menu fields first
             try {
                 MerchantMenu menu = (screen.getMenu() instanceof MerchantMenu mm) ? mm : null;
                 if (menu != null) {
@@ -339,7 +326,6 @@ public final class ClientUI {
                 }
             } catch (Throwable ignored) {}
 
-            // 2) Try screen fields
             try {
                 Integer id = reflectFindEntityId(screen);
                 if (id != null) return id;
@@ -364,20 +350,13 @@ public final class ClientUI {
                         Object v = f.get(holder);
                         if (v == null) continue;
 
-                        // Direct entity reference?
-                        if (v instanceof net.minecraft.world.entity.Entity ent) {
-                            return ent.getId();
-                        }
+                        if (v instanceof net.minecraft.world.entity.Entity ent) return ent.getId();
 
-                        // Sometimes stored as merchant/trader object that may itself be an entity
-                        // or may contain an entity field; do a shallow one-level dive for common cases.
                         if (!(v instanceof Number) && !(v instanceof String) && !(v.getClass().isPrimitive())) {
                             Integer nested = reflectFindEntityIdShallow(v);
                             if (nested != null) return nested;
                         }
-                    } catch (Throwable ignoredField) {
-                        // Keep scanning
-                    }
+                    } catch (Throwable ignoredField) {}
                 }
                 c = c.getSuperclass();
             }
@@ -387,7 +366,6 @@ public final class ClientUI {
         }
     }
 
-    // Shallow scan only (prevents runaway recursion).
     private static Integer reflectFindEntityIdShallow(Object holder) {
         try {
             if (holder == null) return null;
@@ -398,9 +376,7 @@ public final class ClientUI {
                 try {
                     f.setAccessible(true);
                     Object v = f.get(holder);
-                    if (v instanceof net.minecraft.world.entity.Entity ent) {
-                        return ent.getId();
-                    }
+                    if (v instanceof net.minecraft.world.entity.Entity ent) return ent.getId();
                 } catch (Throwable ignored) {}
             }
             return null;

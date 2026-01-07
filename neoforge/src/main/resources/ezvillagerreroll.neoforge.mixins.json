@@ -10,8 +10,8 @@
     "VillagerDisableVanillaAutoTradeRefreshMixin"
   ],
   "client": [
-    "MixinTitleScreen",
-    "MerchantScreenTradeLockRightClickMixin"
+    "MerchantScreenTradeLockRightClickMixin",
+    "MerchantScreenRerollButtonRightClickMixin"
   ],
   "injectors": {
     "defaultRequire": 1

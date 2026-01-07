@@ -1,4 +1,4 @@
-// MainFile: src/main/java/org/z2six/ezvillagerreroll/logic/RerollState.java
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/logic/RerollState.java
 package org.z2six.ezvillagerreroll.logic;
 
 import net.minecraft.server.level.ServerLevel;
@@ -17,7 +17,13 @@ public final class RerollState {
     private static long lastDay = Long.MIN_VALUE;
 
     public static boolean canReroll(ServerPlayer sp, Villager vill) {
-        ServerLevel lvl = sp.serverLevel();
+        if (sp == null || vill == null) return false;
+        return canReroll(sp.serverLevel(), vill);
+    }
+
+    public static boolean canReroll(ServerLevel lvl, Villager vill) {
+        if (lvl == null || vill == null) return false;
+
         long now = lvl.getGameTime();
         long day = lvl.getDayTime() / 24000L;
 
@@ -42,7 +48,14 @@ public final class RerollState {
     }
 
     public static void markRerolled(ServerPlayer sp, Villager vill) {
-        long now = sp.serverLevel().getGameTime();
+        if (sp == null || vill == null) return;
+        markRerolled(sp.serverLevel(), vill);
+    }
+
+    public static void markRerolled(ServerLevel lvl, Villager vill) {
+        if (lvl == null || vill == null) return;
+
+        long now = lvl.getGameTime();
         UUID id = vill.getUUID();
         lastTick.put(id, now);
         if (ServerConfig.perVillagerDaily > 0) {

@@ -16,7 +16,21 @@ import org.z2six.ezvillagerreroll.mixin.VillagerAccessor;
 public final class TradeUtil {
 
     public static boolean rebuildOffers(Villager vill, ServerPlayer player) {
+        return rebuildOffersInternal(vill, player, true);
+    }
+
+    /**
+     * Internal offer rebuild used by:
+     * - normal reroll (syncToPlayer=true)
+     * - auto-search rerolls (syncToPlayer=false)
+     * - catalog sampling (syncToPlayer=false)
+     *
+     * Must preserve trade locks.
+     */
+    public static boolean rebuildOffersInternal(Villager vill, ServerPlayer player, boolean syncToPlayer) {
         try {
+            if (vill == null) return false;
+
             final VillagerData original = vill.getVillagerData();
             final int targetLevel = Math.max(1, Math.min(5, original.getLevel()));
             final int oldSize = vill.getOffers() != null ? vill.getOffers().size() : -1;
@@ -26,14 +40,13 @@ public final class TradeUtil {
             try {
                 if (vill.getOffers() != null) {
                     oldOffers = new MerchantOffers();
-                    for (MerchantOffer o : vill.getOffers()) {
-                        oldOffers.add(o);
-                    }
+                    for (MerchantOffer o : vill.getOffers()) oldOffers.add(o);
                 }
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().warn("[EZVR] Failed to snapshot old offers (villager={}) {}", vill.getUUID(), t.toString());
             }
 
+            // Clear and rebuild per level
             ((AbstractVillagerAccessor) (AbstractVillager) vill).ezvr$setOffers(new MerchantOffers());
 
             for (int l = 1; l <= targetLevel; l++) {
@@ -43,13 +56,18 @@ public final class TradeUtil {
             }
 
             vill.setVillagerData(original);
-            ((VillagerAccessor) vill).ezvr$updateSpecialPrices(player);
+
+            // Only apply special prices if player is known
+            try {
+                if (player != null) ((VillagerAccessor) vill).ezvr$updateSpecialPrices(player);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] updateSpecialPrices skipped/failed (soft): {}", t.toString());
+            }
 
             MerchantOffers offers = vill.getOffers();
             int newSize = offers != null ? offers.size() : -1;
 
-            // Preserve locked trades: replace those indices in the new list with the old offers.
-            // Locks are server authoritative and stored on the villager (persistent data).
+            // Preserve locked trades
             long beforeMask = TradeLockState.getMask(vill);
             long afterMask = TradeLockState.sanitizeMaskForSize(beforeMask, (offers == null ? 0 : offers.size()));
             if (afterMask != beforeMask) {
@@ -80,7 +98,8 @@ public final class TradeUtil {
                         preserved, vill.getUUID(), Long.toUnsignedString(afterMask));
             }
 
-            if (player.containerMenu instanceof MerchantMenu menu) {
+            // Optional GUI sync
+            if (syncToPlayer && player != null && player.containerMenu instanceof MerchantMenu menu) {
                 player.sendMerchantOffers(
                         menu.containerId,
                         offers,
@@ -89,14 +108,15 @@ public final class TradeUtil {
                         vill.showProgressBar(),
                         vill.canRestock()
                 );
+
                 EZVillagerReroll.LOG().info(
                         "[EZVR] Rebuilt offers via vanilla steps: villager={}, level={}, offers {} -> {}",
                         vill.getUUID(), targetLevel, oldSize, newSize
                 );
             } else {
-                EZVillagerReroll.LOG().warn(
-                        "[EZVR] Player not in MerchantMenu during sync; GUI may not refresh (villager={}, offers={})",
-                        vill.getUUID(), newSize
+                EZVillagerReroll.LOG().debug(
+                        "[EZVR] Rebuilt offers (no GUI sync): villager={}, level={}, offers {} -> {}",
+                        vill.getUUID(), targetLevel, oldSize, newSize
                 );
             }
 
@@ -112,7 +132,7 @@ public final class TradeUtil {
             return true;
 
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().error("[EZVR] rebuildOffers exception", t);
+            EZVillagerReroll.LOG().error("[EZVR] rebuildOffersInternal exception", t);
             return false;
         }
     }
