@@ -250,60 +250,80 @@ public final class TradeUtil {
         try {
             if (offers == null || offers.isEmpty()) return false;
 
-            Map<String, Integer> firstIndexBySig = new HashMap<>();
+            // Keyed by RESULT identity only (item id + NBT/components), ignoring offer inputs and counts.
+            Map<String, Integer> firstIndexByResultSig = new HashMap<>();
+
             for (int i = 0; i < offers.size(); i++) {
                 MerchantOffer o = offers.get(i);
                 if (o == null) continue;
 
-                String sig = signatureOf(o);
-                Integer first = firstIndexBySig.putIfAbsent(sig, i);
+                ItemStack res = null;
+                try { res = o.getResult(); } catch (Throwable ignored) {}
+                if (res == null || res.isEmpty()) continue;
+
+                String sig = resultSignatureOf(res);
+                if (sig == null || sig.isEmpty()) continue;
+
+                Integer first = firstIndexByResultSig.putIfAbsent(sig, i);
                 if (first == null) continue;
 
                 boolean firstLocked = (lockMask & (1L << first)) != 0L;
-                boolean thisLocked = (lockMask & (1L << i)) != 0L;
+                boolean thisLocked  = (lockMask & (1L << i)) != 0L;
 
-                // If at least one is unlocked, it's fixable -> retry rebuild.
+                // If at least one side is unlocked, we can fix it by rerolling again.
                 if (!firstLocked || !thisLocked) {
-                    EZVillagerReroll.LOG().debug("[EZVR] Duplicate offer detected (idxA={}, idxB={}, lockedA={}, lockedB={}, sig={})",
-                            first, i, firstLocked, thisLocked, sig);
+                    EZVillagerReroll.LOG().debug(
+                            "[EZVR] Duplicate RESULT detected (idxA={}, idxB={}, lockedA={}, lockedB={}, resultSig={})",
+                            first, i, firstLocked, thisLocked, sig
+                    );
                     return true;
+                }
+
+                // Both are locked duplicates -> not fixable without breaking locks.
+                // Log once in a while to avoid spam.
+                if ((i == 0 || i == 1) && EZVillagerReroll.LOG().isDebugEnabled()) {
+                    EZVillagerReroll.LOG().debug(
+                            "[EZVR] Duplicate RESULT exists but both are locked (idxA={}, idxB={}, resultSig={}); leaving as-is.",
+                            first, i, sig
+                    );
                 }
             }
 
             return false;
+
         } catch (Throwable t) {
-            // Fail open: don't get stuck rebuilding forever if signature logic breaks.
-            EZVillagerReroll.LOG().debug("[EZVR] hasDuplicatesInvolvingUnlocked failed (soft): {}", t.toString());
+            // Fail-open: don't risk endless rebuild loops.
+            EZVillagerReroll.LOG().debug("[EZVR] hasDuplicatesInvolvingUnlocked(result-only) failed (soft): {}", t.toString());
             return false;
         }
     }
 
-    /**
-     * Build a stable-ish signature for an offer.
-     * We intentionally focus on the economic identity: inputs + output (including tag/components).
-     * This allows multiple enchanted books (different data) but blocks exact duplicates like paper->emerald twice.
-     */
-    private static String signatureOf(MerchantOffer offer) {
+    private static String resultSignatureOf(ItemStack s) {
         try {
-            if (offer == null) return "null";
+            if (s == null || s.isEmpty()) return "empty";
 
-            ItemStack a = safeStack(offer.getBaseCostA());
-            ItemStack b = safeStack(offer.getCostB());
-            ItemStack r = safeStack(offer.getResult());
+            String id = "unknown";
+            try {
+                Item item = s.getItem();
+                id = String.valueOf(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item));
+            } catch (Throwable ignored) {}
 
-            StringBuilder sb = new StringBuilder(256);
-            sb.append("A=").append(stackSig(a)).append('|');
-            sb.append("B=").append(stackSig(b)).append('|');
-            sb.append("R=").append(stackSig(r)).append('|');
+            // Universal “data identity”:
+            // - Prefer components patch (1.21+)
+            // - Fallback to tag if present
+            // - Fallback to toString()
+            String extra = readExtraDataStringReflective(s);
 
-            // Include a couple offer params that can differentiate “same item” trades
-            try { sb.append("MU=").append(offer.getMaxUses()).append('|'); } catch (Throwable ignored) {}
-            try { sb.append("XP=").append(offer.getXp()).append('|'); } catch (Throwable ignored) {}
-            try { sb.append("PM=").append(offer.getPriceMultiplier()).append('|'); } catch (Throwable ignored) {}
+            if (extra != null && extra.length() > 2048) {
+                extra = extra.substring(0, 2048);
+            }
 
-            return sb.toString();
+            // IMPORTANT: ignore count to satisfy "never duplicate items"
+            // (same item+data is considered duplicate even if count differs).
+            return id + ":" + (extra == null ? "" : extra);
+
         } catch (Throwable t) {
-            return "err";
+            return "result_err";
         }
     }
 
@@ -353,7 +373,21 @@ public final class TradeUtil {
         try {
             if (s == null) return "";
 
-            // 1) getTag() -> CompoundTag
+            // 1) Components patch (1.21+). This is usually the best identity source.
+            try {
+                Method m = s.getClass().getMethod("getComponentsPatch");
+                Object patch = m.invoke(s);
+                if (patch != null) return patch.toString();
+            } catch (Throwable ignored) {}
+
+            // 2) Full components (fallback)
+            try {
+                Method m = s.getClass().getMethod("getComponents");
+                Object comps = m.invoke(s);
+                if (comps != null) return comps.toString();
+            } catch (Throwable ignored) {}
+
+            // 3) Legacy tag (if present)
             try {
                 Method m = s.getClass().getMethod("getTag");
                 Object tagObj = m.invoke(s);
@@ -362,21 +396,7 @@ public final class TradeUtil {
                 }
             } catch (Throwable ignored) {}
 
-            // 2) getComponentsPatch()
-            try {
-                Method m = s.getClass().getMethod("getComponentsPatch");
-                Object patch = m.invoke(s);
-                if (patch != null) return patch.toString();
-            } catch (Throwable ignored) {}
-
-            // 3) getComponents()
-            try {
-                Method m = s.getClass().getMethod("getComponents");
-                Object comps = m.invoke(s);
-                if (comps != null) return comps.toString();
-            } catch (Throwable ignored) {}
-
-            // 4) last resort
+            // 4) Last resort
             try {
                 return s.toString();
             } catch (Throwable ignored) {
