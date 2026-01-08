@@ -29,7 +29,20 @@ public final class ServerConfig {
     public static final ModConfigSpec.BooleanValue PREFER_WALLET;
     public static final ModConfigSpec.BooleanValue AUTO_DEFAULT_LC_IF_PRESENT;
 
-    // NOTE: Number, NOT Long (NeoForge may give Integer)
+    /**
+     * NEW cost model:
+     * - First FREE_OFFERS are free.
+     * - Then each paid offer costs COST_PER_OFFER.
+     * - Trade locks can reduce offer count for cost computation, but only up to MAX_DEDUCTIBLE_LOCKED_OFFERS.
+     */
+    public static final ModConfigSpec.IntValue FREE_OFFERS;
+    public static final ModConfigSpec.IntValue COST_PER_OFFER;
+    public static final ModConfigSpec.IntValue MAX_DEDUCTIBLE_LOCKED_OFFERS;
+
+    /**
+     * LEGACY (kept so old configs / code references do not explode).
+     * Not used by our current reroll cost logic anymore.
+     */
     public static final ModConfigSpec.ConfigValue<List<? extends Number>> LEVEL_COSTS;
 
     // ---------------------------------------------------------------------
@@ -69,8 +82,33 @@ public final class ServerConfig {
                 B.comment("Auto-switch emerald to LC coin if LC is installed.")
                         .define("autoPreferLCIfPresent", true);
 
+        FREE_OFFERS =
+                B.comment("""
+                        Number of trade offers that are free (no cost).
+                        Example:
+                          - freeOffers=2 means a villager with 2 offers costs 0.
+                          - A villager with 4 offers would pay for 2 offers (before lock deductions).
+                        """)
+                        .defineInRange("freeOffers", 2, 0, 64);
+
+        COST_PER_OFFER =
+                B.comment("""
+                        Cost per paid offer (after freeOffers and lock deduction logic).
+                        Total cost = paidOffers * costPerOffer
+                        """)
+                        .defineInRange("costPerOffer", 8, 0, 640);
+
+        MAX_DEDUCTIBLE_LOCKED_OFFERS =
+                B.comment("""
+                        Maximum number of locked offers that can reduce the cost computation.
+                        Example:
+                          - maxDeductibleLockedOffers=1 means locking 10 offers only deducts 1 from the cost calculation.
+                        """)
+                        .defineInRange("maxDeductibleLockedOffers", 1, 0, 63);
+
         LEVEL_COSTS =
                 B.comment("""
+                        LEGACY (not used by current cost model).
                         Cost per villager level (1–5).
                         Example: [0, 16, 52, 64, 96]
                         """)
@@ -115,6 +153,10 @@ public final class ServerConfig {
     public static boolean preferWallet = true;
     public static boolean autoPreferLCIfPresent = true;
 
+    public static int freeOffers = 2;
+    public static int costPerOffer = 8;
+    public static int maxDeductibleLockedOffers = 1;
+
     public static int cooldownTicks = 20;
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
@@ -144,10 +186,15 @@ public final class ServerConfig {
             preferWallet = PREFER_WALLET.get();
             autoPreferLCIfPresent = AUTO_DEFAULT_LC_IF_PRESENT.get();
 
+            freeOffers = Math.max(0, FREE_OFFERS.get());
+            costPerOffer = Math.max(0, COST_PER_OFFER.get());
+            maxDeductibleLockedOffers = Math.max(0, MAX_DEDUCTIBLE_LOCKED_OFFERS.get());
+
             cooldownTicks = COOLDOWN_TICKS.get();
             perVillagerDaily = PER_VILLAGER_DAILY.get();
             allowAfterTradeUsed = ALLOW_AFTER_TRADE_USED.get();
 
+            // legacy
             levelCosts = parseLevelCosts(LEVEL_COSTS.get());
 
             if (autoPreferLCIfPresent
@@ -161,8 +208,9 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] ServerConfig {} OK | v={} hash={} costs={}",
-                    reason, cfgVersion, cfgHash, debug(levelCosts)
+                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} legacyLevelCosts={}",
+                    reason, cfgVersion, cfgHash,
+                    costSpec, preferWallet, freeOffers, costPerOffer, maxDeductibleLockedOffers, debug(levelCosts)
             );
 
         } catch (Throwable t) {
@@ -171,7 +219,7 @@ public final class ServerConfig {
     }
 
     // ---------------------------------------------------------------------
-    // REQUIRED API
+    // REQUIRED API (legacy)
     // ---------------------------------------------------------------------
 
     /** @return defensive copy, length = 5 */
@@ -207,9 +255,16 @@ public final class ServerConfig {
         int h = 1;
         h = 31 * h + Objects.hashCode(costSpec);
         h = 31 * h + (preferWallet ? 1 : 0);
+        h = 31 * h + (autoPreferLCIfPresent ? 1 : 0);
+
+        h = 31 * h + freeOffers;
+        h = 31 * h + costPerOffer;
+        h = 31 * h + maxDeductibleLockedOffers;
+
         h = 31 * h + cooldownTicks;
         h = 31 * h + perVillagerDaily;
         h = 31 * h + (allowAfterTradeUsed ? 1 : 0);
+
         for (int v : levelCosts) h = 31 * h + v;
         return h;
     }

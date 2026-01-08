@@ -39,6 +39,7 @@ public final class RerollExecutor {
 
             int level = Math.max(1, Math.min(5, vill.getVillagerData().getLevel()));
             int xp = vill.getVillagerXp();
+
             int offersBefore = vill.getOffers() != null ? vill.getOffers().size() : -1;
 
             if (!RerollState.canReroll(sp, vill)) {
@@ -55,14 +56,46 @@ public final class RerollExecutor {
                 return;
             }
 
-            int cost = Math.max(0, ServerConfig.costForVillagerLevel(level));
+            // ---- NEW offer-based cost ----
+            int totalOffers = Math.max(0, offersBefore);
+            long lockMask = TradeLockState.getMask(vill);
+            long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, totalOffers);
+            if (sanitized != lockMask) {
+                TradeLockState.setMask(vill, sanitized);
+                lockMask = sanitized;
+                EZVillagerReroll.LOG().debug("[EZVR] Sanitized lock mask during reroll cost calc (villager={} beforeMask={} afterMask={})",
+                        vill.getUUID(), Long.toUnsignedString(lockMask), Long.toUnsignedString(sanitized));
+            }
+
+            int lockedCount = Long.bitCount(lockMask);
+            int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
+            int deductibleLocks = Math.min(lockedCount, maxDeduct);
+
+            int effectiveOffers = Math.max(0, totalOffers - deductibleLocks);
+            int freeOffers = Math.max(0, ServerConfig.freeOffers);
+            int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
+
+            int paidOffers = Math.max(0, effectiveOffers - freeOffers);
+
+            int cost;
+            try {
+                long c = (long) paidOffers * (long) costPerOffer;
+                if (c < 0) c = 0;
+                if (c > Integer.MAX_VALUE) c = Integer.MAX_VALUE;
+                cost = (int) c;
+            } catch (Throwable t) {
+                cost = Integer.MAX_VALUE;
+            }
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, cost={}, costSpec='{}' (preferWallet={})",
+                    "[EZVR] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, deductibleLocks={}, effectiveOffers={}, freeOffers={}, paidOffers={}, costPerOffer={}, cost={}, costSpec='{}' (preferWallet={})",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getVillagerData().getProfession(),
-                    level, xp, cost, ServerConfig.costSpec, ServerConfig.preferWallet
+                    level, xp, offersBefore,
+                    lockedCount, deductibleLocks, effectiveOffers,
+                    freeOffers, paidOffers, costPerOffer,
+                    cost, ServerConfig.costSpec, ServerConfig.preferWallet
             );
 
             boolean paid = false;
@@ -104,7 +137,7 @@ public final class RerollExecutor {
                     paid = true;
                 }
             } else {
-                EZVillagerReroll.LOG().info("[EZVR] Cost is zero (free reroll per config).");
+                EZVillagerReroll.LOG().info("[EZVR] Cost is zero (free reroll per offer-based config).");
                 paid = true;
             }
 
@@ -133,7 +166,6 @@ public final class RerollExecutor {
         try {
             sp.displayClientMessage(Component.translatable(key), true);
         } catch (Throwable t) {
-            // Don't crash if translation/key missing
             EZVillagerReroll.LOG().warn("[EZVR] toast failed for key={}: {}", key, t.toString());
         }
     }

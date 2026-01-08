@@ -17,8 +17,18 @@ public final class PacketTooltipData implements CustomPacketPayload {
         public String itemOrTag;          // exact string from config for display (can be "#tag")
         public int baseCost;              // same as scaledCost here, kept for compatibility
         public int scaledCost;
+
+        // Removed conceptually (we keep field to avoid touching too much UI logic, but it will be null now)
         public Integer nextCostIfUsed;
         public Integer maxCostPossible;
+
+        // NEW: breakdown for offer-based pricing (purely informational)
+        public int totalOffers;
+        public int lockedOffers;
+        public int deductibleLockedOffers;
+        public int freeOffers;
+        public int paidOffers;
+        public int costPerOffer;
     }
 
     public static final class Afford {
@@ -83,6 +93,14 @@ public final class PacketTooltipData implements CustomPacketPayload {
             pkt.cost.nextCostIfUsed = readNullableInt(buf);
             pkt.cost.maxCostPossible = readNullableInt(buf);
 
+            // NEW fields (breakdown)
+            pkt.cost.totalOffers = buf.readVarInt();
+            pkt.cost.lockedOffers = buf.readVarInt();
+            pkt.cost.deductibleLockedOffers = buf.readVarInt();
+            pkt.cost.freeOffers = buf.readVarInt();
+            pkt.cost.paidOffers = buf.readVarInt();
+            pkt.cost.costPerOffer = buf.readVarInt();
+
             pkt.afford.canAfford = buf.readBoolean();
             pkt.afford.source = buf.readUtf(16);
 
@@ -110,6 +128,14 @@ public final class PacketTooltipData implements CustomPacketPayload {
             buf.writeVarInt(pkt.cost.scaledCost);
             writeNullableInt(buf, pkt.cost.nextCostIfUsed);
             writeNullableInt(buf, pkt.cost.maxCostPossible);
+
+            // NEW fields (breakdown)
+            buf.writeVarInt(Math.max(0, pkt.cost.totalOffers));
+            buf.writeVarInt(Math.max(0, pkt.cost.lockedOffers));
+            buf.writeVarInt(Math.max(0, pkt.cost.deductibleLockedOffers));
+            buf.writeVarInt(Math.max(0, pkt.cost.freeOffers));
+            buf.writeVarInt(Math.max(0, pkt.cost.paidOffers));
+            buf.writeVarInt(Math.max(0, pkt.cost.costPerOffer));
 
             buf.writeBoolean(pkt.afford.canAfford);
             buf.writeUtf(pkt.afford.source == null ? "none" : pkt.afford.source, 16);

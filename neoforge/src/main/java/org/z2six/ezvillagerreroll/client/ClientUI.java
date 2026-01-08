@@ -1,7 +1,9 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/ClientUI.java
 package org.z2six.ezvillagerreroll.client;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
@@ -12,6 +14,8 @@ import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.inventory.MerchantMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
@@ -27,6 +31,7 @@ import org.z2six.ezvillagerreroll.network.PacketTooltipQuery;
 import org.z2six.ezvillagerreroll.network.PacketTradeLocksQuery;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -45,6 +50,17 @@ public final class ClientUI {
 
     private static final String EZVR_TRADE_BUTTON_CLASS =
             "net.minecraft.client.gui.screens.inventory.MerchantScreen$TradeOfferButton";
+
+    // Tooltip rendering tuning
+    private static final int TIP_PAD_X = 6;
+    private static final int TIP_PAD_Y = 6;
+    private static final int TIP_LINE_GAP = 2;
+    private static final int TIP_ICON_SIZE = 9;      // close to vanilla "small"
+    private static final int TIP_ICON_GAP = 3;       // space between text and icon
+    private static final int TIP_Z = 400;            // background depth; we render text above this
+
+    // IMPORTANT: ARGB (AARRGGBB). 0xFFFFFF is transparent in ARGB contexts.
+    private static final int COLOR_WHITE_OPAQUE = 0xFFFFFFFF;
 
     public static void registerRuntimeClientEvents() {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenInitPost);
@@ -106,7 +122,6 @@ public final class ClientUI {
 
                             int optimisticTicks = 0;
                             try {
-                                // Prefer config snapshot if present, but this may be stale/0 on some setups.
                                 ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
                                 if (cfg != null) optimisticTicks = Math.max(0, cfg.cooldownTicks);
                             } catch (Throwable ignored) {}
@@ -167,9 +182,7 @@ public final class ClientUI {
 
             if (btn.active == cooling) btn.active = !cooling;
 
-            if (overlay != null) {
-                overlay.active = cooling;
-            }
+            if (overlay != null) overlay.active = cooling;
 
             boolean hoverOverlay = overlay != null && overlay.active && overlay.isMouseOver(e.getMouseX(), e.getMouseY());
             boolean hoverButton = btn.isMouseOver(e.getMouseX(), e.getMouseY());
@@ -180,16 +193,32 @@ public final class ClientUI {
                 }
 
                 PacketTooltipData snap = ClientTooltipCache.get();
-                List<Component> lines = buildTooltipLinesWithCooldown(snap, screen);
 
-                if (lines.isEmpty()) {
+                if (snap == null) {
+                    List<Component> syncing = new ArrayList<>();
                     ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
-                    if (cfg != null) lines = List.of(Component.literal("Syncing… (cfg v" + cfg.version + ")"));
-                    else lines = List.of(Component.literal("Syncing…"));
+                    if (cfg != null) syncing.add(Component.literal("Syncing… (cfg v" + cfg.version + ")"));
+                    else syncing.add(Component.literal("Syncing…"));
+                    e.getGuiGraphics().renderComponentTooltip(Minecraft.getInstance().font, syncing, e.getMouseX(), e.getMouseY());
+                    return;
                 }
 
-                GuiGraphics gg = e.getGuiGraphics();
-                gg.renderComponentTooltip(Minecraft.getInstance().font, lines, e.getMouseX(), e.getMouseY());
+                TooltipRenderPlan plan = buildPrettyTooltipPlan(snap, screen);
+                if (plan == null || plan.lines.isEmpty()) {
+                    EZVillagerReroll.LOG().warn("[EZVR] Tooltip render plan produced no lines (snap={}, screen={})",
+                            snap, screen.getClass().getName());
+                    List<Component> fallback = List.of(Component.literal("Tooltip error (see log)"));
+                    e.getGuiGraphics().renderComponentTooltip(Minecraft.getInstance().font, fallback, e.getMouseX(), e.getMouseY());
+                    return;
+                }
+
+                renderPrettyTooltip(
+                        e.getGuiGraphics(),
+                        Minecraft.getInstance().font,
+                        plan,
+                        e.getMouseX(), e.getMouseY(),
+                        screen.width, screen.height
+                );
             }
 
         } catch (Throwable t) {
@@ -393,19 +422,34 @@ public final class ClientUI {
         }
     }
 
-    /**
-     * Final desired:
-     * - Active button:   "Cooldown: 5s"
-     * - Inactive button: "Cooldown: 4.3s"
-     *
-     * Exactly ONE cooldown line.
-     */
-    private static List<Component> buildTooltipLinesWithCooldown(PacketTooltipData d, MerchantScreen screen) {
-        List<Component> lines = new ArrayList<>();
-        lines.add(Component.translatable("ezvr.ui.reroll"));
+    // ---------------------------------------------------------------------
+    // Pretty tooltip (colors + emerald icons)
+    // ---------------------------------------------------------------------
+
+    private static final class TooltipIcon {
+        final int lineIndex;
+        final ItemStack stack;
+
+        TooltipIcon(int lineIndex, ItemStack stack) {
+            this.lineIndex = lineIndex;
+            this.stack = stack;
+        }
+    }
+
+    private static final class TooltipRenderPlan {
+        final List<Component> lines = new ArrayList<>();
+        final List<TooltipIcon> icons = new ArrayList<>();
+    }
+
+    private static TooltipRenderPlan buildPrettyTooltipPlan(PacketTooltipData d, MerchantScreen screen) {
+        TooltipRenderPlan plan = new TooltipRenderPlan();
+
+        // 1) Title (green)
+        plan.lines.add(Component.translatable("ezvr.ui.reroll").withStyle(ChatFormatting.GREEN));
 
         int cid = resolveContainerId(screen);
 
+        // Cooldown calculation
         int remainingTicks = 0;
         boolean cooling = false;
         try {
@@ -417,16 +461,18 @@ public final class ClientUI {
             EZVillagerReroll.LOG().debug("[EZVR] Tooltip cooldown remaining read failed (soft): {}", t.toString());
         }
 
+        // 2) Cooldown line: "Cooldown:" orange
+        Component cooldownLine;
         if (cooling) {
             double sec = remainingTicks / 20.0;
-            lines.add(Component.literal(String.format("Cooldown: %.1fs", sec)));
+            cooldownLine = Component.empty()
+                    .append(Component.literal("Cooldown: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal(String.format("%.1fs", sec)));
         } else {
             int cfgTicks = 0;
 
-            // Primary: last known cfg ticks from PacketRerollCooldownState (authoritative, always relevant)
             if (cid >= 0) cfgTicks = ClientRerollCooldownCache.getLastKnownTotalCooldownTicks(cid);
 
-            // Secondary: if still unknown, fall back to synced config snapshot (if it exists)
             if (cfgTicks <= 0) {
                 try {
                     ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
@@ -437,63 +483,236 @@ public final class ClientUI {
             if (cfgTicks > 0) {
                 int secs = (int) Math.ceil(cfgTicks / 20.0);
                 if (secs < 0) secs = 0;
-                lines.add(Component.literal("Cooldown: " + secs + "s"));
+                cooldownLine = Component.empty()
+                        .append(Component.literal("Cooldown: ").withStyle(ChatFormatting.GOLD))
+                        .append(Component.literal(secs + "s"));
             } else {
-                lines.add(Component.literal("Cooldown: ?"));
+                cooldownLine = Component.empty()
+                        .append(Component.literal("Cooldown: ").withStyle(ChatFormatting.GOLD))
+                        .append(Component.literal("?"));
             }
+        }
+        plan.lines.add(cooldownLine);
 
-            EZVillagerReroll.LOG().debug("[EZVR] Tooltip cooldown (active): cfgTicks={} (containerId={})", cfgTicks, cid);
+        if (d == null || d.cost == null) {
+            plan.lines.add(Component.literal("Syncing…"));
+            return plan;
         }
 
-        if (d == null) return lines;
+        int cost = Math.max(0, d.cost.scaledCost);
 
-        try {
-            final int cost = d.cost != null ? d.cost.scaledCost : 0;
-            final Integer next = (d.cost != null) ? d.cost.nextCostIfUsed : null;
+        int totalOffers = safeIntField(d.cost, "totalOffers");
+        int lockedOffers = safeIntField(d.cost, "lockedOffers");
+        int deductedLocks = safeIntField(d.cost, "deductibleLockedOffers");
+        int freeOffers = safeIntField(d.cost, "freeOffers");
+        int paidOffers = safeIntField(d.cost, "paidOffers");
+        int costPerOffer = safeIntField(d.cost, "costPerOffer");
 
-            final String spec = (d.cost != null) ? d.cost.itemOrTag : null;
-            final String pretty = prettyCostSpec(spec);
-
-            if (cost <= 0) lines.add(Component.literal("Cost: Free"));
-            else lines.add(Component.literal("Cost: " + cost + " × " + pretty));
-
-            if (next != null && next > 0) lines.add(Component.literal("Next level: " + next + " × " + pretty));
-
-            if (d.afford != null) {
-                String src = d.afford.source == null ? "none" : d.afford.source;
-                if (cost > 0) lines.add(Component.literal(d.afford.canAfford ? "Affordable (" + src + ")" : "Not affordable (" + src + ")"));
-            }
-
-            if (d.villager != null && d.villager.level > 0) {
-                lines.add(Component.literal("Villager level: " + d.villager.level));
-            }
-
-        } catch (Throwable t) {
-            EZVillagerReroll.LOG().debug("[EZVR] buildTooltipLinesWithCooldown failed (soft): {}", t.toString());
+        // 3) Cost line: emerald ICON instead of word
+        if (cost <= 0) {
+            plan.lines.add(Component.empty()
+                    .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal("Free").withStyle(ChatFormatting.GREEN)));
+        } else {
+            int lineIdx = plan.lines.size();
+            plan.lines.add(Component.empty()
+                    .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal(String.valueOf(cost)))
+                    .append(Component.literal(" × ")));
+            plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
         }
 
-        return lines;
+        // 4) Offers/Locked/Deducted
+        plan.lines.add(Component.empty()
+                .append(Component.literal("Offers: ").withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(String.valueOf(Math.max(0, totalOffers))).withStyle(ChatFormatting.WHITE))
+                .append(Component.literal("   "))
+                .append(Component.literal("Locked: ").withStyle(ChatFormatting.RED))
+                .append(Component.literal(String.valueOf(Math.max(0, lockedOffers))).withStyle(ChatFormatting.WHITE))
+                .append(Component.literal("   "))
+                .append(Component.literal("Deducted: ").withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal(String.valueOf(Math.max(0, deductedLocks))).withStyle(ChatFormatting.WHITE))
+        );
+
+        // 5) Free/Paid + xN with emerald icon appended
+        int lineIdxFreePaid = plan.lines.size();
+        plan.lines.add(Component.empty()
+                .append(Component.literal("Free: ").withStyle(ChatFormatting.GREEN))
+                .append(Component.literal(String.valueOf(Math.max(0, freeOffers))).withStyle(ChatFormatting.GREEN))
+                .append(Component.literal("   "))
+                .append(Component.literal("Paid: ").withStyle(ChatFormatting.RED))
+                .append(Component.literal(String.valueOf(Math.max(0, paidOffers))).withStyle(ChatFormatting.RED))
+                .append(Component.literal("   "))
+                .append(Component.literal("x" + Math.max(0, costPerOffer)).withStyle(ChatFormatting.WHITE))
+        );
+        if (paidOffers > 0 && costPerOffer > 0) {
+            plan.icons.add(new TooltipIcon(lineIdxFreePaid, new ItemStack(Items.EMERALD)));
+        }
+
+        // 6) Affordable line green/red
+        if (d.afford != null && cost > 0) {
+            boolean can = d.afford.canAfford;
+            String src = d.afford.source == null ? "none" : d.afford.source;
+            Component aff = Component.literal(can ? ("Affordable (" + src + ")") : ("Not affordable (" + src + ")"))
+                    .withStyle(can ? ChatFormatting.GREEN : ChatFormatting.RED);
+            plan.lines.add(aff);
+        }
+
+        // 7) Villager level label orange
+        if (d.villager != null && d.villager.level > 0) {
+            plan.lines.add(Component.empty()
+                    .append(Component.literal("Villager level: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal(String.valueOf(d.villager.level)).withStyle(ChatFormatting.WHITE))
+            );
+        }
+
+        return plan;
     }
 
-    private static String prettyCostSpec(String spec) {
+    private static int safeIntField(Object obj, String fieldName) {
         try {
-            if (spec == null || spec.isBlank()) return "unknown";
-
-            String s = spec.trim();
-            if (s.startsWith("#")) {
-                String tag = s.substring(1);
-                int colon = tag.indexOf(':');
-                if (colon >= 0 && colon + 1 < tag.length()) tag = tag.substring(colon + 1);
-                return "#" + tag;
-            }
-
-            int colon = s.indexOf(':');
-            if (colon >= 0 && colon + 1 < s.length()) return s.substring(colon + 1);
-            return s;
-        } catch (Throwable t) {
-            return "unknown";
+            if (obj == null || fieldName == null) return 0;
+            Field f = obj.getClass().getDeclaredField(fieldName);
+            f.setAccessible(true);
+            Object v = f.get(obj);
+            if (v instanceof Number n) return n.intValue();
+            return 0;
+        } catch (Throwable ignored) {
+            return 0;
         }
     }
+
+    private static void renderPrettyTooltip(GuiGraphics gg, Font font, TooltipRenderPlan plan, int mouseX, int mouseY, int screenW, int screenH) {
+        try {
+            if (gg == null || font == null || plan == null || plan.lines.isEmpty()) return;
+
+            int lineHeight = Math.max(9, font.lineHeight);
+            int totalTextWidth = 0;
+
+            boolean[] hasIcon = new boolean[plan.lines.size()];
+            for (TooltipIcon ic : plan.icons) {
+                if (ic == null) continue;
+                if (ic.lineIndex >= 0 && ic.lineIndex < hasIcon.length) hasIcon[ic.lineIndex] = true;
+            }
+
+            for (int i = 0; i < plan.lines.size(); i++) {
+                Component c = plan.lines.get(i);
+                int w = font.width(c);
+                if (hasIcon[i]) w += TIP_ICON_GAP + TIP_ICON_SIZE;
+                if (w > totalTextWidth) totalTextWidth = w;
+            }
+
+            int tooltipW = TIP_PAD_X * 2 + totalTextWidth;
+            int tooltipH = TIP_PAD_Y * 2 + (plan.lines.size() * lineHeight) + ((plan.lines.size() - 1) * TIP_LINE_GAP);
+
+            int x = mouseX + 12;
+            int y = mouseY - 12;
+
+            if (x + tooltipW > screenW) x = mouseX - 12 - tooltipW;
+            if (x < 4) x = 4;
+
+            if (y + tooltipH > screenH) y = screenH - tooltipH - 6;
+            if (y < 4) y = 4;
+
+            // Background at TIP_Z
+            renderTooltipBackgroundCompat(gg, x, y, tooltipW, tooltipH, TIP_Z);
+
+            // Text/icons above background
+            gg.pose().pushPose();
+            gg.pose().translate(0.0D, 0.0D, (double) (TIP_Z + 5));
+
+            int textX = x + TIP_PAD_X;
+            int textY = y + TIP_PAD_Y;
+
+            for (int i = 0; i < plan.lines.size(); i++) {
+                int yy = textY + i * (lineHeight + TIP_LINE_GAP);
+                Component line = plan.lines.get(i);
+
+                // CRITICAL FIX: use opaque ARGB (0xFFFFFFFF), not 0xFFFFFF.
+                gg.drawString(font, line, textX, yy, COLOR_WHITE_OPAQUE, true);
+
+                if (hasIcon[i]) {
+                    int textW = font.width(line);
+                    // pull icon 1px closer to text
+                    int iconX = textX + textW + Math.max(0, TIP_ICON_GAP - 3);
+                    // vertically center a TIP_ICON_SIZE icon within the current line box
+                    int iconY = yy + Math.max(0, (lineHeight - TIP_ICON_SIZE) / 2) - 4;
+
+                    for (TooltipIcon ic : plan.icons) {
+                        if (ic == null) continue;
+                        if (ic.lineIndex != i) continue;
+
+                        ItemStack stack = ic.stack;
+                        if (stack == null || stack.isEmpty()) continue;
+
+                        try {
+                            gg.renderItem(stack, iconX, iconY);
+                            gg.renderItemDecorations(font, stack, iconX, iconY);
+                        } catch (Throwable t) {
+                            EZVillagerReroll.LOG().debug("[EZVR] renderPrettyTooltip icon draw failed (soft): {}", t.toString());
+                        }
+
+                        iconX += TIP_ICON_SIZE + 2;
+                    }
+                }
+            }
+
+            gg.pose().popPose();
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] renderPrettyTooltip failed", t);
+        }
+    }
+
+    private static void renderTooltipBackgroundCompat(GuiGraphics gg, int x, int y, int w, int h, int z) {
+        try {
+            Class<?> util = Class.forName("net.minecraft.client.gui.screens.inventory.tooltip.TooltipRenderUtil");
+            Method[] methods = util.getDeclaredMethods();
+
+            for (Method m : methods) {
+                if (!m.getName().toLowerCase().contains("rendertooltipbackground")) continue;
+                m.setAccessible(true);
+                Class<?>[] p = m.getParameterTypes();
+
+                if (p.length == 6 && p[0] == GuiGraphics.class
+                        && p[1] == int.class && p[2] == int.class && p[3] == int.class && p[4] == int.class && p[5] == int.class) {
+                    m.invoke(null, gg, x, y, w, h, z);
+                    return;
+                }
+                if (p.length == 5 && p[0] == GuiGraphics.class
+                        && p[1] == int.class && p[2] == int.class && p[3] == int.class && p[4] == int.class) {
+                    m.invoke(null, gg, x, y, w, h);
+                    return;
+                }
+            }
+
+            fallbackTooltipBox(gg, x, y, w, h);
+
+        } catch (Throwable t) {
+            fallbackTooltipBox(gg, x, y, w, h);
+        }
+    }
+
+    private static void fallbackTooltipBox(GuiGraphics gg, int x, int y, int w, int h) {
+        try {
+            int bg = 0xF0100010;
+            int border1 = 0x505000FF;
+            int border2 = 0x5028007F;
+
+            gg.fill(x, y, x + w, y + h, bg);
+
+            gg.fill(x, y, x + w, y + 1, border1);
+            gg.fill(x, y + h - 1, x + w, y + h, border1);
+            gg.fill(x, y, x + 1, y + h, border1);
+            gg.fill(x + w - 1, y, x + w, y + h, border1);
+
+            gg.fill(x + 1, y + 1, x + w - 1, y + 2, border2);
+        } catch (Throwable ignored) {}
+    }
+
+    // ---------------------------------------------------------------------
+    // Trader entity id resolver (unchanged)
+    // ---------------------------------------------------------------------
 
     public static int resolveTraderEntityId(MerchantScreen screen) {
         try {

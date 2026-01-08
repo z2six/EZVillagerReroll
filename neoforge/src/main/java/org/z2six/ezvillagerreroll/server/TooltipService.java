@@ -6,11 +6,15 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.trading.Merchant;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
 import org.z2six.ezvillagerreroll.logic.MoneyBridge;
+import org.z2six.ezvillagerreroll.logic.TradeLockState;
+import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 import org.z2six.ezvillagerreroll.network.PacketTooltipData;
 
 public final class TooltipService {
@@ -19,9 +23,45 @@ public final class TooltipService {
         var out = new PacketTooltipData();
         try {
             Villager vill = null;
+
+            // 1) Primary: resolve from entity id (works when client can provide it)
             if (traderEntityId >= 0) {
-                Entity e = player.level().getEntity(traderEntityId);
-                if (e instanceof Villager v) vill = v;
+                try {
+                    Entity e = player.level().getEntity(traderEntityId);
+                    if (e instanceof Villager v) {
+                        vill = v;
+                        EZVillagerReroll.LOG().debug("[EZVR] TooltipService: resolved villager via entityId={} uuid={}", traderEntityId, v.getUUID());
+                    } else if (e != null) {
+                        EZVillagerReroll.LOG().debug("[EZVR] TooltipService: entityId={} is not Villager (type={})", traderEntityId, e.getClass().getName());
+                    } else {
+                        EZVillagerReroll.LOG().debug("[EZVR] TooltipService: no entity for entityId={}", traderEntityId);
+                    }
+                } catch (Throwable t) {
+                    EZVillagerReroll.LOG().debug("[EZVR] TooltipService: entityId resolution failed (soft): {}", t.toString());
+                }
+            } else {
+                EZVillagerReroll.LOG().debug("[EZVR] TooltipService: traderEntityId < 0 (client could not resolve trader id)");
+            }
+
+            // 2) Fallback: resolve from open MerchantMenu trader (server-authoritative, matches reroll path)
+            if (vill == null) {
+                try {
+                    if (player.containerMenu instanceof MerchantMenu menu) {
+                        Merchant trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+                        if (trader instanceof Villager v) {
+                            vill = v;
+                            EZVillagerReroll.LOG().debug("[EZVR] TooltipService: resolved villager via MerchantMenu trader uuid={}", v.getUUID());
+                        } else {
+                            EZVillagerReroll.LOG().debug("[EZVR] TooltipService: MerchantMenu trader is not Villager (traderType={})",
+                                    trader == null ? "null" : trader.getClass().getName());
+                        }
+                    } else {
+                        EZVillagerReroll.LOG().debug("[EZVR] TooltipService: player.containerMenu is not MerchantMenu (menuType={})",
+                                player.containerMenu == null ? "null" : player.containerMenu.getClass().getName());
+                    }
+                } catch (Throwable t) {
+                    EZVillagerReroll.LOG().debug("[EZVR] TooltipService: MerchantMenu fallback resolution failed (soft): {}", t.toString());
+                }
             }
 
             int villLevel = vill != null ? vill.getVillagerData().getLevel() : 1;
@@ -29,7 +69,47 @@ public final class TooltipService {
 
             String costSpec = ServerConfig.costSpec == null ? "minecraft:emerald" : ServerConfig.costSpec;
             boolean preferWallet = ServerConfig.preferWallet;
-            int cost = ServerConfig.costForVillagerLevel(Math.max(1, Math.min(5, villLevel)));
+
+            // ---- Offer-based cost computation (authoritative) ----
+            int totalOffers = 0;
+            long lockMask = 0L;
+            int lockedCount = 0;
+
+            if (vill != null) {
+                totalOffers = (vill.getOffers() == null) ? 0 : vill.getOffers().size();
+                lockMask = TradeLockState.getMask(vill);
+                long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, totalOffers);
+                if (sanitized != lockMask) {
+                    TradeLockState.setMask(vill, sanitized);
+                    lockMask = sanitized;
+                    EZVillagerReroll.LOG().debug("[EZVR] TooltipService: sanitized lock mask (villager={} offers={} newMask={})",
+                            vill.getUUID(), totalOffers, Long.toUnsignedString(lockMask));
+                }
+                lockedCount = Long.bitCount(lockMask);
+            } else {
+                EZVillagerReroll.LOG().debug("[EZVR] TooltipService: villager unresolved -> tooltip will show offers=0/cost=free");
+            }
+
+            int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
+            int deductibleLocks = Math.min(lockedCount, maxDeduct);
+
+            int effectiveOffers = Math.max(0, totalOffers - deductibleLocks);
+
+            int freeOffers = Math.max(0, ServerConfig.freeOffers);
+            int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
+
+            int paidOffers = Math.max(0, effectiveOffers - freeOffers);
+
+            long rawCost = (long) paidOffers * (long) costPerOffer;
+            int cost;
+            if (rawCost < 0) cost = 0;
+            else if (rawCost > Integer.MAX_VALUE) cost = Integer.MAX_VALUE;
+            else cost = (int) rawCost;
+
+            EZVillagerReroll.LOG().debug(
+                    "[EZVR] TooltipService cost calc: totalOffers={} lockedCount={} deductibleLocks={} effectiveOffers={} freeOffers={} paidOffers={} costPerOffer={} -> cost={}",
+                    totalOffers, lockedCount, deductibleLocks, effectiveOffers, freeOffers, paidOffers, costPerOffer, cost
+            );
 
             // Tooltip fields
             out.cost.itemOrTag = costSpec;
@@ -37,17 +117,17 @@ public final class TooltipService {
             out.cost.baseCost = cost;
             out.cost.scaledCost = cost;
 
-            // Next cost is the next level cost (if different)
-            Integer next = null;
-            int nextLevel = Math.max(1, Math.min(5, villLevel + 1));
-            int nextCost = ServerConfig.costForVillagerLevel(nextLevel);
-            if (nextLevel != villLevel && nextCost != cost) next = nextCost;
-            out.cost.nextCostIfUsed = next;
+            // "Next level" cost no longer exists in offer-based model
+            out.cost.nextCostIfUsed = null;
+            out.cost.maxCostPossible = null;
 
-            // Max is max across level costs
-            int max = 0;
-            for (int i = 0; i <= 5; i++) max = Math.max(max, ServerConfig.costForVillagerLevel(i));
-            out.cost.maxCostPossible = (max > 0 ? max : null);
+            // Breakdown
+            out.cost.totalOffers = totalOffers;
+            out.cost.lockedOffers = lockedCount;
+            out.cost.deductibleLockedOffers = deductibleLocks;
+            out.cost.freeOffers = freeOffers;
+            out.cost.paidOffers = paidOffers;
+            out.cost.costPerOffer = costPerOffer;
 
             out.villager.level = villLevel;
             out.villager.xp = villXp;
@@ -71,9 +151,6 @@ public final class TooltipService {
                         invOK = invCount >= cost;
                     }
                 } else {
-                    // Tag affordability is not computed precisely here (could be expensive);
-                    // Show inventory-only unknown as false unless player obviously has enough by scanning ingredient.
-                    // Keep it simple: treat as inventory-only and "unknown" -> false.
                     invOK = false;
                 }
 
@@ -85,7 +162,7 @@ public final class TooltipService {
             boolean capEnabled = ServerConfig.perVillagerDaily > 0;
             out.cap.enabled = capEnabled;
             out.cap.cap = ServerConfig.perVillagerDaily;
-            out.cap.remaining = -1; // Keeping the old tooltip shape without adding per-player tracking here; server enforces anyway.
+            out.cap.remaining = -1;
 
             out.cfg.version = ServerConfig.cfgVersion();
             out.cfg.hash = ServerConfig.cfgHash();
