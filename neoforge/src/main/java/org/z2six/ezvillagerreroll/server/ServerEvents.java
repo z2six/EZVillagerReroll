@@ -14,18 +14,6 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 
-/**
- * Gameplay/runtime event wiring (NeoForge.EVENT_BUS).
- *
- * Responsibilities:
- * - Drive SearchService tick loop.
- * - Load/Save persisted auto-search tasks on server start/stop (SearchSavedData).
- * - Restore/capture villager offers on MerchantMenu open (trade persistence).
- *
- * NOTE:
- * BusyVillagerBlocker is intentionally NOT registered here anymore;
- * it is wired explicitly in the main mod class (EZVillagerReroll) as requested.
- */
 public final class ServerEvents {
 
     private static volatile boolean registered = false;
@@ -48,8 +36,6 @@ public final class ServerEvents {
             bus.addListener(ServerEvents::onServerTickPost);
             bus.addListener(ServerEvents::onServerStarted);
             bus.addListener(ServerEvents::onServerStopping);
-
-            // Trade persistence hook
             bus.addListener(ServerEvents::onContainerOpen);
 
             EZVillagerReroll.LOG().info("[EZVR] ServerEvents registered on gameplay bus.");
@@ -65,13 +51,19 @@ public final class ServerEvents {
             if (!(e.getEntity() instanceof ServerPlayer sp)) return;
             if (!(e.getContainer() instanceof MerchantMenu menu)) return;
 
-            // Resolve the merchant behind the menu.
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
             if (!(trader instanceof AbstractVillager merchant)) return;
 
-            // Only do persistence for Villager-type merchants (this mod is villager-centric).
-            // If you later want Wandering Trader too, remove this guard.
             if (!(merchant instanceof Villager vill)) return;
+
+            // NEW: If awaiting payment settlement, do NOT restore/capture canonical offers here.
+            // The villager should not be tradeable at all during this time, and we don't want
+            // this hook to overwrite the settlement-cached offers.
+            if (SearchService.isAwaitingPayment(vill)) {
+                EZVillagerReroll.LOG().debug("[EZVR] onContainerOpen: villager awaiting payment; skipping offer persistence (villager={} player={})",
+                        vill.getUUID(), sp.getGameProfile().getName());
+                return;
+            }
 
             var level = sp.serverLevel();
             if (level == null) return;
@@ -87,7 +79,6 @@ public final class ServerEvents {
             if (had) {
                 boolean applied = data.apply(vill);
                 if (applied) {
-                    // Ensure the currently open menu immediately reflects the restored canonical offers.
                     VillagerOffersSavedData.syncOffersToPlayerIfPossible(sp, menu, vill);
 
                     EZVillagerReroll.LOG().info(
@@ -104,7 +95,6 @@ public final class ServerEvents {
                     );
                 }
             } else {
-                // First time we've seen this villager: store whatever it currently has.
                 data.capture(vill);
 
                 EZVillagerReroll.LOG().info(

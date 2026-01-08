@@ -42,6 +42,12 @@ public final class Network {
             r.playToServer(PacketRerollCooldownQuery.TYPE, PacketRerollCooldownQuery.STREAM_CODEC,
                     (msg, ctx) -> handleRerollCooldownQueryServer(msg, ctx));
 
+            // NEW: settlement payment actions (these were missing)
+            r.playToServer(PacketPayAutoSearchSettlement.TYPE, PacketPayAutoSearchSettlement.STREAM_CODEC,
+                    (msg, ctx) -> handlePayAutoSearchSettlementServer(msg, ctx));
+            r.playToServer(PacketDeclineAutoSearchSettlement.TYPE, PacketDeclineAutoSearchSettlement.STREAM_CODEC,
+                    (msg, ctx) -> handleDeclineAutoSearchSettlementServer(msg, ctx));
+
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTooltipData", msg, ctx));
@@ -62,6 +68,12 @@ public final class Network {
             // NEW: cooldown state update
             r.playToClient(PacketRerollCooldownState.TYPE, PacketRerollCooldownState.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onRerollCooldownState", msg, ctx));
+
+            // NEW: settlement/payment UI packets (these were missing)
+            r.playToClient(PacketOpenAutoSearchPaymentScreen.TYPE, PacketOpenAutoSearchPaymentScreen.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onOpenAutoSearchPaymentScreen", msg, ctx));
+            r.playToClient(PacketAutoSearchSettlementCleared.TYPE, PacketAutoSearchSettlementCleared.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onAutoSearchSettlementCleared", msg, ctx));
 
             EZVillagerReroll.LOG().info("[EZVR] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {
@@ -125,6 +137,10 @@ public final class Network {
     public static void sendToServer(PacketCancelAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketContinueAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketRerollCooldownQuery msg) { sendToServer((CustomPacketPayload) msg); }
+
+    // Optional convenience (not required, but consistent):
+    public static void sendToServer(PacketPayAutoSearchSettlement msg) { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketDeclineAutoSearchSettlement msg) { sendToServer((CustomPacketPayload) msg); }
 
     private static void handleTooltipQueryServer(PacketTooltipQuery msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
@@ -216,6 +232,26 @@ public final class Network {
                 ServerHandlers.handleRerollCooldownQuery(msg, ctx);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] CooldownQuery handler error", t);
+            }
+        });
+    }
+
+    private static void handlePayAutoSearchSettlementServer(PacketPayAutoSearchSettlement msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handlePayAutoSearchSettlement(msg, ctx);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] PayAutoSearchSettlement handler error", t);
+            }
+        });
+    }
+
+    private static void handleDeclineAutoSearchSettlementServer(PacketDeclineAutoSearchSettlement msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handleDeclineAutoSearchSettlement(msg, ctx);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] DeclineAutoSearchSettlement handler error", t);
             }
         });
     }

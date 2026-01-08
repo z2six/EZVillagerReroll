@@ -14,16 +14,12 @@ import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import java.util.*;
 
 /**
- * Persistent storage for ongoing villager auto-search tasks.
- *
- * Goals:
- * - Survive server restart/crash.
- * - Keep searching even if player logs off.
- * - Store enough info to resume search and optionally notify owner upon completion.
+ * Persistent storage for ongoing villager auto-search tasks AND completed settlements awaiting payment.
  *
  * We store:
  * - activeTasks: villagerUuid -> TaskData
- * - pendingDone: ownerUuid -> list of DoneData (delivered on next login)
+ * - settlements: villagerUuid -> SettlementData
+ * - pendingDone: ownerUuid -> list of DoneData (optional delivery when owner logs in)
  */
 public final class SearchSavedData extends SavedData {
 
@@ -43,6 +39,24 @@ public final class SearchSavedData extends SavedData {
         public Set<String> requestedKeys = new HashSet<>();
     }
 
+    public static final class SettlementData {
+        public UUID villagerUuid;
+        public int villagerEntityId;
+        public UUID ownerPlayerUuid;
+
+        public long startedAtGameTime;
+        public long completedAtGameTime;
+
+        public int hourlyCost;
+        public int finalCost;
+
+        /**
+         * Cached offers as ListTag of wrappers { "v": <MerchantOffer encoded tag> }.
+         * This matches the safe pattern used elsewhere (registry-aware decoding will happen server-side).
+         */
+        public ListTag offers = new ListTag();
+    }
+
     public static final class DoneData {
         public int villagerEntityId;
         public UUID villagerUuid;
@@ -50,6 +64,7 @@ public final class SearchSavedData extends SavedData {
     }
 
     private final Map<UUID, TaskData> activeTasks = new LinkedHashMap<>();
+    private final Map<UUID, SettlementData> settlements = new LinkedHashMap<>();
     private final Map<UUID, List<DoneData>> pendingDoneByOwner = new LinkedHashMap<>();
 
     public SearchSavedData() {}
@@ -58,18 +73,18 @@ public final class SearchSavedData extends SavedData {
         return activeTasks;
     }
 
+    public Map<UUID, SettlementData> settlements() {
+        return settlements;
+    }
+
     public Map<UUID, List<DoneData>> pendingDoneByOwner() {
         return pendingDoneByOwner;
     }
 
     // ------------------------------------------------------------
-    // Integration hooks (these were missing -> caused your compile errors)
+    // Integration hooks
     // ------------------------------------------------------------
 
-    /**
-     * Loads persisted tasks from overworld SavedData into SearchService.
-     * Safe to call on server start.
-     */
     public static void loadIntoSearchService(MinecraftServer server) {
         try {
             if (server == null) return;
@@ -87,8 +102,8 @@ public final class SearchSavedData extends SavedData {
 
             try {
                 SearchService.importFromSavedData(server, data);
-                EZVillagerReroll.LOG().info("[EZVR] SearchSavedData.loadIntoSearchService: imported activeTasks={}",
-                        data.activeTasks.size());
+                EZVillagerReroll.LOG().info("[EZVR] SearchSavedData.loadIntoSearchService: imported activeTasks={} settlements={}",
+                        data.activeTasks.size(), data.settlements.size());
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] SearchSavedData.loadIntoSearchService: import failed", t);
             }
@@ -98,10 +113,6 @@ public final class SearchSavedData extends SavedData {
         }
     }
 
-    /**
-     * Exports current SearchService tasks into overworld SavedData.
-     * Safe to call on server stop.
-     */
     public static void saveFromSearchService(MinecraftServer server) {
         try {
             if (server == null) return;
@@ -120,8 +131,8 @@ public final class SearchSavedData extends SavedData {
             try {
                 SearchService.exportToSavedData(server, data);
                 data.setDirty();
-                EZVillagerReroll.LOG().info("[EZVR] SearchSavedData.saveFromSearchService: exported activeTasks={}",
-                        data.activeTasks.size());
+                EZVillagerReroll.LOG().info("[EZVR] SearchSavedData.saveFromSearchService: exported activeTasks={} settlements={}",
+                        data.activeTasks.size(), data.settlements.size());
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] SearchSavedData.saveFromSearchService: export failed", t);
             }
@@ -165,6 +176,17 @@ public final class SearchSavedData extends SavedData {
                 }
             }
 
+            // Settlements
+            if (tag.contains("settlements", Tag.TAG_LIST)) {
+                ListTag list = tag.getList("settlements", Tag.TAG_COMPOUND);
+                for (int i = 0; i < list.size(); i++) {
+                    CompoundTag t = list.getCompound(i);
+                    SettlementData sd = readSettlement(t);
+                    if (sd == null || sd.villagerUuid == null) continue;
+                    data.settlements.put(sd.villagerUuid, sd);
+                }
+            }
+
             // Pending done notifications
             if (tag.contains("pendingDone", Tag.TAG_LIST)) {
                 ListTag list = tag.getList("pendingDone", Tag.TAG_COMPOUND);
@@ -189,8 +211,8 @@ public final class SearchSavedData extends SavedData {
                 }
             }
 
-            EZVillagerReroll.LOG().info("[EZVR] SearchSavedData loaded: activeTasks={} pendingDoneOwners={}",
-                    data.activeTasks.size(), data.pendingDoneByOwner.size());
+            EZVillagerReroll.LOG().info("[EZVR] SearchSavedData loaded: activeTasks={} settlements={} pendingDoneOwners={}",
+                    data.activeTasks.size(), data.settlements.size(), data.pendingDoneByOwner.size());
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] SearchSavedData.load failed", t);
@@ -210,6 +232,14 @@ public final class SearchSavedData extends SavedData {
                 if (t != null) active.add(t);
             }
             tag.put("activeTasks", active);
+
+            // Settlements
+            ListTag settles = new ListTag();
+            for (SettlementData sd : settlements.values()) {
+                CompoundTag t = writeSettlement(sd);
+                if (t != null) settles.add(t);
+            }
+            tag.put("settlements", settles);
 
             // Pending done
             ListTag pending = new ListTag();
@@ -259,7 +289,6 @@ public final class SearchSavedData extends SavedData {
 
             td.wasGlowingAtStart = t.getBoolean("wasGlowingAtStart");
 
-            // Requested stacks
             td.requested.clear();
             if (t.contains("requested", Tag.TAG_LIST)) {
                 ListTag req = t.getList("requested", Tag.TAG_COMPOUND);
@@ -277,7 +306,6 @@ public final class SearchSavedData extends SavedData {
                 }
             }
 
-            // Requested keys
             td.requestedKeys.clear();
             if (t.contains("requestedKeys", Tag.TAG_LIST)) {
                 ListTag keys = t.getList("requestedKeys", Tag.TAG_STRING);
@@ -286,7 +314,6 @@ public final class SearchSavedData extends SavedData {
                     if (s != null && !s.isBlank()) td.requestedKeys.add(s);
                 }
             } else {
-                // Backfill keys from stacks if missing
                 for (ItemStack s : td.requested) {
                     if (s == null || s.isEmpty()) continue;
                     td.requestedKeys.add(CatalogBuilder.keyOf(s));
@@ -321,7 +348,6 @@ public final class SearchSavedData extends SavedData {
 
             t.putBoolean("wasGlowingAtStart", td.wasGlowingAtStart);
 
-            // Requested stacks
             ListTag req = new ListTag();
             int n = td.requested == null ? 0 : Math.min(4096, td.requested.size());
             for (int i = 0; i < n; i++) {
@@ -345,7 +371,6 @@ public final class SearchSavedData extends SavedData {
             }
             t.put("requested", req);
 
-            // Keys
             ListTag keys = new ListTag();
             if (td.requestedKeys != null) {
                 for (String k : td.requestedKeys) {
@@ -359,6 +384,74 @@ public final class SearchSavedData extends SavedData {
 
         } catch (Throwable e) {
             EZVillagerReroll.LOG().error("[EZVR] SearchSavedData.writeTask failed", e);
+            return null;
+        }
+    }
+
+    private static SettlementData readSettlement(CompoundTag t) {
+        try {
+            if (t == null) return null;
+
+            SettlementData sd = new SettlementData();
+            sd.villagerUuid = readUuid(t, "villagerUuid");
+            sd.villagerEntityId = t.getInt("villagerEntityId");
+            sd.ownerPlayerUuid = readUuid(t, "ownerPlayerUuid");
+
+            sd.startedAtGameTime = t.getLong("startedAtGameTime");
+            sd.completedAtGameTime = t.getLong("completedAtGameTime");
+
+            sd.hourlyCost = Math.max(0, t.getInt("hourlyCost"));
+            sd.finalCost = Math.max(0, t.getInt("finalCost"));
+
+            sd.offers = new ListTag();
+            if (t.contains("offers", Tag.TAG_LIST)) {
+                ListTag list = t.getList("offers", Tag.TAG_COMPOUND);
+                for (int i = 0; i < list.size(); i++) {
+                    try {
+                        CompoundTag wrap = list.getCompound(i);
+                        if (wrap != null) sd.offers.add(wrap.copy());
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            if (sd.villagerUuid == null) return null;
+            return sd;
+        } catch (Throwable e) {
+            EZVillagerReroll.LOG().error("[EZVR] SearchSavedData.readSettlement failed", e);
+            return null;
+        }
+    }
+
+    private static CompoundTag writeSettlement(SettlementData sd) {
+        try {
+            if (sd == null || sd.villagerUuid == null) return null;
+
+            CompoundTag t = new CompoundTag();
+            writeUuid(t, "villagerUuid", sd.villagerUuid);
+            t.putInt("villagerEntityId", sd.villagerEntityId);
+            if (sd.ownerPlayerUuid != null) writeUuid(t, "ownerPlayerUuid", sd.ownerPlayerUuid);
+
+            t.putLong("startedAtGameTime", sd.startedAtGameTime);
+            t.putLong("completedAtGameTime", sd.completedAtGameTime);
+
+            t.putInt("hourlyCost", Math.max(0, sd.hourlyCost));
+            t.putInt("finalCost", Math.max(0, sd.finalCost));
+
+            ListTag copy = new ListTag();
+            if (sd.offers != null) {
+                for (int i = 0; i < sd.offers.size(); i++) {
+                    try {
+                        CompoundTag wrap = sd.offers.getCompound(i);
+                        if (wrap != null) copy.add(wrap.copy());
+                    } catch (Throwable ignored) {}
+                }
+            }
+            t.put("offers", copy);
+
+            return t;
+
+        } catch (Throwable e) {
+            EZVillagerReroll.LOG().error("[EZVR] SearchSavedData.writeSettlement failed", e);
             return null;
         }
     }

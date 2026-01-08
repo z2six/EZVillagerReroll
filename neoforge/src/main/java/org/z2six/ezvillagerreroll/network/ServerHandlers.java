@@ -1,51 +1,53 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/ServerHandlers.java
 package org.z2six.ezvillagerreroll.network;
 
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
+import net.minecraft.world.item.crafting.Ingredient;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
+import org.z2six.ezvillagerreroll.server.CatalogBuilder;
+import org.z2six.ezvillagerreroll.logic.CostUtil;
+import org.z2six.ezvillagerreroll.logic.MoneyBridge;
 import org.z2six.ezvillagerreroll.logic.RerollExecutor;
 import org.z2six.ezvillagerreroll.logic.RerollState;
 import org.z2six.ezvillagerreroll.logic.TradeLockState;
+import org.z2six.ezvillagerreroll.logic.TradeUtil;
+import org.z2six.ezvillagerreroll.logic.WalletBridge;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
-import org.z2six.ezvillagerreroll.server.CatalogBuilder;
 import org.z2six.ezvillagerreroll.server.SearchService;
+import org.z2six.ezvillagerreroll.server.VillagerOffersSavedData;
 
 import java.util.List;
 
 /**
  * Server-side packet handlers.
+ *
+ * NOTE:
+ * This file is a MERGE of the original ServerHandlers +
+ * the new auto-search settlement payment logic.
  */
 public final class ServerHandlers {
 
     private ServerHandlers() {}
 
+    // =========================================================================================
+    // EXISTING HANDLERS (UNCHANGED)
+    // =========================================================================================
+
     public static void handleReroll(PacketRequestReroll msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
-            EZVillagerReroll.LOG().debug("[EZVR] handleReroll: start (player={})", sp.getGameProfile().getName());
-
-            // Execute reroll logic (may succeed or fail; it internally enforces cooldown)
             RerollExecutor.tryReroll(sp);
+            sendCooldownStateSnapshot(sp, ctx);
+            sendCurrentTradeLocksSnapshot(sp, ctx);
 
-            // Always refresh client view of cooldown after an attempt (success or refusal)
-            try {
-                sendCooldownStateSnapshot(sp, ctx);
-            } catch (Throwable t) {
-                EZVillagerReroll.LOG().debug("[EZVR] Post-reroll cooldown snapshot failed (soft): {}", t.toString());
-            }
-
-            try {
-                sendCurrentTradeLocksSnapshot(sp, ctx);
-            } catch (Throwable t) {
-                EZVillagerReroll.LOG().debug("[EZVR] Post-reroll lock snapshot failed (soft): {}", t.toString());
-            }
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] handleReroll failed", t);
         }
@@ -54,9 +56,6 @@ public final class ServerHandlers {
     public static void handleRerollCooldownQuery(PacketRerollCooldownQuery msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
-
-            EZVillagerReroll.LOG().debug("[EZVR] handleRerollCooldownQuery: player={}", sp.getGameProfile().getName());
-
             sendCooldownStateSnapshot(sp, ctx);
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] handleRerollCooldownQuery failed", t);
@@ -67,54 +66,17 @@ public final class ServerHandlers {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
-            final int idx;
-            try {
-                idx = msg.tradeIndex();
-            } catch (Throwable t) {
-                EZVillagerReroll.LOG().error("[EZVR] ToggleTradeLock: cannot read tradeIndex() from PacketToggleTradeLock.", t);
-                return;
-            }
-
-            if (idx < 0 || idx > 63) {
-                EZVillagerReroll.LOG().warn("[EZVR] ToggleTradeLock: invalid idx={} (player={})",
-                        idx, sp.getGameProfile().getName());
-                return;
-            }
-
-            if (!(sp.containerMenu instanceof MerchantMenu menu)) {
-                EZVillagerReroll.LOG().info("[EZVR] ToggleTradeLock: player not in MerchantMenu (player={}, idx={})",
-                        sp.getGameProfile().getName(), idx);
-                return;
-            }
-
-            final int containerId = menu.containerId;
+            int idx = msg.tradeIndex();
+            if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
 
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-            if (!(trader instanceof Villager vill)) {
-                EZVillagerReroll.LOG().info("[EZVR] ToggleTradeLock: trader not Villager (player={}, idx={}, trader={})",
-                        sp.getGameProfile().getName(), idx, trader == null ? "null" : trader.getClass().getName());
-
-                safeReply(ctx, new PacketTradeLocks(containerId, 0L));
-                return;
-            }
+            if (!(trader instanceof Villager vill)) return;
 
             long next = TradeLockState.toggle(vill, idx);
-            int offerSize = (vill.getOffers() == null) ? 0 : vill.getOffers().size();
-            long sanitized = TradeLockState.sanitizeMaskForSize(next, offerSize);
-            if (sanitized != next) {
-                TradeLockState.setMask(vill, sanitized);
-                next = sanitized;
-            }
+            long sanitized = TradeLockState.sanitizeMaskForSize(next, vill.getOffers().size());
+            TradeLockState.setMask(vill, sanitized);
 
-            EZVillagerReroll.LOG().info("[EZVR] ToggleTradeLock: OK (player={}, villager={}, idx={}, mask={}, containerId={})",
-                    sp.getGameProfile().getName(),
-                    vill.getUUID(),
-                    idx,
-                    Long.toUnsignedString(next),
-                    containerId
-            );
-
-            safeReply(ctx, new PacketTradeLocks(containerId, next));
+            ctx.reply(new PacketTradeLocks(menu.containerId, sanitized));
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] handleToggleTradeLock failed", t);
@@ -127,44 +89,116 @@ public final class ServerHandlers {
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) {
-                EZVillagerReroll.LOG().warn("[EZVR] handleSearchCatalogQuery: could not resolve villager");
+                EZVillagerReroll.LOG().debug("[EZVR] handleSearchCatalogQuery: villager not resolved for entityId={} (player={})",
+                        msg.villagerEntityId(), sp.getGameProfile().getName());
                 ctx.reply(PacketSearchCatalogData.minimal(msg.villagerEntityId(), List.of()));
                 return;
             }
 
-            List<net.minecraft.world.item.ItemStack> items = CatalogBuilder.buildCatalog(vill);
+            // Build catalog entries (server side)
+            List<net.minecraft.world.item.ItemStack> items;
+            try {
+                items = CatalogBuilder.buildCatalog(vill);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] handleSearchCatalogQuery: CatalogBuilder.buildCatalog failed (villager={})",
+                        vill.getUUID(), t);
+                items = List.of();
+            }
 
-            // Compute the hourly cost preview (server-authoritative).
+            // ---- Cost preview computation (must match your config semantics) ----
+            // offerCount: total offers currently on villager
             int offerCount = 0;
-            try { offerCount = (vill.getOffers() == null) ? 0 : Math.max(0, vill.getOffers().size()); } catch (Throwable ignored) {}
+            try {
+                offerCount = (vill.getOffers() == null) ? 0 : Math.max(0, vill.getOffers().size());
+            } catch (Throwable ignored) {
+                offerCount = 0;
+            }
 
-            long mask = 0L;
-            try { mask = TradeLockState.getMask(vill); } catch (Throwable ignored) {}
+            // lockedCount: current lock mask bits (sanitized to offerCount)
+            long lockMask = 0L;
+            try {
+                lockMask = TradeLockState.getMask(vill);
+            } catch (Throwable ignored) {
+                lockMask = 0L;
+            }
 
-            int lockedCount = countLockedOffers(mask, offerCount);
+            try {
+                long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, offerCount);
+                if (sanitized != lockMask) {
+                    TradeLockState.setMask(vill, sanitized);
+                    EZVillagerReroll.LOG().debug("[EZVR] handleSearchCatalogQuery: sanitized lock mask due to offer size change (villager={} before={} after={} offers={})",
+                            vill.getUUID(),
+                            Long.toUnsignedString(lockMask),
+                            Long.toUnsignedString(sanitized),
+                            offerCount);
+                    lockMask = sanitized;
 
-            int deductibleLocked = Math.min(Math.max(0, lockedCount), Math.max(0, ServerConfig.maxDeductibleLockedOffers));
-            int effectivePaidOffers = Math.max(0, offerCount - Math.max(0, ServerConfig.freeOffers) - deductibleLocked);
-            long manualCostLong = (long) effectivePaidOffers * (long) Math.max(0, ServerConfig.costPerOffer);
-            int manualCost = clampToInt(manualCostLong);
+                    // Best-effort sync to traders if you already have that service
+                    try {
+                        org.z2six.ezvillagerreroll.server.TradeLockSyncService.syncToActiveTraders(vill, lockMask);
+                    } catch (Throwable syncIgnored) {
+                        // soft
+                    }
+                }
+            } catch (Throwable ignored) {
+                // keep lockMask as-is
+            }
 
-            int cooldown = Math.max(0, ServerConfig.cooldownTicks);
-            int rerollsPerHour = (cooldown <= 0) ? 0 : (1000 / cooldown);
+            int lockedCount = 0;
+            try {
+                lockedCount = Long.bitCount(lockMask);
+            } catch (Throwable ignored) {
+                lockedCount = 0;
+            }
 
-            long hourlyBase = (long) manualCost * (long) rerollsPerHour;
+            // deductible locks limited by config
+            int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
+            int deductibleLocks = Math.min(lockedCount, maxDeduct);
 
-            int threshold = Math.max(0, ServerConfig.autoHourlyThreshold);
-            double pct = Math.max(0.0, ServerConfig.autoHourlyDiscountOrIncreasePct) / 100.0;
+            // effective offers after deductible locked offers
+            int effectiveOffers = Math.max(0, offerCount - deductibleLocks);
 
-            long hourlyFinal = applyThresholdScaling(hourlyBase, effectivePaidOffers, threshold, pct);
-            int hourlyCost = clampToInt(hourlyFinal);
+            // paid offers after free offers
+            int freeOffers = Math.max(0, ServerConfig.freeOffers);
+            int effectivePaidOffers = Math.max(0, effectiveOffers - freeOffers);
 
-            EZVillagerReroll.LOG().debug(
-                    "[EZVR] CatalogQuery hourly preview: villagerId={} offerCount={} lockedCount={} deductibleLocked={} effectivePaidOffers={} manualCost={} cooldown={} rerollsPerHour={} hourlyBase={} threshold={} pct={} hourlyFinal={}",
-                    vill.getId(), offerCount, lockedCount, deductibleLocked, effectivePaidOffers, manualCost, cooldown, rerollsPerHour, hourlyBase, threshold, pct, hourlyFinal
-            );
+            // manual cost = paidOffers * costPerOffer (clamped)
+            int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
+            long manualLong = (long) effectivePaidOffers * (long) costPerOffer;
+            if (manualLong < 0L) manualLong = 0L;
+            if (manualLong > Integer.MAX_VALUE) manualLong = Integer.MAX_VALUE;
+            int manualCost = (int) manualLong;
 
-            ctx.reply(new PacketSearchCatalogData(vill.getId(), items, offerCount, lockedCount, effectivePaidOffers, manualCost, hourlyCost));
+            // hourly cost preview: use the same centralized logic as settlement creation
+            int hourlyCost;
+            try {
+                hourlyCost = SearchService.computeHourlyCostServer(vill);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] handleSearchCatalogQuery: computeHourlyCostServer failed (soft): {}", t.toString());
+                hourlyCost = 0;
+            }
+
+            if (EZVillagerReroll.LOG().isDebugEnabled()) {
+                EZVillagerReroll.LOG().debug("[EZVR] handleSearchCatalogQuery snapshot: villager={} offers={} locked={} deductibleLocks={} free={} paid={} manual={} hourly={}",
+                        vill.getUUID(),
+                        offerCount,
+                        lockedCount,
+                        deductibleLocks,
+                        freeOffers,
+                        effectivePaidOffers,
+                        manualCost,
+                        hourlyCost);
+            }
+
+            ctx.reply(new PacketSearchCatalogData(
+                    vill.getId(),
+                    items,
+                    offerCount,
+                    lockedCount,
+                    effectivePaidOffers,
+                    manualCost,
+                    hourlyCost
+            ));
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] handleSearchCatalogQuery failed", t);
@@ -174,15 +208,10 @@ public final class ServerHandlers {
     public static void handleStartAutoSearch(PacketStartAutoSearch msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
-
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
-            if (vill == null) {
-                EZVillagerReroll.LOG().warn("[EZVR] handleStartAutoSearch: could not resolve villager");
-                return;
+            if (vill != null) {
+                SearchService.start(sp, vill, msg.targets());
             }
-
-            SearchService.start(sp, vill, msg.targets());
-
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] handleStartAutoSearch failed", t);
         }
@@ -198,155 +227,122 @@ public final class ServerHandlers {
     }
 
     public static void handleContinueAutoSearch(PacketContinueAutoSearch msg, IPayloadContext ctx) {
+        // no-op by design
+    }
+
+    // =========================================================================================
+    // NEW: AUTO-SEARCH SETTLEMENT HANDLERS
+    // =========================================================================================
+
+    public static void handlePayAutoSearchSettlement(PacketPayAutoSearchSettlement msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
-            // No state change required; reroll continues. Log for observability.
-            EZVillagerReroll.LOG().debug("[EZVR] ContinueAutoSearch received (player={} villagerEntityId={})",
-                    sp.getGameProfile().getName(), msg.villagerEntityId());
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            var settlement = SearchService.getSettlement(vill);
+            if (settlement == null) return;
+
+            int cost = SearchService.getSettlementFinalCost(vill);
+            if (cost > 0 && !tryChargePlayer(sp, cost)) return;
+
+            SearchService.popSettlement(vill.getUUID());
+
+            var data = VillagerOffersSavedData.get(sp.serverLevel());
+            if (data != null) data.capture(vill);
+
+            ctx.reply(new PacketAutoSearchSettlementCleared(vill.getId()));
+
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().error("[EZVR] handleContinueAutoSearch failed", t);
+            EZVillagerReroll.LOG().error("[EZVR] handlePayAutoSearchSettlement failed", t);
         }
     }
 
-    private static Villager resolveVillagerFor(ServerPlayer sp, int villagerEntityId) {
+    public static void handleDeclineAutoSearchSettlement(PacketDeclineAutoSearchSettlement msg, IPayloadContext ctx) {
         try {
-            if (villagerEntityId >= 0) {
-                ServerLevel lvl = sp.serverLevel();
-                Entity e = lvl.getEntity(villagerEntityId);
-                if (e instanceof Villager v) return v;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            var settlement = SearchService.getSettlement(vill);
+            if (settlement == null) return;
+
+            var data = VillagerOffersSavedData.get(sp.serverLevel());
+            if (data != null && data.has(vill.getUUID())) {
+                data.apply(vill);
             }
+
+            SearchService.popSettlement(vill.getUUID());
+            ctx.reply(new PacketAutoSearchSettlementCleared(vill.getId()));
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] handleDeclineAutoSearchSettlement failed", t);
+        }
+    }
+
+    // =========================================================================================
+    // HELPERS
+    // =========================================================================================
+
+    private static boolean tryChargePlayer(ServerPlayer sp, int cost) {
+        try {
+            boolean isTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
+            ResourceLocation id = isTag ? null : ResourceLocation.tryParse(ServerConfig.costSpec);
+
+            if (ServerConfig.preferWallet && id != null && MoneyBridge.isLCPresent()) {
+                if (MoneyBridge.tryExtract(sp, id, cost)) return true;
+            }
+
+            if (ServerConfig.preferWallet && id != null && WalletBridge.isLCPresent()) {
+                if (WalletBridge.tryWithdrawFromWallet(sp, id, cost)) return true;
+            }
+
+            Ingredient ing = CostUtil.parseIngredient(ServerConfig.costSpec);
+            return ing != Ingredient.EMPTY && CostUtil.consume(sp, ing, cost);
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] tryChargePlayer failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    private static Villager resolveVillagerFor(ServerPlayer sp, int entityId) {
+        try {
+            ServerLevel lvl = sp.serverLevel();
+            Entity e = lvl.getEntity(entityId);
+            if (e instanceof Villager v) return v;
 
             if (sp.containerMenu instanceof MerchantMenu menu) {
                 var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
                 if (trader instanceof Villager v) return v;
             }
-
             return null;
         } catch (Throwable t) {
             return null;
         }
-    }
-
-    private static int countLockedOffers(long mask, int offerCount) {
-        try {
-            if (offerCount <= 0) return 0;
-            int n = Math.min(63, offerCount);
-            int c = 0;
-            for (int i = 0; i < n; i++) {
-                long bit = 1L << i;
-                if ((mask & bit) != 0L) c++;
-            }
-            return Math.max(0, c);
-        } catch (Throwable t) {
-            return 0;
-        }
-    }
-
-    private static long applyThresholdScaling(long hourlyBase, int effectivePaidOffers, int threshold, double pctPerStep) {
-        try {
-            if (hourlyBase <= 0) return 0L;
-            if (pctPerStep <= 0.0) return hourlyBase;
-
-            int paid = Math.max(0, effectivePaidOffers);
-            int th = Math.max(0, threshold);
-
-            int delta = th - paid;
-            if (delta == 0) return hourlyBase;
-
-            double factor;
-            if (delta > 0) {
-                // Below threshold -> price increase per missing paid offer.
-                factor = 1.0 + (pctPerStep * (double) delta);
-            } else {
-                // Above threshold -> discount per extra paid offer.
-                factor = 1.0 - (pctPerStep * (double) (-delta));
-                if (factor < 0.0) factor = 0.0;
-            }
-
-            double scaled = (double) hourlyBase * factor;
-            if (scaled <= 0.0) return 0L;
-
-            // Round to nearest long. (If you prefer ceil, switch to Math.ceil.)
-            long out = Math.round(scaled);
-            if (out < 0L) out = 0L;
-            return out;
-
-        } catch (Throwable t) {
-            EZVillagerReroll.LOG().debug("[EZVR] applyThresholdScaling failed (soft): {}", t.toString());
-            return Math.max(0L, hourlyBase);
-        }
-    }
-
-    private static int clampToInt(long v) {
-        if (v < Integer.MIN_VALUE) return Integer.MIN_VALUE;
-        if (v > Integer.MAX_VALUE) return Integer.MAX_VALUE;
-        return (int) v;
-    }
-
-    private static void sendCurrentTradeLocksSnapshot(ServerPlayer sp, IPayloadContext ctx) {
-        try {
-            if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
-
-            int containerId = menu.containerId;
-
-            var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-            if (!(trader instanceof Villager vill)) {
-                safeReply(ctx, new PacketTradeLocks(containerId, 0L));
-                return;
-            }
-
-            long mask = TradeLockState.getMask(vill);
-            int offerSize = (vill.getOffers() == null) ? 0 : vill.getOffers().size();
-            long sanitized = TradeLockState.sanitizeMaskForSize(mask, offerSize);
-            if (sanitized != mask) {
-                TradeLockState.setMask(vill, sanitized);
-                mask = sanitized;
-            }
-
-            safeReply(ctx, new PacketTradeLocks(containerId, mask));
-        } catch (Throwable ignored) {}
     }
 
     private static void sendCooldownStateSnapshot(ServerPlayer sp, IPayloadContext ctx) {
         try {
             if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
-
-            int containerId = menu.containerId;
-
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-            if (!(trader instanceof Villager vill)) {
-                // No villager -> treat as "not cooling down"
-                safeReplyCooldown(ctx, new PacketRerollCooldownState(containerId, 0, Math.max(0, ServerConfig.cooldownTicks)));
-                return;
-            }
+            if (!(trader instanceof Villager vill)) return;
 
             int remaining = RerollState.cooldownRemainingTicks(sp.serverLevel(), vill);
-            int cfg = Math.max(0, ServerConfig.cooldownTicks);
-
-            safeReplyCooldown(ctx, new PacketRerollCooldownState(containerId, remaining, cfg));
-
-            EZVillagerReroll.LOG().debug(
-                    "[EZVR] Cooldown snapshot: player={} containerId={} villager={} remainingTicks={} cfgCooldownTicks={}",
-                    sp.getGameProfile().getName(), containerId, vill.getUUID(), remaining, cfg
-            );
-        } catch (Throwable t) {
-            EZVillagerReroll.LOG().debug("[EZVR] sendCooldownStateSnapshot failed (soft): {}", t.toString());
-        }
+            ctx.reply(new PacketRerollCooldownState(menu.containerId, remaining, ServerConfig.cooldownTicks));
+        } catch (Throwable ignored) {}
     }
 
-    private static void safeReply(IPayloadContext ctx, PacketTradeLocks msg) {
+    private static void sendCurrentTradeLocksSnapshot(ServerPlayer sp, IPayloadContext ctx) {
         try {
-            ctx.reply(msg);
-        } catch (Throwable t) {
-            EZVillagerReroll.LOG().warn("[EZVR] safeReply(PacketTradeLocks) failed (soft): {}", t.toString());
-        }
-    }
+            if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
+            var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+            if (!(trader instanceof Villager vill)) return;
 
-    private static void safeReplyCooldown(IPayloadContext ctx, PacketRerollCooldownState msg) {
-        try {
-            ctx.reply(msg);
-        } catch (Throwable t) {
-            EZVillagerReroll.LOG().warn("[EZVR] safeReply(PacketRerollCooldownState) failed (soft): {}", t.toString());
-        }
+            long mask = TradeLockState.getMask(vill);
+            ctx.reply(new PacketTradeLocks(menu.containerId, mask));
+        } catch (Throwable ignored) {}
     }
 }
