@@ -11,6 +11,7 @@ import net.minecraft.world.item.trading.Merchant;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
+import org.z2six.ezvillagerreroll.server.VillagerOffersSavedData;
 
 public final class RerollExecutor {
 
@@ -59,12 +60,15 @@ public final class RerollExecutor {
             // ---- NEW offer-based cost ----
             int totalOffers = Math.max(0, offersBefore);
             long lockMask = TradeLockState.getMask(vill);
+
+            long beforeMaskForLog = lockMask;
             long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, totalOffers);
             if (sanitized != lockMask) {
                 TradeLockState.setMask(vill, sanitized);
                 lockMask = sanitized;
+
                 EZVillagerReroll.LOG().debug("[EZVR] Sanitized lock mask during reroll cost calc (villager={} beforeMask={} afterMask={})",
-                        vill.getUUID(), Long.toUnsignedString(lockMask), Long.toUnsignedString(sanitized));
+                        vill.getUUID(), Long.toUnsignedString(beforeMaskForLog), Long.toUnsignedString(sanitized));
             }
 
             int lockedCount = Long.bitCount(lockMask);
@@ -145,6 +149,21 @@ public final class RerollExecutor {
                 EZVillagerReroll.LOG().warn("[EZVR] Reroll failed during rebuild (villager={})", vill.getUUID());
                 toast(sp, "ezvr.msg.failed");
                 return;
+            }
+
+            // MANUAL REROLL RULE: After a successful manual reroll, store the new offers as canonical.
+            try {
+                VillagerOffersSavedData sd = VillagerOffersSavedData.get(sp.serverLevel());
+                if (sd != null) {
+                    sd.capture(vill);
+                    EZVillagerReroll.LOG().debug("[EZVR] Manual reroll: canonical offers captured (villager={}, offers={})",
+                            vill.getUUID(), vill.getOffers() == null ? -1 : vill.getOffers().size());
+                } else {
+                    EZVillagerReroll.LOG().warn("[EZVR] Manual reroll: VillagerOffersSavedData was null; canonical offers NOT captured (villager={})",
+                            vill.getUUID());
+                }
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] Manual reroll: failed to capture canonical offers (soft) (villager={})", vill.getUUID(), t);
             }
 
             int offersAfter = vill.getOffers() != null ? vill.getOffers().size() : -1;

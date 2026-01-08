@@ -1,6 +1,7 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/server/SearchService.java
 package org.z2six.ezvillagerreroll.server;
 
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
@@ -29,10 +30,6 @@ public final class SearchService {
 
     private SearchService() {}
 
-    /**
-     * This multiplier defines "base hourly" from manual cost.
-     * Your example: manual 48 -> hourly 480 (x10).
-     */
     private static final int AUTO_HOURLY_BASE_MULTIPLIER = 10;
 
     private static final class Task {
@@ -90,11 +87,13 @@ public final class SearchService {
         final int finalCost;
 
         final ListTag offersTag; // cached offers
+        final List<String> requestedItemIds; // for PAY highlight (client-side)
 
         Settlement(UUID villagerUuid, int villagerEntityId, UUID ownerPlayerUuid,
                    long startedAtGameTime, long completedAtGameTime,
                    int hourlyCost, int finalCost,
-                   ListTag offersTag) {
+                   ListTag offersTag,
+                   List<String> requestedItemIds) {
             this.villagerUuid = villagerUuid;
             this.villagerEntityId = villagerEntityId;
             this.ownerPlayerUuid = ownerPlayerUuid;
@@ -103,13 +102,21 @@ public final class SearchService {
             this.hourlyCost = Math.max(0, hourlyCost);
             this.finalCost = Math.max(0, finalCost);
             this.offersTag = offersTag == null ? new ListTag() : offersTag;
+
+            List<String> tmp;
+            try {
+                if (requestedItemIds == null || requestedItemIds.isEmpty()) tmp = List.of();
+                else tmp = List.copyOf(requestedItemIds);
+            } catch (Throwable t) {
+                tmp = List.of();
+            }
+            this.requestedItemIds = tmp;
         }
     }
 
     private static final Map<UUID, Task> TASKS = new ConcurrentHashMap<>();
     private static final Map<UUID, Settlement> SETTLEMENTS = new ConcurrentHashMap<>();
 
-    // Vanilla glow is not per-player; we approximate by enabling glow only when someone is near.
     private static final double GLOW_RANGE_BLOCKS = 6.0;
     private static final double GLOW_RANGE_SQR = GLOW_RANGE_BLOCKS * GLOW_RANGE_BLOCKS;
 
@@ -141,10 +148,6 @@ public final class SearchService {
         }
     }
 
-    /**
-     * Called from SearchSavedData on server start.
-     * Imports tasks and settlements into memory.
-     */
     public static void importFromSavedData(MinecraftServer server, SearchSavedData data) {
         try {
             if (server == null || data == null) return;
@@ -180,7 +183,6 @@ public final class SearchService {
                     int cd = Math.max(1, td.cooldownTicks);
                     if (next < 0) next = 0;
 
-                    // We didn't previously store startedAtGameTime; best effort: set to (next - cd)
                     long started = Math.max(0L, next - cd);
 
                     Task t = new Task(
@@ -218,7 +220,8 @@ public final class SearchService {
                             Math.max(0L, sd.completedAtGameTime),
                             Math.max(0, sd.hourlyCost),
                             Math.max(0, sd.finalCost),
-                            (sd.offers == null ? new ListTag() : sd.offers)
+                            (sd.offers == null ? new ListTag() : sd.offers),
+                            List.of() // requested targets are not persisted; highlight becomes unavailable after restart (acceptable)
                     );
                     SETTLEMENTS.put(sd.villagerUuid, s);
                     settleImported++;
@@ -235,10 +238,6 @@ public final class SearchService {
         }
     }
 
-    /**
-     * Called from SearchSavedData on server stop.
-     * Exports tasks and settlements.
-     */
     public static void exportToSavedData(MinecraftServer server, SearchSavedData data) {
         try {
             if (server == null || data == null) return;
@@ -323,7 +322,6 @@ public final class SearchService {
         try {
             if (sp == null || vill == null) return;
 
-            // If settlement pending, do not allow starting a new search (avoid state corruption).
             if (SETTLEMENTS.containsKey(vill.getUUID())) {
                 EZVillagerReroll.LOG().warn("[EZVR] SearchService.start refused: settlement pending (player={} villager={})",
                         sp.getGameProfile().getName(), vill.getUUID());
@@ -355,7 +353,6 @@ public final class SearchService {
                 updateGlowForBusyVillager(vill, sp.server);
             } catch (Throwable ignored) {}
 
-            // Immediate match check (fast path)
             if (containsAnyRequested(vill, t.requestedKeys)) {
                 EZVillagerReroll.LOG().info("[EZVR] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
                         vill.getUUID(), vill.getId(), t.requestedKeys.size());
@@ -363,7 +360,6 @@ public final class SearchService {
 
                 trySetVillagerGlow(vill, false);
 
-                // Create settlement immediately (elapsed may be 0)
                 createSettlementAndNotify(serverOf(sp), vill, t, now);
             }
 
@@ -383,7 +379,6 @@ public final class SearchService {
                 return;
             }
 
-            // Only cancels active search task; settlement cancel must be done via decline packet.
             Task removed = TASKS.remove(vill.getUUID());
             if (removed != null) {
                 EZVillagerReroll.LOG().info("[EZVR] Auto-search CANCEL: player={} villager={} entityId={}",
@@ -401,16 +396,66 @@ public final class SearchService {
         try {
             if (sp == null || vill == null) return;
 
-            // If settlement pending, open payment screen instead of busy screen.
             Settlement settle = SETTLEMENTS.get(vill.getUUID());
             if (settle != null) {
                 int elapsedTicks = (int) Math.max(0L, settle.completedAtGameTime - settle.startedAtGameTime);
+
+                ListTag payOffers = new ListTag();
+                try {
+                    if (settle.offersTag != null) {
+                        int n = Math.min(256, settle.offersTag.size());
+                        for (int i = 0; i < n; i++) {
+                            try {
+                                CompoundTag wrap = settle.offersTag.getCompound(i);
+                                if (wrap != null) payOffers.add(wrap.copy());
+                            } catch (Throwable ignored) {}
+                        }
+                    }
+                } catch (Throwable ignored) {}
+
+                ListTag declineOffers = new ListTag();
+                try {
+                    VillagerOffersSavedData data = VillagerOffersSavedData.get(sp.serverLevel());
+                    if (data != null) {
+                        declineOffers = data.getStoredOffersTag(vill.getUUID());
+                    }
+                } catch (Throwable t) {
+                    EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: failed reading stored baseline offers (soft): {}", t.toString());
+                }
+
+                long lockMask = 0L;
+                try {
+                    lockMask = TradeLockState.getMask(vill);
+                } catch (Throwable ignored) {}
+                try {
+                    int offerCount = Math.max(0, declineOffers.size());
+                    long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, offerCount);
+                    if (sanitized != lockMask) {
+                        TradeLockState.setMask(vill, sanitized);
+                        lockMask = sanitized;
+                    }
+                } catch (Throwable ignored) {}
+
+                List<String> requestedItemIds = settle.requestedItemIds == null ? List.of() : settle.requestedItemIds;
+
                 try {
                     sp.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
-                            new PacketOpenAutoSearchPaymentScreen(vill.getId(), settle.hourlyCost, settle.finalCost, elapsedTicks)
+                            new PacketOpenAutoSearchPaymentScreen(
+                                    vill.getId(),
+                                    settle.hourlyCost,
+                                    settle.finalCost,
+                                    elapsedTicks,
+                                    payOffers,
+                                    declineOffers,
+                                    lockMask,
+                                    requestedItemIds
+                            )
                     ));
-                    EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={})",
-                            sp.getGameProfile().getName(), vill.getId(), settle.hourlyCost, settle.finalCost, elapsedTicks);
+                    EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={} payOffers={} declineOffers={} lockMask={} requested={})",
+                            sp.getGameProfile().getName(), vill.getId(), settle.hourlyCost, settle.finalCost, elapsedTicks,
+                            payOffers.size(), declineOffers.size(),
+                            Long.toUnsignedString(lockMask),
+                            requestedItemIds == null ? -1 : requestedItemIds.size());
                 } catch (Throwable sendErr) {
                     EZVillagerReroll.LOG().error("[EZVR] Failed to send payment screen packet (player={} villager={})",
                             sp.getGameProfile().getName(), vill.getUUID(), sendErr);
@@ -458,7 +503,6 @@ public final class SearchService {
                 Villager vill = resolveVillagerByUuid(server, task.villagerUuid);
                 if (vill == null) continue;
 
-                // If settlement exists (shouldn't), stop task to avoid double-state.
                 if (SETTLEMENTS.containsKey(vill.getUUID())) {
                     EZVillagerReroll.LOG().warn("[EZVR] SearchService.tick: task exists but settlement pending; removing task (villager={})", vill.getUUID());
                     it.remove();
@@ -509,13 +553,6 @@ public final class SearchService {
         }
     }
 
-    /**
-     * Server-authoritative final settlement creation:
-     * - caches offers
-     * - computes hourly + final cost
-     * - blocks trades until paid/declined
-     * - notifies owner (auto close busy screen) + keeps villager busy
-     */
     private static void createSettlementAndNotify(MinecraftServer server, Villager vill, Task task, long completedAtGameTime) {
         try {
             if (server == null || vill == null || task == null) return;
@@ -528,8 +565,9 @@ public final class SearchService {
 
             int finalCost = computeFinalCost(hourly, elapsedTicks);
 
-            // Cache offers BEFORE we do anything else.
             ListTag offersTag = serializeOffersCodec(vill);
+
+            List<String> requestedItemIds = buildRequestedItemIds(task.requested);
 
             Settlement settle = new Settlement(
                     vill.getUUID(),
@@ -539,19 +577,43 @@ public final class SearchService {
                     completed,
                     hourly,
                     finalCost,
-                    offersTag
+                    offersTag,
+                    requestedItemIds
             );
 
             SETTLEMENTS.put(vill.getUUID(), settle);
 
-            EZVillagerReroll.LOG().info("[EZVR] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={}",
-                    vill.getUUID(), vill.getId(), hourly, elapsedTicks, finalCost, String.valueOf(task.ownerPlayerUuid));
+            EZVillagerReroll.LOG().info("[EZVR] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} requestedIds={}",
+                    vill.getUUID(), vill.getId(), hourly, elapsedTicks, finalCost, String.valueOf(task.ownerPlayerUuid),
+                    requestedItemIds == null ? -1 : requestedItemIds.size());
 
-            // Notify owner to auto-close busy screen (existing behavior) - still useful.
             notifyOwnerDone(server, task);
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] createSettlementAndNotify failed", t);
+        }
+    }
+
+    private static List<String> buildRequestedItemIds(List<ItemStack> requested) {
+        try {
+            if (requested == null || requested.isEmpty()) return List.of();
+
+            LinkedHashSet<String> ids = new LinkedHashSet<>();
+            int n = Math.min(128, requested.size());
+            for (int i = 0; i < n; i++) {
+                ItemStack s = requested.get(i);
+                if (s == null || s.isEmpty()) continue;
+
+                try {
+                    var key = BuiltInRegistries.ITEM.getKey(s.getItem());
+                    if (key != null) ids.add(key.toString());
+                } catch (Throwable ignored) {}
+            }
+
+            if (ids.isEmpty()) return List.of();
+            return List.copyOf(ids);
+        } catch (Throwable t) {
+            return List.of();
         }
     }
 
@@ -560,10 +622,9 @@ public final class SearchService {
             if (hourlyCost <= 0) return 0;
             if (elapsedTicks <= 0) return 0;
 
-            double hours = elapsedTicks / 72000.0; // 20 tps * 3600
+            double hours = elapsedTicks / 72000.0;
             double raw = hourlyCost * hours;
 
-            // Always round UP (so short searches still pay proportionally)
             long ceil = (long) Math.ceil(raw);
 
             if (ceil < 0L) ceil = 0L;
@@ -574,20 +635,6 @@ public final class SearchService {
         }
     }
 
-    /**
-     * Server computed hourly cost, based on the same config semantics as you described.
-     *
-     * manualCost = paidOffers * costPerOffer
-     * hourlyBase = manualCost * AUTO_HOURLY_BASE_MULTIPLIER
-     * scaling:
-     *  steps = effectivePaidOffers - autoHourlyThreshold
-     *  factor = 1 - steps * pct/100 (clamped >= 0)
-     *  hourly = ceil(hourlyBase * factor)
-     *
-     * NOTE:
-     * This is used both for settlement creation AND the catalog "hourly preview".
-     * It MUST be callable from ServerHandlers, so it is public.
-     */
     public static int computeHourlyCostServer(Villager vill) {
         try {
             if (vill == null) return 0;
@@ -622,7 +669,7 @@ public final class SearchService {
             int threshold = Math.max(0, ServerConfig.autoHourlyThreshold);
             double pct = Math.max(0.0, ServerConfig.autoHourlyDiscountOrIncreasePct);
 
-            int effectivePaidOffers = paidOffers; // matches your config comment naming
+            int effectivePaidOffers = paidOffers;
             int steps = effectivePaidOffers - threshold;
 
             double factor = 1.0 - (steps * (pct / 100.0));
@@ -778,7 +825,7 @@ public final class SearchService {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Offer serialization for settlement caching (registry-aware, same wrapper format: { "v": tag })
+    // Offer serialization for settlement caching (registry-aware, wrapper format: { "v": tag })
     // -----------------------------------------------------------------------------------------
 
     private static final String TAG_WRAP_VALUE = "v";
@@ -827,10 +874,6 @@ public final class SearchService {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Settlement accessors (server-authoritative, safe for handlers)
-    // ---------------------------------------------------------------------
-
     public static int getSettlementFinalCost(Villager vill) {
         try {
             Settlement s = SETTLEMENTS.get(vill.getUUID());
@@ -858,10 +901,6 @@ public final class SearchService {
             return 0;
         }
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Settlement resolution API used by ServerHandlers
-    // -----------------------------------------------------------------------------------------
 
     public static Settlement popSettlement(UUID villagerUuid) {
         try {

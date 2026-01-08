@@ -109,7 +109,6 @@ public final class ClientNetworkHandlers {
                         return;
                     }
 
-                    // Soft fallback: if no catalog screen is open, just log it.
                     EZVillagerReroll.LOG().debug("[EZVR] Client received PacketSearchCatalogData but no SearchCatalogScreen was open (current={}).",
                             s == null ? "null" : s.getClass().getName());
 
@@ -132,8 +131,6 @@ public final class ClientNetworkHandlers {
                     Minecraft mc = Minecraft.getInstance();
                     if (mc == null) return;
 
-                    // We avoid hard dependencies on BusyVillagerScreen in case its signature differs.
-                    // Try to construct it reflectively.
                     Screen screen = tryCreateBusyVillagerScreen(msg);
                     if (screen != null) {
                         mc.setScreen(screen);
@@ -163,7 +160,6 @@ public final class ClientNetworkHandlers {
                     Minecraft mc = Minecraft.getInstance();
                     if (mc == null) return;
 
-                    // Best-effort: close busy screen if it matches this villager.
                     if (isBusyScreenForVillager(mc.screen, msg.villagerEntityId())) {
                         mc.setScreen(null);
                         EZVillagerReroll.LOG().info("[EZVR] Client auto-closed BusyVillagerScreen (auto-search done) for villagerEntityId={}.",
@@ -189,11 +185,9 @@ public final class ClientNetworkHandlers {
                 try {
                     if (msg == null) return;
 
-                    // If you already have a client cache for this, we update it reflectively.
                     boolean applied = tryApplyCooldownToKnownCaches(msg);
 
                     if (!applied) {
-                        // Still log it so you can confirm it’s arriving.
                         EZVillagerReroll.LOG().debug("[EZVR] Client received PacketRerollCooldownState: containerId={} remaining={} cfg={}",
                                 msg.containerId(), msg.ticksRemaining(), msg.cooldownTicksConfigured());
                     }
@@ -207,7 +201,7 @@ public final class ClientNetworkHandlers {
     }
 
     // -----------------------------------------------------------------------------------------
-    // NEW handlers required for settlement/payment UI
+    // Payment screen open/close
     // -----------------------------------------------------------------------------------------
 
     public static void onOpenAutoSearchPaymentScreen(PacketOpenAutoSearchPaymentScreen msg, IPayloadContext ctx) {
@@ -220,18 +214,26 @@ public final class ClientNetworkHandlers {
                     Minecraft mc = Minecraft.getInstance();
                     if (mc == null) return;
 
-                    // Open our payment UI.
                     AutoSearchPaymentScreen screen = new AutoSearchPaymentScreen(
                             msg.villagerEntityId(),
                             msg.hourlyCost(),
                             msg.finalCost(),
-                            msg.elapsedTicks()
+                            msg.elapsedTicks(),
+                            msg.offersIfPay(),
+                            msg.offersIfDecline(),
+                            msg.declineLockMask(),
+                            msg.requestedItemIds()
                     );
 
                     mc.setScreen(screen);
 
-                    EZVillagerReroll.LOG().info("[EZVR] Client opened AutoSearchPaymentScreen villagerEntityId={} hourly={} final={} elapsedTicks={}",
-                            msg.villagerEntityId(), msg.hourlyCost(), msg.finalCost(), msg.elapsedTicks());
+                    EZVillagerReroll.LOG().info("[EZVR] Client opened AutoSearchPaymentScreen villagerEntityId={} hourly={} final={} elapsedTicks={} payOffers={} declineOffers={} lockMask={} requested={}",
+                            msg.villagerEntityId(), msg.hourlyCost(), msg.finalCost(), msg.elapsedTicks(),
+                            msg.offersIfPay() == null ? -1 : msg.offersIfPay().size(),
+                            msg.offersIfDecline() == null ? -1 : msg.offersIfDecline().size(),
+                            Long.toUnsignedString(msg.declineLockMask()),
+                            msg.requestedItemIds() == null ? -1 : msg.requestedItemIds().size()
+                    );
 
                 } catch (Throwable t) {
                     EZVillagerReroll.LOG().error("[EZVR] Client onOpenAutoSearchPaymentScreen failed", t);
@@ -242,10 +244,6 @@ public final class ClientNetworkHandlers {
         }
     }
 
-    /**
-     * Fallback signature for Network.dispatchToClientHandler's "Object" path.
-     * (Your error showed it tried Object+IPayloadContext and didn't find it.)
-     */
     public static void onOpenAutoSearchPaymentScreen(Object msg, IPayloadContext ctx) {
         try {
             if (msg instanceof PacketOpenAutoSearchPaymentScreen p) {
@@ -277,7 +275,6 @@ public final class ClientNetworkHandlers {
                         return;
                     }
 
-                    // Also best-effort close busy screen if it’s open and matches.
                     if (isBusyScreenForVillager(s, msg.villagerEntityId())) {
                         mc.setScreen(null);
                         EZVillagerReroll.LOG().info("[EZVR] Client closed BusyVillagerScreen (settlement cleared) villagerEntityId={}.",
@@ -297,9 +294,6 @@ public final class ClientNetworkHandlers {
         }
     }
 
-    /**
-     * Fallback signature for Network.dispatchToClientHandler's "Object" path.
-     */
     public static void onAutoSearchSettlementCleared(Object msg, IPayloadContext ctx) {
         try {
             if (msg instanceof PacketAutoSearchSettlementCleared p) {
@@ -314,30 +308,26 @@ public final class ClientNetworkHandlers {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Helpers (reflection-based to avoid coupling to screens/caches you may have renamed).
+    // Helpers
     // -----------------------------------------------------------------------------------------
 
     private static Screen tryCreateBusyVillagerScreen(PacketOpenBusyScreen msg) {
         try {
-            // Common name we used earlier:
             String cn = "org.z2six.ezvillagerreroll.client.BusyVillagerScreen";
             Class<?> clz = Class.forName(cn);
 
-            // Try (PacketOpenBusyScreen) ctor
             try {
                 Constructor<?> c = clz.getConstructor(PacketOpenBusyScreen.class);
                 Object inst = c.newInstance(msg);
                 if (inst instanceof Screen sc) return sc;
             } catch (Throwable ignored) {}
 
-            // Try (int, List<ItemStack>) ctor
             try {
                 Constructor<?> c = clz.getConstructor(int.class, java.util.List.class);
                 Object inst = c.newInstance(msg.villagerEntityId(), msg.requested());
                 if (inst instanceof Screen sc) return sc;
             } catch (Throwable ignored) {}
 
-            // Try (int) ctor
             try {
                 Constructor<?> c = clz.getConstructor(int.class);
                 Object inst = c.newInstance(msg.villagerEntityId());
@@ -357,21 +347,18 @@ public final class ClientNetworkHandlers {
             String name = screen.getClass().getName();
             if (!name.endsWith("BusyVillagerScreen")) return false;
 
-            // Try method getVillagerEntityId()
             try {
                 Method m = screen.getClass().getMethod("getVillagerEntityId");
                 Object v = m.invoke(screen);
                 if (v instanceof Integer i) return i == villagerEntityId;
             } catch (Throwable ignored) {}
 
-            // Try method villagerEntityId()
             try {
                 Method m = screen.getClass().getMethod("villagerEntityId");
                 Object v = m.invoke(screen);
                 if (v instanceof Integer i) return i == villagerEntityId;
             } catch (Throwable ignored) {}
 
-            // Try field villagerEntityId
             try {
                 Field f = screen.getClass().getDeclaredField("villagerEntityId");
                 f.setAccessible(true);
@@ -379,7 +366,6 @@ public final class ClientNetworkHandlers {
                 if (v instanceof Integer i) return i == villagerEntityId;
             } catch (Throwable ignored) {}
 
-            // If we can’t prove it, don’t close.
             return false;
 
         } catch (Throwable t) {
@@ -388,9 +374,7 @@ public final class ClientNetworkHandlers {
     }
 
     private static boolean tryApplyCooldownToKnownCaches(PacketRerollCooldownState msg) {
-        // We intentionally keep this reflective so you don’t have to rename files to match.
         try {
-            // Candidate classes (if they exist in your project).
             String[] candidates = new String[] {
                     "org.z2six.ezvillagerreroll.client.ClientRerollCooldownCache",
                     "org.z2six.ezvillagerreroll.network.ClientRerollCooldownCache",
@@ -402,7 +386,6 @@ public final class ClientNetworkHandlers {
                 try {
                     Class<?> c = Class.forName(cn);
 
-                    // Common API: set(PacketRerollCooldownState)
                     try {
                         Method m = c.getMethod("set", PacketRerollCooldownState.class);
                         m.invoke(null, msg);
@@ -410,7 +393,6 @@ public final class ClientNetworkHandlers {
                         return true;
                     } catch (Throwable ignored) {}
 
-                    // Alternate API: apply(PacketRerollCooldownState)
                     try {
                         Method m = c.getMethod("apply", PacketRerollCooldownState.class);
                         m.invoke(null, msg);
@@ -418,9 +400,7 @@ public final class ClientNetworkHandlers {
                         return true;
                     } catch (Throwable ignored) {}
 
-                } catch (Throwable ignored) {
-                    // class not present, continue
-                }
+                } catch (Throwable ignored) {}
             }
 
             return false;

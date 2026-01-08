@@ -129,7 +129,6 @@ public final class VillagerOffersSavedData extends SavedData {
                         continue;
                     }
 
-                    // Offers is stored as list of CompoundTag wrappers.
                     ListTag offers;
                     try {
                         offers = e.getList(TAG_OFFERS, Tag.TAG_COMPOUND);
@@ -137,7 +136,6 @@ public final class VillagerOffersSavedData extends SavedData {
                         continue;
                     }
 
-                    // Defensive deep copy
                     ListTag copy = new ListTag();
                     for (int j = 0; j < offers.size(); j++) {
                         try {
@@ -180,7 +178,6 @@ public final class VillagerOffersSavedData extends SavedData {
                     CompoundTag e = new CompoundTag();
                     e.putString(TAG_UUID, uuid.toString());
 
-                    // Defensive deep copy
                     ListTag copy = new ListTag();
                     for (int j = 0; j < offers.size(); j++) {
                         try {
@@ -215,6 +212,36 @@ public final class VillagerOffersSavedData extends SavedData {
             return offersByVillager.containsKey(villagerId);
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    /**
+     * Returns a defensive deep copy of the stored offers ListTag for UI/debug purposes.
+     * This is intentionally "raw" (wrappers { "v": tag }) so it can be shipped to clients.
+     *
+     * @return copy of stored offers, or empty ListTag if missing.
+     */
+    public ListTag getStoredOffersTag(UUID villagerId) {
+        try {
+            if (villagerId == null) return new ListTag();
+
+            ListTag stored = offersByVillager.get(villagerId);
+            if (stored == null) return new ListTag();
+
+            ListTag copy = new ListTag();
+            int n = Math.min(256, stored.size());
+            for (int i = 0; i < n; i++) {
+                try {
+                    CompoundTag wrap = stored.getCompound(i);
+                    if (wrap != null) copy.add(wrap.copy());
+                } catch (Throwable ignored) {}
+            }
+
+            EZVillagerReroll.LOG().debug("[EZVR] OffersSavedData.getStoredOffersTag: villager={} offers={}", villagerId, copy.size());
+            return copy;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] OffersSavedData.getStoredOffersTag failed (soft): {}", t.toString());
+            return new ListTag();
         }
     }
 
@@ -334,7 +361,6 @@ public final class VillagerOffersSavedData extends SavedData {
                 try {
                     var res = MerchantOffer.CODEC.encodeStart(ops, offer);
 
-                    // Capture the encoded Tag, and ALWAYS wrap it into a CompoundTag.
                     res.resultOrPartial(msg ->
                                     EZVillagerReroll.LOG().warn("[EZVR] MerchantOffer encode failed (idx={}): {}", idx, msg))
                             .ifPresent(tag -> {

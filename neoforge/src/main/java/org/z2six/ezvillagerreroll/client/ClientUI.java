@@ -524,7 +524,7 @@ public final class ClientUI {
 
         // 4) Offers/Locked/Deducted
         plan.lines.add(Component.empty()
-                .append(Component.literal("Offers: ").withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" Offers: ").withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(String.valueOf(Math.max(0, totalOffers))).withStyle(ChatFormatting.WHITE))
                 .append(Component.literal("   "))
                 .append(Component.literal("Locked: ").withStyle(ChatFormatting.RED))
@@ -537,7 +537,7 @@ public final class ClientUI {
         // 5) Free/Paid + xN with emerald icon appended
         int lineIdxFreePaid = plan.lines.size();
         plan.lines.add(Component.empty()
-                .append(Component.literal("Free: ").withStyle(ChatFormatting.GREEN))
+                .append(Component.literal(" Free: ").withStyle(ChatFormatting.GREEN))
                 .append(Component.literal(String.valueOf(Math.max(0, freeOffers))).withStyle(ChatFormatting.GREEN))
                 .append(Component.literal("   "))
                 .append(Component.literal("Paid: ").withStyle(ChatFormatting.RED))
