@@ -17,40 +17,38 @@ import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.*;
 
 /**
- * Builds a catalog of "possible outputs" a villager could have, not just current offers.
+ * Builds a catalog of "possible outputs" a villager could offer based on the
+ * exact VillagerTrades.TRADES pool (profession -> level -> ItemListing[]).
  *
- * Design goals:
- * - Server-safe.
- * - Includes modded items (by using VillagerTrades / listings).
- * - For randomized listings, sample multiple times to capture possibilities.
- * - Librarian special-case: include registry enchantments (vanilla + modded) for enchanted books,
- *   BUT ONLY those that are actually tradeable (via reflective access to a tradeable-flag method).
+ * IMPORTANT DESIGN CHOICES (per your requirements):
+ * - No profession-specific special casing (we never check for LIBRARIAN).
+ * - No "tradeable flag" method calls (no Enchantment#isTradeable compilation dependency).
+ * - No sampling loops. Each listing is read deterministically:
+ *   - If the listing is deterministic: we call getOffer() once (seeded RNG) and collect its result.
+ *   - If the listing is known-randomized (EnchantBookForEmeralds): we expand using vanilla enchantment tags
+ *     (TRADEABLE + NON_TREASURE) so the book list is stable and does not include loot-only enchants (Swift Sneak).
  *
- * NOTE (important):
- * There is no universal "enumerate all possible offers" API for all modded merchants.
- * Sampling offer generators is the only general mechanism.
+ * Notes:
+ * - VillagerTrades.ItemListing is the *source of truth* for what can be generated.
+ * - Some modded listings may randomize outputs in ways we cannot enumerate without mod-specific code.
+ *   In those cases, we still include at least one representative output and log a debug message.
  */
 public final class CatalogBuilder {
 
-    // Safety caps
     private static final int MAX_TOTAL_ITEMS = 16384;
-
-    // Enough to capture many random listings without being too heavy
-    private static final int MAX_SAMPLE_PER_LISTING = 128;
-
-    // Cap how many levels we enumerate per enchantment (mods can go extreme)
     private static final int MAX_ENCHANTABILITY_LEVEL_ENUM = 20;
 
-    // Cached reflective method for "tradeable" flag.
-    // We intentionally avoid calling ench.isTradeable() directly to keep compilation compatible
-    // with different mappings / NeoForge versions.
-    private static volatile Method CACHED_TRADEABLE_METHOD = null;
-    private static volatile boolean LOOKED_UP_TRADEABLE_METHOD = false;
-    private static volatile boolean LOGGED_TRADEABLE_LOOKUP_FAILURE = false;
+    // Cache reflective access to EnchantmentTags fields + Holder#is(TagKey)
+    private static volatile boolean TAG_REFLECTION_LOOKED_UP = false;
+    private static volatile Object TAG_TRADEABLE = null;     // TagKey<Enchantment> (as Object)
+    private static volatile Object TAG_NON_TREASURE = null;  // TagKey<Enchantment> (as Object)
+    private static volatile Method HOLDER_IS_TAGKEY = null;  // Holder#is(TagKey)
+    private static volatile boolean LOGGED_TAG_LOOKUP = false;
 
     private CatalogBuilder() {}
 
@@ -65,10 +63,10 @@ public final class CatalogBuilder {
             EZVillagerReroll.LOG().info("[EZVR] CatalogBuilder.buildCatalog: villager={} prof={} level={}",
                     vill.getUUID(), prof == null ? "null" : String.valueOf(prof), level);
 
-            // Collect unique outputs by key (includes components to distinguish e.g. enchanted books)
+            // unique outputs by key (item + components patch)
             Map<String, ItemStack> unique = new LinkedHashMap<>();
 
-            // 1) Include CURRENT offers too
+            // Include CURRENT offers too (helps when a listing is randomized and we only take one representative output)
             try {
                 MerchantOffers offers = vill.getOffers();
                 if (offers != null) {
@@ -83,13 +81,9 @@ public final class CatalogBuilder {
                 EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: failed reading current offers (soft): {}", t.toString());
             }
 
-            // 2) Add possible outputs from VillagerTrades listings (sampling)
+            // Core: read the exact TRADES pool, level 1..current level
             addTradesFromVillagerTrades(vill, prof, level, unique);
 
-            // 3) Special-case librarian enchanted books: registry expansion (tradeable-only)
-            tryAddAllEnchantedBooksIfLibrarian(vill, prof, unique);
-
-            // Finalize
             List<ItemStack> out = new ArrayList<>(unique.values());
             if (out.size() > MAX_TOTAL_ITEMS) {
                 EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder.buildCatalog: truncating catalog {} -> MAX_TOTAL_ITEMS={}",
@@ -115,8 +109,71 @@ public final class CatalogBuilder {
             Map<String, ItemStack> unique
     ) {
         try {
-            if (vill == null || prof == null) return;
+            if (vill == null) return;
+            if (prof == null) {
+                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder.addTradesFromVillagerTrades: prof=null; cannot read VillagerTrades.TRADES.");
+                return;
+            }
 
+            Object byProfession = resolveTradesByProfession(prof);
+            if (byProfession == null) {
+                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: VillagerTrades.TRADES has no entry for prof={}", prof);
+                return;
+            }
+
+            int before = unique.size();
+            int[] listingCount = new int[] {0};
+            int[] offerCount = new int[] {0};
+            int[] bookExpanded = new int[] {0};
+            int[] bookAdded = new int[] {0};
+
+            for (int lvl = 1; lvl <= level; lvl++) {
+                VillagerTrades.ItemListing[] listings = getListingsForLevel(byProfession, lvl);
+                if (listings == null || listings.length == 0) continue;
+
+                EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder: prof={} lvl={} listings={}", prof, lvl, listings.length);
+
+                for (VillagerTrades.ItemListing listing : listings) {
+                    if (listing == null) continue;
+                    listingCount[0]++;
+
+                    if (unique.size() >= MAX_TOTAL_ITEMS) {
+                        EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: reached MAX_TOTAL_ITEMS={} while reading listings; stopping.", MAX_TOTAL_ITEMS);
+                        break;
+                    }
+
+                    if (isEnchantBookForEmeraldsListing(listing)) {
+                        // Enumerate book possibilities using vanilla tags (TRADEABLE + NON_TREASURE)
+                        int added = expandEnchantedBookListing(vill, unique);
+                        bookExpanded[0]++;
+                        bookAdded[0] += Math.max(0, added);
+                        continue;
+                    }
+
+                    // Deterministic single-offer read (no sampling loops).
+                    MerchantOffer offer = safeGetOfferOnce(listing, vill, lvl);
+                    if (offer == null) continue;
+                    offerCount[0]++;
+
+                    ItemStack res = offer.getResult();
+                    if (res == null || res.isEmpty()) continue;
+
+                    unique.putIfAbsent(keyOf(res), res.copy());
+                }
+            }
+
+            EZVillagerReroll.LOG().info(
+                    "[EZVR] CatalogBuilder.addTradesFromVillagerTrades: prof={} level=1..{} listingsSeen={} offersRead={} bookListingsExpanded={} bookItemsAdded={} size {}->{}",
+                    String.valueOf(prof), level, listingCount[0], offerCount[0], bookExpanded[0], bookAdded[0], before, unique.size()
+            );
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] CatalogBuilder.addTradesFromVillagerTrades failed", t);
+        }
+    }
+
+    private static Object resolveTradesByProfession(VillagerProfession prof) {
+        try {
             Object byProfession = null;
 
             try {
@@ -124,7 +181,6 @@ public final class CatalogBuilder {
             } catch (Throwable ignored) {}
 
             if (byProfession == null) {
-                // Fallback: iterate entries to find matching key
                 try {
                     for (Object entryObj : VillagerTrades.TRADES.entrySet()) {
                         if (!(entryObj instanceof Map.Entry<?, ?> en)) continue;
@@ -137,46 +193,10 @@ public final class CatalogBuilder {
                 } catch (Throwable ignored) {}
             }
 
-            if (byProfession == null) {
-                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: VillagerTrades.TRADES has no entry for prof={}", prof);
-                return;
-            }
-
-            for (int lvl = 1; lvl <= level; lvl++) {
-                VillagerTrades.ItemListing[] listings = getListingsForLevel(byProfession, lvl);
-                if (listings == null || listings.length == 0) continue;
-
-                EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder: prof={} lvl={} listings={}", prof, lvl, listings.length);
-
-                for (VillagerTrades.ItemListing listing : listings) {
-                    if (listing == null) continue;
-
-                    int samples = MAX_SAMPLE_PER_LISTING;
-                    RandomSource rand = RandomSource.create(0xC0FFEE ^ listing.hashCode() ^ (lvl * 31));
-
-                    for (int i = 0; i < samples; i++) {
-                        MerchantOffer offer = safeGetOffer(listing, vill, rand);
-                        if (offer == null) continue;
-
-                        ItemStack res = offer.getResult();
-                        if (res == null || res.isEmpty()) continue;
-
-                        unique.putIfAbsent(keyOf(res), res.copy());
-
-                        if (unique.size() >= MAX_TOTAL_ITEMS) {
-                            EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: reached MAX_TOTAL_ITEMS={} while sampling; stopping.", MAX_TOTAL_ITEMS);
-                            return;
-                        }
-
-                        try {
-                            rand.nextInt();
-                        } catch (Throwable ignored) {}
-                    }
-                }
-            }
-
+            return byProfession;
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().error("[EZVR] CatalogBuilder.addTradesFromVillagerTrades failed", t);
+            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder.resolveTradesByProfession failed (soft): {}", t.toString());
+            return null;
         }
     }
 
@@ -190,6 +210,8 @@ public final class CatalogBuilder {
                 if (v instanceof VillagerTrades.ItemListing[] arr) return arr;
             } catch (NoSuchMethodException ignored) {
                 // fallthrough
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder.getListingsForLevel reflective get(int) failed (soft): {}", t.toString());
             }
 
             if (byProfession instanceof Map<?, ?> map) {
@@ -204,14 +226,19 @@ public final class CatalogBuilder {
         }
     }
 
-    private static MerchantOffer safeGetOffer(VillagerTrades.ItemListing listing, Villager vill, RandomSource rand) {
+    private static MerchantOffer safeGetOfferOnce(VillagerTrades.ItemListing listing, Villager vill, int lvl) {
         try {
-            if (listing == null || vill == null || rand == null) return null;
+            if (listing == null || vill == null) return null;
+
+            // Seeded RNG => stable output across openings (prevents “different results every time” drift)
+            long seed = 0x5EEDL ^ (long) listing.getClass().getName().hashCode() ^ (long) listing.hashCode() ^ ((long) lvl * 31L);
+            RandomSource rand = RandomSource.create(seed);
 
             try {
                 return listing.getOffer(vill, rand);
             } catch (Throwable ignored) {}
 
+            // Reflective fallback for modded listings with signature variance
             try {
                 for (Method m : listing.getClass().getMethods()) {
                     if (!m.getName().equals("getOffer")) continue;
@@ -221,210 +248,254 @@ public final class CatalogBuilder {
                         return (offer instanceof MerchantOffer mo) ? mo : null;
                     }
                 }
-            } catch (Throwable ignored) {}
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder.safeGetOfferOnce reflective fallback failed (soft): {}", t.toString());
+            }
 
             return null;
 
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder.safeGetOffer failed (soft): {}", t.toString());
+            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder.safeGetOfferOnce failed (soft): {}", t.toString());
             return null;
         }
     }
 
-    private static void tryAddAllEnchantedBooksIfLibrarian(Villager vill, VillagerProfession prof, Map<String, ItemStack> unique) {
+    private static boolean isEnchantBookForEmeraldsListing(VillagerTrades.ItemListing listing) {
         try {
-            if (vill == null || prof == null) return;
-            if (prof != VillagerProfession.LIBRARIAN) return;
+            if (listing == null) return false;
+
+            // We avoid direct class references to keep compatibility with mappings/relocations.
+            String cn = listing.getClass().getName();
+            if (cn == null) return false;
+
+            // Vanilla nested class is typically: net.minecraft.world.entity.npc.VillagerTrades$EnchantBookForEmeralds
+            // Some environments may rename, but usually keep “EnchantBookForEmeralds”.
+            return cn.contains("EnchantBookForEmeralds");
+
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Expands the enchanted-book listing into concrete enchanted book outputs using vanilla enchantment tag lists:
+     * - TRADEABLE
+     * - NON_TREASURE (if available in this version)
+     *
+     * This avoids:
+     * - calling Enchantment#isTradeable() (which doesn't compile in your mappings),
+     * - enumerating the whole registry without filtering (which causes Swift Sneak / loot-only enchants),
+     * - random sampling (which causes missing levels like Density I).
+     *
+     * @return how many unique book ItemStacks were newly added to 'unique'
+     */
+    private static int expandEnchantedBookListing(Villager vill, Map<String, ItemStack> unique) {
+        int added = 0;
+
+        try {
+            if (vill == null) return 0;
+            if (unique == null) return 0;
+            if (unique.size() >= MAX_TOTAL_ITEMS) return 0;
 
             Registry<Enchantment> reg;
             try {
                 reg = vill.level().registryAccess().registryOrThrow(Registries.ENCHANTMENT);
             } catch (Throwable t) {
-                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: cannot access enchantment registry; skipping enchanted book expansion.");
-                return;
+                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: cannot access enchantment registry; cannot expand EnchantBookForEmeralds.");
+                return 0;
             }
 
-            // If we cannot determine tradeability in this environment, do NOT expand the entire registry.
-            // This prevents junk/dev/loot-only enchants from showing up.
-            if (!ensureTradeableMethodLookedUp()) {
-                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: cannot resolve enchantment tradeable-flag method; skipping librarian registry expansion to avoid illegal books.");
-                return;
+            ensureEnchantmentTagReflection();
+
+            if (TAG_TRADEABLE == null || HOLDER_IS_TAGKEY == null) {
+                // Fail-closed: if we cannot filter properly, do not expand (prevents illegal loot-only books).
+                if (EZVillagerReroll.LOG().isDebugEnabled()) {
+                    EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder: enchantment tag reflection unavailable; skipping book expansion to avoid illegal books.");
+                }
+                return 0;
             }
 
             final int before = unique.size();
 
-            final int[] scanned = new int[] {0};
-            final int[] tradeable = new int[] {0};
-            final int[] filteredNotTradeable = new int[] {0};
-            final int[] attempted = new int[] {0};
-            final int[] added = new int[] {0};
-            final int[] skippedCapArr = new int[] {0};
-            final int[] skippedErrArr = new int[] {0};
+            int[] scanned = new int[] {0};
+            int[] tradeable = new int[] {0};
+            int[] nonTreasureFiltered = new int[] {0};
+            int[] enumeratedBooks = new int[] {0};
+            int[] capSkips = new int[] {0};
+            int[] errSkips = new int[] {0};
 
-            reg.holders().forEach(holder -> {
-                try {
-                    scanned[0]++;
+            for (Holder<Enchantment> holder : reg.holders().toList()) {
+                scanned[0]++;
 
-                    if (unique.size() >= MAX_TOTAL_ITEMS) {
-                        skippedCapArr[0]++;
-                        return;
-                    }
-
-                    Enchantment ench;
-                    try {
-                        ench = holder.value();
-                    } catch (Throwable t) {
-                        skippedErrArr[0]++;
-                        return;
-                    }
-
-                    Boolean isTradeable = isTradeableSafe(ench);
-                    if (isTradeable == null) {
-                        // Should not happen if ensureTradeableMethodLookedUp() succeeded,
-                        // but keep it safe. Fail-closed for registry expansion.
-                        filteredNotTradeable[0]++;
-                        return;
-                    }
-
-                    if (!isTradeable.booleanValue()) {
-                        filteredNotTradeable[0]++;
-                        return;
-                    }
-                    tradeable[0]++;
-
-                    int max = 1;
-                    try {
-                        max = Math.max(1, ench.getMaxLevel());
-                    } catch (Throwable ignoredMax) {}
-
-                    if (max > MAX_ENCHANTABILITY_LEVEL_ENUM) {
-                        try {
-                            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder: enchant {} maxLevel={} exceeds cap {}; enumerating 1..{} only.",
-                                    safeHolderId(reg, holder), max, MAX_ENCHANTABILITY_LEVEL_ENUM, MAX_ENCHANTABILITY_LEVEL_ENUM);
-                        } catch (Throwable ignoredLog) {}
-                        max = MAX_ENCHANTABILITY_LEVEL_ENUM;
-                    }
-
-                    for (int lvl = 1; lvl <= max; lvl++) {
-                        if (unique.size() >= MAX_TOTAL_ITEMS) {
-                            skippedCapArr[0]++;
-                            break;
-                        }
-
-                        attempted[0]++;
-
-                        ItemStack book;
-                        try {
-                            book = EnchantedBookItem.createForEnchantment(new EnchantmentInstance(holder, lvl));
-                        } catch (Throwable t) {
-                            skippedErrArr[0]++;
-                            continue;
-                        }
-
-                        if (book == null || book.isEmpty()) {
-                            skippedErrArr[0]++;
-                            continue;
-                        }
-
-                        String k = keyOf(book);
-                        if (unique.putIfAbsent(k, book) == null) {
-                            added[0]++;
-                        }
-                    }
-                } catch (Throwable t) {
-                    skippedErrArr[0]++;
+                if (unique.size() >= MAX_TOTAL_ITEMS) {
+                    capSkips[0]++;
+                    break;
                 }
-            });
 
-            EZVillagerReroll.LOG().info(
-                    "[EZVR] CatalogBuilder: librarian enchanted-book expansion scannedEnchants={} tradeableEnchants={} filteredNotTradeable={} attemptedBooks={} addedBooks={} skippedCap={} skippedErr={} size {}->{}",
-                    scanned[0], tradeable[0], filteredNotTradeable[0], attempted[0], added[0], skippedCapArr[0], skippedErrArr[0],
-                    before, unique.size()
-            );
+                if (holder == null) {
+                    errSkips[0]++;
+                    continue;
+                }
+
+                // Must be in TRADEABLE tag
+                if (!holderHasEnchantmentTag(holder, TAG_TRADEABLE)) {
+                    continue;
+                }
+
+                // If NON_TREASURE tag exists, require it too (filters out treasure/loot-only enchants like Swift Sneak)
+                if (TAG_NON_TREASURE != null && !holderHasEnchantmentTag(holder, TAG_NON_TREASURE)) {
+                    nonTreasureFiltered[0]++;
+                    continue;
+                }
+
+                tradeable[0]++;
+
+                Enchantment ench;
+                try {
+                    ench = holder.value();
+                } catch (Throwable t) {
+                    errSkips[0]++;
+                    continue;
+                }
+
+                int max = 1;
+                try {
+                    max = Math.max(1, ench.getMaxLevel());
+                } catch (Throwable ignoredMax) {
+                    max = 1;
+                }
+
+                if (max > MAX_ENCHANTABILITY_LEVEL_ENUM) {
+                    if (EZVillagerReroll.LOG().isDebugEnabled()) {
+                        EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder: enchant {} maxLevel={} exceeds cap {}; enumerating 1..{} only.",
+                                safeHolderId(reg, holder), max, MAX_ENCHANTABILITY_LEVEL_ENUM, MAX_ENCHANTABILITY_LEVEL_ENUM);
+                    }
+                    max = MAX_ENCHANTABILITY_LEVEL_ENUM;
+                }
+
+                for (int lvl = 1; lvl <= max; lvl++) {
+                    if (unique.size() >= MAX_TOTAL_ITEMS) {
+                        capSkips[0]++;
+                        break;
+                    }
+
+                    enumeratedBooks[0]++;
+
+                    ItemStack book;
+                    try {
+                        book = EnchantedBookItem.createForEnchantment(new EnchantmentInstance(holder, lvl));
+                    } catch (Throwable t) {
+                        errSkips[0]++;
+                        continue;
+                    }
+
+                    if (book == null || book.isEmpty()) {
+                        errSkips[0]++;
+                        continue;
+                    }
+
+                    String k = keyOf(book);
+                    if (unique.putIfAbsent(k, book) == null) {
+                        added++;
+                    }
+                }
+            }
+
+            if (EZVillagerReroll.LOG().isDebugEnabled() || added > 0) {
+                EZVillagerReroll.LOG().info(
+                        "[EZVR] CatalogBuilder: EnchantBookForEmeralds expansion scannedEnchants={} tradeable={} nonTreasureFiltered={} enumeratedBooks={} addedBooks={} capSkips={} errSkips={} size {}->{}",
+                        scanned[0], tradeable[0], nonTreasureFiltered[0], enumeratedBooks[0], added, capSkips[0], errSkips[0],
+                        before, unique.size()
+                );
+            }
+
+            return added;
 
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder.tryAddAllEnchantedBooksIfLibrarian failed (soft): {}", t.toString());
+            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder.expandEnchantedBookListing failed (soft): {}", t.toString());
+            return 0;
         }
     }
 
-    /**
-     * @return true if we found a usable "tradeable flag" method, false otherwise.
-     */
-    private static boolean ensureTradeableMethodLookedUp() {
+    private static void ensureEnchantmentTagReflection() {
         try {
-            if (LOOKED_UP_TRADEABLE_METHOD) return CACHED_TRADEABLE_METHOD != null;
+            if (TAG_REFLECTION_LOOKED_UP) return;
+            TAG_REFLECTION_LOOKED_UP = true;
 
-            LOOKED_UP_TRADEABLE_METHOD = true;
-
-            // Try the most likely name first
-            Method m = null;
+            // Holder#is(TagKey) method
             try {
-                m = Enchantment.class.getMethod("isTradeable");
-            } catch (Throwable ignored) {}
-
-            // Fallback names (some mappings use different naming)
-            if (m == null) {
-                try {
-                    m = Enchantment.class.getMethod("isTradeableInVillagerTrades");
-                } catch (Throwable ignored) {}
-            }
-            if (m == null) {
-                try {
-                    m = Enchantment.class.getMethod("canBeTraded");
-                } catch (Throwable ignored) {}
+                for (Method m : Holder.class.getMethods()) {
+                    if (!m.getName().equals("is")) continue;
+                    Class<?>[] p = m.getParameterTypes();
+                    if (p.length == 1 && p[0].getName().equals("net.minecraft.tags.TagKey")) {
+                        HOLDER_IS_TAGKEY = m;
+                        break;
+                    }
+                }
+            } catch (Throwable t) {
+                HOLDER_IS_TAGKEY = null;
             }
 
-            if (m != null) {
-                m.setAccessible(true);
-                CACHED_TRADEABLE_METHOD = m;
-                EZVillagerReroll.LOG().info("[EZVR] CatalogBuilder: resolved tradeable method for enchantments: {}", m.getName());
-                return true;
-            }
+            // EnchantmentTags.TRADEABLE / EnchantmentTags.NON_TREASURE (field names)
+            try {
+                Class<?> clz = Class.forName("net.minecraft.tags.EnchantmentTags");
 
-            if (!LOGGED_TRADEABLE_LOOKUP_FAILURE) {
-                LOGGED_TRADEABLE_LOOKUP_FAILURE = true;
-                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: could not find a tradeable-flag method on Enchantment (tried isTradeable, isTradeableInVillagerTrades, canBeTraded).");
-            }
+                TAG_TRADEABLE = readStaticFieldIfPresent(clz, "TRADEABLE");
+                TAG_NON_TREASURE = readStaticFieldIfPresent(clz, "NON_TREASURE");
 
-            CACHED_TRADEABLE_METHOD = null;
-            return false;
+                if (!LOGGED_TAG_LOOKUP) {
+                    LOGGED_TAG_LOOKUP = true;
+                    EZVillagerReroll.LOG().info("[EZVR] CatalogBuilder: tag lookup EnchantmentTags.TRADEABLE={} NON_TREASURE={} Holder#is(TagKey)={}",
+                            TAG_TRADEABLE != null, TAG_NON_TREASURE != null, HOLDER_IS_TAGKEY != null);
+                }
+
+            } catch (Throwable t) {
+                TAG_TRADEABLE = null;
+                TAG_NON_TREASURE = null;
+
+                if (!LOGGED_TAG_LOOKUP) {
+                    LOGGED_TAG_LOOKUP = true;
+                    EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: cannot reflect net.minecraft.tags.EnchantmentTags; book expansion will be skipped to avoid illegal books. ({})",
+                            t.toString());
+                }
+            }
 
         } catch (Throwable t) {
-            if (!LOGGED_TRADEABLE_LOOKUP_FAILURE) {
-                LOGGED_TRADEABLE_LOOKUP_FAILURE = true;
-                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: tradeable method lookup failed: {}", t.toString());
+            // fail-closed: leave tags null
+            TAG_TRADEABLE = null;
+            TAG_NON_TREASURE = null;
+            HOLDER_IS_TAGKEY = null;
+
+            if (!LOGGED_TAG_LOOKUP) {
+                LOGGED_TAG_LOOKUP = true;
+                EZVillagerReroll.LOG().warn("[EZVR] CatalogBuilder: ensureEnchantmentTagReflection failed; book expansion disabled. ({})",
+                        t.toString());
             }
-            CACHED_TRADEABLE_METHOD = null;
-            return false;
         }
     }
 
-    /**
-     * Returns:
-     * - Boolean.TRUE / Boolean.FALSE if we can determine tradeability
-     * - null if the environment doesn't expose a usable method (fail-closed for registry expansion)
-     */
-    private static Boolean isTradeableSafe(Enchantment ench) {
+    private static Object readStaticFieldIfPresent(Class<?> clz, String fieldName) {
         try {
-            if (ench == null) return Boolean.FALSE;
-
-            if (!ensureTradeableMethodLookedUp()) return null;
-
-            Method m = CACHED_TRADEABLE_METHOD;
-            if (m == null) return null;
-
-            Object v = m.invoke(ench);
-            if (v instanceof Boolean b) return b.booleanValue() ? Boolean.TRUE : Boolean.FALSE;
-
-            // Unexpected return type: treat as unknown
-            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder: tradeable method returned non-boolean for {} -> {}",
-                    ench.getClass().getName(), v == null ? "null" : v.getClass().getName());
+            if (clz == null || fieldName == null) return null;
+            Field f = clz.getField(fieldName);
+            if (f == null) return null;
+            return f.get(null);
+        } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    private static boolean holderHasEnchantmentTag(Holder<Enchantment> holder, Object tagKeyObj) {
+        try {
+            if (holder == null) return false;
+            if (tagKeyObj == null) return false;
+            if (HOLDER_IS_TAGKEY == null) return false;
+
+            Object r = HOLDER_IS_TAGKEY.invoke(holder, tagKeyObj);
+            return (r instanceof Boolean b) && b.booleanValue();
 
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().debug("[EZVR] CatalogBuilder: tradeable check failed for {} (soft): {}",
-                    ench == null ? "null" : ench.getClass().getName(), t.toString());
-            return null;
+            return false;
         }
     }
 
