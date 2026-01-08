@@ -8,7 +8,9 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.config.ServerConfig;
 import org.z2six.ezvillagerreroll.logic.RerollExecutor;
+import org.z2six.ezvillagerreroll.logic.RerollState;
 import org.z2six.ezvillagerreroll.logic.TradeLockState;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 import org.z2six.ezvillagerreroll.server.CatalogBuilder;
@@ -28,7 +30,16 @@ public final class ServerHandlers {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
             EZVillagerReroll.LOG().debug("[EZVR] handleReroll: start (player={})", sp.getGameProfile().getName());
+
+            // Execute reroll logic (may succeed or fail; it internally enforces cooldown)
             RerollExecutor.tryReroll(sp);
+
+            // Always refresh client view of cooldown after an attempt (success or refusal)
+            try {
+                sendCooldownStateSnapshot(sp, ctx);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] Post-reroll cooldown snapshot failed (soft): {}", t.toString());
+            }
 
             try {
                 sendCurrentTradeLocksSnapshot(sp, ctx);
@@ -37,6 +48,18 @@ public final class ServerHandlers {
             }
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] handleReroll failed", t);
+        }
+    }
+
+    public static void handleRerollCooldownQuery(PacketRerollCooldownQuery msg, IPayloadContext ctx) {
+        try {
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            EZVillagerReroll.LOG().debug("[EZVR] handleRerollCooldownQuery: player={}", sp.getGameProfile().getName());
+
+            sendCooldownStateSnapshot(sp, ctx);
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] handleRerollCooldownQuery failed", t);
         }
     }
 
@@ -197,11 +220,46 @@ public final class ServerHandlers {
         } catch (Throwable ignored) {}
     }
 
+    private static void sendCooldownStateSnapshot(ServerPlayer sp, IPayloadContext ctx) {
+        try {
+            if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
+
+            int containerId = menu.containerId;
+
+            var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+            if (!(trader instanceof Villager vill)) {
+                // No villager -> treat as "not cooling down"
+                safeReplyCooldown(ctx, new PacketRerollCooldownState(containerId, 0, Math.max(0, ServerConfig.cooldownTicks)));
+                return;
+            }
+
+            int remaining = RerollState.cooldownRemainingTicks(sp.serverLevel(), vill);
+            int cfg = Math.max(0, ServerConfig.cooldownTicks);
+
+            safeReplyCooldown(ctx, new PacketRerollCooldownState(containerId, remaining, cfg));
+
+            EZVillagerReroll.LOG().debug(
+                    "[EZVR] Cooldown snapshot: player={} containerId={} villager={} remainingTicks={} cfgCooldownTicks={}",
+                    sp.getGameProfile().getName(), containerId, vill.getUUID(), remaining, cfg
+            );
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] sendCooldownStateSnapshot failed (soft): {}", t.toString());
+        }
+    }
+
     private static void safeReply(IPayloadContext ctx, PacketTradeLocks msg) {
         try {
             ctx.reply(msg);
         } catch (Throwable t) {
             EZVillagerReroll.LOG().warn("[EZVR] safeReply(PacketTradeLocks) failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void safeReplyCooldown(IPayloadContext ctx, PacketRerollCooldownState msg) {
+        try {
+            ctx.reply(msg);
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().warn("[EZVR] safeReply(PacketRerollCooldownState) failed (soft): {}", t.toString());
         }
     }
 }

@@ -5,6 +5,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.npc.Villager;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
+import org.z2six.ezvillagerreroll.EZVillagerReroll;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -60,6 +61,36 @@ public final class RerollState {
         lastTick.put(id, now);
         if (ServerConfig.perVillagerDaily > 0) {
             dailyCount.merge(id, 1, Integer::sum);
+        }
+    }
+
+    /**
+     * Returns how many ticks remain until cooldown is finished for this villager.
+     * 0 means "no cooldown currently active" OR "cooldown disabled".
+     *
+     * This is used for server->client UI disabling; server remains authoritative.
+     */
+    public static int cooldownRemainingTicks(ServerLevel lvl, Villager vill) {
+        try {
+            if (lvl == null || vill == null) return 0;
+
+            int cooldown = ServerConfig.cooldownTicks;
+            if (cooldown <= 0) return 0;
+
+            long now = lvl.getGameTime();
+            long last = lastTick.getOrDefault(vill.getUUID(), Long.MIN_VALUE);
+            if (last == Long.MIN_VALUE) return 0;
+
+            long elapsed = now - last;
+            if (elapsed >= cooldown) return 0;
+
+            long rem = cooldown - elapsed;
+            if (rem < 0) rem = 0;
+            if (rem > Integer.MAX_VALUE) rem = Integer.MAX_VALUE;
+            return (int) rem;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] cooldownRemainingTicks failed (soft): {}", t.toString());
+            return 0;
         }
     }
 

@@ -38,6 +38,10 @@ public final class Network {
             r.playToServer(PacketContinueAutoSearch.TYPE, PacketContinueAutoSearch.STREAM_CODEC,
                     (msg, ctx) -> handleContinueAutoSearchServer(msg, ctx));
 
+            // NEW: cooldown state query
+            r.playToServer(PacketRerollCooldownQuery.TYPE, PacketRerollCooldownQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleRerollCooldownQueryServer(msg, ctx));
+
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTooltipData", msg, ctx));
@@ -54,6 +58,10 @@ public final class Network {
             // NEW: auto-search completion notification
             r.playToClient(PacketAutoSearchDone.TYPE, PacketAutoSearchDone.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onAutoSearchDone", msg, ctx));
+
+            // NEW: cooldown state update
+            r.playToClient(PacketRerollCooldownState.TYPE, PacketRerollCooldownState.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onRerollCooldownState", msg, ctx));
 
             EZVillagerReroll.LOG().info("[EZVR] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {
@@ -116,6 +124,7 @@ public final class Network {
     public static void sendToServer(PacketStartAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketCancelAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketContinueAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketRerollCooldownQuery msg) { sendToServer((CustomPacketPayload) msg); }
 
     private static void handleTooltipQueryServer(PacketTooltipQuery msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
@@ -197,6 +206,16 @@ public final class Network {
                 ServerHandlers.handleContinueAutoSearch(msg, ctx);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] ContinueAutoSearch handler error", t);
+            }
+        });
+    }
+
+    private static void handleRerollCooldownQueryServer(PacketRerollCooldownQuery msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handleRerollCooldownQuery(msg, ctx);
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] CooldownQuery handler error", t);
             }
         });
     }

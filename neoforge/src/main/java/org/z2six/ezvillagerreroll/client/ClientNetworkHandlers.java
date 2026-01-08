@@ -58,6 +58,15 @@ public final class ClientNetworkHandlers {
         }
     }
 
+    // NEW
+    public static void onRerollCooldownState(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketRerollCooldownState m) onRerollCooldownState(m, ctx);
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Client handler onRerollCooldownState(Object) failed", t);
+        }
+    }
+
     public static void onTooltipData(PacketTooltipData msg, IPayloadContext ctx) {
         try {
             ctx.enqueueWork(() -> {
@@ -164,6 +173,21 @@ public final class ClientNetworkHandlers {
             });
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client handler onAutoSearchDone enqueue failed", t);
+        }
+    }
+
+    // NEW
+    public static void onRerollCooldownState(PacketRerollCooldownState msg, IPayloadContext ctx) {
+        try {
+            ctx.enqueueWork(() -> {
+                try {
+                    ClientRerollCooldownCache.apply(msg);
+                } catch (Throwable t) {
+                    EZVillagerReroll.LOG().error("[EZVR] Client handler onRerollCooldownState failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Client handler onRerollCooldownState enqueue failed", t);
         }
     }
 }

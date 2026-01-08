@@ -6,6 +6,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
@@ -20,6 +21,7 @@ import org.z2six.ezvillagerreroll.network.ClientSyncedConfig;
 import org.z2six.ezvillagerreroll.network.ClientTooltipCache;
 import org.z2six.ezvillagerreroll.network.ClientTradeLockCache;
 import org.z2six.ezvillagerreroll.network.PacketRequestReroll;
+import org.z2six.ezvillagerreroll.network.PacketRerollCooldownQuery;
 import org.z2six.ezvillagerreroll.network.PacketTooltipData;
 import org.z2six.ezvillagerreroll.network.PacketTooltipQuery;
 import org.z2six.ezvillagerreroll.network.PacketTradeLocksQuery;
@@ -34,7 +36,9 @@ import java.util.WeakHashMap;
 public final class ClientUI {
 
     private static final long TOOLTIP_REFRESH_DEBOUNCE_MS = 750;
+
     private static final Map<Screen, Button> REROLL_BUTTONS = new WeakHashMap<>();
+    private static final Map<Screen, CooldownOverlayWidget> COOLDOWN_OVERLAYS = new WeakHashMap<>();
 
     private static final ResourceLocation CHAIN_TEX =
             ResourceLocation.fromNamespaceAndPath("minecraft", "textures/block/chain.png");
@@ -94,6 +98,23 @@ public final class ClientUI {
 
             Button reroll = Button.builder(Component.literal("↻"), btn -> {
                         try {
+                            int cid = resolveContainerId(screen);
+                            if (cid >= 0 && ClientRerollCooldownCache.isCoolingDown(cid)) {
+                                EZVillagerReroll.LOG().debug("[EZVR] Client reroll click ignored: cooling down (containerId={})", cid);
+                                return;
+                            }
+
+                            int optimisticTicks = 0;
+                            try {
+                                // Prefer config snapshot if present, but this may be stale/0 on some setups.
+                                ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+                                if (cfg != null) optimisticTicks = Math.max(0, cfg.cooldownTicks);
+                            } catch (Throwable ignored) {}
+
+                            if (cid >= 0 && optimisticTicks > 0) {
+                                ClientRerollCooldownCache.setOptimisticCooldown(cid, optimisticTicks);
+                            }
+
                             ClientNetwork.sendToServer(new PacketRequestReroll());
                             EZVillagerReroll.LOG().debug("[EZVR] Client clicked reroll button; sent PacketRequestReroll");
                         } catch (Throwable t) {
@@ -113,11 +134,18 @@ public final class ClientUI {
             e.addListener(reroll);
             REROLL_BUTTONS.put(screen, reroll);
 
+            CooldownOverlayWidget overlay = new CooldownOverlayWidget(x, y, w, h);
+            overlay.active = false;
+            overlay.visible = true;
+            e.addListener(overlay);
+            COOLDOWN_OVERLAYS.put(screen, overlay);
+
             EZVillagerReroll.LOG().info("[EZVR] Reroll button added to MerchantScreen at ({},{}), base=({},{}), offset=({},{}).",
                     x, y, baseX, baseY, ClientConfig.buttonOffsetX, ClientConfig.buttonOffsetY
             );
 
             trySendTradeLocksQuery();
+            trySendCooldownQuery();
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] onScreenInitPost exception", t);
@@ -131,14 +159,29 @@ public final class ClientUI {
             renderTradeLockIndicators(e, screen);
 
             Button btn = REROLL_BUTTONS.get(screen);
+            CooldownOverlayWidget overlay = COOLDOWN_OVERLAYS.get(screen);
             if (btn == null) return;
 
-            if (btn.isMouseOver(e.getMouseX(), e.getMouseY())) {
+            int cid = resolveContainerId(screen);
+            boolean cooling = (cid >= 0) && ClientRerollCooldownCache.isCoolingDown(cid);
+
+            if (btn.active == cooling) btn.active = !cooling;
+
+            if (overlay != null) {
+                overlay.active = cooling;
+            }
+
+            boolean hoverOverlay = overlay != null && overlay.active && overlay.isMouseOver(e.getMouseX(), e.getMouseY());
+            boolean hoverButton = btn.isMouseOver(e.getMouseX(), e.getMouseY());
+
+            if (hoverOverlay || hoverButton) {
                 if (ClientTooltipCache.ageMs() > TOOLTIP_REFRESH_DEBOUNCE_MS) {
                     trySendTooltipQuery(screen);
                 }
 
-                List<Component> lines = buildTooltipLines(ClientTooltipCache.get());
+                PacketTooltipData snap = ClientTooltipCache.get();
+                List<Component> lines = buildTooltipLinesWithCooldown(snap, screen);
+
                 if (lines.isEmpty()) {
                     ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
                     if (cfg != null) lines = List.of(Component.literal("Syncing… (cfg v" + cfg.version + ")"));
@@ -157,11 +200,17 @@ public final class ClientUI {
     private static void onScreenClosed(final ScreenEvent.Closing e) {
         try {
             REROLL_BUTTONS.remove(e.getScreen());
+            COOLDOWN_OVERLAYS.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
                 int cid = resolveContainerId(ms);
-                if (cid >= 0) ClientTradeLockCache.clearContainer(cid);
-                else ClientTradeLockCache.clearAll();
+                if (cid >= 0) {
+                    ClientTradeLockCache.clearContainer(cid);
+                    ClientRerollCooldownCache.clearContainer(cid);
+                } else {
+                    ClientTradeLockCache.clearAll();
+                    ClientRerollCooldownCache.clearAll();
+                }
             }
 
         } catch (Throwable t) {
@@ -169,12 +218,6 @@ public final class ClientUI {
         }
     }
 
-    /**
-     * Render outlines for locked trades.
-     *
-     * Correct mapping:
-     * - Button row index (0..6) + scroll offset => absolute offer index.
-     */
     private static void renderTradeLockIndicators(ScreenEvent.Render.Post e, MerchantScreen screen) {
         try {
             int cid = resolveContainerId(screen);
@@ -201,10 +244,7 @@ public final class ClientUI {
                 if (rowIdx < 0 || rowIdx > 63) continue;
 
                 int absoluteIdx = scrollOff + rowIdx;
-
-                // Must be dynamic and safe: only render if that offer exists.
                 if (absoluteIdx < 0 || absoluteIdx >= offerCount) continue;
-
                 if ((mask & (1L << absoluteIdx)) == 0L) continue;
 
                 int x = w.getX();
@@ -272,10 +312,6 @@ public final class ClientUI {
         }
     }
 
-    /**
-     * Read scroll offset robustly.
-     * Prefer accessor; fallback reflection only on fields with "scroll" in name AND within [0..offerCount-7].
-     */
     private static int readScrollOffset(MerchantScreen screen, int offerCount) {
         try {
             int maxScroll = Math.max(0, offerCount - 7);
@@ -349,11 +385,67 @@ public final class ClientUI {
         }
     }
 
-    private static List<Component> buildTooltipLines(PacketTooltipData d) {
-        List<Component> lines = new ArrayList<>();
-        if (d == null) return lines;
+    private static void trySendCooldownQuery() {
+        try {
+            ClientNetwork.sendToServer(new PacketRerollCooldownQuery());
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Client send cooldown query failed", t);
+        }
+    }
 
+    /**
+     * Final desired:
+     * - Active button:   "Cooldown: 5s"
+     * - Inactive button: "Cooldown: 4.3s"
+     *
+     * Exactly ONE cooldown line.
+     */
+    private static List<Component> buildTooltipLinesWithCooldown(PacketTooltipData d, MerchantScreen screen) {
+        List<Component> lines = new ArrayList<>();
         lines.add(Component.translatable("ezvr.ui.reroll"));
+
+        int cid = resolveContainerId(screen);
+
+        int remainingTicks = 0;
+        boolean cooling = false;
+        try {
+            if (cid >= 0) {
+                remainingTicks = Math.max(0, ClientRerollCooldownCache.getRemainingTicks(cid));
+                cooling = remainingTicks > 0;
+            }
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] Tooltip cooldown remaining read failed (soft): {}", t.toString());
+        }
+
+        if (cooling) {
+            double sec = remainingTicks / 20.0;
+            lines.add(Component.literal(String.format("Cooldown: %.1fs", sec)));
+        } else {
+            int cfgTicks = 0;
+
+            // Primary: last known cfg ticks from PacketRerollCooldownState (authoritative, always relevant)
+            if (cid >= 0) cfgTicks = ClientRerollCooldownCache.getLastKnownTotalCooldownTicks(cid);
+
+            // Secondary: if still unknown, fall back to synced config snapshot (if it exists)
+            if (cfgTicks <= 0) {
+                try {
+                    ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+                    if (cfg != null) cfgTicks = Math.max(0, cfg.cooldownTicks);
+                } catch (Throwable ignored) {}
+            }
+
+            if (cfgTicks > 0) {
+                int secs = (int) Math.ceil(cfgTicks / 20.0);
+                if (secs < 0) secs = 0;
+                lines.add(Component.literal("Cooldown: " + secs + "s"));
+            } else {
+                lines.add(Component.literal("Cooldown: ?"));
+            }
+
+            EZVillagerReroll.LOG().debug("[EZVR] Tooltip cooldown (active): cfgTicks={} (containerId={})", cfgTicks, cid);
+        }
+
+        if (d == null) return lines;
 
         try {
             final int cost = d.cost != null ? d.cost.scaledCost : 0;
@@ -377,8 +469,9 @@ public final class ClientUI {
             }
 
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().debug("[EZVR] buildTooltipLines failed (soft): {}", t.toString());
+            EZVillagerReroll.LOG().debug("[EZVR] buildTooltipLinesWithCooldown failed (soft): {}", t.toString());
         }
+
         return lines;
     }
 
@@ -470,6 +563,37 @@ public final class ClientUI {
             return null;
         } catch (Throwable t) {
             return null;
+        }
+    }
+
+    private static final class CooldownOverlayWidget extends AbstractWidget {
+
+        CooldownOverlayWidget(int x, int y, int w, int h) {
+            super(x, y, w, h, Component.empty());
+        }
+
+        @Override
+        protected void renderWidget(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
+            // intentionally empty
+        }
+
+        @Override
+        public void updateWidgetNarration(NarrationElementOutput out) {
+            // no narration
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            try {
+                if (!this.active) return false;
+                if (!this.isMouseOver(mouseX, mouseY)) return false;
+
+                EZVillagerReroll.LOG().debug("[EZVR] CooldownOverlayWidget consumed click (button={})", button);
+                return true;
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] CooldownOverlayWidget.mouseClicked failed (soft): {}", t.toString());
+                return false;
+            }
         }
     }
 
