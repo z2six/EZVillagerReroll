@@ -67,6 +67,17 @@ public final class ServerConfig {
     public static final ModConfigSpec.BooleanValue ALLOW_AFTER_TRADE_USED;
 
     // ---------------------------------------------------------------------
+    // EXPERIENCE (NEW)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Manual reroll villager XP gain:
+     * XP gained = manualRerollXpPerOffer * (offersRerolled)
+     * offersRerolled = totalOffersBefore - lockedOffersCount (mask sanitized to size).
+     */
+    public static final ModConfigSpec.IntValue MANUAL_REROLL_XP_PER_OFFER;
+
+    // ---------------------------------------------------------------------
     // SPEC DEFINITION (push/pop – REQUIRED)
     // ---------------------------------------------------------------------
 
@@ -173,6 +184,22 @@ public final class ServerConfig {
                         .define("allowAfterTradeUsed", true);
 
         B.pop();
+
+        // NEW: experience
+        B.push("experience");
+
+        MANUAL_REROLL_XP_PER_OFFER =
+                B.comment("""
+                        Villager XP to grant per offer that is actually rerolled during a MANUAL reroll.
+                        
+                        XP granted = manualRerollXpPerOffer * (offersRerolled)
+                        offersRerolled = totalOffersBefore - lockedOffersCount
+                        
+                        Set to 0 to disable XP gain from manual rerolls.
+                        """)
+                        .defineInRange("manualRerollXpPerOffer", 1, 0, 10_000);
+
+        B.pop();
     }
 
     public static final ModConfigSpec SPEC = B.build();
@@ -195,6 +222,9 @@ public final class ServerConfig {
     public static int cooldownTicks = 20;
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
+
+    // NEW: XP gain
+    public static int manualRerollXpPerOffer = 1;
 
     private static int[] levelCosts = new int[]{0, 16, 52, 64, 96};
 
@@ -232,6 +262,9 @@ public final class ServerConfig {
             perVillagerDaily = PER_VILLAGER_DAILY.get();
             allowAfterTradeUsed = ALLOW_AFTER_TRADE_USED.get();
 
+            // NEW
+            manualRerollXpPerOffer = Math.max(0, MANUAL_REROLL_XP_PER_OFFER.get());
+
             // legacy
             levelCosts = parseLevelCosts(LEVEL_COSTS.get());
 
@@ -246,12 +279,13 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} perVillagerDaily={} allowAfterTradeUsed={} legacyLevelCosts={}",
+                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
                     cooldownTicks, perVillagerDaily, allowAfterTradeUsed,
+                    manualRerollXpPerOffer,
                     debug(levelCosts)
             );
 
@@ -310,6 +344,9 @@ public final class ServerConfig {
         h = 31 * h + cooldownTicks;
         h = 31 * h + perVillagerDaily;
         h = 31 * h + (allowAfterTradeUsed ? 1 : 0);
+
+        // NEW
+        h = 31 * h + manualRerollXpPerOffer;
 
         for (int v : levelCosts) h = 31 * h + v;
         return h;

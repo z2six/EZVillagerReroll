@@ -29,6 +29,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
     public boolean allowAfterTradeUsed;
 
+    // NEW: XP config (manual reroll XP per rerolled offer)
+    public int manualRerollXpPerOffer;
+
     public PacketSyncConfig() {}
 
     public static final StreamCodec<FriendlyByteBuf, PacketSyncConfig> STREAM_CODEC = new StreamCodec<>() {
@@ -65,9 +68,13 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.autoHourlyThreshold = buf.readVarInt(); } catch (Throwable ignored) {}
             try { p.autoHourlyDiscountOrIncreasePct = buf.readDouble(); } catch (Throwable ignored) {}
 
-            // Existing final field
+            // Existing field
             try { p.allowAfterTradeUsed = buf.readBoolean(); }
             catch (Throwable ignored) { p.allowAfterTradeUsed = true; }
+
+            // NEW field (backwards-safe)
+            p.manualRerollXpPerOffer = 0;
+            try { p.manualRerollXpPerOffer = buf.readVarInt(); } catch (Throwable ignored) {}
 
             return p;
         }
@@ -96,6 +103,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeDouble(Math.max(0.0, p.autoHourlyDiscountOrIncreasePct));
 
             buf.writeBoolean(p.allowAfterTradeUsed);
+
+            // NEW
+            buf.writeVarInt(Math.max(0, p.manualRerollXpPerOffer));
         }
     };
 

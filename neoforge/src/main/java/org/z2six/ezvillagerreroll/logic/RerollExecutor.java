@@ -13,6 +13,8 @@ import org.z2six.ezvillagerreroll.config.ServerConfig;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 import org.z2six.ezvillagerreroll.server.VillagerOffersSavedData;
 
+import java.lang.reflect.Method;
+
 public final class RerollExecutor {
 
     public static void tryReroll(ServerPlayer sp) {
@@ -57,7 +59,7 @@ public final class RerollExecutor {
                 return;
             }
 
-            // ---- NEW offer-based cost ----
+            // ---- offer-based cost + also defines "offers rerolled" count for XP ----
             int totalOffers = Math.max(0, offersBefore);
             long lockMask = TradeLockState.getMask(vill);
 
@@ -72,6 +74,11 @@ public final class RerollExecutor {
             }
 
             int lockedCount = Long.bitCount(lockMask);
+
+            // This is the multiplier target for manual reroll XP:
+            // only offers that are NOT locked are actually rerolled.
+            final int offersRerolled = Math.max(0, totalOffers - lockedCount);
+
             int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
             int deductibleLocks = Math.min(lockedCount, maxDeduct);
 
@@ -92,12 +99,13 @@ public final class RerollExecutor {
             }
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, deductibleLocks={}, effectiveOffers={}, freeOffers={}, paidOffers={}, costPerOffer={}, cost={}, costSpec='{}' (preferWallet={})",
+                    "[EZVR] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, offersRerolled={}, deductibleLocks={}, effectiveOffers={}, freeOffers={}, paidOffers={}, costPerOffer={}, cost={}, costSpec='{}' (preferWallet={})",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getVillagerData().getProfession(),
                     level, xp, offersBefore,
-                    lockedCount, deductibleLocks, effectiveOffers,
+                    lockedCount, offersRerolled,
+                    deductibleLocks, effectiveOffers,
                     freeOffers, paidOffers, costPerOffer,
                     cost, ServerConfig.costSpec, ServerConfig.preferWallet
             );
@@ -151,6 +159,11 @@ public final class RerollExecutor {
                 return;
             }
 
+            // NEW: Grant villager XP for successful manual reroll.
+            // We do this AFTER rebuild succeeded, but BEFORE capturing canonical offers
+            // so the persisted "canonical" offers reflect any immediate changes from XP gain.
+            grantVillagerXpForManualReroll(sp, menu, vill, offersRerolled);
+
             // MANUAL REROLL RULE: After a successful manual reroll, store the new offers as canonical.
             try {
                 VillagerOffersSavedData sd = VillagerOffersSavedData.get(sp.serverLevel());
@@ -178,6 +191,116 @@ public final class RerollExecutor {
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] tryReroll exception", t);
+        }
+    }
+
+    private static void grantVillagerXpForManualReroll(ServerPlayer sp, MerchantMenu menu, Villager vill, int offersRerolled) {
+        try {
+            if (sp == null || menu == null || vill == null) return;
+
+            int perOffer = Math.max(0, ServerConfig.manualRerollXpPerOffer);
+            if (perOffer <= 0) {
+                EZVillagerReroll.LOG().debug("[EZVR] Manual reroll XP disabled (manualRerollXpPerOffer=0).");
+                return;
+            }
+
+            int rerolled = Math.max(0, offersRerolled);
+            if (rerolled <= 0) {
+                EZVillagerReroll.LOG().debug("[EZVR] Manual reroll XP skipped: offersRerolled={} (nothing to reward).", offersRerolled);
+                return;
+            }
+
+            long addLong = (long) perOffer * (long) rerolled;
+            if (addLong < 0L) addLong = 0L;
+            if (addLong > Integer.MAX_VALUE) addLong = Integer.MAX_VALUE;
+            int add = (int) addLong;
+
+            int xpBefore = 0;
+            int lvlBefore = 0;
+            try { xpBefore = vill.getVillagerXp(); } catch (Throwable ignored) {}
+            try { lvlBefore = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+
+            boolean applied = addVillagerXpSafe(vill, add);
+
+            int xpAfter = xpBefore;
+            int lvlAfter = lvlBefore;
+            try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
+            try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+
+            if (!applied) {
+                EZVillagerReroll.LOG().warn("[EZVR] Manual reroll XP: failed to apply villager XP (add={}, perOffer={}, offersRerolled={}, villager={})",
+                        add, perOffer, rerolled, vill.getUUID());
+                return;
+            }
+
+            // Re-sync merchant offers to update XP/progress bar on the client immediately.
+            try {
+                sp.sendMerchantOffers(
+                        menu.containerId,
+                        vill.getOffers(),
+                        vill.getVillagerData().getLevel(),
+                        vill.getVillagerXp(),
+                        vill.showProgressBar(),
+                        vill.canRestock()
+                );
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] Manual reroll XP: sendMerchantOffers refresh failed (soft): {}", t.toString());
+            }
+
+            EZVillagerReroll.LOG().info(
+                    "[EZVR] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} add={} xp {}->{} level {}->{}",
+                    vill.getUUID(), rerolled, perOffer, add, xpBefore, xpAfter, lvlBefore, lvlAfter
+            );
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] grantVillagerXpForManualReroll failed (soft)", t);
+        }
+    }
+
+    /**
+     * Try multiple method names across mappings/versions without crashing:
+     * - addVillagerXp(int)
+     * - addXp(int)
+     * - setVillagerXp(getVillagerXp()+x)
+     */
+    private static boolean addVillagerXpSafe(Villager vill, int add) {
+        try {
+            if (vill == null) return false;
+            if (add <= 0) return true; // treat "no-op" as success
+
+            // 1) Mojmap-style
+            try {
+                Method m = vill.getClass().getMethod("addVillagerXp", int.class);
+                m.invoke(vill, add);
+                return true;
+            } catch (Throwable ignored) {}
+
+            // 2) Alternate
+            try {
+                Method m = vill.getClass().getMethod("addXp", int.class);
+                m.invoke(vill, add);
+                return true;
+            } catch (Throwable ignored) {}
+
+            // 3) Fallback: setVillagerXp(current+add)
+            try {
+                int cur = 0;
+                try { cur = vill.getVillagerXp(); } catch (Throwable ignored2) { cur = 0; }
+
+                long next = (long) cur + (long) add;
+                if (next < 0L) next = 0L;
+                if (next > Integer.MAX_VALUE) next = Integer.MAX_VALUE;
+
+                Method m = vill.getClass().getMethod("setVillagerXp", int.class);
+                m.invoke(vill, (int) next);
+                return true;
+            } catch (Throwable ignored) {}
+
+            return false;
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] addVillagerXpSafe failed (soft): {}", t.toString());
+            return false;
         }
     }
 

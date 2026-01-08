@@ -40,6 +40,9 @@ public final class ServerSync {
 
             pkt.allowAfterTradeUsed = ServerConfig.allowAfterTradeUsed;
 
+            // NEW
+            pkt.manualRerollXpPerOffer = ServerConfig.manualRerollXpPerOffer;
+
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));
 
             EZVillagerReroll.LOG().debug(

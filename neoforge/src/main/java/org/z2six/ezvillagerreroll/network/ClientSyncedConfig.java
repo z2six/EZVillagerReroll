@@ -25,6 +25,9 @@ public final class ClientSyncedConfig {
 
         public boolean allowAfterTradeUsed;
 
+        // NEW
+        public int manualRerollXpPerOffer;
+
         @Override
         public String toString() {
             return "Snapshot{" +
@@ -41,6 +44,7 @@ public final class ClientSyncedConfig {
                     ", autoHourlyThreshold=" + autoHourlyThreshold +
                     ", autoHourlyDiscountOrIncreasePct=" + autoHourlyDiscountOrIncreasePct +
                     ", allowAfterTradeUsed=" + allowAfterTradeUsed +
+                    ", manualRerollXpPerOffer=" + manualRerollXpPerOffer +
                     '}';
         }
     }
@@ -71,6 +75,9 @@ public final class ClientSyncedConfig {
             s.autoHourlyDiscountOrIncreasePct = Math.max(0.0, msg.autoHourlyDiscountOrIncreasePct);
 
             s.allowAfterTradeUsed = msg.allowAfterTradeUsed;
+
+            // NEW
+            s.manualRerollXpPerOffer = Math.max(0, msg.manualRerollXpPerOffer);
 
             last = s;
 
