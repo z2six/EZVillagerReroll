@@ -1,6 +1,7 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/SearchCatalogScreen.java
 package org.z2six.ezvillagerreroll.client;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -69,7 +70,8 @@ public final class SearchCatalogScreen extends Screen {
     private SimpleScrollBar scrollBar;
 
     // For “name + level” parsing (Bane of Arthropods III, Impaling V, Protection 4, etc.)
-    private static final Pattern TRAILING_LEVEL = Pattern.compile("^(.*?)(?:\\s+([0-9]+|[IVXLCDM]+))\\s*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TRAILING_LEVEL =
+            Pattern.compile("^(.*?)(?:\\s+([0-9]+|[IVXLCDM]+))\\s*$", Pattern.CASE_INSENSITIVE);
 
     public SearchCatalogScreen(MerchantScreen parent) {
         super(Component.translatable("ezvr.catalog.title"));
@@ -84,6 +86,15 @@ public final class SearchCatalogScreen extends Screen {
         if (catalog != null) this.catalogAll.addAll(catalog);
         this.awaitingServerData = false;
         rebuildFilteredAndSorted();
+    }
+
+    // Backwards-compatible old signature (kept so other call-sites won't crash)
+    public void applyCatalogFromServer(int villagerEntityId, List<ItemStack> items) {
+        try {
+            applyCatalogFromServer(PacketSearchCatalogData.minimal(villagerEntityId, items));
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] applyCatalogFromServer(int,List) wrapper failed", t);
+        }
     }
 
     public void applyCatalogFromServer(PacketSearchCatalogData msg) {
@@ -114,20 +125,15 @@ public final class SearchCatalogScreen extends Screen {
             );
 
             rebuildFilteredAndSorted();
+
+            // Prune selection to ensure you can't keep “already offered” items selected if state updated.
+            pruneSelectionAgainstAlreadyOffered();
+
             scrollRow = 0;
             clampScroll();
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] applyCatalogFromServer(PacketSearchCatalogData) failed", t);
-        }
-    }
-
-    // Backwards-compatible old signature (kept so other call-sites won't crash)
-    public void applyCatalogFromServer(int villagerEntityId, List<ItemStack> items) {
-        try {
-            applyCatalogFromServer(PacketSearchCatalogData.minimal(villagerEntityId, items));
-        } catch (Throwable t) {
-            EZVillagerReroll.LOG().error("[EZVR] applyCatalogFromServer(int,List) wrapper failed", t);
         }
     }
 
@@ -169,11 +175,15 @@ public final class SearchCatalogScreen extends Screen {
                                 if (s == null || s.isEmpty()) continue;
                                 String k = keyOf(s);
                                 if (!selectedKeys.contains(k)) continue;
+
+                                // Hard safety: never request items already offered in current menu.
+                                if (isCatalogKeyDisabledBecauseAlreadyOffered(k)) continue;
+
                                 req.add(s.copy());
                             }
 
                             if (req.isEmpty()) {
-                                EZVillagerReroll.LOG().warn("[EZVR] Request clicked with empty selection; ignoring.");
+                                EZVillagerReroll.LOG().warn("[EZVR] Request clicked with empty selection (or all were already offered); ignoring.");
                                 return;
                             }
 
@@ -181,7 +191,6 @@ public final class SearchCatalogScreen extends Screen {
                             EZVillagerReroll.LOG().info("[EZVR] SearchCatalogScreen: sent PacketStartAutoSearch villagerEntityId={} items={}",
                                     villagerEntityId, req.size());
 
-                            // Request means: close this UI AND close the merchant container.
                             closeAllAndCloseContainer();
 
                         } catch (Throwable t) {
@@ -199,7 +208,7 @@ public final class SearchCatalogScreen extends Screen {
             int gridH = Math.max(1, computeGridBottom() - GRID_TOP);
             scrollBar = new SimpleScrollBar(computeScrollbarX(), GRID_TOP, SCROLLBAR_W, gridH);
 
-            // Redundant query (safe)
+            // Redundant catalog query (safe)
             if (awaitingServerData && villagerEntityId >= 0) {
                 try {
                     ClientNetwork.sendToServer(new PacketSearchCatalogQuery(villagerEntityId));
@@ -212,6 +221,36 @@ public final class SearchCatalogScreen extends Screen {
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] SearchCatalogScreen.init failed", t);
+        }
+    }
+
+    /**
+     * Renders an item at a specified alpha (0..1).
+     * We explicitly enable blending because item rendering paths can otherwise appear fully opaque.
+     */
+    private void ezvr$renderItemWithAlpha(GuiGraphics gg, ItemStack stack, int x, int y, float alpha) {
+        try {
+            if (gg == null) return;
+            if (stack == null || stack.isEmpty()) return;
+
+            float a = alpha;
+            if (a < 0.0f) a = 0.0f;
+            if (a > 1.0f) a = 1.0f;
+
+            // Always restore shader color so we don't poison downstream rendering.
+            try {
+                RenderSystem.enableBlend();
+                RenderSystem.defaultBlendFunc();
+                RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, a);
+                gg.renderItem(stack, x, y);
+            } finally {
+                RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+            }
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] ezvr$renderItemWithAlpha failed (soft): {}", t.toString());
+            try {
+                gg.renderItem(stack, x, y);
+            } catch (Throwable ignored) {}
         }
     }
 
@@ -269,7 +308,6 @@ public final class SearchCatalogScreen extends Screen {
 
     private int computeScrollbarX() {
         try {
-            // Right edge: width - right pad - scrollbar width
             return this.width - GRID_RIGHT_PAD - SCROLLBAR_W;
         } catch (Throwable t) {
             return this.width - 20 - SCROLLBAR_W;
@@ -278,7 +316,6 @@ public final class SearchCatalogScreen extends Screen {
 
     private int computeGridRight() {
         try {
-            // Grid area ends before scrollbar + gap
             int right = computeScrollbarX() - SCROLLBAR_GAP;
             return Math.max(GRID_LEFT + ITEM_SIZE, right);
         } catch (Throwable t) {
@@ -286,18 +323,10 @@ public final class SearchCatalogScreen extends Screen {
         }
     }
 
-    /**
-     * Render and hit-testing MUST share the exact same column math.
-     * We compute cols based strictly on the actual grid pixel width.
-     */
     private int computeCols() {
         try {
             int gridRight = computeGridRight();
             int gridW = Math.max(1, gridRight - GRID_LEFT);
-            // If we place N items: x = left + col*(ITEM_SIZE+PAD).
-            // Total width occupied = N*ITEM_SIZE + (N-1)*PAD.
-            // This equals N*(ITEM_SIZE+PAD) - PAD.
-            // So we solve for N: N*(ITEM_SIZE+PAD) - PAD <= gridW  =>  N <= (gridW + PAD)/(ITEM_SIZE+PAD)
             int cols = (gridW + PAD) / (ITEM_SIZE + PAD);
             return Math.max(1, cols);
         } catch (Throwable t) {
@@ -359,12 +388,6 @@ public final class SearchCatalogScreen extends Screen {
                 tmp.add(e);
             }
 
-            // Sort by:
-            // 1) Item name A-Z (primaryName)
-            // 2) "Detail base" A-Z (e.g., "Bane of Arthropods")
-            // 3) Parsed numeric level ascending (I, II, III, 4, V, X, etc.)
-            // 4) Raw detail tie-breaker
-            // 5) Blob tie-breaker
             tmp.sort((a, b) -> {
                 int c;
 
@@ -425,7 +448,6 @@ public final class SearchCatalogScreen extends Screen {
                 }
             } catch (Throwable ignored) {}
 
-            // Build search blob and pick a “best detail line” for sorting.
             String bestDetailLine = "";
             StringBuilder blob = new StringBuilder(256);
             if (!name.isBlank()) blob.append(name);
@@ -438,15 +460,12 @@ public final class SearchCatalogScreen extends Screen {
 
                     blob.append('\n').append(line);
 
-                    // For sorting: prefer the first meaningful line AFTER the title line.
-                    // For Enchanted Books, this is typically the enchant line.
                     if (i > 0 && bestDetailLine.isBlank()) {
                         bestDetailLine = line.trim();
                     }
                 }
             }
 
-            // Add components patch to blob for broader “modded details” matching.
             try {
                 Object patch = s.getComponentsPatch();
                 if (patch != null) blob.append("\n").append(patch.toString());
@@ -454,7 +473,6 @@ public final class SearchCatalogScreen extends Screen {
 
             String blobLower = blob.toString().toLowerCase(Locale.ROOT);
 
-            // Parse detail into base + level for stable grouping (Bane of Arthropods + 3)
             ParsedDetail pd = parseDetail(bestDetailLine);
 
             Entry e = new Entry();
@@ -569,7 +587,6 @@ public final class SearchCatalogScreen extends Screen {
         String primaryName;
         String secondaryDetail;
 
-        // new sort fields
         String detailBase;
         int detailLevel;
 
@@ -595,10 +612,6 @@ public final class SearchCatalogScreen extends Screen {
         }
     }
 
-    /**
-     * MC 1.21.1 ContainerEventHandler signature uses 4 params:
-     * mouseScrolled(mouseX, mouseY, scrollX, scrollY)
-     */
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         try {
@@ -637,7 +650,17 @@ public final class SearchCatalogScreen extends Screen {
                         int index = (scrollRow + row) * cols + col;
                         if (index >= 0 && index < catalogFiltered.size()) {
                             ItemStack clicked = catalogFiltered.get(index);
+                            if (clicked == null || clicked.isEmpty()) return true;
+
                             String k = keyOf(clicked);
+
+                            if (isCatalogKeyDisabledBecauseAlreadyOffered(k)) {
+                                if (button == 0) {
+                                    EZVillagerReroll.LOG().debug("[EZVR] Catalog click ignored (already offered): key={}", k);
+                                    return true;
+                                }
+                                return true;
+                            }
 
                             if (button == 0) {
                                 if (selectedKeys.contains(k)) selectedKeys.remove(k);
@@ -656,6 +679,39 @@ public final class SearchCatalogScreen extends Screen {
         }
 
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean isCatalogKeyDisabledBecauseAlreadyOffered(String key) {
+        try {
+            if (key == null || key.isBlank()) return false;
+            Set<String> disabled = computeAlreadyOfferedResultKeysSafe();
+            return disabled.contains(key);
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] isCatalogKeyDisabledBecauseAlreadyOffered failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    private void pruneSelectionAgainstAlreadyOffered() {
+        try {
+            if (selectedKeys.isEmpty()) return;
+
+            Set<String> disabled = computeAlreadyOfferedResultKeysSafe();
+            if (disabled.isEmpty()) return;
+
+            int before = selectedKeys.size();
+            for (Iterator<String> it = selectedKeys.iterator(); it.hasNext(); ) {
+                String k = it.next();
+                if (k != null && disabled.contains(k)) it.remove();
+            }
+            int after = selectedKeys.size();
+
+            if (after != before) {
+                EZVillagerReroll.LOG().debug("[EZVR] Catalog selection pruned (already offered): {} -> {}", before, after);
+            }
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] pruneSelectionAgainstAlreadyOffered failed (soft): {}", t.toString());
+        }
     }
 
     @Override
@@ -682,10 +738,27 @@ public final class SearchCatalogScreen extends Screen {
     @Override
     public void render(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
         try {
-            // Recompute scrollbar on resize dynamically (prevents stale x/h causing drift after resizing).
             try {
                 int gridH = Math.max(1, computeGridBottom() - GRID_TOP);
                 if (scrollBar != null) scrollBar.setBounds(computeScrollbarX(), GRID_TOP, SCROLLBAR_W, gridH);
+            } catch (Throwable ignored) {}
+
+            final Set<String> disabledKeys = computeAlreadyOfferedResultKeysSafe();
+
+            try {
+                if (!disabledKeys.isEmpty() && !selectedKeys.isEmpty()) {
+                    boolean removed = false;
+                    for (Iterator<String> it = selectedKeys.iterator(); it.hasNext(); ) {
+                        String k = it.next();
+                        if (k != null && disabledKeys.contains(k)) {
+                            it.remove();
+                            removed = true;
+                        }
+                    }
+                    if (removed) {
+                        EZVillagerReroll.LOG().debug("[EZVR] Catalog selection pruned during render (already offered) (selectedNow={})", selectedKeys.size());
+                    }
+                }
             } catch (Throwable ignored) {}
 
             this.renderBackground(gg, mouseX, mouseY, partialTick);
@@ -698,7 +771,6 @@ public final class SearchCatalogScreen extends Screen {
                 return;
             }
 
-            // Line 1: counts
             gg.drawCenteredString(this.font,
                     Component.literal("Items available: ").withStyle(ChatFormatting.GRAY)
                             .append(Component.literal(String.valueOf(catalogFiltered.size())).withStyle(ChatFormatting.WHITE))
@@ -706,7 +778,6 @@ public final class SearchCatalogScreen extends Screen {
                             .append(Component.literal(String.valueOf(selectedKeys.size())).withStyle(ChatFormatting.WHITE)),
                     this.width / 2, 66, 0xFFFFFF);
 
-            // Line 2: hourly cost preview (colored + emerald icons inline)
             renderHourlyPreviewLine(gg, 78);
 
             int gridBottom = computeGridBottom();
@@ -726,27 +797,41 @@ public final class SearchCatalogScreen extends Screen {
                 for (int col = 0; col < cols && idx < endIndex; col++, idx++) {
                     int x = GRID_LEFT + col * (ITEM_SIZE + PAD);
 
-                    // Safety: don't render outside gridRight (should be consistent with cols math, but keep it soft)
                     if (x + ITEM_SIZE > gridRight) continue;
 
                     ItemStack s = catalogFiltered.get(idx);
-                    if (s == null) continue;
+                    if (s == null || s.isEmpty()) continue;
 
                     String k = keyOf(s);
-                    boolean sel = selectedKeys.contains(k);
+                    boolean disabled = (k != null && disabledKeys.contains(k));
+
+                    boolean sel = !disabled && selectedKeys.contains(k);
                     if (sel) {
                         int outline = 0xFF66FF66;
                         gg.renderOutline(x - 1, y - 1, ITEM_SIZE + 2, ITEM_SIZE + 2, outline);
                     }
 
-                    gg.renderItem(s, x, y);
-                    gg.renderItemDecorations(this.font, s, x, y);
+                    if (disabled) {
+                        // light darkening so the “disabled” state reads even for bright items
+                        gg.fill(x, y, x + ITEM_SIZE, y + ITEM_SIZE, 0x30000000);
+
+                        // actual item texture at 50% opacity
+                        ezvr$renderItemWithAlpha(gg, s, x, y, 0.5f);
+
+                        // keep decorations readable
+                        gg.renderItemDecorations(this.font, s, x, y);
+
+                        // subtle outline
+                        gg.renderOutline(x, y, ITEM_SIZE, ITEM_SIZE, 0x60FFFFFF);
+                    } else {
+                        gg.renderItem(s, x, y);
+                        gg.renderItemDecorations(this.font, s, x, y);
+                    }
                 }
 
                 if (y + ITEM_SIZE > gridBottom) break;
             }
 
-            // Tooltip on hover (vanilla stack tooltip)
             if (mouseX >= GRID_LEFT && mouseX < gridRight && mouseY >= GRID_TOP && mouseY < gridBottom) {
                 int relX = (int) mouseX - GRID_LEFT;
                 int relY = (int) mouseY - GRID_TOP;
@@ -773,6 +858,49 @@ public final class SearchCatalogScreen extends Screen {
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] SearchCatalogScreen.render failed", t);
+        }
+    }
+
+    private Set<String> computeAlreadyOfferedResultKeysSafe() {
+        Set<String> out = new HashSet<>();
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.player == null) return out;
+
+            if (!(mc.player.containerMenu instanceof net.minecraft.world.inventory.MerchantMenu menu)) {
+                return out;
+            }
+
+            net.minecraft.world.item.trading.MerchantOffers offers;
+            try {
+                offers = menu.getOffers();
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().debug("[EZVR] computeAlreadyOfferedResultKeysSafe: menu.getOffers() failed (soft): {}", t.toString());
+                return out;
+            }
+
+            if (offers == null || offers.isEmpty()) return out;
+
+            int limit = Math.min(offers.size(), 128);
+            for (int i = 0; i < limit; i++) {
+                try {
+                    net.minecraft.world.item.trading.MerchantOffer offer = offers.get(i);
+                    if (offer == null) continue;
+
+                    ItemStack res = offer.getResult();
+                    if (res == null || res.isEmpty()) continue;
+
+                    String k = keyOf(res);
+                    if (k != null && !k.isBlank()) out.add(k);
+                } catch (Throwable ignored) {}
+            }
+
+            EZVillagerReroll.LOG().debug("[EZVR] computeAlreadyOfferedResultKeysSafe: offers={} disabledKeys={}", offers.size(), out.size());
+            return out;
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] computeAlreadyOfferedResultKeysSafe failed (soft): {}", t.toString());
+            return out;
         }
     }
 
@@ -834,17 +962,14 @@ public final class SearchCatalogScreen extends Screen {
         try {
             InlineLinePlan plan = new InlineLinePlan();
 
-            // "Hourly cost: <n> [emerald]"
             plan.parts.add(new InlinePart(
                     Component.literal("Hourly cost: ").withStyle(ChatFormatting.GOLD)
                             .append(Component.literal(String.valueOf(Math.max(0, hourlyCost))).withStyle(ChatFormatting.WHITE)),
                     true
             ));
 
-            // spacing
             plan.parts.add(new InlinePart(Component.literal("   "), false));
 
-            // "Manual: <n> [emerald]"
             if (manualCost >= 0) {
                 plan.parts.add(new InlinePart(
                         Component.literal("Manual: ").withStyle(ChatFormatting.AQUA)
@@ -854,7 +979,6 @@ public final class SearchCatalogScreen extends Screen {
                 plan.parts.add(new InlinePart(Component.literal("   "), false));
             }
 
-            // "Paid offers: <n>"
             if (effectivePaidOffers >= 0) {
                 plan.parts.add(new InlinePart(
                         Component.literal("Paid offers: ").withStyle(ChatFormatting.RED)
@@ -864,7 +988,6 @@ public final class SearchCatalogScreen extends Screen {
                 plan.parts.add(new InlinePart(Component.literal("   "), false));
             }
 
-            // "Locked: a/b"
             if (lockedCount >= 0 || offerCount >= 0) {
                 String a = (lockedCount >= 0) ? String.valueOf(Math.max(0, lockedCount)) : "?";
                 String b = (offerCount >= 0) ? String.valueOf(Math.max(0, offerCount)) : "?";
@@ -878,7 +1001,6 @@ public final class SearchCatalogScreen extends Screen {
                 ));
             }
 
-            // Trim trailing spacing parts (avoid centering drift if last is spaces)
             while (!plan.parts.isEmpty()) {
                 InlinePart last = plan.parts.get(plan.parts.size() - 1);
                 if (last != null && last.text != null && "   ".equals(last.text.getString())) {
