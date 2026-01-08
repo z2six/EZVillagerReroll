@@ -1,6 +1,7 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/SearchCatalogScreen.java
 package org.z2six.ezvillagerreroll.client;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -10,8 +11,10 @@ import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.network.PacketSearchCatalogData;
 import org.z2six.ezvillagerreroll.network.PacketSearchCatalogQuery;
 import org.z2six.ezvillagerreroll.network.PacketStartAutoSearch;
 
@@ -38,6 +41,13 @@ public final class SearchCatalogScreen extends Screen {
 
     private boolean awaitingServerData = true;
 
+    // Hourly cost preview (server-auth computed & sent in PacketSearchCatalogData)
+    private int offerCount = -1;
+    private int lockedCount = -1;
+    private int effectivePaidOffers = -1;
+    private int manualCost = -1;
+    private int hourlyCost = -1;
+
     // Grid/scroll
     private int scrollRow = 0;
 
@@ -49,6 +59,12 @@ public final class SearchCatalogScreen extends Screen {
     private static final int GRID_BOTTOM_PAD = 40;   // bottom UI area
     private static final int GRID_RIGHT_PAD = 20;    // right margin
     private static final int SCROLLBAR_GAP = 2;
+
+    // Inline icon (emerald) rendering
+    private static final int INLINE_ICON_SIZE = 16;
+    private static final int INLINE_ICON_GAP = 4;
+    private static final int INLINE_Z = 200; // above background; below tooltips
+    private static final int COLOR_WHITE_OPAQUE = 0xFFFFFFFF;
 
     private SimpleScrollBar scrollBar;
 
@@ -70,11 +86,13 @@ public final class SearchCatalogScreen extends Screen {
         rebuildFilteredAndSorted();
     }
 
-    public void applyCatalogFromServer(int villagerEntityId, List<ItemStack> items) {
+    public void applyCatalogFromServer(PacketSearchCatalogData msg) {
         try {
-            this.villagerEntityId = villagerEntityId;
+            if (msg == null) return;
+            this.villagerEntityId = msg.villagerEntityId();
 
             this.catalogAll.clear();
+            List<ItemStack> items = msg.catalog();
             if (items != null) {
                 for (ItemStack s : items) {
                     if (s == null || s.isEmpty()) continue;
@@ -82,17 +100,34 @@ public final class SearchCatalogScreen extends Screen {
                 }
             }
 
+            this.offerCount = msg.offerCount();
+            this.lockedCount = msg.lockedCount();
+            this.effectivePaidOffers = msg.effectivePaidOffers();
+            this.manualCost = msg.manualCost();
+            this.hourlyCost = msg.hourlyCost();
+
             this.awaitingServerData = false;
 
-            EZVillagerReroll.LOG().info("[EZVR] SearchCatalogScreen received catalog: villagerEntityId={} items={}",
-                    villagerEntityId, this.catalogAll.size());
+            EZVillagerReroll.LOG().info(
+                    "[EZVR] SearchCatalogScreen received catalog: villagerEntityId={} items={} offerCount={} lockedCount={} effectivePaidOffers={} manualCost={} hourlyCost={}",
+                    villagerEntityId, this.catalogAll.size(), offerCount, lockedCount, effectivePaidOffers, manualCost, hourlyCost
+            );
 
             rebuildFilteredAndSorted();
             scrollRow = 0;
             clampScroll();
 
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().error("[EZVR] applyCatalogFromServer failed", t);
+            EZVillagerReroll.LOG().error("[EZVR] applyCatalogFromServer(PacketSearchCatalogData) failed", t);
+        }
+    }
+
+    // Backwards-compatible old signature (kept so other call-sites won't crash)
+    public void applyCatalogFromServer(int villagerEntityId, List<ItemStack> items) {
+        try {
+            applyCatalogFromServer(PacketSearchCatalogData.minimal(villagerEntityId, items));
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] applyCatalogFromServer(int,List) wrapper failed", t);
         }
     }
 
@@ -181,7 +216,6 @@ public final class SearchCatalogScreen extends Screen {
     }
 
     /**
-     * IMPORTANT FIX (#3):
      * Cancel / ESC should not set screen null while keeping the trade container open.
      * That combination can leave the client stuck “in a trade session” and unable to reopen the villager.
      *
@@ -253,7 +287,6 @@ public final class SearchCatalogScreen extends Screen {
     }
 
     /**
-     * IMPORTANT FIX (#2):
      * Render and hit-testing MUST share the exact same column math.
      * We compute cols based strictly on the actual grid pixel width.
      */
@@ -326,7 +359,6 @@ public final class SearchCatalogScreen extends Screen {
                 tmp.add(e);
             }
 
-            // IMPORTANT FIX (#1):
             // Sort by:
             // 1) Item name A-Z (primaryName)
             // 2) "Detail base" A-Z (e.g., "Bane of Arthropods")
@@ -662,13 +694,20 @@ public final class SearchCatalogScreen extends Screen {
             gg.drawCenteredString(this.font, Component.translatable("ezvr.catalog.header"), this.width / 2, 44, 0xFFFFFF);
 
             if (awaitingServerData) {
-                gg.drawCenteredString(this.font, Component.literal("Loading…"), this.width / 2, 66, 0xB0B0B0);
+                gg.drawCenteredString(this.font, Component.literal("Loading…").withStyle(ChatFormatting.GRAY), this.width / 2, 66, 0xFFFFFF);
                 return;
             }
 
+            // Line 1: counts
             gg.drawCenteredString(this.font,
-                    Component.literal("Items available: " + catalogFiltered.size() + "   Selected: " + selectedKeys.size()),
-                    this.width / 2, 66, 0xB0B0B0);
+                    Component.literal("Items available: ").withStyle(ChatFormatting.GRAY)
+                            .append(Component.literal(String.valueOf(catalogFiltered.size())).withStyle(ChatFormatting.WHITE))
+                            .append(Component.literal("   Selected: ").withStyle(ChatFormatting.GRAY))
+                            .append(Component.literal(String.valueOf(selectedKeys.size())).withStyle(ChatFormatting.WHITE)),
+                    this.width / 2, 66, 0xFFFFFF);
+
+            // Line 2: hourly cost preview (colored + emerald icons inline)
+            renderHourlyPreviewLine(gg, 78);
 
             int gridBottom = computeGridBottom();
             int gridRight = computeGridRight();
@@ -734,6 +773,138 @@ public final class SearchCatalogScreen extends Screen {
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] SearchCatalogScreen.render failed", t);
+        }
+    }
+
+    private void renderHourlyPreviewLine(GuiGraphics gg, int y) {
+        try {
+            if (gg == null || this.font == null) return;
+            if (hourlyCost < 0) return;
+
+            InlineLinePlan plan = buildHourlyInlinePlan();
+            if (plan == null || plan.parts.isEmpty()) return;
+
+            int totalW = 0;
+            for (InlinePart p : plan.parts) {
+                if (p == null) continue;
+                int w = this.font.width(p.text == null ? Component.empty() : p.text);
+                if (p.hasEmeraldAfter) w += INLINE_ICON_GAP + INLINE_ICON_SIZE;
+                totalW += w;
+            }
+
+            int startX = (this.width / 2) - (totalW / 2);
+
+            gg.pose().pushPose();
+            gg.pose().translate(0.0D, 0.0D, (double) INLINE_Z);
+
+            int x = startX;
+            for (InlinePart p : plan.parts) {
+                if (p == null) continue;
+
+                Component c = p.text == null ? Component.empty() : p.text;
+                gg.drawString(this.font, c, x, y, COLOR_WHITE_OPAQUE, true);
+
+                int w = this.font.width(c);
+                x += w;
+
+                if (p.hasEmeraldAfter) {
+                    int iconX = x + INLINE_ICON_GAP;
+                    int iconY = y + Math.max(0, (this.font.lineHeight - INLINE_ICON_SIZE) / 2) - 3;
+
+                    try {
+                        ItemStack em = new ItemStack(Items.EMERALD);
+                        gg.renderItem(em, iconX, iconY);
+                        gg.renderItemDecorations(this.font, em, iconX, iconY);
+                    } catch (Throwable t) {
+                        EZVillagerReroll.LOG().debug("[EZVR] renderHourlyPreviewLine emerald draw failed (soft): {}", t.toString());
+                    }
+
+                    x = iconX + INLINE_ICON_SIZE;
+                }
+            }
+
+            gg.pose().popPose();
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] renderHourlyPreviewLine failed (soft): {}", t.toString());
+        }
+    }
+
+    private InlineLinePlan buildHourlyInlinePlan() {
+        try {
+            InlineLinePlan plan = new InlineLinePlan();
+
+            // "Hourly cost: <n> [emerald]"
+            plan.parts.add(new InlinePart(
+                    Component.literal("Hourly cost: ").withStyle(ChatFormatting.GOLD)
+                            .append(Component.literal(String.valueOf(Math.max(0, hourlyCost))).withStyle(ChatFormatting.WHITE)),
+                    true
+            ));
+
+            // spacing
+            plan.parts.add(new InlinePart(Component.literal("   "), false));
+
+            // "Manual: <n> [emerald]"
+            if (manualCost >= 0) {
+                plan.parts.add(new InlinePart(
+                        Component.literal("Manual: ").withStyle(ChatFormatting.AQUA)
+                                .append(Component.literal(String.valueOf(Math.max(0, manualCost))).withStyle(ChatFormatting.WHITE)),
+                        true
+                ));
+                plan.parts.add(new InlinePart(Component.literal("   "), false));
+            }
+
+            // "Paid offers: <n>"
+            if (effectivePaidOffers >= 0) {
+                plan.parts.add(new InlinePart(
+                        Component.literal("Paid offers: ").withStyle(ChatFormatting.RED)
+                                .append(Component.literal(String.valueOf(Math.max(0, effectivePaidOffers))).withStyle(ChatFormatting.WHITE)),
+                        false
+                ));
+                plan.parts.add(new InlinePart(Component.literal("   "), false));
+            }
+
+            // "Locked: a/b"
+            if (lockedCount >= 0 || offerCount >= 0) {
+                String a = (lockedCount >= 0) ? String.valueOf(Math.max(0, lockedCount)) : "?";
+                String b = (offerCount >= 0) ? String.valueOf(Math.max(0, offerCount)) : "?";
+
+                plan.parts.add(new InlinePart(
+                        Component.literal("Locked: ").withStyle(ChatFormatting.DARK_RED)
+                                .append(Component.literal(a).withStyle(ChatFormatting.WHITE))
+                                .append(Component.literal("/").withStyle(ChatFormatting.GRAY))
+                                .append(Component.literal(b).withStyle(ChatFormatting.WHITE)),
+                        false
+                ));
+            }
+
+            // Trim trailing spacing parts (avoid centering drift if last is spaces)
+            while (!plan.parts.isEmpty()) {
+                InlinePart last = plan.parts.get(plan.parts.size() - 1);
+                if (last != null && last.text != null && "   ".equals(last.text.getString())) {
+                    plan.parts.remove(plan.parts.size() - 1);
+                } else break;
+            }
+
+            return plan;
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] buildHourlyInlinePlan failed (soft): {}", t.toString());
+            return null;
+        }
+    }
+
+    private static final class InlineLinePlan {
+        final List<InlinePart> parts = new ArrayList<>();
+    }
+
+    private static final class InlinePart {
+        final Component text;
+        final boolean hasEmeraldAfter;
+
+        InlinePart(Component text, boolean hasEmeraldAfter) {
+            this.text = text;
+            this.hasEmeraldAfter = hasEmeraldAfter;
         }
     }
 

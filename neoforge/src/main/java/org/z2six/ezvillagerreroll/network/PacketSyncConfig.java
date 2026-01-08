@@ -19,6 +19,14 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public boolean preferWallet;
     public int cooldownTicks;
     public int perVillagerDaily;
+
+    // New (required client-side for auto-hourly preview & settlement math)
+    public int freeOffers;
+    public int costPerOffer;
+    public int maxDeductibleLockedOffers;
+    public int autoHourlyThreshold;
+    public double autoHourlyDiscountOrIncreasePct;
+
     public boolean allowAfterTradeUsed;
 
     public PacketSyncConfig() {}
@@ -41,14 +49,26 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.cooldownTicks = buf.readVarInt();
             p.perVillagerDaily = buf.readVarInt();
 
-            // RESERVED slot (v1 wrote this, so we must read it to stay aligned)
-            // If older packets did not include it, decode would have failed anyway,
-            // so keeping it here is safest for your current state.
-            try {
-                buf.readVarInt();
-            } catch (Throwable ignored) {}
+            // RESERVED slot (kept)
+            try { buf.readVarInt(); } catch (Throwable ignored) {}
 
-            p.allowAfterTradeUsed = buf.readBoolean();
+            // New fields (wrap for backwards safety)
+            p.freeOffers = 0;
+            p.costPerOffer = 0;
+            p.maxDeductibleLockedOffers = 0;
+            p.autoHourlyThreshold = 0;
+            p.autoHourlyDiscountOrIncreasePct = 0.0;
+
+            try { p.freeOffers = buf.readVarInt(); } catch (Throwable ignored) {}
+            try { p.costPerOffer = buf.readVarInt(); } catch (Throwable ignored) {}
+            try { p.maxDeductibleLockedOffers = buf.readVarInt(); } catch (Throwable ignored) {}
+            try { p.autoHourlyThreshold = buf.readVarInt(); } catch (Throwable ignored) {}
+            try { p.autoHourlyDiscountOrIncreasePct = buf.readDouble(); } catch (Throwable ignored) {}
+
+            // Existing final field
+            try { p.allowAfterTradeUsed = buf.readBoolean(); }
+            catch (Throwable ignored) { p.allowAfterTradeUsed = true; }
+
             return p;
         }
 
@@ -66,7 +86,14 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeVarInt(p.cooldownTicks);
             buf.writeVarInt(p.perVillagerDaily);
 
-            buf.writeVarInt(0); // RESERVED for future expansion (keeps compatibility if you add fields later)
+            buf.writeVarInt(0); // RESERVED for future expansion
+
+            // New fields
+            buf.writeVarInt(Math.max(0, p.freeOffers));
+            buf.writeVarInt(Math.max(0, p.costPerOffer));
+            buf.writeVarInt(Math.max(0, p.maxDeductibleLockedOffers));
+            buf.writeVarInt(Math.max(0, p.autoHourlyThreshold));
+            buf.writeDouble(Math.max(0.0, p.autoHourlyDiscountOrIncreasePct));
 
             buf.writeBoolean(p.allowAfterTradeUsed);
         }

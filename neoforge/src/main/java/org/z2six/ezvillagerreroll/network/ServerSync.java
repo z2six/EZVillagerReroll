@@ -30,6 +30,14 @@ public final class ServerSync {
             pkt.preferWallet = ServerConfig.preferWallet;
             pkt.cooldownTicks = ServerConfig.cooldownTicks;
             pkt.perVillagerDaily = ServerConfig.perVillagerDaily;
+
+            // New fields
+            pkt.freeOffers = ServerConfig.freeOffers;
+            pkt.costPerOffer = ServerConfig.costPerOffer;
+            pkt.maxDeductibleLockedOffers = ServerConfig.maxDeductibleLockedOffers;
+            pkt.autoHourlyThreshold = ServerConfig.autoHourlyThreshold;
+            pkt.autoHourlyDiscountOrIncreasePct = ServerConfig.autoHourlyDiscountOrIncreasePct;
+
             pkt.allowAfterTradeUsed = ServerConfig.allowAfterTradeUsed;
 
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));

@@ -40,6 +40,14 @@ public final class ServerConfig {
     public static final ModConfigSpec.IntValue MAX_DEDUCTIBLE_LOCKED_OFFERS;
 
     /**
+     * Auto-search hourly preview/settlement scaling:
+     * We compute manual-cost-equivalent per reroll, then extrapolate to 1000 ticks (1 in-game hour).
+     * We then apply a scaling factor based on "effectivePaidOffers" vs threshold.
+     */
+    public static final ModConfigSpec.IntValue AUTO_HOURLY_THRESHOLD;
+    public static final ModConfigSpec.DoubleValue AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT;
+
+    /**
      * LEGACY (kept so old configs / code references do not explode).
      * Not used by our current reroll cost logic anymore.
      */
@@ -106,6 +114,30 @@ public final class ServerConfig {
                         """)
                         .defineInRange("maxDeductibleLockedOffers", 1, 0, 63);
 
+        AUTO_HOURLY_THRESHOLD =
+                B.comment("""
+                        Auto-search hourly price scaling threshold based on "effective paid offers":
+                          effectivePaidOffers = max(0, offers - freeOffers - min(lockedOffers, maxDeductibleLockedOffers))
+                        
+                        If effectivePaidOffers is BELOW this threshold, auto-search becomes more expensive.
+                        If effectivePaidOffers is ABOVE this threshold, auto-search becomes cheaper.
+                        
+                        The per-step percent is configured via autoHourlyDiscountOrIncreasePct.
+                        """)
+                        .defineInRange("autoHourlyThreshold", 6, 0, 64);
+
+        AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT =
+                B.comment("""
+                        Percent per step (difference between effectivePaidOffers and autoHourlyThreshold).
+                        
+                        Examples (threshold=6, pct=5):
+                          - effectivePaidOffers=2 => below by 4 steps => +20%
+                          - effectivePaidOffers=8 => above by 2 steps => -10%
+                        
+                        This affects the HOURLY cost preview and later settlement.
+                        """)
+                        .defineInRange("autoHourlyDiscountOrIncreasePct", 5.0, 0.0, 100.0);
+
         LEVEL_COSTS =
                 B.comment("""
                         LEGACY (not used by current cost model).
@@ -157,6 +189,9 @@ public final class ServerConfig {
     public static int costPerOffer = 8;
     public static int maxDeductibleLockedOffers = 1;
 
+    public static int autoHourlyThreshold = 6;
+    public static double autoHourlyDiscountOrIncreasePct = 5.0;
+
     public static int cooldownTicks = 20;
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
@@ -190,6 +225,9 @@ public final class ServerConfig {
             costPerOffer = Math.max(0, COST_PER_OFFER.get());
             maxDeductibleLockedOffers = Math.max(0, MAX_DEDUCTIBLE_LOCKED_OFFERS.get());
 
+            autoHourlyThreshold = Math.max(0, AUTO_HOURLY_THRESHOLD.get());
+            autoHourlyDiscountOrIncreasePct = Math.max(0.0, AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT.get());
+
             cooldownTicks = COOLDOWN_TICKS.get();
             perVillagerDaily = PER_VILLAGER_DAILY.get();
             allowAfterTradeUsed = ALLOW_AFTER_TRADE_USED.get();
@@ -208,9 +246,13 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} legacyLevelCosts={}",
+                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} perVillagerDaily={} allowAfterTradeUsed={} legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
-                    costSpec, preferWallet, freeOffers, costPerOffer, maxDeductibleLockedOffers, debug(levelCosts)
+                    costSpec, preferWallet,
+                    freeOffers, costPerOffer, maxDeductibleLockedOffers,
+                    autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
+                    cooldownTicks, perVillagerDaily, allowAfterTradeUsed,
+                    debug(levelCosts)
             );
 
         } catch (Throwable t) {
@@ -260,6 +302,10 @@ public final class ServerConfig {
         h = 31 * h + freeOffers;
         h = 31 * h + costPerOffer;
         h = 31 * h + maxDeductibleLockedOffers;
+
+        h = 31 * h + autoHourlyThreshold;
+        long pctBits = Double.doubleToLongBits(autoHourlyDiscountOrIncreasePct);
+        h = 31 * h + (int) (pctBits ^ (pctBits >>> 32));
 
         h = 31 * h + cooldownTicks;
         h = 31 * h + perVillagerDaily;

@@ -12,7 +12,15 @@ import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import java.util.ArrayList;
 import java.util.List;
 
-public record PacketSearchCatalogData(int villagerEntityId, List<ItemStack> catalog) implements CustomPacketPayload {
+public record PacketSearchCatalogData(
+        int villagerEntityId,
+        List<ItemStack> catalog,
+        int offerCount,
+        int lockedCount,
+        int effectivePaidOffers,
+        int manualCost,
+        int hourlyCost
+) implements CustomPacketPayload {
 
     public static final Type<PacketSearchCatalogData> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "search_catalog_data"));
@@ -28,6 +36,10 @@ public record PacketSearchCatalogData(int villagerEntityId, List<ItemStack> cata
      */
     public List<ItemStack> items() {
         return catalog();
+    }
+
+    public static PacketSearchCatalogData minimal(int villagerEntityId, List<ItemStack> catalog) {
+        return new PacketSearchCatalogData(villagerEntityId, catalog, -1, -1, -1, -1, -1);
     }
 
     public static final StreamCodec<RegistryFriendlyByteBuf, PacketSearchCatalogData> STREAM_CODEC = new StreamCodec<>() {
@@ -48,10 +60,24 @@ public record PacketSearchCatalogData(int villagerEntityId, List<ItemStack> cata
                     ItemStack s = ItemStack.STREAM_CODEC.decode(buf);
                     list.add(s == null ? ItemStack.EMPTY : s);
                 }
-                return new PacketSearchCatalogData(id, list);
+
+                // Extended fields (newer protocol). If an older server sent only items, reads will fail.
+                int offerCount = -1;
+                int lockedCount = -1;
+                int effectivePaidOffers = -1;
+                int manualCost = -1;
+                int hourlyCost = -1;
+
+                try { offerCount = buf.readVarInt(); } catch (Throwable ignored) {}
+                try { lockedCount = buf.readVarInt(); } catch (Throwable ignored) {}
+                try { effectivePaidOffers = buf.readVarInt(); } catch (Throwable ignored) {}
+                try { manualCost = buf.readVarInt(); } catch (Throwable ignored) {}
+                try { hourlyCost = buf.readVarInt(); } catch (Throwable ignored) {}
+
+                return new PacketSearchCatalogData(id, list, offerCount, lockedCount, effectivePaidOffers, manualCost, hourlyCost);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] PacketSearchCatalogData decode failed", t);
-                return new PacketSearchCatalogData(-1, List.of());
+                return new PacketSearchCatalogData(-1, List.of(), -1, -1, -1, -1, -1);
             }
         }
 
@@ -73,6 +99,14 @@ public record PacketSearchCatalogData(int villagerEntityId, List<ItemStack> cata
                     if (s == null) s = ItemStack.EMPTY;
                     ItemStack.STREAM_CODEC.encode(buf, s);
                 }
+
+                // Extended fields (always written by current versions)
+                buf.writeVarInt(Math.max(-1, msg.offerCount()));
+                buf.writeVarInt(Math.max(-1, msg.lockedCount()));
+                buf.writeVarInt(Math.max(-1, msg.effectivePaidOffers()));
+                buf.writeVarInt(Math.max(-1, msg.manualCost()));
+                buf.writeVarInt(Math.max(-1, msg.hourlyCost()));
+
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] PacketSearchCatalogData encode failed", t);
             }

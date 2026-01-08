@@ -117,8 +117,7 @@ public final class ClientNetworkHandlers {
                     if (mc == null) return;
 
                     if (mc.screen instanceof SearchCatalogScreen sc) {
-                        int vid = msg.villagerEntityId();
-                        sc.applyCatalogFromServer(vid, msg.catalog());
+                        sc.applyCatalogFromServer(msg);
                     } else {
                         EZVillagerReroll.LOG().debug(
                                 "[EZVR] CatalogData received but current screen is not SearchCatalogScreen (screen={})",
