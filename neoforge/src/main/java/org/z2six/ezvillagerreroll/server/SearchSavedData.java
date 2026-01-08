@@ -15,11 +15,6 @@ import java.util.*;
 
 /**
  * Persistent storage for ongoing villager auto-search tasks AND completed settlements awaiting payment.
- *
- * We store:
- * - activeTasks: villagerUuid -> TaskData
- * - settlements: villagerUuid -> SettlementData
- * - pendingDone: ownerUuid -> list of DoneData (optional delivery when owner logs in)
  */
 public final class SearchSavedData extends SavedData {
 
@@ -27,7 +22,7 @@ public final class SearchSavedData extends SavedData {
 
     public static final class TaskData {
         public UUID villagerUuid;
-        public int villagerEntityId; // best-effort; may be stale across restarts
+        public int villagerEntityId;
         public UUID ownerPlayerUuid;
 
         public long nextRerollGameTime;
@@ -37,6 +32,10 @@ public final class SearchSavedData extends SavedData {
 
         public List<ItemStack> requested = new ArrayList<>();
         public Set<String> requestedKeys = new HashSet<>();
+
+        // snapshot at START
+        public ListTag offersBeforeTag = new ListTag();
+        public long lockMaskBefore = 0L;
     }
 
     public static final class SettlementData {
@@ -50,11 +49,15 @@ public final class SearchSavedData extends SavedData {
         public int hourlyCost;
         public int finalCost;
 
-        /**
-         * Cached offers as ListTag of wrappers { "v": <MerchantOffer encoded tag> }.
-         * This matches the safe pattern used elsewhere (registry-aware decoding will happen server-side).
-         */
-        public ListTag offers = new ListTag();
+        // UI snapshots
+        public ListTag offersIfPay = new ListTag();
+        public ListTag offersIfDecline = new ListTag();
+
+        // lock state at START
+        public long lockMaskBefore = 0L;
+
+        // requested targets for yellow highlight
+        public List<String> requestedTargets = new ArrayList<>();
     }
 
     public static final class DoneData {
@@ -80,10 +83,6 @@ public final class SearchSavedData extends SavedData {
     public Map<UUID, List<DoneData>> pendingDoneByOwner() {
         return pendingDoneByOwner;
     }
-
-    // ------------------------------------------------------------
-    // Integration hooks
-    // ------------------------------------------------------------
 
     public static void loadIntoSearchService(MinecraftServer server) {
         try {
@@ -142,10 +141,6 @@ public final class SearchSavedData extends SavedData {
         }
     }
 
-    // ------------------------------------------------------------
-    // Loading / Saving
-    // ------------------------------------------------------------
-
     public static SearchSavedData get(ServerLevel overworld) {
         try {
             if (overworld == null) throw new IllegalArgumentException("overworld is null");
@@ -165,7 +160,6 @@ public final class SearchSavedData extends SavedData {
         try {
             if (tag == null) return data;
 
-            // Active tasks
             if (tag.contains("activeTasks", Tag.TAG_LIST)) {
                 ListTag list = tag.getList("activeTasks", Tag.TAG_COMPOUND);
                 for (int i = 0; i < list.size(); i++) {
@@ -176,7 +170,6 @@ public final class SearchSavedData extends SavedData {
                 }
             }
 
-            // Settlements
             if (tag.contains("settlements", Tag.TAG_LIST)) {
                 ListTag list = tag.getList("settlements", Tag.TAG_COMPOUND);
                 for (int i = 0; i < list.size(); i++) {
@@ -187,7 +180,6 @@ public final class SearchSavedData extends SavedData {
                 }
             }
 
-            // Pending done notifications
             if (tag.contains("pendingDone", Tag.TAG_LIST)) {
                 ListTag list = tag.getList("pendingDone", Tag.TAG_COMPOUND);
                 for (int i = 0; i < list.size(); i++) {
@@ -225,7 +217,6 @@ public final class SearchSavedData extends SavedData {
         try {
             if (tag == null) tag = new CompoundTag();
 
-            // Active tasks
             ListTag active = new ListTag();
             for (TaskData td : activeTasks.values()) {
                 CompoundTag t = writeTask(td, lookup);
@@ -233,7 +224,6 @@ public final class SearchSavedData extends SavedData {
             }
             tag.put("activeTasks", active);
 
-            // Settlements
             ListTag settles = new ListTag();
             for (SettlementData sd : settlements.values()) {
                 CompoundTag t = writeSettlement(sd);
@@ -241,7 +231,6 @@ public final class SearchSavedData extends SavedData {
             }
             tag.put("settlements", settles);
 
-            // Pending done
             ListTag pending = new ListTag();
             for (Map.Entry<UUID, List<DoneData>> en : pendingDoneByOwner.entrySet()) {
                 UUID owner = en.getKey();
@@ -270,10 +259,6 @@ public final class SearchSavedData extends SavedData {
         }
         return tag;
     }
-
-    // ------------------------------------------------------------
-    // Task (de)serialization helpers
-    // ------------------------------------------------------------
 
     private static TaskData readTask(CompoundTag t, HolderLookup.Provider lookup) {
         try {
@@ -320,6 +305,20 @@ public final class SearchSavedData extends SavedData {
                 }
             }
 
+            td.offersBeforeTag = new ListTag();
+            if (t.contains("offersBeforeTag", Tag.TAG_LIST)) {
+                ListTag list = t.getList("offersBeforeTag", Tag.TAG_COMPOUND);
+                for (int i = 0; i < list.size(); i++) {
+                    try {
+                        CompoundTag wrap = list.getCompound(i);
+                        if (wrap != null) td.offersBeforeTag.add(wrap.copy());
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            td.lockMaskBefore = 0L;
+            try { td.lockMaskBefore = t.getLong("lockMaskBefore"); } catch (Throwable ignored) { td.lockMaskBefore = 0L; }
+
             if (td.villagerUuid == null || td.ownerPlayerUuid == null || td.requestedKeys.isEmpty()) {
                 EZVillagerReroll.LOG().warn("[EZVR] SearchSavedData.readTask: invalid record; skipping (villagerUuid={}, owner={}, keys={})",
                         td.villagerUuid, td.ownerPlayerUuid, td.requestedKeys.size());
@@ -358,12 +357,6 @@ public final class SearchSavedData extends SavedData {
                     Tag tag = s.saveOptional(lookup);
                     if (tag instanceof CompoundTag st) {
                         req.add(st);
-                    } else if (tag != null) {
-                        EZVillagerReroll.LOG().debug(
-                                "[EZVR] SearchSavedData.writeTask: saveOptional returned non-compound Tag type={} for stack={}, skipping.",
-                                tag.getClass().getName(),
-                                String.valueOf(s)
-                        );
                     }
                 } catch (Throwable saveErr) {
                     EZVillagerReroll.LOG().debug("[EZVR] SearchSavedData.writeTask: failed to save stack (soft): {}", saveErr.toString());
@@ -379,6 +372,20 @@ public final class SearchSavedData extends SavedData {
                 }
             }
             t.put("requestedKeys", keys);
+
+            ListTag before = new ListTag();
+            if (td.offersBeforeTag != null) {
+                int m = Math.min(256, td.offersBeforeTag.size());
+                for (int i = 0; i < m; i++) {
+                    try {
+                        CompoundTag wrap = td.offersBeforeTag.getCompound(i);
+                        if (wrap != null) before.add(wrap.copy());
+                    } catch (Throwable ignored) {}
+                }
+            }
+            t.put("offersBeforeTag", before);
+
+            t.putLong("lockMaskBefore", td.lockMaskBefore);
 
             return t;
 
@@ -403,19 +410,46 @@ public final class SearchSavedData extends SavedData {
             sd.hourlyCost = Math.max(0, t.getInt("hourlyCost"));
             sd.finalCost = Math.max(0, t.getInt("finalCost"));
 
-            sd.offers = new ListTag();
-            if (t.contains("offers", Tag.TAG_LIST)) {
-                ListTag list = t.getList("offers", Tag.TAG_COMPOUND);
+            sd.offersIfPay = new ListTag();
+            if (t.contains("offersIfPay", Tag.TAG_LIST)) {
+                ListTag list = t.getList("offersIfPay", Tag.TAG_COMPOUND);
                 for (int i = 0; i < list.size(); i++) {
                     try {
                         CompoundTag wrap = list.getCompound(i);
-                        if (wrap != null) sd.offers.add(wrap.copy());
+                        if (wrap != null) sd.offersIfPay.add(wrap.copy());
                     } catch (Throwable ignored) {}
+                }
+            }
+
+            sd.offersIfDecline = new ListTag();
+            if (t.contains("offersIfDecline", Tag.TAG_LIST)) {
+                ListTag list = t.getList("offersIfDecline", Tag.TAG_COMPOUND);
+                for (int i = 0; i < list.size(); i++) {
+                    try {
+                        CompoundTag wrap = list.getCompound(i);
+                        if (wrap != null) sd.offersIfDecline.add(wrap.copy());
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            sd.lockMaskBefore = 0L;
+            try { sd.lockMaskBefore = t.getLong("lockMaskBefore"); } catch (Throwable ignored) { sd.lockMaskBefore = 0L; }
+
+            sd.requestedTargets = new ArrayList<>();
+            if (t.contains("requestedTargets", Tag.TAG_LIST)) {
+                ListTag keys = t.getList("requestedTargets", Tag.TAG_STRING);
+                int n = Math.min(256, keys.size());
+                for (int i = 0; i < n; i++) {
+                    String s = keys.getString(i);
+                    if (s == null) continue;
+                    s = s.trim();
+                    if (!s.isEmpty()) sd.requestedTargets.add(s);
                 }
             }
 
             if (sd.villagerUuid == null) return null;
             return sd;
+
         } catch (Throwable e) {
             EZVillagerReroll.LOG().error("[EZVR] SearchSavedData.readSettlement failed", e);
             return null;
@@ -437,16 +471,42 @@ public final class SearchSavedData extends SavedData {
             t.putInt("hourlyCost", Math.max(0, sd.hourlyCost));
             t.putInt("finalCost", Math.max(0, sd.finalCost));
 
-            ListTag copy = new ListTag();
-            if (sd.offers != null) {
-                for (int i = 0; i < sd.offers.size(); i++) {
+            ListTag pay = new ListTag();
+            if (sd.offersIfPay != null) {
+                for (int i = 0; i < sd.offersIfPay.size(); i++) {
                     try {
-                        CompoundTag wrap = sd.offers.getCompound(i);
-                        if (wrap != null) copy.add(wrap.copy());
+                        CompoundTag wrap = sd.offersIfPay.getCompound(i);
+                        if (wrap != null) pay.add(wrap.copy());
                     } catch (Throwable ignored) {}
                 }
             }
-            t.put("offers", copy);
+            t.put("offersIfPay", pay);
+
+            ListTag decline = new ListTag();
+            if (sd.offersIfDecline != null) {
+                for (int i = 0; i < sd.offersIfDecline.size(); i++) {
+                    try {
+                        CompoundTag wrap = sd.offersIfDecline.getCompound(i);
+                        if (wrap != null) decline.add(wrap.copy());
+                    } catch (Throwable ignored) {}
+                }
+            }
+            t.put("offersIfDecline", decline);
+
+            t.putLong("lockMaskBefore", sd.lockMaskBefore);
+
+            ListTag targets = new ListTag();
+            if (sd.requestedTargets != null) {
+                int n = Math.min(256, sd.requestedTargets.size());
+                for (int i = 0; i < n; i++) {
+                    String s = sd.requestedTargets.get(i);
+                    if (s == null) continue;
+                    s = s.trim();
+                    if (s.isEmpty()) continue;
+                    targets.add(net.minecraft.nbt.StringTag.valueOf(s));
+                }
+            }
+            t.put("requestedTargets", targets);
 
             return t;
 

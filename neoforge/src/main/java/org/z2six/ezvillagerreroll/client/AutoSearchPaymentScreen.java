@@ -253,7 +253,11 @@ public final class AutoSearchPaymentScreen extends Screen {
     private Set<Integer> computeFoundPayIndices(List<ItemStack> pay, List<ItemStack> decline) {
         try {
             HashSet<Integer> out = new HashSet<>();
-            if (pay == null || pay.isEmpty()) return out;
+
+            if (pay == null || pay.isEmpty()) {
+                EZVillagerReroll.LOG().debug("[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices: pay empty.");
+                return out;
+            }
             if (requestedTargets == null || requestedTargets.isEmpty()) {
                 EZVillagerReroll.LOG().debug("[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices: requestedTargets empty -> no yellow highlights.");
                 return out;
@@ -264,29 +268,76 @@ public final class AutoSearchPaymentScreen extends Screen {
                 ItemStack p = safeCopy(pay.get(i));
                 if (p.isEmpty()) continue;
 
-                // Must match a requested target (flexibly).
-                if (!matchesRequestedFlexible(p)) continue;
+                // IMPORTANT: yellow highlight must be based on the SAME key format as server matching.
+                // This prevents "all enchanted books" from matching one requested enchanted book.
+                if (!isRequestedResultStack(p)) continue;
 
-                // Prefer highlighting only when the offer changed vs baseline (pre-search snapshot).
+                // Optional: only highlight if it differs from the baseline snapshot.
+                // Keeps yellow from appearing on trades that already existed pre-search.
                 boolean changed = true;
                 if (decline != null && i < decline.size()) {
                     ItemStack d = safeCopy(decline.get(i));
                     changed = !sameItemSameComponentsSafe(p, d);
                 }
 
-                if (changed) out.add(i);
+                if (changed) {
+                    out.add(i);
+
+                    if (EZVillagerReroll.LOG().isDebugEnabled()) {
+                        EZVillagerReroll.LOG().debug(
+                                "[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices: YELLOW idx={} itemId={} keyOf={}",
+                                i,
+                                safeItemIdString(p),
+                                safeCatalogKeyOf(p)
+                        );
+                    }
+                } else {
+                    if (EZVillagerReroll.LOG().isDebugEnabled()) {
+                        EZVillagerReroll.LOG().debug(
+                                "[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices: matched requested but unchanged idx={} itemId={} keyOf={}",
+                                i,
+                                safeItemIdString(p),
+                                safeCatalogKeyOf(p)
+                        );
+                    }
+                }
+            }
+
+            if (out.isEmpty() && EZVillagerReroll.LOG().isDebugEnabled()) {
+                // Helpful diagnostics: show what we got vs what we tried to match.
+                String oneTarget = requestedTargets.stream().findFirst().orElse("<none>");
+                EZVillagerReroll.LOG().debug("[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices: 0 matches. requestedTargetsSize={} exampleTarget={}",
+                        requestedTargets.size(), oneTarget);
+
+                int sample = Math.min(5, pay.size());
+                for (int i = 0; i < sample; i++) {
+                    ItemStack p = safeCopy(pay.get(i));
+                    if (p.isEmpty()) continue;
+                    EZVillagerReroll.LOG().debug("[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices: samplePay idx={} itemId={} keyOf={}",
+                            i, safeItemIdString(p), safeCatalogKeyOf(p));
+                }
             }
 
             EZVillagerReroll.LOG().debug("[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices: computed={} from paySize={} declineSize={} requestedTargets={}",
                     out.size(),
-                    pay == null ? -1 : pay.size(),
+                    pay.size(),
                     decline == null ? -1 : decline.size(),
                     requestedTargets.size());
 
             return out;
+
         } catch (Throwable t) {
             EZVillagerReroll.LOG().debug("[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices failed (soft): {}", t.toString());
             return new HashSet<>();
+        }
+    }
+
+    private static String safeItemIdString(ItemStack stack) {
+        try {
+            if (stack == null || stack.isEmpty()) return "";
+            return String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
+        } catch (Throwable t) {
+            return "";
         }
     }
 
@@ -725,6 +776,64 @@ public final class AutoSearchPaymentScreen extends Screen {
             return s.copy();
         } catch (Throwable t) {
             return ItemStack.EMPTY;
+        }
+    }
+
+    private boolean isRequestedResultStack(ItemStack result) {
+        try {
+            if (result == null || result.isEmpty()) return false;
+
+            // If we have no requested targets, we can't highlight anything.
+            if (this.requestedTargets == null || this.requestedTargets.isEmpty()) return false;
+
+            // 1) Preferred: compare using the SAME key used by SearchService.containsAnyRequested:
+            //    CatalogBuilder.keyOf(stack)
+            String key = safeCatalogKeyOf(result);
+            if (key != null && !key.isBlank()) {
+                boolean hit = this.requestedTargets.contains(key);
+                if (hit && EZVillagerReroll.LOG().isDebugEnabled()) {
+                    EZVillagerReroll.LOG().debug("[EZVR] Yellow target match via CatalogBuilder.keyOf: key={} stack={}", key, String.valueOf(result));
+                }
+                if (hit) return true;
+            }
+
+            // 2) Back-compat fallback: if the server ever sent plain item ids, match those too.
+            //    This is what caused "all enchanted books" to match when the target is "minecraft:enchanted_book".
+            //    We'll only allow this fallback when the requestedTargets actually contains the plain id.
+            String id = safeItemIdString(result);
+            if (id != null && !id.isBlank()) {
+                boolean hit = this.requestedTargets.contains(id);
+                if (hit && EZVillagerReroll.LOG().isDebugEnabled()) {
+                    EZVillagerReroll.LOG().debug("[EZVR] Yellow target match via plain item id fallback: id={} stack={}", id, String.valueOf(result));
+                }
+                return hit;
+            }
+
+            return false;
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] isRequestedResultStack failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    private static String safeCatalogKeyOf(ItemStack stack) {
+        try {
+            if (stack == null || stack.isEmpty()) return "";
+
+            // This must match whatever SearchService uses (CatalogBuilder.keyOf).
+            // If this ever throws on client for any reason, we fall back to item id matching.
+            try {
+                return org.z2six.ezvillagerreroll.server.CatalogBuilder.keyOf(stack);
+            } catch (Throwable t) {
+                // Soft failure; don't spam unless debug is enabled.
+                if (EZVillagerReroll.LOG().isDebugEnabled()) {
+                    EZVillagerReroll.LOG().debug("[EZVR] safeCatalogKeyOf: CatalogBuilder.keyOf failed (soft): {}", t.toString());
+                }
+                return "";
+            }
+        } catch (Throwable t) {
+            return "";
         }
     }
 

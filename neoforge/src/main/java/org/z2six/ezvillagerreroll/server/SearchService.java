@@ -1,7 +1,6 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/server/SearchService.java
 package org.z2six.ezvillagerreroll.server;
 
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
@@ -39,8 +38,11 @@ public final class SearchService {
         final List<ItemStack> requested;
         final Set<String> requestedKeys;
 
-        long startedAtGameTime;
+        // snapshot at START (for decline UI + lock highlights)
+        final ListTag offersBeforeTag;
+        final long lockMaskBefore;
 
+        long startedAtGameTime;
         long nextRerollGameTime;
         int cooldownTicks;
 
@@ -52,11 +54,22 @@ public final class SearchService {
                     requested,
                     now,
                     now + Math.max(1, cooldownTicks),
-                    Math.max(1, cooldownTicks)
+                    Math.max(1, cooldownTicks),
+                    snapshotOffersCodecSafe(vill),
+                    snapshotLockMaskSafe(vill)
             );
         }
 
-        Task(UUID villagerUuid, int villagerEntityId, UUID ownerPlayerUuid, List<ItemStack> requested, long startedAtGameTime, long nextRerollGameTime, int cooldownTicks) {
+        Task(UUID villagerUuid,
+             int villagerEntityId,
+             UUID ownerPlayerUuid,
+             List<ItemStack> requested,
+             long startedAtGameTime,
+             long nextRerollGameTime,
+             int cooldownTicks,
+             ListTag offersBeforeTag,
+             long lockMaskBefore
+        ) {
             this.villagerUuid = villagerUuid;
             this.villagerEntityId = villagerEntityId;
             this.ownerPlayerUuid = ownerPlayerUuid;
@@ -72,10 +85,13 @@ public final class SearchService {
             this.startedAtGameTime = Math.max(0L, startedAtGameTime);
             this.nextRerollGameTime = nextRerollGameTime;
             this.cooldownTicks = Math.max(1, cooldownTicks);
+
+            this.offersBeforeTag = offersBeforeTag == null ? new ListTag() : offersBeforeTag;
+            this.lockMaskBefore = lockMaskBefore;
         }
     }
 
-    private static final class Settlement {
+    public static final class Settlement {
         final UUID villagerUuid;
         final int villagerEntityId;
         final UUID ownerPlayerUuid;
@@ -86,14 +102,28 @@ public final class SearchService {
         final int hourlyCost;
         final int finalCost;
 
-        final ListTag offersTag; // cached offers
-        final List<String> requestedItemIds; // for PAY highlight (client-side)
+        // UI snapshots
+        final ListTag offersIfPayTag;
+        final ListTag offersIfDeclineTag;
 
-        Settlement(UUID villagerUuid, int villagerEntityId, UUID ownerPlayerUuid,
-                   long startedAtGameTime, long completedAtGameTime,
-                   int hourlyCost, int finalCost,
-                   ListTag offersTag,
-                   List<String> requestedItemIds) {
+        // lock state at START (green outlines)
+        final long lockMaskBefore;
+
+        // targets (yellow matching)
+        final List<String> requestedTargets;
+
+        Settlement(UUID villagerUuid,
+                   int villagerEntityId,
+                   UUID ownerPlayerUuid,
+                   long startedAtGameTime,
+                   long completedAtGameTime,
+                   int hourlyCost,
+                   int finalCost,
+                   ListTag offersIfPayTag,
+                   ListTag offersIfDeclineTag,
+                   long lockMaskBefore,
+                   List<String> requestedTargets
+        ) {
             this.villagerUuid = villagerUuid;
             this.villagerEntityId = villagerEntityId;
             this.ownerPlayerUuid = ownerPlayerUuid;
@@ -101,16 +131,25 @@ public final class SearchService {
             this.completedAtGameTime = completedAtGameTime;
             this.hourlyCost = Math.max(0, hourlyCost);
             this.finalCost = Math.max(0, finalCost);
-            this.offersTag = offersTag == null ? new ListTag() : offersTag;
 
-            List<String> tmp;
-            try {
-                if (requestedItemIds == null || requestedItemIds.isEmpty()) tmp = List.of();
-                else tmp = List.copyOf(requestedItemIds);
-            } catch (Throwable t) {
-                tmp = List.of();
+            this.offersIfPayTag = offersIfPayTag == null ? new ListTag() : offersIfPayTag;
+            this.offersIfDeclineTag = offersIfDeclineTag == null ? new ListTag() : offersIfDeclineTag;
+
+            this.lockMaskBefore = lockMaskBefore;
+
+            if (requestedTargets == null) {
+                this.requestedTargets = List.of();
+            } else {
+                ArrayList<String> copy = new ArrayList<>(Math.min(256, requestedTargets.size()));
+                for (int i = 0; i < requestedTargets.size() && i < 256; i++) {
+                    String s = requestedTargets.get(i);
+                    if (s == null) continue;
+                    s = s.trim();
+                    if (s.isEmpty()) continue;
+                    copy.add(s);
+                }
+                this.requestedTargets = copy;
             }
-            this.requestedItemIds = tmp;
         }
     }
 
@@ -164,6 +203,7 @@ public final class SearchService {
                         skipped++;
                         continue;
                     }
+
                     if (td.requestedKeys == null || td.requestedKeys.isEmpty()) {
                         Set<String> keys = new HashSet<>();
                         if (td.requested != null) {
@@ -185,6 +225,9 @@ public final class SearchService {
 
                     long started = Math.max(0L, next - cd);
 
+                    ListTag before = td.offersBeforeTag == null ? new ListTag() : td.offersBeforeTag;
+                    long lockMaskBefore = td.lockMaskBefore;
+
                     Task t = new Task(
                             td.villagerUuid,
                             td.villagerEntityId,
@@ -192,7 +235,9 @@ public final class SearchService {
                             td.requested,
                             started,
                             next,
-                            cd
+                            cd,
+                            before,
+                            lockMaskBefore
                     );
 
                     TASKS.put(td.villagerUuid, t);
@@ -212,6 +257,7 @@ public final class SearchService {
                         settleSkipped++;
                         continue;
                     }
+
                     Settlement s = new Settlement(
                             sd.villagerUuid,
                             sd.villagerEntityId,
@@ -220,9 +266,12 @@ public final class SearchService {
                             Math.max(0L, sd.completedAtGameTime),
                             Math.max(0, sd.hourlyCost),
                             Math.max(0, sd.finalCost),
-                            (sd.offers == null ? new ListTag() : sd.offers),
-                            List.of() // requested targets are not persisted; highlight becomes unavailable after restart (acceptable)
+                            sd.offersIfPay == null ? new ListTag() : sd.offersIfPay,
+                            sd.offersIfDecline == null ? new ListTag() : sd.offersIfDecline,
+                            sd.lockMaskBefore,
+                            sd.requestedTargets == null ? List.of() : sd.requestedTargets
                     );
+
                     SETTLEMENTS.put(sd.villagerUuid, s);
                     settleImported++;
                 } catch (Throwable ignored) {
@@ -267,6 +316,9 @@ public final class SearchService {
 
                     td.requestedKeys = new HashSet<>(t.requestedKeys);
 
+                    td.offersBeforeTag = deepCopyOfferList(t.offersBeforeTag);
+                    td.lockMaskBefore = t.lockMaskBefore;
+
                     td.wasGlowingAtStart = false;
                     try {
                         Villager vill = resolveVillagerByUuid(server, t.villagerUuid);
@@ -296,13 +348,18 @@ public final class SearchService {
                     sd.hourlyCost = Math.max(0, s.hourlyCost);
                     sd.finalCost = Math.max(0, s.finalCost);
 
-                    sd.offers = new ListTag();
-                    if (s.offersTag != null) {
-                        for (int i = 0; i < s.offersTag.size(); i++) {
-                            try {
-                                CompoundTag wrap = s.offersTag.getCompound(i);
-                                if (wrap != null) sd.offers.add(wrap.copy());
-                            } catch (Throwable ignored) {}
+                    sd.offersIfPay = deepCopyOfferList(s.offersIfPayTag);
+                    sd.offersIfDecline = deepCopyOfferList(s.offersIfDeclineTag);
+                    sd.lockMaskBefore = s.lockMaskBefore;
+
+                    sd.requestedTargets = new ArrayList<>();
+                    if (s.requestedTargets != null) {
+                        for (int i = 0; i < s.requestedTargets.size() && i < 256; i++) {
+                            String r = s.requestedTargets.get(i);
+                            if (r == null) continue;
+                            r = r.trim();
+                            if (r.isEmpty()) continue;
+                            sd.requestedTargets.add(r);
                         }
                     }
 
@@ -341,17 +398,17 @@ public final class SearchService {
 
             TASKS.put(vill.getUUID(), t);
 
-            EZVillagerReroll.LOG().info("[EZVR] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicks={}",
+            EZVillagerReroll.LOG().info("[EZVR] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicks={} lockMaskBefore={} offersBefore={}",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getId(),
                     t.requestedKeys.size(),
-                    cooldown
+                    cooldown,
+                    Long.toUnsignedString(t.lockMaskBefore),
+                    t.offersBeforeTag == null ? -1 : t.offersBeforeTag.size()
             );
 
-            try {
-                updateGlowForBusyVillager(vill, sp.server);
-            } catch (Throwable ignored) {}
+            try { updateGlowForBusyVillager(vill, sp.server); } catch (Throwable ignored) {}
 
             if (containsAnyRequested(vill, t.requestedKeys)) {
                 EZVillagerReroll.LOG().info("[EZVR] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
@@ -359,7 +416,6 @@ public final class SearchService {
                 TASKS.remove(vill.getUUID());
 
                 trySetVillagerGlow(vill, false);
-
                 createSettlementAndNotify(serverOf(sp), vill, t, now);
             }
 
@@ -400,44 +456,6 @@ public final class SearchService {
             if (settle != null) {
                 int elapsedTicks = (int) Math.max(0L, settle.completedAtGameTime - settle.startedAtGameTime);
 
-                ListTag payOffers = new ListTag();
-                try {
-                    if (settle.offersTag != null) {
-                        int n = Math.min(256, settle.offersTag.size());
-                        for (int i = 0; i < n; i++) {
-                            try {
-                                CompoundTag wrap = settle.offersTag.getCompound(i);
-                                if (wrap != null) payOffers.add(wrap.copy());
-                            } catch (Throwable ignored) {}
-                        }
-                    }
-                } catch (Throwable ignored) {}
-
-                ListTag declineOffers = new ListTag();
-                try {
-                    VillagerOffersSavedData data = VillagerOffersSavedData.get(sp.serverLevel());
-                    if (data != null) {
-                        declineOffers = data.getStoredOffersTag(vill.getUUID());
-                    }
-                } catch (Throwable t) {
-                    EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: failed reading stored baseline offers (soft): {}", t.toString());
-                }
-
-                long lockMask = 0L;
-                try {
-                    lockMask = TradeLockState.getMask(vill);
-                } catch (Throwable ignored) {}
-                try {
-                    int offerCount = Math.max(0, declineOffers.size());
-                    long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, offerCount);
-                    if (sanitized != lockMask) {
-                        TradeLockState.setMask(vill, sanitized);
-                        lockMask = sanitized;
-                    }
-                } catch (Throwable ignored) {}
-
-                List<String> requestedItemIds = settle.requestedItemIds == null ? List.of() : settle.requestedItemIds;
-
                 try {
                     sp.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
                             new PacketOpenAutoSearchPaymentScreen(
@@ -445,17 +463,25 @@ public final class SearchService {
                                     settle.hourlyCost,
                                     settle.finalCost,
                                     elapsedTicks,
-                                    payOffers,
-                                    declineOffers,
-                                    lockMask,
-                                    requestedItemIds
+                                    settle.offersIfPayTag,
+                                    settle.offersIfDeclineTag,
+                                    settle.lockMaskBefore,
+                                    settle.requestedTargets
                             )
                     ));
-                    EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={} payOffers={} declineOffers={} lockMask={} requested={})",
-                            sp.getGameProfile().getName(), vill.getId(), settle.hourlyCost, settle.finalCost, elapsedTicks,
-                            payOffers.size(), declineOffers.size(),
-                            Long.toUnsignedString(lockMask),
-                            requestedItemIds == null ? -1 : requestedItemIds.size());
+
+                    EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={} payOffers={} declineOffers={} lockMaskBefore={} requestedTargets={})",
+                            sp.getGameProfile().getName(),
+                            vill.getId(),
+                            settle.hourlyCost,
+                            settle.finalCost,
+                            elapsedTicks,
+                            settle.offersIfPayTag == null ? -1 : settle.offersIfPayTag.size(),
+                            settle.offersIfDeclineTag == null ? -1 : settle.offersIfDeclineTag.size(),
+                            Long.toUnsignedString(settle.lockMaskBefore),
+                            settle.requestedTargets == null ? -1 : settle.requestedTargets.size()
+                    );
+
                 } catch (Throwable sendErr) {
                     EZVillagerReroll.LOG().error("[EZVR] Failed to send payment screen packet (player={} villager={})",
                             sp.getGameProfile().getName(), vill.getUUID(), sendErr);
@@ -509,9 +535,7 @@ public final class SearchService {
                     continue;
                 }
 
-                try {
-                    updateGlowForBusyVillager(vill, server);
-                } catch (Throwable ignored) {}
+                try { updateGlowForBusyVillager(vill, server); } catch (Throwable ignored) {}
 
                 long now = vill.level().getGameTime();
                 if (now < task.nextRerollGameTime) continue;
@@ -562,12 +586,27 @@ public final class SearchService {
 
             int hourly = computeHourlyCostServer(vill);
             int elapsedTicks = (int) Math.max(0L, completed - started);
-
             int finalCost = computeFinalCost(hourly, elapsedTicks);
 
-            ListTag offersTag = serializeOffersCodec(vill);
+            // Snapshot offers to show in UI
+            ListTag payOffers = serializeOffersCodec(vill);
+            ListTag declineOffers = deepCopyOfferList(task.offersBeforeTag);
 
-            List<String> requestedItemIds = buildRequestedItemIds(task.requested);
+            // requested targets = requestedKeys, but as a stable list
+            List<String> requested = new ArrayList<>();
+            try {
+                if (task.requestedKeys != null) {
+                    int n = 0;
+                    for (String s : task.requestedKeys) {
+                        if (s == null) continue;
+                        s = s.trim();
+                        if (s.isEmpty()) continue;
+                        requested.add(s);
+                        n++;
+                        if (n >= 256) break;
+                    }
+                }
+            } catch (Throwable ignored) {}
 
             Settlement settle = new Settlement(
                     vill.getUUID(),
@@ -577,43 +616,26 @@ public final class SearchService {
                     completed,
                     hourly,
                     finalCost,
-                    offersTag,
-                    requestedItemIds
+                    payOffers,
+                    declineOffers,
+                    task.lockMaskBefore,
+                    requested
             );
 
             SETTLEMENTS.put(vill.getUUID(), settle);
 
-            EZVillagerReroll.LOG().info("[EZVR] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} requestedIds={}",
+            EZVillagerReroll.LOG().info("[EZVR] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} payOffers={} declineOffers={} lockMaskBefore={} requestedTargets={}",
                     vill.getUUID(), vill.getId(), hourly, elapsedTicks, finalCost, String.valueOf(task.ownerPlayerUuid),
-                    requestedItemIds == null ? -1 : requestedItemIds.size());
+                    payOffers == null ? -1 : payOffers.size(),
+                    declineOffers == null ? -1 : declineOffers.size(),
+                    Long.toUnsignedString(task.lockMaskBefore),
+                    requested.size()
+            );
 
             notifyOwnerDone(server, task);
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] createSettlementAndNotify failed", t);
-        }
-    }
-
-    private static List<String> buildRequestedItemIds(List<ItemStack> requested) {
-        try {
-            if (requested == null || requested.isEmpty()) return List.of();
-
-            LinkedHashSet<String> ids = new LinkedHashSet<>();
-            int n = Math.min(128, requested.size());
-            for (int i = 0; i < n; i++) {
-                ItemStack s = requested.get(i);
-                if (s == null || s.isEmpty()) continue;
-
-                try {
-                    var key = BuiltInRegistries.ITEM.getKey(s.getItem());
-                    if (key != null) ids.add(key.toString());
-                } catch (Throwable ignored) {}
-            }
-
-            if (ids.isEmpty()) return List.of();
-            return List.copyOf(ids);
-        } catch (Throwable t) {
-            return List.of();
         }
     }
 
@@ -669,8 +691,7 @@ public final class SearchService {
             int threshold = Math.max(0, ServerConfig.autoHourlyThreshold);
             double pct = Math.max(0.0, ServerConfig.autoHourlyDiscountOrIncreasePct);
 
-            int effectivePaidOffers = paidOffers;
-            int steps = effectivePaidOffers - threshold;
+            int steps = paidOffers - threshold;
 
             double factor = 1.0 - (steps * (pct / 100.0));
             if (factor < 0.0) factor = 0.0;
@@ -873,6 +894,46 @@ public final class SearchService {
             return new ListTag();
         }
     }
+
+    private static ListTag snapshotOffersCodecSafe(Villager vill) {
+        try {
+            return serializeOffersCodec(vill);
+        } catch (Throwable t) {
+            return new ListTag();
+        }
+    }
+
+    private static long snapshotLockMaskSafe(Villager vill) {
+        try {
+            if (vill == null) return 0L;
+            int offerCount = vill.getOffers() == null ? 0 : Math.max(0, vill.getOffers().size());
+            long m = TradeLockState.getMask(vill);
+            return TradeLockState.sanitizeMaskForSize(m, offerCount);
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
+
+    private static ListTag deepCopyOfferList(ListTag src) {
+        try {
+            ListTag out = new ListTag();
+            if (src == null) return out;
+            int n = Math.min(256, src.size());
+            for (int i = 0; i < n; i++) {
+                try {
+                    CompoundTag wrap = src.getCompound(i);
+                    if (wrap != null) out.add(wrap.copy());
+                } catch (Throwable ignored) {}
+            }
+            return out;
+        } catch (Throwable t) {
+            return new ListTag();
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Settlement accessors
+    // ---------------------------------------------------------------------
 
     public static int getSettlementFinalCost(Villager vill) {
         try {

@@ -204,46 +204,6 @@ public final class ClientNetworkHandlers {
     // Payment screen open/close
     // -----------------------------------------------------------------------------------------
 
-    public static void onOpenAutoSearchPaymentScreen(PacketOpenAutoSearchPaymentScreen msg, IPayloadContext ctx) {
-        try {
-            if (ctx == null) return;
-            ctx.enqueueWork(() -> {
-                try {
-                    if (msg == null) return;
-
-                    Minecraft mc = Minecraft.getInstance();
-                    if (mc == null) return;
-
-                    AutoSearchPaymentScreen screen = new AutoSearchPaymentScreen(
-                            msg.villagerEntityId(),
-                            msg.hourlyCost(),
-                            msg.finalCost(),
-                            msg.elapsedTicks(),
-                            msg.offersIfPay(),
-                            msg.offersIfDecline(),
-                            msg.declineLockMask(),
-                            msg.requestedItemIds()
-                    );
-
-                    mc.setScreen(screen);
-
-                    EZVillagerReroll.LOG().info("[EZVR] Client opened AutoSearchPaymentScreen villagerEntityId={} hourly={} final={} elapsedTicks={} payOffers={} declineOffers={} lockMask={} requested={}",
-                            msg.villagerEntityId(), msg.hourlyCost(), msg.finalCost(), msg.elapsedTicks(),
-                            msg.offersIfPay() == null ? -1 : msg.offersIfPay().size(),
-                            msg.offersIfDecline() == null ? -1 : msg.offersIfDecline().size(),
-                            Long.toUnsignedString(msg.declineLockMask()),
-                            msg.requestedItemIds() == null ? -1 : msg.requestedItemIds().size()
-                    );
-
-                } catch (Throwable t) {
-                    EZVillagerReroll.LOG().error("[EZVR] Client onOpenAutoSearchPaymentScreen failed", t);
-                }
-            });
-        } catch (Throwable t) {
-            EZVillagerReroll.LOG().error("[EZVR] Client onOpenAutoSearchPaymentScreen enqueue failed", t);
-        }
-    }
-
     public static void onOpenAutoSearchPaymentScreen(Object msg, IPayloadContext ctx) {
         try {
             if (msg instanceof PacketOpenAutoSearchPaymentScreen p) {
@@ -254,6 +214,78 @@ public final class ClientNetworkHandlers {
                     msg == null ? "null" : msg.getClass().getName());
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client onOpenAutoSearchPaymentScreen(Object) failed", t);
+        }
+    }
+
+    public static void onOpenAutoSearchPaymentScreen(PacketOpenAutoSearchPaymentScreen msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    long lockMask = 0L;
+                    try {
+                        lockMask = msg.lockMaskBefore();
+                    } catch (Throwable t) {
+                        lockMask = 0L;
+                    }
+
+                    java.util.List<String> requested = java.util.List.of();
+                    try {
+                        requested = (msg.requestedTargets() == null) ? java.util.List.of() : msg.requestedTargets();
+                    } catch (Throwable t) {
+                        requested = java.util.List.of();
+                    }
+
+                    // Defensive: clamp insane sizes so UI can't be abused by a broken server or corrupt packet.
+                    if (requested.size() > 256) {
+                        requested = requested.subList(0, 256);
+                    }
+
+                    AutoSearchPaymentScreen screen = new AutoSearchPaymentScreen(
+                            msg.villagerEntityId(),
+                            msg.hourlyCost(),
+                            msg.finalCost(),
+                            msg.elapsedTicks(),
+                            msg.offersIfPay(),
+                            msg.offersIfDecline(),
+                            lockMask,
+                            requested
+                    );
+
+                    mc.setScreen(screen);
+
+                    if (EZVillagerReroll.LOG().isInfoEnabled()) {
+                        EZVillagerReroll.LOG().info(
+                                "[EZVR] Client opened AutoSearchPaymentScreen villagerEntityId={} hourly={} final={} elapsedTicks={} payOffers={} declineOffers={} lockMask={} requestedTargets={}",
+                                msg.villagerEntityId(),
+                                msg.hourlyCost(),
+                                msg.finalCost(),
+                                msg.elapsedTicks(),
+                                msg.offersIfPay() == null ? -1 : msg.offersIfPay().size(),
+                                msg.offersIfDecline() == null ? -1 : msg.offersIfDecline().size(),
+                                Long.toUnsignedString(lockMask),
+                                requested.size()
+                        );
+                    }
+
+                    if (EZVillagerReroll.LOG().isDebugEnabled()) {
+                        // Print the first few targets to confirm the yellow-outline matching has something to work with.
+                        int shown = Math.min(8, requested.size());
+                        EZVillagerReroll.LOG().debug("[EZVR] PaymentScreen requestedTargets (first {}): {}", shown,
+                                requested.isEmpty() ? "[]" : requested.subList(0, shown));
+                    }
+
+                } catch (Throwable t) {
+                    EZVillagerReroll.LOG().error("[EZVR] Client onOpenAutoSearchPaymentScreen failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] Client onOpenAutoSearchPaymentScreen enqueue failed", t);
         }
     }
 
