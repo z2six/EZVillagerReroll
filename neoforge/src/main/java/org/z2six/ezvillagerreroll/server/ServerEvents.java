@@ -38,6 +38,10 @@ public final class ServerEvents {
             bus.addListener(ServerEvents::onServerStopping);
             bus.addListener(ServerEvents::onContainerOpen);
 
+            // NEW: villager/merchant stat initialization (EntityJoinLevelEvent)
+            // Safe even when running on client because the handler exits if level.isClientSide().
+            VillagerStatsEvents.register(bus);
+
             EZVillagerReroll.LOG().info("[EZVR] ServerEvents registered on gameplay bus.");
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] ServerEvents.register failed", t);

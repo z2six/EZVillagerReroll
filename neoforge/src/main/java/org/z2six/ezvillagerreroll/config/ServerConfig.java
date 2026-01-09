@@ -1,3 +1,4 @@
+// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/config/ServerConfig.java
 package org.z2six.ezvillagerreroll.config;
 
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -41,18 +42,8 @@ public final class ServerConfig {
     // LIMITS
     // ---------------------------------------------------------------------
 
-    /**
-     * Manual reroll cooldown (existing behavior).
-     * Keep name "cooldownTicks" to avoid refactoring manual reroll code paths.
-     */
-    public static final ModConfigSpec.IntValue COOLDOWN_TICKS;
-
-    /**
-     * NEW: Auto-search / auto-reroll cooldown (separate from manual).
-     * This is server-only; no client sync needed.
-     */
-    public static final ModConfigSpec.IntValue COOLDOWN_TICKS_AUTO;
-
+    public static final ModConfigSpec.IntValue COOLDOWN_TICKS;       // manual reroll cooldown
+    public static final ModConfigSpec.IntValue COOLDOWN_TICKS_AUTO;  // auto-search cooldown
     public static final ModConfigSpec.IntValue PER_VILLAGER_DAILY;
 
     // ---------------------------------------------------------------------
@@ -68,10 +59,35 @@ public final class ServerConfig {
     public static final ModConfigSpec.DoubleValue MANUAL_REROLL_XP_PER_OFFER;
 
     /**
-     * NEW: Auto-search villager XP gain:
+     * Auto-search villager XP gain:
      * XP gained = autoSearchXpPerOffer * (offersRerolledPerReroll) * (successfulRerollCount)
      */
     public static final ModConfigSpec.DoubleValue AUTO_SEARCH_XP_PER_OFFER;
+
+    // ---------------------------------------------------------------------
+    // VILLAGER STATS (NEW)
+    // These are "effect percent bounds" for converting points [-100..100] into a percent modifier.
+    //
+    // Recommended mapping:
+    //   percent = lerp(minPct, maxPct, (points + 100) / 200.0)
+    //
+    // Default: -20% .. +20% for each trait.
+    // ---------------------------------------------------------------------
+
+    public static final ModConfigSpec.DoubleValue GENEROSITY_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue GENEROSITY_MAX_PCT;
+
+    public static final ModConfigSpec.DoubleValue TIMELINESS_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue TIMELINESS_MAX_PCT;
+
+    public static final ModConfigSpec.DoubleValue INTELLECT_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue INTELLECT_MAX_PCT;
+
+    public static final ModConfigSpec.DoubleValue HOARDER_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue HOARDER_MAX_PCT;
+
+    public static final ModConfigSpec.DoubleValue AMBITIOUS_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue AMBITIOUS_MAX_PCT;
 
     // ---------------------------------------------------------------------
     // SPEC DEFINITION
@@ -164,14 +180,11 @@ public final class ServerConfig {
         B.push("limits");
 
         COOLDOWN_TICKS =
-                B.comment("Cooldown in ticks per villager for MANUAL rerolls (0 = disabled)")
+                B.comment("Cooldown in ticks per villager for MANUAL reroll (0 = disabled)")
                         .defineInRange("cooldownTicks", 100, 0, 20_000);
 
         COOLDOWN_TICKS_AUTO =
-                B.comment("""
-                        Cooldown in ticks per villager for AUTO-SEARCH rerolls (0 = disabled).
-                        This is separate from manual cooldownTicks.
-                        """)
+                B.comment("Cooldown in ticks per villager for AUTO-SEARCH reroll (0 = disabled)")
                         .defineInRange("cooldownTicksAuto", 600, 0, 20_000);
 
         PER_VILLAGER_DAILY =
@@ -213,12 +226,89 @@ public final class ServerConfig {
                         .defineInRange("autoSearchXpPerOffer", 0.1, 0.0, 10_000.0);
 
         B.pop();
+
+        // ----------------------------
+        // NEW: Villager stats bounds
+        // ----------------------------
+        B.push("villagerStats");
+
+        GENEROSITY_MIN_PCT =
+                B.comment("""
+                        Generosity effect MIN percent at points = -100.
+                        Default -20 means a fully negative villager increases cost by 20% (if you map points -> percent linearly).
+                        """)
+                        .defineInRange("generosityMinPct", -20.0, -1000.0, 1000.0);
+
+        GENEROSITY_MAX_PCT =
+                B.comment("""
+                        Generosity effect MAX percent at points = +100.
+                        Default +20 means a fully positive villager reduces cost by 20% (if you map points -> percent linearly).
+                        """)
+                        .defineInRange("generosityMaxPct", 20.0, -1000.0, 1000.0);
+
+        TIMELINESS_MIN_PCT =
+                B.comment("""
+                        Timeliness effect MIN percent at points = -100.
+                        This will later modify cooldown speed (negative = slower).
+                        """)
+                        .defineInRange("timelinessMinPct", -20.0, -1000.0, 1000.0);
+
+        TIMELINESS_MAX_PCT =
+                B.comment("""
+                        Timeliness effect MAX percent at points = +100.
+                        This will later modify cooldown speed (positive = faster).
+                        """)
+                        .defineInRange("timelinessMaxPct", 20.0, -1000.0, 1000.0);
+
+        INTELLECT_MIN_PCT =
+                B.comment("""
+                        Intellect effect MIN percent at points = -100.
+                        This will later modify XP gained (negative = less XP).
+                        """)
+                        .defineInRange("intellectMinPct", -20.0, -1000.0, 1000.0);
+
+        INTELLECT_MAX_PCT =
+                B.comment("""
+                        Intellect effect MAX percent at points = +100.
+                        This will later modify XP gained (positive = more XP).
+                        """)
+                        .defineInRange("intellectMaxPct", 20.0, -1000.0, 1000.0);
+
+        HOARDER_MIN_PCT =
+                B.comment("""
+                        Hoarder effect MIN percent at points = -100.
+                        This will later modify offer slot behavior (negative = fewer / constrained).
+                        """)
+                        .defineInRange("hoarderMinPct", -20.0, -1000.0, 1000.0);
+
+        HOARDER_MAX_PCT =
+                B.comment("""
+                        Hoarder effect MAX percent at points = +100.
+                        This will later modify offer slot behavior (positive = more / expanded).
+                        """)
+                        .defineInRange("hoarderMaxPct", 20.0, -1000.0, 1000.0);
+
+        AMBITIOUS_MIN_PCT =
+                B.comment("""
+                        Ambitious effect MIN percent at points = -100.
+                        This will later modify XP gained (a separate multiplier from Intellect).
+                        """)
+                        .defineInRange("ambitiousMinPct", -20.0, -1000.0, 1000.0);
+
+        AMBITIOUS_MAX_PCT =
+                B.comment("""
+                        Ambitious effect MAX percent at points = +100.
+                        This will later modify XP gained (a separate multiplier from Intellect).
+                        """)
+                        .defineInRange("ambitiousMaxPct", 20.0, -1000.0, 1000.0);
+
+        B.pop();
     }
 
     public static final ModConfigSpec SPEC = B.build();
 
     // ---------------------------------------------------------------------
-    // Runtime values (hot-loaded)
+    // Runtime values
     // ---------------------------------------------------------------------
 
     public static String costSpec = "minecraft:emerald";
@@ -232,17 +322,29 @@ public final class ServerConfig {
     public static int autoHourlyThreshold = 6;
     public static double autoHourlyDiscountOrIncreasePct = 5.0;
 
-    /** Manual reroll cooldown (existing). */
     public static int cooldownTicks = 200;
-
-    /** NEW: Auto-search cooldown. */
-    public static int cooldownTicksAuto = 200;
-
+    public static int cooldownTicksAuto = 40;
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
 
     public static double manualRerollXpPerOffer = 1.0;
-    public static double autoSearchXpPerOffer = 1.0;
+    public static double autoSearchXpPerOffer = 0.1;
+
+    // NEW: trait effect bounds (%)
+    public static double generosityMinPct = -20.0;
+    public static double generosityMaxPct = 20.0;
+
+    public static double timelinessMinPct = -20.0;
+    public static double timelinessMaxPct = 20.0;
+
+    public static double intellectMinPct = -20.0;
+    public static double intellectMaxPct = 20.0;
+
+    public static double hoarderMinPct = -20.0;
+    public static double hoarderMaxPct = 20.0;
+
+    public static double ambitiousMinPct = -20.0;
+    public static double ambitiousMaxPct = 20.0;
 
     private static int[] levelCosts = new int[]{0, 16, 52, 64, 96};
 
@@ -272,14 +374,44 @@ public final class ServerConfig {
             autoHourlyThreshold = Math.max(0, AUTO_HOURLY_THRESHOLD.get());
             autoHourlyDiscountOrIncreasePct = Math.max(0.0, AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT.get());
 
-            cooldownTicks = COOLDOWN_TICKS.get();
-            cooldownTicksAuto = COOLDOWN_TICKS_AUTO.get();
-
-            perVillagerDaily = PER_VILLAGER_DAILY.get();
+            cooldownTicks = Math.max(0, COOLDOWN_TICKS.get());
+            cooldownTicksAuto = Math.max(0, COOLDOWN_TICKS_AUTO.get());
+            perVillagerDaily = Math.max(0, PER_VILLAGER_DAILY.get());
             allowAfterTradeUsed = ALLOW_AFTER_TRADE_USED.get();
 
             manualRerollXpPerOffer = Math.max(0.0, MANUAL_REROLL_XP_PER_OFFER.get());
             autoSearchXpPerOffer = Math.max(0.0, AUTO_SEARCH_XP_PER_OFFER.get());
+
+            // NEW: trait bounds (normalize min/max so min<=max even if user misconfigures)
+            double gMin = GENEROSITY_MIN_PCT.get();
+            double gMax = GENEROSITY_MAX_PCT.get();
+            double[] gg = normalizeMinMax(gMin, gMax);
+            generosityMinPct = gg[0];
+            generosityMaxPct = gg[1];
+
+            double tMin = TIMELINESS_MIN_PCT.get();
+            double tMax = TIMELINESS_MAX_PCT.get();
+            double[] tt = normalizeMinMax(tMin, tMax);
+            timelinessMinPct = tt[0];
+            timelinessMaxPct = tt[1];
+
+            double iMin = INTELLECT_MIN_PCT.get();
+            double iMax = INTELLECT_MAX_PCT.get();
+            double[] ii = normalizeMinMax(iMin, iMax);
+            intellectMinPct = ii[0];
+            intellectMaxPct = ii[1];
+
+            double hMin = HOARDER_MIN_PCT.get();
+            double hMax = HOARDER_MAX_PCT.get();
+            double[] hh = normalizeMinMax(hMin, hMax);
+            hoarderMinPct = hh[0];
+            hoarderMaxPct = hh[1];
+
+            double aMin = AMBITIOUS_MIN_PCT.get();
+            double aMax = AMBITIOUS_MAX_PCT.get();
+            double[] aa = normalizeMinMax(aMin, aMax);
+            ambitiousMinPct = aa[0];
+            ambitiousMaxPct = aa[1];
 
             levelCosts = parseLevelCosts(LEVEL_COSTS.get());
 
@@ -294,20 +426,32 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks(manual)={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} legacyLevelCosts={}",
+                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} {}/{} {}/{} legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
-                    cooldownTicks, cooldownTicksAuto,
-                    perVillagerDaily, allowAfterTradeUsed,
+                    cooldownTicks, cooldownTicksAuto, perVillagerDaily, allowAfterTradeUsed,
                     manualRerollXpPerOffer, autoSearchXpPerOffer,
+                    // bounds summary
+                    generosityMinPct, generosityMaxPct,
+                    timelinessMinPct, timelinessMaxPct,
+                    intellectMinPct, intellectMaxPct,
+                    hoarderMinPct, hoarderMaxPct,
+                    ambitiousMinPct, ambitiousMaxPct,
                     debug(levelCosts)
             );
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] ServerConfig reload failed", t);
         }
+    }
+
+    private static double[] normalizeMinMax(double min, double max) {
+        if (Double.isNaN(min)) min = 0.0;
+        if (Double.isNaN(max)) max = 0.0;
+        if (min <= max) return new double[]{min, max};
+        return new double[]{max, min};
     }
 
     public static int[] costsByLevel5() {
@@ -350,7 +494,6 @@ public final class ServerConfig {
 
         h = 31 * h + cooldownTicks;
         h = 31 * h + cooldownTicksAuto;
-
         h = 31 * h + perVillagerDaily;
         h = 31 * h + (allowAfterTradeUsed ? 1 : 0);
 
@@ -360,8 +503,29 @@ public final class ServerConfig {
         long aBits = Double.doubleToLongBits(autoSearchXpPerOffer);
         h = 31 * h + (int) (aBits ^ (aBits >>> 32));
 
+        // NEW: trait bounds
+        h = 31 * h + hashD(generosityMinPct);
+        h = 31 * h + hashD(generosityMaxPct);
+
+        h = 31 * h + hashD(timelinessMinPct);
+        h = 31 * h + hashD(timelinessMaxPct);
+
+        h = 31 * h + hashD(intellectMinPct);
+        h = 31 * h + hashD(intellectMaxPct);
+
+        h = 31 * h + hashD(hoarderMinPct);
+        h = 31 * h + hashD(hoarderMaxPct);
+
+        h = 31 * h + hashD(ambitiousMinPct);
+        h = 31 * h + hashD(ambitiousMaxPct);
+
         for (int v : levelCosts) h = 31 * h + v;
         return h;
+    }
+
+    private static int hashD(double d) {
+        long bits = Double.doubleToLongBits(d);
+        return (int) (bits ^ (bits >>> 32));
     }
 
     private static String debug(int[] arr) {
