@@ -22,7 +22,6 @@ public final class ServerSync {
             // ClientSyncedConfig expects len 6 in your current shape.
             int[] lvl5 = ServerConfig.costsByLevel5();
             int[] arr6 = new int[6];
-            // indices 0..4 = levels 1..5
             for (int i = 0; i < 5 && i < lvl5.length; i++) arr6[i] = Math.max(0, lvl5[i]);
             arr6[5] = 0; // reserved slot
             pkt.costsByLevel = arr6;
@@ -40,7 +39,7 @@ public final class ServerSync {
 
             pkt.allowAfterTradeUsed = ServerConfig.allowAfterTradeUsed;
 
-            // NEW
+            // NEW (double)
             pkt.manualRerollXpPerOffer = ServerConfig.manualRerollXpPerOffer;
 
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));

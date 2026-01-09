@@ -139,9 +139,13 @@ public final class SearchService {
         // targets (yellow matching)
         final List<String> requestedTargets;
 
-        // NEW: villager XP to award if paid
+        // villager XP to award if paid
         final int totalVillagerXp;
 
+        // NEW: how many successful rerolls happened during the auto-search
+        final int rerollCount;
+
+        // Old constructor (used by old saved-data import paths) -> rerollCount defaults to 0
         Settlement(UUID villagerUuid,
                    int villagerEntityId,
                    UUID ownerPlayerUuid,
@@ -155,11 +159,43 @@ public final class SearchService {
                    List<String> requestedTargets,
                    int totalVillagerXp
         ) {
+            this(
+                    villagerUuid,
+                    villagerEntityId,
+                    ownerPlayerUuid,
+                    startedAtGameTime,
+                    completedAtGameTime,
+                    hourlyCost,
+                    finalCost,
+                    offersIfPayTag,
+                    offersIfDeclineTag,
+                    lockMaskBefore,
+                    requestedTargets,
+                    totalVillagerXp,
+                    0
+            );
+        }
+
+        // New constructor
+        Settlement(UUID villagerUuid,
+                   int villagerEntityId,
+                   UUID ownerPlayerUuid,
+                   long startedAtGameTime,
+                   long completedAtGameTime,
+                   int hourlyCost,
+                   int finalCost,
+                   ListTag offersIfPayTag,
+                   ListTag offersIfDeclineTag,
+                   long lockMaskBefore,
+                   List<String> requestedTargets,
+                   int totalVillagerXp,
+                   int rerollCount
+        ) {
             this.villagerUuid = villagerUuid;
             this.villagerEntityId = villagerEntityId;
             this.ownerPlayerUuid = ownerPlayerUuid;
-            this.startedAtGameTime = startedAtGameTime;
-            this.completedAtGameTime = completedAtGameTime;
+            this.startedAtGameTime = Math.max(0L, startedAtGameTime);
+            this.completedAtGameTime = Math.max(this.startedAtGameTime, completedAtGameTime);
             this.hourlyCost = Math.max(0, hourlyCost);
             this.finalCost = Math.max(0, finalCost);
 
@@ -183,6 +219,7 @@ public final class SearchService {
             }
 
             this.totalVillagerXp = Math.max(0, totalVillagerXp);
+            this.rerollCount = Math.max(0, rerollCount);
         }
     }
 
@@ -306,7 +343,8 @@ public final class SearchService {
                             sd.offersIfDecline == null ? new ListTag() : sd.offersIfDecline,
                             sd.lockMaskBefore,
                             sd.requestedTargets == null ? List.of() : sd.requestedTargets,
-                            Math.max(0, sd.totalVillagerXp)
+                            Math.max(0, sd.totalVillagerXp),
+                            Math.max(0, sd.rerollCount) // NEW
                     );
 
                     SETTLEMENTS.put(sd.villagerUuid, s);
@@ -403,6 +441,7 @@ public final class SearchService {
                     }
 
                     sd.totalVillagerXp = Math.max(0, s.totalVillagerXp);
+                    sd.rerollCount = Math.max(0, s.rerollCount);
 
                     data.settlements().put(sd.villagerUuid, sd);
                     settleExported++;
@@ -511,7 +550,8 @@ public final class SearchService {
                                     settle.offersIfDeclineTag,
                                     settle.lockMaskBefore,
                                     settle.requestedTargets,
-                                    settle.totalVillagerXp
+                                    settle.totalVillagerXp,
+                                    settle.rerollCount
                             )
                     ));
 
@@ -671,7 +711,8 @@ public final class SearchService {
                     declineOffers,
                     task.lockMaskBefore,
                     requested,
-                    totalXp
+                    totalXp,
+                    task.rerollCount
             );
 
             SETTLEMENTS.put(vill.getUUID(), settle);
@@ -700,18 +741,19 @@ public final class SearchService {
         try {
             if (task == null) return 0;
 
-            int perOffer = Math.max(0, ServerConfig.autoSearchXpPerOffer);
-            if (perOffer <= 0) return 0;
+            double perOffer = Math.max(0.0, ServerConfig.autoSearchXpPerOffer);
+            if (perOffer <= 0.0) return 0;
 
             int rerolls = Math.max(0, task.rerollCount);
             int offersRerolledPer = Math.max(0, task.offersRerolledPerRerollAtStart);
             if (rerolls <= 0 || offersRerolledPer <= 0) return 0;
 
-            long raw = (long) rerolls * (long) offersRerolledPer * (long) perOffer;
-            if (raw < 0L) raw = 0L;
-            if (raw > Integer.MAX_VALUE) raw = Integer.MAX_VALUE;
+            double raw = (double) rerolls * (double) offersRerolledPer * perOffer;
+            long rounded = Math.round(raw);
 
-            return (int) raw;
+            if (rounded < 0L) rounded = 0L;
+            if (rounded > Integer.MAX_VALUE) rounded = Integer.MAX_VALUE;
+            return (int) rounded;
         } catch (Throwable t) {
             return 0;
         }
@@ -1082,8 +1124,9 @@ public final class SearchService {
 
             // IMPORTANT: now nudge vanilla to perform its own level-up process if XP threshold was reached
             boolean leveled = false;
+            boolean scheduledVanillaLevelUp = false;
             if (ok) {
-                leveled = triggerVanillaLevelUpsIfNeeded(vill);
+                scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vill);
             }
 
             int lvlAfter = lvlBefore;
@@ -1092,8 +1135,8 @@ public final class SearchService {
             try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] awardSettlementVillagerXpIfAny: villager={} entityId={} addXp={} success={} leveledUp={} level {}->{} xp {}->{}",
-                    vill.getUUID(), vill.getId(), xp, ok, leveled, lvlBefore, lvlAfter, xpBefore, xpAfter
+                    "[EZVR] awardSettlementVillagerXpIfAny: villager={} entityId={} addXp={} success={} scheduledVanillaLevelUp={} level {}->{} xp {}->{}",
+                    vill.getUUID(), vill.getId(), xp, ok, scheduledVanillaLevelUp, lvlBefore, lvlAfter, xpBefore, xpAfter
             );
 
             return ok ? xp : 0;
@@ -1103,82 +1146,80 @@ public final class SearchService {
         }
     }
 
-    // ---------------------------------------------------------------------
-// Vanilla level-up nudging (after XP is granted)
-// ---------------------------------------------------------------------
-
-    private static boolean triggerVanillaLevelUpsIfNeeded(Villager vill) {
+    /**
+     * Vanilla-accurate level-up trigger:
+     * - call Villager.shouldIncreaseLevel() (private)
+     * - if true, call Villager.increaseMerchantCareer() (private)
+     *
+     * No hardcoded XP thresholds.
+     */
+    private static boolean maybeInvokeVanillaLevelUpFlow(Villager vill) {
         try {
             if (vill == null) return false;
 
-            boolean anyLevelChange = false;
+            int lvl = 0;
+            try { lvl = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            if (lvl >= 5) return false;
 
-            // Hard safety to avoid infinite loops if a mapping changes unexpectedly
-            for (int guard = 0; guard < 8; guard++) {
-                int level;
-                int xp;
-                try { level = vill.getVillagerData().getLevel(); } catch (Throwable t) { return anyLevelChange; }
-                try { xp = vill.getVillagerXp(); } catch (Throwable t) { return anyLevelChange; }
+            // Mojmap: shouldIncreaseLevel()
+            boolean should = tryInvokeBooleanNoArgMethodAnyVisibility(vill, "shouldIncreaseLevel");
 
-                if (level >= 5) return anyLevelChange;
+            // Optional fallbacks (won't exist in Mojmap, harmless if missing)
+            if (!should) should = tryInvokeBooleanNoArgMethodAnyVisibility(vill, "canLevelUp");
 
-                int needed = getVanillaMaxXpForLevel(level);
-                if (needed <= 0) return anyLevelChange;
-                if (xp < needed) return anyLevelChange;
+            if (!should) return false;
 
-                int beforeLevel = level;
-
-                // Try the internal "level up" routines (names vary by version/mappings)
-                boolean invoked =
-                        tryInvokeNoArgMethodAnyVisibility(vill, "increaseMerchantCareer") ||
-                                tryInvokeNoArgMethodAnyVisibility(vill, "increaseProfessionLevel") ||
-                                tryInvokeNoArgMethodAnyVisibility(vill, "levelUp") ||
-                                tryInvokeNoArgMethodAnyVisibility(vill, "increaseProfessionLevelOnUpdate") ||
-                                tryInvokeNoArgMethodAnyVisibility(vill, "increaseMerchantCareerOnUpdate");
-
-                // Some mappings level-up by flagging and then calling updateTrades; try to help that path too.
-                // (If it doesn't exist, it's a no-op.)
+            // Mojmap: increaseMerchantCareer()
+            if (tryInvokeNoArgMethodAnyVisibility(vill, "increaseMerchantCareer")) {
+                // Some versions/paths refresh trades via updateTrades; harmless if absent.
                 tryInvokeNoArgMethodAnyVisibility(vill, "updateTrades");
-
-                int afterLevel = beforeLevel;
-                try { afterLevel = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
-
-                if (!invoked) {
-                    EZVillagerReroll.LOG().debug("[EZVR] triggerVanillaLevelUpsIfNeeded: no known level-up method found (villager={} lvl={} xp={} needed={})",
-                            vill.getUUID(), beforeLevel, xp, needed);
-                    return anyLevelChange;
-                }
-
-                if (afterLevel <= beforeLevel) {
-                    // We invoked *something* but level didn't change; avoid looping forever.
-                    EZVillagerReroll.LOG().debug("[EZVR] triggerVanillaLevelUpsIfNeeded: invoked but level unchanged (villager={} lvl={} xp={} needed={})",
-                            vill.getUUID(), beforeLevel, xp, needed);
-                    return anyLevelChange;
-                }
-
-                anyLevelChange = true;
+                return true;
             }
 
-            return anyLevelChange;
+            // Fallback aliases across mappings
+            if (tryInvokeNoArgMethodAnyVisibility(vill, "levelUp")) {
+                tryInvokeNoArgMethodAnyVisibility(vill, "updateTrades");
+                return true;
+            }
+            if (tryInvokeNoArgMethodAnyVisibility(vill, "increaseProfessionLevel")) {
+                tryInvokeNoArgMethodAnyVisibility(vill, "updateTrades");
+                return true;
+            }
+
+            return false;
         } catch (Throwable t) {
-            EZVillagerReroll.LOG().debug("[EZVR] triggerVanillaLevelUpsIfNeeded failed (soft): {}", t.toString());
+            EZVillagerReroll.LOG().debug("[EZVR] maybeInvokeVanillaLevelUpFlow failed (soft): {}", t.toString());
             return false;
         }
     }
 
-    /**
-     * Vanilla-ish XP thresholds per level.
-     * These have been stable for a long time; we use them only to decide whether we should poke level-up.
-     */
-    private static int getVanillaMaxXpForLevel(int level) {
-        // Level 1->2, 2->3, 3->4, 4->5
-        return switch (Math.max(1, Math.min(5, level))) {
-            case 1 -> 10;
-            case 2 -> 70;
-            case 3 -> 150;
-            case 4 -> 250;
-            default -> 0;
-        };
+    private static boolean tryInvokeBooleanNoArgMethodAnyVisibility(Object target, String name) {
+        try {
+            if (target == null || name == null) return false;
+
+            Class<?> c = target.getClass();
+            while (c != null && c != Object.class) {
+                try {
+                    Method m = c.getDeclaredMethod(name);
+                    m.setAccessible(true);
+                    Object r = m.invoke(target);
+                    return (r instanceof Boolean b) && b;
+                } catch (NoSuchMethodException ignored) {
+                    try {
+                        Method m2 = c.getMethod(name);
+                        Object r2 = m2.invoke(target);
+                        return (r2 instanceof Boolean b2) && b2;
+                    } catch (NoSuchMethodException ignored2) {
+                        // keep walking
+                    }
+                }
+                c = c.getSuperclass();
+            }
+            return false;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] tryInvokeBooleanNoArgMethodAnyVisibility failed name={} err={}", name, t.toString());
+            return false;
+        }
     }
 
     private static boolean tryInvokeNoArgMethodAnyVisibility(Object target, String name) {

@@ -55,13 +55,13 @@ public final class ServerConfig {
     // EXPERIENCE
     // ---------------------------------------------------------------------
 
-    public static final ModConfigSpec.IntValue MANUAL_REROLL_XP_PER_OFFER;
+    public static final ModConfigSpec.DoubleValue MANUAL_REROLL_XP_PER_OFFER;
 
     /**
      * NEW: Auto-search villager XP gain:
      * XP gained = autoSearchXpPerOffer * (offersRerolledPerReroll) * (successfulRerollCount)
      */
-    public static final ModConfigSpec.IntValue AUTO_SEARCH_XP_PER_OFFER;
+    public static final ModConfigSpec.DoubleValue AUTO_SEARCH_XP_PER_OFFER;
 
     // ---------------------------------------------------------------------
     // SPEC DEFINITION
@@ -182,7 +182,7 @@ public final class ServerConfig {
                         
                         Set to 0 to disable XP gain from manual rerolls.
                         """)
-                        .defineInRange("manualRerollXpPerOffer", 1, 0, 10_000);
+                        .defineInRange("manualRerollXpPerOffer", 1.0, 0.0, 10_000.0);
 
         AUTO_SEARCH_XP_PER_OFFER =
                 B.comment("""
@@ -193,7 +193,7 @@ public final class ServerConfig {
                         
                         Set to 0 to disable XP gain from auto-search.
                         """)
-                        .defineInRange("autoSearchXpPerOffer", 1, 0, 10_000);
+                        .defineInRange("autoSearchXpPerOffer", 0.1, 0.0, 10_000.0);
 
         B.pop();
     }
@@ -219,10 +219,9 @@ public final class ServerConfig {
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
 
-    public static int manualRerollXpPerOffer = 1;
+    public static double manualRerollXpPerOffer = 1.0;
 
-    // NEW
-    public static int autoSearchXpPerOffer = 1;
+    public static double autoSearchXpPerOffer = 1.0;
 
     private static int[] levelCosts = new int[]{0, 16, 52, 64, 96};
 
@@ -256,8 +255,8 @@ public final class ServerConfig {
             perVillagerDaily = PER_VILLAGER_DAILY.get();
             allowAfterTradeUsed = ALLOW_AFTER_TRADE_USED.get();
 
-            manualRerollXpPerOffer = Math.max(0, MANUAL_REROLL_XP_PER_OFFER.get());
-            autoSearchXpPerOffer = Math.max(0, AUTO_SEARCH_XP_PER_OFFER.get());
+            manualRerollXpPerOffer = Math.max(0.0, MANUAL_REROLL_XP_PER_OFFER.get());
+            autoSearchXpPerOffer = Math.max(0.0, AUTO_SEARCH_XP_PER_OFFER.get());
 
             levelCosts = parseLevelCosts(LEVEL_COSTS.get());
 
@@ -329,8 +328,11 @@ public final class ServerConfig {
         h = 31 * h + perVillagerDaily;
         h = 31 * h + (allowAfterTradeUsed ? 1 : 0);
 
-        h = 31 * h + manualRerollXpPerOffer;
-        h = 31 * h + autoSearchXpPerOffer;
+        long mBits = Double.doubleToLongBits(manualRerollXpPerOffer);
+        h = 31 * h + (int) (mBits ^ (mBits >>> 32));
+
+        long aBits = Double.doubleToLongBits(autoSearchXpPerOffer);
+        h = 31 * h + (int) (aBits ^ (aBits >>> 32));
 
         for (int v : levelCosts) h = 31 * h + v;
         return h;

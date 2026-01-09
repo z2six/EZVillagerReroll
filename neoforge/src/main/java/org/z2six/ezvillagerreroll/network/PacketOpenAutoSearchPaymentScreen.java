@@ -1,4 +1,3 @@
-// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/PacketOpenAutoSearchPaymentScreen.java
 package org.z2six.ezvillagerreroll.network;
 
 import net.minecraft.nbt.CompoundTag;
@@ -18,16 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Server -> Client: open the "auto-search payment" screen (settlement pending).
- *
- * Client should show:
- * - hourlyCost
- * - elapsedSeconds
- * - finalCost
- * - totalVillagerXp
- * - row of result items if paid (derived from offersIfPay)
- * - row of result items if declined (derived from offersIfDecline)
- * - highlight locked indices (lockMaskBefore) in green on BOTH rows
- * - highlight requested-found indices in yellow on PAY row (requestedTargets)
  */
 public record PacketOpenAutoSearchPaymentScreen(
         int villagerEntityId,
@@ -38,7 +27,8 @@ public record PacketOpenAutoSearchPaymentScreen(
         ListTag offersIfDecline,
         long lockMaskBefore,
         List<String> requestedTargets,
-        int totalVillagerXp
+        int totalVillagerXp,
+        int rerollCount
 ) implements CustomPacketPayload {
 
     public static final Type<PacketOpenAutoSearchPaymentScreen> TYPE =
@@ -51,8 +41,6 @@ public record PacketOpenAutoSearchPaymentScreen(
      * Client-only cache to avoid requiring client handler signature changes.
      * - decode() stores totalVillagerXp keyed by villagerEntityId
      * - AutoSearchPaymentScreen can read it during construction
-     *
-     * Safe to exist on dedicated server too; it's just an in-memory map.
      */
     private static final Map<Integer, Integer> CLIENT_TOTAL_XP_CACHE = new ConcurrentHashMap<>();
 
@@ -99,7 +87,6 @@ public record PacketOpenAutoSearchPaymentScreen(
                         }
                     }
                 } catch (Throwable t) {
-                    // soft: leave lists empty
                     EZVillagerReroll.LOG().debug("[EZVR] PacketOpenAutoSearchPaymentScreen.decode: offers NBT read failed (soft): {}", t.toString());
                 }
 
@@ -122,27 +109,38 @@ public record PacketOpenAutoSearchPaymentScreen(
                         if (!s.isEmpty()) requested.add(s);
                     }
                 } catch (Throwable t) {
-                    // soft: keep empty
                     EZVillagerReroll.LOG().debug("[EZVR] PacketOpenAutoSearchPaymentScreen.decode: requestedTargets read failed (soft): {}", t.toString());
                 }
 
-                // NEW (backwards-friendly): totalVillagerXp appended at end
+                // Appended fields (backwards-friendly):
                 int totalXp = -1;
                 try {
                     totalXp = Math.max(0, buf.readVarInt());
                 } catch (Throwable ignored) {
                     totalXp = -1;
                 }
-
                 if (totalXp >= 0) {
                     cacheClientTotalVillagerXp(id, totalXp);
                 }
 
-                return new PacketOpenAutoSearchPaymentScreen(id, hourly, fin, ticks, pay, decline, lockMask, requested, totalXp);
+                int rr = -1;
+                try {
+                    rr = Math.max(0, buf.readVarInt());
+                } catch (Throwable ignored) {
+                    rr = -1;
+                }
+                if (rr >= 0) {
+                    cacheClientRerollCount(id, rr);
+                } else {
+                    // if missing (old server), treat as 0 but don't poison cache
+                    rr = 0;
+                }
+
+                return new PacketOpenAutoSearchPaymentScreen(id, hourly, fin, ticks, pay, decline, lockMask, requested, totalXp, rr);
 
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] PacketOpenAutoSearchPaymentScreen decode failed", t);
-                return new PacketOpenAutoSearchPaymentScreen(-1, 0, 0, 0, new ListTag(), new ListTag(), 0L, List.of(), -1);
+                return new PacketOpenAutoSearchPaymentScreen(-1, 0, 0, 0, new ListTag(), new ListTag(), 0L, List.of(), -1, 0);
             }
         }
 
@@ -160,7 +158,6 @@ public record PacketOpenAutoSearchPaymentScreen(
                     root.put(TAG_DECLINE, msg.offersIfDecline() == null ? new ListTag() : msg.offersIfDecline());
                     buf.writeNbt(root);
                 } catch (Throwable t) {
-                    // best effort: still write something
                     EZVillagerReroll.LOG().debug("[EZVR] PacketOpenAutoSearchPaymentScreen.encode: offers NBT write failed (soft): {}", t.toString());
                     buf.writeNbt(new CompoundTag());
                 }
@@ -181,11 +178,17 @@ public record PacketOpenAutoSearchPaymentScreen(
                     buf.writeUtf(s);
                 }
 
-                // NEW: append totalVillagerXp (so older decoders can still read the old prefix safely)
+                // Appended fields (so old decoders can still read the prefix safely)
                 try {
                     buf.writeVarInt(Math.max(-1, msg.totalVillagerXp()));
                 } catch (Throwable t) {
                     buf.writeVarInt(-1);
+                }
+
+                try {
+                    buf.writeVarInt(Math.max(0, msg.rerollCount()));
+                } catch (Throwable t) {
+                    buf.writeVarInt(0);
                 }
 
             } catch (Throwable t) {
@@ -193,6 +196,31 @@ public record PacketOpenAutoSearchPaymentScreen(
             }
         }
     };
+
+    /**
+     * Client-only cache to avoid requiring client handler signature changes.
+     * - decode() stores rerollCount keyed by villagerEntityId
+     * - AutoSearchPaymentScreen can read it during construction
+     */
+    private static final Map<Integer, Integer> CLIENT_REROLL_COUNT_CACHE = new ConcurrentHashMap<>();
+
+    public static void cacheClientRerollCount(int villagerEntityId, int rerolls) {
+        try {
+            if (villagerEntityId < 0) return;
+            if (rerolls < 0) rerolls = 0;
+            CLIENT_REROLL_COUNT_CACHE.put(villagerEntityId, rerolls);
+        } catch (Throwable ignored) {}
+    }
+
+    public static int popClientRerollCount(int villagerEntityId) {
+        try {
+            if (villagerEntityId < 0) return -1;
+            Integer v = CLIENT_REROLL_COUNT_CACHE.remove(villagerEntityId);
+            return v == null ? -1 : v;
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

@@ -30,7 +30,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public boolean allowAfterTradeUsed;
 
     // NEW: XP config (manual reroll XP per rerolled offer)
-    public int manualRerollXpPerOffer;
+    public double manualRerollXpPerOffer;
 
     public PacketSyncConfig() {}
 
@@ -55,7 +55,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             // RESERVED slot (kept)
             try { buf.readVarInt(); } catch (Throwable ignored) {}
 
-            // New fields (wrap for backwards safety)
+            // New fields (wrap for safety)
             p.freeOffers = 0;
             p.costPerOffer = 0;
             p.maxDeductibleLockedOffers = 0;
@@ -72,9 +72,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.allowAfterTradeUsed = buf.readBoolean(); }
             catch (Throwable ignored) { p.allowAfterTradeUsed = true; }
 
-            // NEW field (backwards-safe)
-            p.manualRerollXpPerOffer = 0;
-            try { p.manualRerollXpPerOffer = buf.readVarInt(); } catch (Throwable ignored) {}
+            // NEW field
+            p.manualRerollXpPerOffer = 0.0;
+            try { p.manualRerollXpPerOffer = buf.readDouble(); } catch (Throwable ignored) {}
 
             return p;
         }
@@ -105,7 +105,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeBoolean(p.allowAfterTradeUsed);
 
             // NEW
-            buf.writeVarInt(Math.max(0, p.manualRerollXpPerOffer));
+            buf.writeDouble(Math.max(0.0, p.manualRerollXpPerOffer));
         }
     };
 

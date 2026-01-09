@@ -25,8 +25,8 @@ public final class ClientSyncedConfig {
 
         public boolean allowAfterTradeUsed;
 
-        // NEW
-        public int manualRerollXpPerOffer;
+        // NEW (double)
+        public double manualRerollXpPerOffer;
 
         @Override
         public String toString() {
@@ -51,7 +51,6 @@ public final class ClientSyncedConfig {
 
     private static volatile Snapshot last;
 
-    // Your existing method name:
     public static void setFrom(PacketSyncConfig msg) {
         try {
             Snapshot s = new Snapshot();
@@ -76,8 +75,8 @@ public final class ClientSyncedConfig {
 
             s.allowAfterTradeUsed = msg.allowAfterTradeUsed;
 
-            // NEW
-            s.manualRerollXpPerOffer = Math.max(0, msg.manualRerollXpPerOffer);
+            // NEW (double)
+            s.manualRerollXpPerOffer = Math.max(0.0, msg.manualRerollXpPerOffer);
 
             last = s;
 
@@ -87,7 +86,6 @@ public final class ClientSyncedConfig {
         }
     }
 
-    // Network.java calls applyFromServer(...) in your pasted code -> provide it:
     public static void applyFromServer(PacketSyncConfig msg) {
         setFrom(msg);
     }

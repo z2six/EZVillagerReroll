@@ -198,9 +198,9 @@ public final class RerollExecutor {
         try {
             if (sp == null || menu == null || vill == null) return;
 
-            int perOffer = Math.max(0, ServerConfig.manualRerollXpPerOffer);
-            if (perOffer <= 0) {
-                EZVillagerReroll.LOG().debug("[EZVR] Manual reroll XP disabled (manualRerollXpPerOffer=0).");
+            double perOffer = Math.max(0.0, ServerConfig.manualRerollXpPerOffer);
+            if (perOffer <= 0.0) {
+                EZVillagerReroll.LOG().debug("[EZVR] Manual reroll XP disabled (manualRerollXpPerOffer<=0).");
                 return;
             }
 
@@ -210,10 +210,17 @@ public final class RerollExecutor {
                 return;
             }
 
-            long addLong = (long) perOffer * (long) rerolled;
+            // float-config XP -> rounded int XP
+            double raw = perOffer * (double) rerolled;
+            long addLong = Math.round(raw);
             if (addLong < 0L) addLong = 0L;
             if (addLong > Integer.MAX_VALUE) addLong = Integer.MAX_VALUE;
             int add = (int) addLong;
+
+            if (add <= 0) {
+                EZVillagerReroll.LOG().debug("[EZVR] Manual reroll XP rounded to 0 (perOffer={} rerolled={} raw={}).", perOffer, rerolled, raw);
+                return;
+            }
 
             int xpBefore = 0;
             int lvlBefore = 0;
@@ -221,19 +228,22 @@ public final class RerollExecutor {
             try { lvlBefore = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
 
             boolean applied = addVillagerXpSafe(vill, add);
-
-            int xpAfter = xpBefore;
-            int lvlAfter = lvlBefore;
-            try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
-            try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
-
             if (!applied) {
                 EZVillagerReroll.LOG().warn("[EZVR] Manual reroll XP: failed to apply villager XP (add={}, perOffer={}, offersRerolled={}, villager={})",
                         add, perOffer, rerolled, vill.getUUID());
                 return;
             }
 
-            // Re-sync merchant offers to update XP/progress bar on the client immediately.
+            // ✅ The important part:
+            // Use vanilla's own shouldIncreaseLevel(), and if true, call vanilla's increaseMerchantCareer().
+            boolean scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vill);
+
+            int xpAfter = xpBefore;
+            int lvlAfter = lvlBefore;
+            try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
+            try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+
+            // Re-sync merchant offers to update XP bar immediately (level/trades may change via vanilla flow).
             try {
                 sp.sendMerchantOffers(
                         menu.containerId,
@@ -248,12 +258,110 @@ public final class RerollExecutor {
             }
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} add={} xp {}->{} level {}->{}",
-                    vill.getUUID(), rerolled, perOffer, add, xpBefore, xpAfter, lvlBefore, lvlAfter
+                    "[EZVR] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} add={} scheduledVanillaLevelUp={} xp {}->{} level {}->{}",
+                    vill.getUUID(), rerolled, perOffer, add, scheduledVanillaLevelUp,
+                    xpBefore, xpAfter, lvlBefore, lvlAfter
             );
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] grantVillagerXpForManualReroll failed (soft)", t);
+        }
+    }
+
+    /**
+     * Vanilla-accurate level-up trigger:
+     * - call Villager.shouldIncreaseLevel() (private)
+     * - if true, call Villager.increaseMerchantCareer() (private)
+     *
+     * No hardcoded XP thresholds.
+     */
+    private static boolean maybeInvokeVanillaLevelUpFlow(Villager vill) {
+        try {
+            if (vill == null) return false;
+
+            // If already maxed, don't poke.
+            int lvl = 0;
+            try { lvl = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            if (lvl >= 5) return false;
+
+            // Mojmap name: shouldIncreaseLevel()
+            // (mappings.dev shows it exists and is private) :contentReference[oaicite:1]{index=1}
+            boolean should = tryInvokeBooleanNoArgMethodAnyVisibility(vill, "shouldIncreaseLevel");
+
+            // extra fallback aliases across mappings/mod-envs (harmless if missing)
+            if (!should) should = tryInvokeBooleanNoArgMethodAnyVisibility(vill, "canLevelUp");
+            if (!should) return false;
+
+            // Mojmap name: increaseMerchantCareer()
+            // (mappings.dev shows it exists and is private) :contentReference[oaicite:2]{index=2}
+            if (tryInvokeNoArgMethodAnyVisibility(vill, "increaseMerchantCareer")) return true;
+
+            // extra fallbacks across mappings
+            if (tryInvokeNoArgMethodAnyVisibility(vill, "levelUp")) return true;
+            if (tryInvokeNoArgMethodAnyVisibility(vill, "increaseProfessionLevel")) return true;
+
+            return false;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] maybeInvokeVanillaLevelUpFlow failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    private static boolean tryInvokeBooleanNoArgMethodAnyVisibility(Object target, String name) {
+        try {
+            if (target == null || name == null) return false;
+
+            Class<?> c = target.getClass();
+            while (c != null && c != Object.class) {
+                try {
+                    Method m = c.getDeclaredMethod(name);
+                    m.setAccessible(true);
+                    Object r = m.invoke(target);
+                    return (r instanceof Boolean b) && b;
+                } catch (NoSuchMethodException ignored) {
+                    try {
+                        Method m2 = c.getMethod(name);
+                        Object r2 = m2.invoke(target);
+                        return (r2 instanceof Boolean b2) && b2;
+                    } catch (NoSuchMethodException ignored2) {
+                        // keep walking
+                    }
+                }
+                c = c.getSuperclass();
+            }
+            return false;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] tryInvokeBooleanNoArgMethodAnyVisibility failed name={} err={}", name, t.toString());
+            return false;
+        }
+    }
+
+    private static boolean tryInvokeNoArgMethodAnyVisibility(Object target, String name) {
+        try {
+            if (target == null || name == null) return false;
+
+            Class<?> c = target.getClass();
+            while (c != null && c != Object.class) {
+                try {
+                    Method m = c.getDeclaredMethod(name);
+                    m.setAccessible(true);
+                    m.invoke(target);
+                    return true;
+                } catch (NoSuchMethodException ignored) {
+                    try {
+                        Method m2 = c.getMethod(name);
+                        m2.invoke(target);
+                        return true;
+                    } catch (NoSuchMethodException ignored2) {
+                        // keep walking
+                    }
+                }
+                c = c.getSuperclass();
+            }
+            return false;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] tryInvokeNoArgMethodAnyVisibility failed name={} err={}", name, t.toString());
+            return false;
         }
     }
 

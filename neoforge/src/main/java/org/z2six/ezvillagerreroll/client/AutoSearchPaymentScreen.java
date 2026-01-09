@@ -89,6 +89,9 @@ public final class AutoSearchPaymentScreen extends Screen {
     // computed found indices (yellow on PAY row)
     private Set<Integer> foundPayIndices;
 
+    // reroll count
+    private final int rerollCount;
+
     // UI
     private Button btnPay;
     private Button btnDecline;
@@ -96,7 +99,7 @@ public final class AutoSearchPaymentScreen extends Screen {
 
     /**
      * Back-compat constructor: older call-sites can keep using it.
-     * We attempt to pull total XP from the client packet decode cache.
+     * We attempt to pull total XP + rerollCount from the client packet decode caches.
      */
     public AutoSearchPaymentScreen(
             int villagerEntityId,
@@ -117,10 +120,15 @@ public final class AutoSearchPaymentScreen extends Screen {
                 offersIfDecline,
                 declineLockMask,
                 requestedTargets,
-                PacketOpenAutoSearchPaymentScreen.popClientTotalVillagerXp(villagerEntityId)
+                PacketOpenAutoSearchPaymentScreen.popClientTotalVillagerXp(villagerEntityId),
+                PacketOpenAutoSearchPaymentScreen.popClientRerollCount(villagerEntityId)
         );
     }
 
+    /**
+     * Existing constructor (call-sites that already pass XP can keep using it).
+     * rerollCount will be pulled from cache if present, else 0.
+     */
     public AutoSearchPaymentScreen(
             int villagerEntityId,
             int hourlyCost,
@@ -132,6 +140,35 @@ public final class AutoSearchPaymentScreen extends Screen {
             List<String> requestedTargets,
             int totalVillagerXp
     ) {
+        this(
+                villagerEntityId,
+                hourlyCost,
+                finalCost,
+                elapsedTicks,
+                offersIfPay,
+                offersIfDecline,
+                declineLockMask,
+                requestedTargets,
+                totalVillagerXp,
+                PacketOpenAutoSearchPaymentScreen.popClientRerollCount(villagerEntityId)
+        );
+    }
+
+    /**
+     * Full constructor.
+     */
+    public AutoSearchPaymentScreen(
+            int villagerEntityId,
+            int hourlyCost,
+            int finalCost,
+            int elapsedTicks,
+            ListTag offersIfPay,
+            ListTag offersIfDecline,
+            long declineLockMask,
+            List<String> requestedTargets,
+            int totalVillagerXp,
+            int rerollCount
+    ) {
         super(Component.translatable("ezvr.auto_search.payment.title"));
         this.villagerEntityId = villagerEntityId;
         this.hourlyCost = Math.max(0, hourlyCost);
@@ -139,6 +176,7 @@ public final class AutoSearchPaymentScreen extends Screen {
         this.elapsedTicks = Math.max(0, elapsedTicks);
 
         this.totalVillagerXp = (totalVillagerXp < 0 ? -1 : Math.max(0, totalVillagerXp));
+        this.rerollCount = Math.max(0, rerollCount);
 
         this.offersIfPayTag = deepCopyOfferList(offersIfPay);
         this.offersIfDeclineTag = deepCopyOfferList(offersIfDecline);
@@ -194,8 +232,8 @@ public final class AutoSearchPaymentScreen extends Screen {
             // Set positions based on the requested vertical stack layout.
             layoutButtons();
 
-            EZVillagerReroll.LOG().info("[EZVR] AutoSearchPaymentScreen opened: villagerEntityId={} hourlyCost={} finalCost={} elapsedTicks={} totalVillagerXp={} payOffersTag={} declineOffersTag={} lockMask={} requestedTargets={}",
-                    villagerEntityId, hourlyCost, finalCost, elapsedTicks, totalVillagerXp,
+            EZVillagerReroll.LOG().info("[EZVR] AutoSearchPaymentScreen opened: villagerEntityId={} hourlyCost={} finalCost={} elapsedTicks={} totalVillagerXp={} rerollCount={} payOffersTag={} declineOffersTag={} lockMask={} requestedTargets={}",
+                    villagerEntityId, hourlyCost, finalCost, elapsedTicks, totalVillagerXp, rerollCount,
                     offersIfPayTag == null ? -1 : offersIfPayTag.size(),
                     offersIfDeclineTag == null ? -1 : offersIfDeclineTag.size(),
                     Long.toUnsignedString(declineLockMask),
@@ -217,7 +255,11 @@ public final class AutoSearchPaymentScreen extends Screen {
             int y0 = 18;
             int yTitle = y0;
             int yTime = yTitle + 18;
-            int yHourly = yTime + 14;
+
+            // NEW line
+            int yRerolls = yTime + 14;
+
+            int yHourly = yRerolls + 14;
             int yFinal = yHourly + 16;
 
             int yXp = yFinal + 16;
@@ -551,6 +593,10 @@ public final class AutoSearchPaymentScreen extends Screen {
             int seconds = elapsedTicks / 20;
             drawCenteredKeyValueLine(gg, cx, y, "Time:", seconds + "s");
 
+            // NEW: rerolls line
+            y += 14;
+            drawCenteredKeyValueLine(gg, cx, y, "Rerolls:", String.valueOf(Math.max(0, rerollCount)));
+
             y += 14;
 
             drawCostLineWithEmerald(gg, cx, y, "Hourly cost:", hourlyCost);
@@ -561,7 +607,6 @@ public final class AutoSearchPaymentScreen extends Screen {
 
             y += 16;
 
-            // NEW: villager XP line
             String xpStr = (totalVillagerXp < 0) ? "?" : String.valueOf(totalVillagerXp);
             drawCenteredKeyValueLine(gg, cx, y, "Villager XP gained:", xpStr);
 

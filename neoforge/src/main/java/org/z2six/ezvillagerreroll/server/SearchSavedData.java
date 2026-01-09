@@ -62,8 +62,8 @@ public final class SearchSavedData extends SavedData {
         // requested targets for yellow highlight
         public List<String> requestedTargets = new ArrayList<>();
 
-        // NEW: total villager XP to grant if the player pays
         public int totalVillagerXp = 0;
+        public int rerollCount = 0;
     }
 
     public static final class DoneData {
@@ -460,9 +460,11 @@ public final class SearchSavedData extends SavedData {
                 }
             }
 
-            // NEW
             sd.totalVillagerXp = 0;
             try { sd.totalVillagerXp = Math.max(0, t.getInt("totalVillagerXp")); } catch (Throwable ignored) { sd.totalVillagerXp = 0; }
+
+            sd.rerollCount = 0;
+            try { sd.rerollCount = Math.max(0, t.getInt("rerollCount")); } catch (Throwable ignored) { sd.rerollCount = 0; }
 
             if (sd.villagerUuid == null) return null;
             return sd;
@@ -525,8 +527,9 @@ public final class SearchSavedData extends SavedData {
             }
             t.put("requestedTargets", targets);
 
-            // NEW
             t.putInt("totalVillagerXp", Math.max(0, sd.totalVillagerXp));
+
+            t.putInt("rerollCount", Math.max(0, sd.rerollCount));
 
             return t;
 
