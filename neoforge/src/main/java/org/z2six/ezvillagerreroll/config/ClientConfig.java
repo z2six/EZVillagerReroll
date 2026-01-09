@@ -8,6 +8,10 @@ public final class ClientConfig {
 
     private static final ModConfigSpec.Builder B = new ModConfigSpec.Builder();
 
+    // ----------------------------
+    // Reroll button offsets
+    // ----------------------------
+
     public static final ModConfigSpec.IntValue BUTTON_OFFSET_X =
             B.comment("""
                     Client-only UI: X offset applied to the reroll button relative to the base position.
@@ -20,16 +24,43 @@ public final class ClientConfig {
                     Base position is the vanilla MerchantScreen anchor used by EZVR.
                     """).defineInRange("ui.buttonOffsetY", 0, -5000, 5000);
 
+    // ----------------------------
+    // NEW: Stats/info button offsets
+    // ----------------------------
+
+    public static final ModConfigSpec.IntValue STATS_BUTTON_OFFSET_X =
+            B.comment("""
+                    Client-only UI: X offset applied to the stats/info button relative to its base position.
+                    Base position is directly BELOW the reroll button.
+                    """).defineInRange("ui.statsButtonOffsetX", 0, -5000, 5000);
+
+    public static final ModConfigSpec.IntValue STATS_BUTTON_OFFSET_Y =
+            B.comment("""
+                    Client-only UI: Y offset applied to the stats/info button relative to its base position.
+                    Base position is directly BELOW the reroll button.
+                    """).defineInRange("ui.statsButtonOffsetY", 0, -5000, 5000);
+
     public static final ModConfigSpec SPEC = B.build();
 
     public static int buttonOffsetX = 0;
     public static int buttonOffsetY = 0;
 
+    public static int statsButtonOffsetX = 0;
+    public static int statsButtonOffsetY = 0;
+
     public static void bake() {
         try {
             buttonOffsetX = BUTTON_OFFSET_X.get();
             buttonOffsetY = BUTTON_OFFSET_Y.get();
-            EZVillagerReroll.LOG().info("[EZVR] ClientConfig baked: offsetX={}, offsetY={}", buttonOffsetX, buttonOffsetY);
+
+            statsButtonOffsetX = STATS_BUTTON_OFFSET_X.get();
+            statsButtonOffsetY = STATS_BUTTON_OFFSET_Y.get();
+
+            EZVillagerReroll.LOG().info(
+                    "[EZVR] ClientConfig baked: rerollOffset=({},{}), statsOffset=({}, {})",
+                    buttonOffsetX, buttonOffsetY,
+                    statsButtonOffsetX, statsButtonOffsetY
+            );
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] ClientConfig bake error", t);
         }

@@ -44,6 +44,7 @@ public final class ClientUI {
 
     private static final Map<Screen, Button> REROLL_BUTTONS = new WeakHashMap<>();
     private static final Map<Screen, CooldownOverlayWidget> COOLDOWN_OVERLAYS = new WeakHashMap<>();
+    private static final Map<Screen, Button> STATS_BUTTONS = new WeakHashMap<>();
 
     private static final ResourceLocation CHAIN_TEX =
             ResourceLocation.fromNamespaceAndPath("minecraft", "textures/block/chain.png");
@@ -80,6 +81,15 @@ public final class ClientUI {
         }
     }
 
+    public static Button getStatsButtonFor(Screen screen) {
+        try {
+            if (screen == null) return null;
+            return STATS_BUTTONS.get(screen);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     public static void openSearchCatalogScreen(MerchantScreen parent, int villagerEntityId) {
         try {
             Minecraft mc = Minecraft.getInstance();
@@ -92,6 +102,23 @@ public final class ClientUI {
             mc.setScreen(new SearchCatalogScreen(parent));
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] openSearchCatalogScreen failed", t);
+        }
+    }
+
+    public static void openVillagerStatsPlaceholder(MerchantScreen parent, int villagerEntityId) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || parent == null) return;
+
+            EZVillagerReroll.LOG().info("[EZVR] Stats button clicked (villagerEntityId={}) - placeholder", villagerEntityId);
+
+            try {
+                if (mc.player != null) {
+                    mc.player.displayClientMessage(Component.literal("Villager stats screen: coming soon!"), true);
+                }
+            } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] openVillagerStatsPlaceholder failed", t);
         }
     }
 
@@ -112,7 +139,8 @@ public final class ClientUI {
 
             int w = 18, h = 18;
 
-            Button reroll = Button.builder(Component.literal("↻"), btn -> {
+            // IMPORTANT: empty label; we will draw a bigger glyph ourselves in render pass.
+            Button reroll = Button.builder(Component.empty(), btn -> {
                         try {
                             int cid = resolveContainerId(screen);
                             if (cid >= 0 && ClientRerollCooldownCache.isCoolingDown(cid)) {
@@ -149,6 +177,39 @@ public final class ClientUI {
             e.addListener(reroll);
             REROLL_BUTTONS.put(screen, reroll);
 
+            // Stats button (unchanged)
+            int statsBaseX = x;              // align with reroll by default
+            int statsBaseY = y + h + 2;      // directly below reroll
+
+            int sx = statsBaseX + ClientConfig.statsButtonOffsetX;
+            int sy = statsBaseY + ClientConfig.statsButtonOffsetY;
+
+            Button statsBtn = Button.builder(Component.literal("ⓘ"), btn -> {
+                        try {
+                            int villagerEntityId = resolveTraderEntityId(screen);
+                            openVillagerStatsPlaceholder(screen, villagerEntityId);
+                        } catch (Throwable t) {
+                            EZVillagerReroll.LOG().error("[EZVR] Stats button click failed", t);
+                        }
+
+                        try {
+                            btn.setFocused(false);
+                            Screen scr = Minecraft.getInstance().screen;
+                            if (scr != null && scr.getFocused() == btn) scr.setFocused(null);
+                        } catch (Throwable ignored) {}
+                    })
+                    .pos(sx, sy).size(w, h)
+                    .createNarration(s -> Component.literal("Villager stats"))
+                    .build();
+
+            e.addListener(statsBtn);
+            STATS_BUTTONS.put(screen, statsBtn);
+
+            EZVillagerReroll.LOG().info(
+                    "[EZVR] Stats button added to MerchantScreen at ({},{}), base=({},{}), offset=({},{}).",
+                    sx, sy, statsBaseX, statsBaseY, ClientConfig.statsButtonOffsetX, ClientConfig.statsButtonOffsetY
+            );
+
             CooldownOverlayWidget overlay = new CooldownOverlayWidget(x, y, w, h);
             overlay.active = false;
             overlay.visible = true;
@@ -181,8 +242,40 @@ public final class ClientUI {
             boolean cooling = (cid >= 0) && ClientRerollCooldownCache.isCoolingDown(cid);
 
             if (btn.active == cooling) btn.active = !cooling;
-
             if (overlay != null) overlay.active = cooling;
+
+            // -------------------------------------------------------------
+            // Draw a larger reroll glyph centered on the reroll button
+            // -------------------------------------------------------------
+            try {
+                GuiGraphics gg = e.getGuiGraphics();
+                Font font = Minecraft.getInstance().font;
+
+                final String glyph = "↻";
+                final float scale = 1.65f; // tweak 1.4..1.9
+                final int color = btn.active ? 0xFFFFFFFF : 0xFF777777;
+
+                int bx = btn.getX();
+                int by = btn.getY();
+                int bw = btn.getWidth();
+                int bh = btn.getHeight();
+
+                int textW = font.width(glyph);
+                int textH = font.lineHeight;
+
+                float cx = bx + (bw / 2.0f);
+                float cy = by + (bh / 2.0f);
+
+                gg.pose().pushPose();
+                gg.pose().translate(cx, cy, 500.0f);
+                gg.pose().scale(scale, scale, 1.0f);
+
+                // Center around (0,0) after translate
+                gg.drawString(font, glyph, -textW / 2.0f, -textH / 2.0f, color, true);
+
+                gg.pose().popPose();
+            } catch (Throwable ignored) {}
+            // -------------------------------------------------------------
 
             boolean hoverOverlay = overlay != null && overlay.active && overlay.isMouseOver(e.getMouseX(), e.getMouseY());
             boolean hoverButton = btn.isMouseOver(e.getMouseX(), e.getMouseY());
@@ -230,6 +323,7 @@ public final class ClientUI {
         try {
             REROLL_BUTTONS.remove(e.getScreen());
             COOLDOWN_OVERLAYS.remove(e.getScreen());
+            STATS_BUTTONS.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
                 int cid = resolveContainerId(ms);
