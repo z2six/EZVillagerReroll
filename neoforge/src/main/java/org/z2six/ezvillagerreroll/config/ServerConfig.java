@@ -1,4 +1,3 @@
-// MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/config/ServerConfig.java
 package org.z2six.ezvillagerreroll.config;
 
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -42,7 +41,18 @@ public final class ServerConfig {
     // LIMITS
     // ---------------------------------------------------------------------
 
+    /**
+     * Manual reroll cooldown (existing behavior).
+     * Keep name "cooldownTicks" to avoid refactoring manual reroll code paths.
+     */
     public static final ModConfigSpec.IntValue COOLDOWN_TICKS;
+
+    /**
+     * NEW: Auto-search / auto-reroll cooldown (separate from manual).
+     * This is server-only; no client sync needed.
+     */
+    public static final ModConfigSpec.IntValue COOLDOWN_TICKS_AUTO;
+
     public static final ModConfigSpec.IntValue PER_VILLAGER_DAILY;
 
     // ---------------------------------------------------------------------
@@ -154,8 +164,15 @@ public final class ServerConfig {
         B.push("limits");
 
         COOLDOWN_TICKS =
-                B.comment("Cooldown in ticks per villager (0 = disabled)")
-                        .defineInRange("cooldownTicks", 200, 0, 20_000);
+                B.comment("Cooldown in ticks per villager for MANUAL rerolls (0 = disabled)")
+                        .defineInRange("cooldownTicks", 100, 0, 20_000);
+
+        COOLDOWN_TICKS_AUTO =
+                B.comment("""
+                        Cooldown in ticks per villager for AUTO-SEARCH rerolls (0 = disabled).
+                        This is separate from manual cooldownTicks.
+                        """)
+                        .defineInRange("cooldownTicksAuto", 600, 0, 20_000);
 
         PER_VILLAGER_DAILY =
                 B.comment("Max rerolls per villager per day (0 = disabled)")
@@ -201,7 +218,7 @@ public final class ServerConfig {
     public static final ModConfigSpec SPEC = B.build();
 
     // ---------------------------------------------------------------------
-    // Runtime values
+    // Runtime values (hot-loaded)
     // ---------------------------------------------------------------------
 
     public static String costSpec = "minecraft:emerald";
@@ -215,12 +232,16 @@ public final class ServerConfig {
     public static int autoHourlyThreshold = 6;
     public static double autoHourlyDiscountOrIncreasePct = 5.0;
 
-    public static int cooldownTicks = 20;
+    /** Manual reroll cooldown (existing). */
+    public static int cooldownTicks = 200;
+
+    /** NEW: Auto-search cooldown. */
+    public static int cooldownTicksAuto = 200;
+
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
 
     public static double manualRerollXpPerOffer = 1.0;
-
     public static double autoSearchXpPerOffer = 1.0;
 
     private static int[] levelCosts = new int[]{0, 16, 52, 64, 96};
@@ -252,6 +273,8 @@ public final class ServerConfig {
             autoHourlyDiscountOrIncreasePct = Math.max(0.0, AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT.get());
 
             cooldownTicks = COOLDOWN_TICKS.get();
+            cooldownTicksAuto = COOLDOWN_TICKS_AUTO.get();
+
             perVillagerDaily = PER_VILLAGER_DAILY.get();
             allowAfterTradeUsed = ALLOW_AFTER_TRADE_USED.get();
 
@@ -271,12 +294,13 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} legacyLevelCosts={}",
+                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks(manual)={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
-                    cooldownTicks, perVillagerDaily, allowAfterTradeUsed,
+                    cooldownTicks, cooldownTicksAuto,
+                    perVillagerDaily, allowAfterTradeUsed,
                     manualRerollXpPerOffer, autoSearchXpPerOffer,
                     debug(levelCosts)
             );
@@ -325,6 +349,8 @@ public final class ServerConfig {
         h = 31 * h + (int) (pctBits ^ (pctBits >>> 32));
 
         h = 31 * h + cooldownTicks;
+        h = 31 * h + cooldownTicksAuto;
+
         h = 31 * h + perVillagerDaily;
         h = 31 * h + (allowAfterTradeUsed ? 1 : 0);
 

@@ -465,7 +465,8 @@ public final class SearchService {
                 return;
             }
 
-            int cooldown = Math.max(1, ServerConfig.cooldownTicks);
+            // AUTO uses its own cooldown now
+            int cooldown = Math.max(1, ServerConfig.cooldownTicksAuto);
             long now = vill.level().getGameTime();
 
             Task t = new Task(vill, sp, requested, now, cooldown);
@@ -478,7 +479,7 @@ public final class SearchService {
 
             TASKS.put(vill.getUUID(), t);
 
-            EZVillagerReroll.LOG().info("[EZVR] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicks={} lockMaskBefore={} offersBefore={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={}",
+            EZVillagerReroll.LOG().info("[EZVR] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicksAuto={} lockMaskBefore={} offersBefore={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={}",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getId(),
@@ -626,7 +627,8 @@ public final class SearchService {
                 long now = vill.level().getGameTime();
                 if (now < task.nextRerollGameTime) continue;
 
-                int cooldown = Math.max(1, ServerConfig.cooldownTicks);
+                // AUTO uses its own cooldown now (hot-reload friendly)
+                int cooldown = Math.max(1, ServerConfig.cooldownTicksAuto);
                 task.cooldownTicks = cooldown;
                 task.nextRerollGameTime = now + cooldown;
 
