@@ -29,28 +29,13 @@ public final class ServerConfig {
     public static final ModConfigSpec.BooleanValue PREFER_WALLET;
     public static final ModConfigSpec.BooleanValue AUTO_DEFAULT_LC_IF_PRESENT;
 
-    /**
-     * NEW cost model:
-     * - First FREE_OFFERS are free.
-     * - Then each paid offer costs COST_PER_OFFER.
-     * - Trade locks can reduce offer count for cost computation, but only up to MAX_DEDUCTIBLE_LOCKED_OFFERS.
-     */
     public static final ModConfigSpec.IntValue FREE_OFFERS;
     public static final ModConfigSpec.IntValue COST_PER_OFFER;
     public static final ModConfigSpec.IntValue MAX_DEDUCTIBLE_LOCKED_OFFERS;
 
-    /**
-     * Auto-search hourly preview/settlement scaling:
-     * We compute manual-cost-equivalent per reroll, then extrapolate to 1000 ticks (1 in-game hour).
-     * We then apply a scaling factor based on "effectivePaidOffers" vs threshold.
-     */
     public static final ModConfigSpec.IntValue AUTO_HOURLY_THRESHOLD;
     public static final ModConfigSpec.DoubleValue AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT;
 
-    /**
-     * LEGACY (kept so old configs / code references do not explode).
-     * Not used by our current reroll cost logic anymore.
-     */
     public static final ModConfigSpec.ConfigValue<List<? extends Number>> LEVEL_COSTS;
 
     // ---------------------------------------------------------------------
@@ -67,18 +52,19 @@ public final class ServerConfig {
     public static final ModConfigSpec.BooleanValue ALLOW_AFTER_TRADE_USED;
 
     // ---------------------------------------------------------------------
-    // EXPERIENCE (NEW)
+    // EXPERIENCE
     // ---------------------------------------------------------------------
 
-    /**
-     * Manual reroll villager XP gain:
-     * XP gained = manualRerollXpPerOffer * (offersRerolled)
-     * offersRerolled = totalOffersBefore - lockedOffersCount (mask sanitized to size).
-     */
     public static final ModConfigSpec.IntValue MANUAL_REROLL_XP_PER_OFFER;
 
+    /**
+     * NEW: Auto-search villager XP gain:
+     * XP gained = autoSearchXpPerOffer * (offersRerolledPerReroll) * (successfulRerollCount)
+     */
+    public static final ModConfigSpec.IntValue AUTO_SEARCH_XP_PER_OFFER;
+
     // ---------------------------------------------------------------------
-    // SPEC DEFINITION (push/pop – REQUIRED)
+    // SPEC DEFINITION
     // ---------------------------------------------------------------------
 
     static {
@@ -185,7 +171,6 @@ public final class ServerConfig {
 
         B.pop();
 
-        // NEW: experience
         B.push("experience");
 
         MANUAL_REROLL_XP_PER_OFFER =
@@ -198,6 +183,17 @@ public final class ServerConfig {
                         Set to 0 to disable XP gain from manual rerolls.
                         """)
                         .defineInRange("manualRerollXpPerOffer", 1, 0, 10_000);
+
+        AUTO_SEARCH_XP_PER_OFFER =
+                B.comment("""
+                        Villager XP to grant per offer-per-reroll during AUTO-SEARCH.
+                        
+                        XP granted = autoSearchXpPerOffer * (offersRerolledPerReroll) * (successfulRerollCount)
+                        offersRerolledPerReroll = offersAtStart - lockedOffersAtStart
+                        
+                        Set to 0 to disable XP gain from auto-search.
+                        """)
+                        .defineInRange("autoSearchXpPerOffer", 1, 0, 10_000);
 
         B.pop();
     }
@@ -223,8 +219,10 @@ public final class ServerConfig {
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
 
-    // NEW: XP gain
     public static int manualRerollXpPerOffer = 1;
+
+    // NEW
+    public static int autoSearchXpPerOffer = 1;
 
     private static int[] levelCosts = new int[]{0, 16, 52, 64, 96};
 
@@ -232,10 +230,6 @@ public final class ServerConfig {
     private static volatile int cfgHash = 0;
 
     private ServerConfig() {}
-
-    // ---------------------------------------------------------------------
-    // Load / reload hooks
-    // ---------------------------------------------------------------------
 
     public static void onConfigLoading(ModConfigEvent.Loading e) {
         if (e.getConfig().getSpec() == SPEC) reload("loading");
@@ -262,10 +256,9 @@ public final class ServerConfig {
             perVillagerDaily = PER_VILLAGER_DAILY.get();
             allowAfterTradeUsed = ALLOW_AFTER_TRADE_USED.get();
 
-            // NEW
             manualRerollXpPerOffer = Math.max(0, MANUAL_REROLL_XP_PER_OFFER.get());
+            autoSearchXpPerOffer = Math.max(0, AUTO_SEARCH_XP_PER_OFFER.get());
 
-            // legacy
             levelCosts = parseLevelCosts(LEVEL_COSTS.get());
 
             if (autoPreferLCIfPresent
@@ -279,13 +272,13 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} legacyLevelCosts={}",
+                    "[EZVR] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
                     cooldownTicks, perVillagerDaily, allowAfterTradeUsed,
-                    manualRerollXpPerOffer,
+                    manualRerollXpPerOffer, autoSearchXpPerOffer,
                     debug(levelCosts)
             );
 
@@ -294,11 +287,6 @@ public final class ServerConfig {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // REQUIRED API (legacy)
-    // ---------------------------------------------------------------------
-
-    /** @return defensive copy, length = 5 */
     public static int[] costsByLevel5() {
         int[] out = new int[5];
         System.arraycopy(levelCosts, 0, out, 0, Math.min(levelCosts.length, 5));
@@ -309,10 +297,6 @@ public final class ServerConfig {
         int l = Math.max(1, Math.min(5, level));
         return levelCosts[l - 1];
     }
-
-    // ---------------------------------------------------------------------
-    // Helpers
-    // ---------------------------------------------------------------------
 
     private static int[] parseLevelCosts(List<? extends Number> raw) {
         int[] out = new int[]{0, 16, 52, 64, 96};
@@ -345,8 +329,8 @@ public final class ServerConfig {
         h = 31 * h + perVillagerDaily;
         h = 31 * h + (allowAfterTradeUsed ? 1 : 0);
 
-        // NEW
         h = 31 * h + manualRerollXpPerOffer;
+        h = 31 * h + autoSearchXpPerOffer;
 
         for (int v : levelCosts) h = 31 * h + v;
         return h;
@@ -360,10 +344,6 @@ public final class ServerConfig {
         }
         return sb.append(']').toString();
     }
-
-    // ---------------------------------------------------------------------
-    // Misc
-    // ---------------------------------------------------------------------
 
     public static boolean isTagSpec(String s) {
         return s != null && s.startsWith("#");

@@ -1,6 +1,10 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/ServerHandlers.java
 package org.z2six.ezvillagerreroll.network;
 
+import com.mojang.serialization.DataResult;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -8,22 +12,25 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.trading.MerchantOffer;
+import net.minecraft.world.item.trading.MerchantOffers;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
-import org.z2six.ezvillagerreroll.server.CatalogBuilder;
 import org.z2six.ezvillagerreroll.logic.CostUtil;
 import org.z2six.ezvillagerreroll.logic.MoneyBridge;
 import org.z2six.ezvillagerreroll.logic.RerollExecutor;
 import org.z2six.ezvillagerreroll.logic.RerollState;
 import org.z2six.ezvillagerreroll.logic.TradeLockState;
-import org.z2six.ezvillagerreroll.logic.TradeUtil;
 import org.z2six.ezvillagerreroll.logic.WalletBridge;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
+import org.z2six.ezvillagerreroll.server.CatalogBuilder;
 import org.z2six.ezvillagerreroll.server.SearchService;
 import org.z2six.ezvillagerreroll.server.VillagerOffersSavedData;
 
+import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Server-side packet handlers.
@@ -106,7 +113,6 @@ public final class ServerHandlers {
             }
 
             // ---- Cost preview computation (must match your config semantics) ----
-            // offerCount: total offers currently on villager
             int offerCount = 0;
             try {
                 offerCount = (vill.getOffers() == null) ? 0 : Math.max(0, vill.getOffers().size());
@@ -114,7 +120,6 @@ public final class ServerHandlers {
                 offerCount = 0;
             }
 
-            // lockedCount: current lock mask bits (sanitized to offerCount)
             long lockMask = 0L;
             try {
                 lockMask = TradeLockState.getMask(vill);
@@ -133,7 +138,6 @@ public final class ServerHandlers {
                             offerCount);
                     lockMask = sanitized;
 
-                    // Best-effort sync to traders if you already have that service
                     try {
                         org.z2six.ezvillagerreroll.server.TradeLockSyncService.syncToActiveTraders(vill, lockMask);
                     } catch (Throwable syncIgnored) {
@@ -151,25 +155,20 @@ public final class ServerHandlers {
                 lockedCount = 0;
             }
 
-            // deductible locks limited by config
             int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
             int deductibleLocks = Math.min(lockedCount, maxDeduct);
 
-            // effective offers after deductible locked offers
             int effectiveOffers = Math.max(0, offerCount - deductibleLocks);
 
-            // paid offers after free offers
             int freeOffers = Math.max(0, ServerConfig.freeOffers);
             int effectivePaidOffers = Math.max(0, effectiveOffers - freeOffers);
 
-            // manual cost = paidOffers * costPerOffer (clamped)
             int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
             long manualLong = (long) effectivePaidOffers * (long) costPerOffer;
             if (manualLong < 0L) manualLong = 0L;
             if (manualLong > Integer.MAX_VALUE) manualLong = Integer.MAX_VALUE;
             int manualCost = (int) manualLong;
 
-            // hourly cost preview: use the same centralized logic as settlement creation
             int hourlyCost;
             try {
                 hourlyCost = SearchService.computeHourlyCostServer(vill);
@@ -241,16 +240,57 @@ public final class ServerHandlers {
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
 
-            var settlement = SearchService.getSettlement(vill);
-            if (settlement == null) return;
+            SearchService.Settlement settlement = SearchService.getSettlement(vill);
+            if (settlement == null) {
+                EZVillagerReroll.LOG().debug("[EZVR] handlePayAutoSearchSettlement: no settlement (villagerId={} uuid={})",
+                        vill.getId(), vill.getUUID());
+                return;
+            }
+
+            // Read this while settlement is still present in SearchService map
+            int settlementXp = 0;
+            try {
+                settlementXp = Math.max(0, SearchService.getSettlementTotalVillagerXp(vill));
+            } catch (Throwable ignored) {
+                settlementXp = 0;
+            }
 
             int cost = SearchService.getSettlementFinalCost(vill);
-            if (cost > 0 && !tryChargePlayer(sp, cost)) return;
+            if (cost > 0 && !tryChargePlayer(sp, cost)) {
+                EZVillagerReroll.LOG().debug("[EZVR] handlePayAutoSearchSettlement: charge failed (player={} cost={} villager={})",
+                        sp.getGameProfile().getName(), cost, vill.getUUID());
+                return;
+            }
 
+            // ---------------------------------------------------------------------------------
+            // Award villager XP ONLY after payment succeeds.
+            // ---------------------------------------------------------------------------------
+            int awardedXp = 0;
+            try {
+                awardedXp = SearchService.awardSettlementVillagerXpIfAny(vill, settlement);
+            } catch (Throwable xpErr) {
+                EZVillagerReroll.LOG().error("[EZVR] handlePayAutoSearchSettlement: awarding XP failed (soft) villager={}", vill.getUUID(), xpErr);
+                awardedXp = 0;
+            }
+
+            // Remove settlement after successful payment + XP award attempt
             SearchService.popSettlement(vill.getUUID());
 
             var data = VillagerOffersSavedData.get(sp.serverLevel());
-            if (data != null) data.capture(vill);
+            if (data != null) {
+                data.capture(vill);
+                EZVillagerReroll.LOG().debug("[EZVR] handlePayAutoSearchSettlement: captured post-pay offers (villager={})", vill.getUUID());
+            } else {
+                EZVillagerReroll.LOG().debug("[EZVR] handlePayAutoSearchSettlement: VillagerOffersSavedData missing (villager={})", vill.getUUID());
+            }
+
+            EZVillagerReroll.LOG().info("[EZVR] handlePayAutoSearchSettlement: success (player={} villager={} cost={} awardedXp={} settlementXp={})",
+                    sp.getGameProfile().getName(),
+                    vill.getUUID(),
+                    cost,
+                    awardedXp,
+                    settlementXp
+            );
 
             ctx.reply(new PacketAutoSearchSettlementCleared(vill.getId()));
 
@@ -266,12 +306,55 @@ public final class ServerHandlers {
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
 
-            var settlement = SearchService.getSettlement(vill);
-            if (settlement == null) return;
+            Object settlement = SearchService.getSettlement(vill);
+            if (settlement == null) {
+                EZVillagerReroll.LOG().debug("[EZVR] handleDeclineAutoSearchSettlement: no settlement (villagerId={} uuid={})", vill.getId(), vill.getUUID());
+                return;
+            }
 
-            var data = VillagerOffersSavedData.get(sp.serverLevel());
-            if (data != null && data.has(vill.getUUID())) {
-                data.apply(vill);
+            // ---------------------------------------------------------------------------------
+            // FIX: Prefer the settlement’s own "offersIfDecline" snapshot (server-authoritative),
+            // NOT the generic VillagerOffersSavedData, which may have been overwritten by other saves.
+            // ---------------------------------------------------------------------------------
+            boolean restored = false;
+
+            ListTag offersIfDecline = reflectListTag(settlement, "offersIfDecline");
+            if (offersIfDecline != null && !offersIfDecline.isEmpty()) {
+                restored = applyOffersFromOfferTagList(vill, offersIfDecline, "settlement.offersIfDecline");
+            } else {
+                EZVillagerReroll.LOG().debug("[EZVR] handleDeclineAutoSearchSettlement: settlement.offersIfDecline missing/empty (villager={})", vill.getUUID());
+            }
+
+            // Restore lock mask from settlement (so lock highlights + cost math revert too)
+            Long lockMaskBefore = reflectLong(settlement, "lockMaskBefore");
+            if (lockMaskBefore != null) {
+                long sanitized = TradeLockState.sanitizeMaskForSize(lockMaskBefore, safeOfferSize(vill));
+                TradeLockState.setMask(vill, sanitized);
+                EZVillagerReroll.LOG().debug("[EZVR] handleDeclineAutoSearchSettlement: restored lockMaskBefore={} sanitized={} offers={} villager={}",
+                        Long.toUnsignedString(lockMaskBefore),
+                        Long.toUnsignedString(sanitized),
+                        safeOfferSize(vill),
+                        vill.getUUID());
+                try {
+                    org.z2six.ezvillagerreroll.server.TradeLockSyncService.syncToActiveTraders(vill, sanitized);
+                } catch (Throwable ignored) {
+                    // soft
+                }
+            } else {
+                EZVillagerReroll.LOG().debug("[EZVR] handleDeclineAutoSearchSettlement: settlement.lockMaskBefore missing (villager={})", vill.getUUID());
+            }
+
+            // Fallback if settlement snapshot unavailable for any reason
+            if (!restored) {
+                var data = VillagerOffersSavedData.get(sp.serverLevel());
+                if (data != null && data.has(vill.getUUID())) {
+                    data.apply(vill);
+                    restored = true;
+                    EZVillagerReroll.LOG().debug("[EZVR] handleDeclineAutoSearchSettlement: fallback restored via VillagerOffersSavedData (villager={})", vill.getUUID());
+                } else {
+                    EZVillagerReroll.LOG().warn("[EZVR] handleDeclineAutoSearchSettlement: failed to restore offers (no settlement snapshot, no saveddata) villager={}",
+                            vill.getUUID());
+                }
             }
 
             SearchService.popSettlement(vill.getUUID());
@@ -344,5 +427,188 @@ public final class ServerHandlers {
             long mask = TradeLockState.getMask(vill);
             ctx.reply(new PacketTradeLocks(menu.containerId, mask));
         } catch (Throwable ignored) {}
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Settlement snapshot decoding (NBT -> MerchantOffer list)
+    // We intentionally keep this logic local so we do NOT depend on your TradeUtil internals.
+    // It only requires that offersIfDecline/offersIfPay were saved as a ListTag of offer objects
+    // encoded via MerchantOffer.CODEC (which is how 1.21.x expects it).
+    // -----------------------------------------------------------------------------------------
+
+    // ServerHandlers.java
+    private static boolean applyOffersFromOfferTagList(Villager vill, ListTag offerList, String reason) {
+        try {
+            if (vill == null) return false;
+            if (offerList == null || offerList.isEmpty()) return false;
+
+            MerchantOffers decoded = new MerchantOffers();
+
+            int n = Math.min(256, offerList.size());
+            int ok = 0;
+            int bad = 0;
+
+            for (int i = 0; i < n; i++) {
+                final int idx = i; // <-- FIX: capture loop index for lambda
+
+                Tag t = offerList.get(i);
+                if (t == null) {
+                    bad++;
+                    continue;
+                }
+
+                DataResult<MerchantOffer> res = MerchantOffer.CODEC.parse(NbtOps.INSTANCE, t);
+                Optional<MerchantOffer> opt = res.resultOrPartial(err ->
+                        EZVillagerReroll.LOG().debug("[EZVR] applyOffersFromOfferTagList: decode error (villager={} idx={} reason={}): {}",
+                                vill.getUUID(), idx, reason, err)
+                );
+
+                if (opt.isPresent()) {
+                    decoded.add(opt.get());
+                    ok++;
+                } else {
+                    bad++;
+                }
+            }
+
+            // Apply by mutating the existing MerchantOffers list. This avoids needing accessors and
+            // plays nicer with any vanilla code holding a reference to vill.getOffers().
+            try {
+                MerchantOffers current = vill.getOffers();
+                current.clear();
+                current.addAll(decoded);
+            } catch (Throwable t) {
+                // As a fallback, try a best-effort reflection set (rarely needed).
+                if (!trySetOffersReflect(vill, decoded)) {
+                    EZVillagerReroll.LOG().warn("[EZVR] applyOffersFromOfferTagList: failed to apply offers (villager={} reason={} ok={} bad={})",
+                            vill.getUUID(), reason, ok, bad);
+                    return false;
+                }
+            }
+
+            EZVillagerReroll.LOG().debug("[EZVR] applyOffersFromOfferTagList: applied offers (villager={} reason={} count={} ok={} bad={})",
+                    vill.getUUID(), reason, decoded.size(), ok, bad);
+            return true;
+
+        } catch (Throwable e) {
+            EZVillagerReroll.LOG().error("[EZVR] applyOffersFromOfferTagList failed (reason=" + reason + ")", e);
+            return false;
+        }
+    }
+
+    private static boolean trySetOffersReflect(Villager vill, MerchantOffers offers) {
+        try {
+            if (vill == null || offers == null) return false;
+
+            // Try common field names across mappings/versions.
+            // We do not crash if this fails; we just log and return false.
+            String[] fieldNames = new String[]{"offers", "merchantOffers", "tradeOffers"};
+            for (String name : fieldNames) {
+                try {
+                    Field f = vill.getClass().getDeclaredField(name);
+                    f.setAccessible(true);
+                    Object v = f.get(vill);
+                    if (v instanceof MerchantOffers current) {
+                        current.clear();
+                        current.addAll(offers);
+                        return true;
+                    }
+                } catch (NoSuchFieldException ignored) {
+                    // try next
+                }
+            }
+
+            // Walk superclasses in case field is on AbstractVillager
+            Class<?> c = vill.getClass().getSuperclass();
+            while (c != null && c != Object.class) {
+                for (String name : fieldNames) {
+                    try {
+                        Field f = c.getDeclaredField(name);
+                        f.setAccessible(true);
+                        Object v = f.get(vill);
+                        if (v instanceof MerchantOffers current) {
+                            current.clear();
+                            current.addAll(offers);
+                            return true;
+                        }
+                    } catch (NoSuchFieldException ignored) {
+                        // try next
+                    }
+                }
+                c = c.getSuperclass();
+            }
+
+            EZVillagerReroll.LOG().debug("[EZVR] trySetOffersReflect: could not locate offers field (villager={})", vill.getUUID());
+            return false;
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] trySetOffersReflect failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    private static int safeOfferSize(Villager vill) {
+        try {
+            if (vill == null || vill.getOffers() == null) return 0;
+            return Math.max(0, vill.getOffers().size());
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    private static ListTag reflectListTag(Object obj, String fieldName) {
+        try {
+            if (obj == null || fieldName == null) return null;
+
+            Field f = findField(obj.getClass(), fieldName);
+            if (f == null) return null;
+
+            Object v = f.get(obj);
+            if (v instanceof ListTag lt) return lt;
+            return null;
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] reflectListTag failed (soft): {}", t.toString());
+            return null;
+        }
+    }
+
+    private static Long reflectLong(Object obj, String fieldName) {
+        try {
+            if (obj == null || fieldName == null) return null;
+
+            Field f = findField(obj.getClass(), fieldName);
+            if (f == null) return null;
+
+            Object v = f.get(obj);
+            if (v instanceof Long l) return l;
+            if (v instanceof Number n) return n.longValue();
+            return null;
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] reflectLong failed (soft): {}", t.toString());
+            return null;
+        }
+    }
+
+    private static Field findField(Class<?> cls, String name) {
+        try {
+            if (cls == null || name == null) return null;
+
+            Class<?> c = cls;
+            while (c != null && c != Object.class) {
+                try {
+                    Field f = c.getDeclaredField(name);
+                    f.setAccessible(true);
+                    return f;
+                } catch (NoSuchFieldException ignored) {
+                    c = c.getSuperclass();
+                }
+            }
+            return null;
+
+        } catch (Throwable t) {
+            return null;
+        }
     }
 }

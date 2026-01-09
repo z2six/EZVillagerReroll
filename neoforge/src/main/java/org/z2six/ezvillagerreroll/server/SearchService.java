@@ -22,6 +22,7 @@ import org.z2six.ezvillagerreroll.network.PacketAutoSearchDone;
 import org.z2six.ezvillagerreroll.network.PacketOpenAutoSearchPaymentScreen;
 import org.z2six.ezvillagerreroll.network.PacketOpenBusyScreen;
 
+import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,6 +43,14 @@ public final class SearchService {
         final ListTag offersBeforeTag;
         final long lockMaskBefore;
 
+        // derived-at-start (for XP computation)
+        final int offersAtStart;
+        final int lockedAtStart;
+        final int offersRerolledPerRerollAtStart;
+
+        // NEW: number of successful rerolls performed during this task
+        int rerollCount = 0;
+
         long startedAtGameTime;
         long nextRerollGameTime;
         int cooldownTicks;
@@ -56,7 +65,8 @@ public final class SearchService {
                     now + Math.max(1, cooldownTicks),
                     Math.max(1, cooldownTicks),
                     snapshotOffersCodecSafe(vill),
-                    snapshotLockMaskSafe(vill)
+                    snapshotLockMaskSafe(vill),
+                    0
             );
         }
 
@@ -68,7 +78,8 @@ public final class SearchService {
              long nextRerollGameTime,
              int cooldownTicks,
              ListTag offersBeforeTag,
-             long lockMaskBefore
+             long lockMaskBefore,
+             int rerollCount
         ) {
             this.villagerUuid = villagerUuid;
             this.villagerEntityId = villagerEntityId;
@@ -87,7 +98,23 @@ public final class SearchService {
             this.cooldownTicks = Math.max(1, cooldownTicks);
 
             this.offersBeforeTag = offersBeforeTag == null ? new ListTag() : offersBeforeTag;
-            this.lockMaskBefore = lockMaskBefore;
+
+            int startOffers = 0;
+            try { startOffers = Math.max(0, this.offersBeforeTag.size()); } catch (Throwable ignored) { startOffers = 0; }
+            this.offersAtStart = startOffers;
+
+            long sanitizedMask = sanitizeMaskForSize(lockMaskBefore, this.offersAtStart);
+            this.lockMaskBefore = sanitizedMask;
+
+            int locked = 0;
+            try { locked = Long.bitCount(sanitizedMask); } catch (Throwable ignored) { locked = 0; }
+            this.lockedAtStart = locked;
+
+            int rerolledPer = Math.max(0, this.offersAtStart - this.lockedAtStart);
+            if (rerolledPer > 64) rerolledPer = 64; // sanity cap
+            this.offersRerolledPerRerollAtStart = rerolledPer;
+
+            this.rerollCount = Math.max(0, rerollCount);
         }
     }
 
@@ -112,6 +139,9 @@ public final class SearchService {
         // targets (yellow matching)
         final List<String> requestedTargets;
 
+        // NEW: villager XP to award if paid
+        final int totalVillagerXp;
+
         Settlement(UUID villagerUuid,
                    int villagerEntityId,
                    UUID ownerPlayerUuid,
@@ -122,7 +152,8 @@ public final class SearchService {
                    ListTag offersIfPayTag,
                    ListTag offersIfDeclineTag,
                    long lockMaskBefore,
-                   List<String> requestedTargets
+                   List<String> requestedTargets,
+                   int totalVillagerXp
         ) {
             this.villagerUuid = villagerUuid;
             this.villagerEntityId = villagerEntityId;
@@ -150,6 +181,8 @@ public final class SearchService {
                 }
                 this.requestedTargets = copy;
             }
+
+            this.totalVillagerXp = Math.max(0, totalVillagerXp);
         }
     }
 
@@ -228,6 +261,8 @@ public final class SearchService {
                     ListTag before = td.offersBeforeTag == null ? new ListTag() : td.offersBeforeTag;
                     long lockMaskBefore = td.lockMaskBefore;
 
+                    int rr = Math.max(0, td.rerollCount);
+
                     Task t = new Task(
                             td.villagerUuid,
                             td.villagerEntityId,
@@ -237,7 +272,8 @@ public final class SearchService {
                             next,
                             cd,
                             before,
-                            lockMaskBefore
+                            lockMaskBefore,
+                            rr
                     );
 
                     TASKS.put(td.villagerUuid, t);
@@ -269,7 +305,8 @@ public final class SearchService {
                             sd.offersIfPay == null ? new ListTag() : sd.offersIfPay,
                             sd.offersIfDecline == null ? new ListTag() : sd.offersIfDecline,
                             sd.lockMaskBefore,
-                            sd.requestedTargets == null ? List.of() : sd.requestedTargets
+                            sd.requestedTargets == null ? List.of() : sd.requestedTargets,
+                            Math.max(0, sd.totalVillagerXp)
                     );
 
                     SETTLEMENTS.put(sd.villagerUuid, s);
@@ -319,6 +356,8 @@ public final class SearchService {
                     td.offersBeforeTag = deepCopyOfferList(t.offersBeforeTag);
                     td.lockMaskBefore = t.lockMaskBefore;
 
+                    td.rerollCount = Math.max(0, t.rerollCount);
+
                     td.wasGlowingAtStart = false;
                     try {
                         Villager vill = resolveVillagerByUuid(server, t.villagerUuid);
@@ -363,6 +402,8 @@ public final class SearchService {
                         }
                     }
 
+                    sd.totalVillagerXp = Math.max(0, s.totalVillagerXp);
+
                     data.settlements().put(sd.villagerUuid, sd);
                     settleExported++;
                 } catch (Throwable ignored) {}
@@ -398,14 +439,17 @@ public final class SearchService {
 
             TASKS.put(vill.getUUID(), t);
 
-            EZVillagerReroll.LOG().info("[EZVR] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicks={} lockMaskBefore={} offersBefore={}",
+            EZVillagerReroll.LOG().info("[EZVR] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicks={} lockMaskBefore={} offersBefore={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={}",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getId(),
                     t.requestedKeys.size(),
                     cooldown,
                     Long.toUnsignedString(t.lockMaskBefore),
-                    t.offersBeforeTag == null ? -1 : t.offersBeforeTag.size()
+                    t.offersBeforeTag == null ? -1 : t.offersBeforeTag.size(),
+                    t.offersAtStart,
+                    t.lockedAtStart,
+                    t.offersRerolledPerRerollAtStart
             );
 
             try { updateGlowForBusyVillager(vill, sp.server); } catch (Throwable ignored) {}
@@ -437,8 +481,8 @@ public final class SearchService {
 
             Task removed = TASKS.remove(vill.getUUID());
             if (removed != null) {
-                EZVillagerReroll.LOG().info("[EZVR] Auto-search CANCEL: player={} villager={} entityId={}",
-                        sp.getGameProfile().getName(), vill.getUUID(), vill.getId());
+                EZVillagerReroll.LOG().info("[EZVR] Auto-search CANCEL: player={} villager={} entityId={} rerollCount={}",
+                        sp.getGameProfile().getName(), vill.getUUID(), vill.getId(), removed.rerollCount);
             }
 
             trySetVillagerGlow(vill, false);
@@ -466,16 +510,18 @@ public final class SearchService {
                                     settle.offersIfPayTag,
                                     settle.offersIfDeclineTag,
                                     settle.lockMaskBefore,
-                                    settle.requestedTargets
+                                    settle.requestedTargets,
+                                    settle.totalVillagerXp
                             )
                     ));
 
-                    EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={} payOffers={} declineOffers={} lockMaskBefore={} requestedTargets={})",
+                    EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={} totalVillagerXp={} payOffers={} declineOffers={} lockMaskBefore={} requestedTargets={})",
                             sp.getGameProfile().getName(),
                             vill.getId(),
                             settle.hourlyCost,
                             settle.finalCost,
                             elapsedTicks,
+                            settle.totalVillagerXp,
                             settle.offersIfPayTag == null ? -1 : settle.offersIfPayTag.size(),
                             settle.offersIfDeclineTag == null ? -1 : settle.offersIfDeclineTag.size(),
                             Long.toUnsignedString(settle.lockMaskBefore),
@@ -500,8 +546,8 @@ public final class SearchService {
                 sp.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
                         new PacketOpenBusyScreen(vill.getId(), t.requested)
                 ));
-                EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: sent PacketOpenBusyScreen (player={} villagerEntityId={} req={})",
-                        sp.getGameProfile().getName(), vill.getId(), t.requestedKeys.size());
+                EZVillagerReroll.LOG().debug("[EZVR] openBusyScreen: sent PacketOpenBusyScreen (player={} villagerEntityId={} req={} rerollCount={})",
+                        sp.getGameProfile().getName(), vill.getId(), t.requestedKeys.size(), t.rerollCount);
             } catch (Throwable sendErr) {
                 EZVillagerReroll.LOG().error("[EZVR] Failed to send Busy screen packet (player={} villager={})",
                         sp.getGameProfile().getName(), vill.getUUID(), sendErr);
@@ -545,8 +591,8 @@ public final class SearchService {
                 task.nextRerollGameTime = now + cooldown;
 
                 if (containsAnyRequested(vill, task.requestedKeys)) {
-                    EZVillagerReroll.LOG().info("[EZVR] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
-                            vill.getUUID(), vill.getId(), task.requestedKeys.size());
+                    EZVillagerReroll.LOG().info("[EZVR] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={} rerollCount={}",
+                            vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
                     it.remove();
 
                     trySetVillagerGlow(vill, false);
@@ -556,6 +602,9 @@ public final class SearchService {
 
                 try {
                     TradeUtil.rebuildOffersInternal(vill, null, false);
+                    task.rerollCount = Math.max(0, task.rerollCount + 1);
+                    EZVillagerReroll.LOG().debug("[EZVR] Auto-search reroll success: villager={} entityId={} rerollCount={}",
+                            vill.getUUID(), vill.getId(), task.rerollCount);
                 } catch (Throwable rerollErr) {
                     EZVillagerReroll.LOG().error("[EZVR] Auto-search reroll failed (villager={} entityId={})",
                             vill.getUUID(), vill.getId(), rerollErr);
@@ -563,8 +612,8 @@ public final class SearchService {
                 }
 
                 if (containsAnyRequested(vill, task.requestedKeys)) {
-                    EZVillagerReroll.LOG().info("[EZVR] Auto-search FOUND match: villager={} entityId={} requestedKeys={}",
-                            vill.getUUID(), vill.getId(), task.requestedKeys.size());
+                    EZVillagerReroll.LOG().info("[EZVR] Auto-search FOUND match: villager={} entityId={} requestedKeys={} rerollCount={}",
+                            vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
                     it.remove();
 
                     trySetVillagerGlow(vill, false);
@@ -608,6 +657,8 @@ public final class SearchService {
                 }
             } catch (Throwable ignored) {}
 
+            int totalXp = computeTotalVillagerXpForTask(task);
+
             Settlement settle = new Settlement(
                     vill.getUUID(),
                     vill.getId(),
@@ -619,23 +670,50 @@ public final class SearchService {
                     payOffers,
                     declineOffers,
                     task.lockMaskBefore,
-                    requested
+                    requested,
+                    totalXp
             );
 
             SETTLEMENTS.put(vill.getUUID(), settle);
 
-            EZVillagerReroll.LOG().info("[EZVR] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} payOffers={} declineOffers={} lockMaskBefore={} requestedTargets={}",
+            EZVillagerReroll.LOG().info("[EZVR] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} payOffers={} declineOffers={} lockMaskBefore={} requestedTargets={} rerollCount={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={} totalVillagerXp={}",
                     vill.getUUID(), vill.getId(), hourly, elapsedTicks, finalCost, String.valueOf(task.ownerPlayerUuid),
                     payOffers == null ? -1 : payOffers.size(),
                     declineOffers == null ? -1 : declineOffers.size(),
                     Long.toUnsignedString(task.lockMaskBefore),
-                    requested.size()
+                    requested.size(),
+                    task.rerollCount,
+                    task.offersAtStart,
+                    task.lockedAtStart,
+                    task.offersRerolledPerRerollAtStart,
+                    totalXp
             );
 
             notifyOwnerDone(server, task);
 
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] createSettlementAndNotify failed", t);
+        }
+    }
+
+    private static int computeTotalVillagerXpForTask(Task task) {
+        try {
+            if (task == null) return 0;
+
+            int perOffer = Math.max(0, ServerConfig.autoSearchXpPerOffer);
+            if (perOffer <= 0) return 0;
+
+            int rerolls = Math.max(0, task.rerollCount);
+            int offersRerolledPer = Math.max(0, task.offersRerolledPerRerollAtStart);
+            if (rerolls <= 0 || offersRerolledPer <= 0) return 0;
+
+            long raw = (long) rerolls * (long) offersRerolledPer * (long) perOffer;
+            if (raw < 0L) raw = 0L;
+            if (raw > Integer.MAX_VALUE) raw = Integer.MAX_VALUE;
+
+            return (int) raw;
+        } catch (Throwable t) {
+            return 0;
         }
     }
 
@@ -963,12 +1041,308 @@ public final class SearchService {
         }
     }
 
+    public static int getSettlementTotalVillagerXp(Villager vill) {
+        try {
+            Settlement s = SETTLEMENTS.get(vill.getUUID());
+            return s == null ? 0 : Math.max(0, s.totalVillagerXp);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     public static Settlement popSettlement(UUID villagerUuid) {
         try {
             if (villagerUuid == null) return null;
             return SETTLEMENTS.remove(villagerUuid);
         } catch (Throwable t) {
             return null;
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // XP award helper (call this ONLY after payment has succeeded)
+    // ---------------------------------------------------------------------
+
+    public static int awardSettlementVillagerXpIfAny(Villager vill, Settlement settlement) {
+        try {
+            if (vill == null || settlement == null) return 0;
+
+            int xp = Math.max(0, settlement.totalVillagerXp);
+            if (xp <= 0) {
+                EZVillagerReroll.LOG().debug("[EZVR] awardSettlementVillagerXpIfAny: nothing to award (xp<=0) villager={}", vill.getUUID());
+                return 0;
+            }
+
+            int lvlBefore = 0;
+            int xpBefore = 0;
+            try { lvlBefore = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            try { xpBefore = vill.getVillagerXp(); } catch (Throwable ignored) {}
+
+            boolean ok = addVillagerXpSafe(vill, xp);
+
+            // IMPORTANT: now nudge vanilla to perform its own level-up process if XP threshold was reached
+            boolean leveled = false;
+            if (ok) {
+                leveled = triggerVanillaLevelUpsIfNeeded(vill);
+            }
+
+            int lvlAfter = lvlBefore;
+            int xpAfter = xpBefore;
+            try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
+
+            EZVillagerReroll.LOG().info(
+                    "[EZVR] awardSettlementVillagerXpIfAny: villager={} entityId={} addXp={} success={} leveledUp={} level {}->{} xp {}->{}",
+                    vill.getUUID(), vill.getId(), xp, ok, leveled, lvlBefore, lvlAfter, xpBefore, xpAfter
+            );
+
+            return ok ? xp : 0;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().error("[EZVR] awardSettlementVillagerXpIfAny failed", t);
+            return 0;
+        }
+    }
+
+    // ---------------------------------------------------------------------
+// Vanilla level-up nudging (after XP is granted)
+// ---------------------------------------------------------------------
+
+    private static boolean triggerVanillaLevelUpsIfNeeded(Villager vill) {
+        try {
+            if (vill == null) return false;
+
+            boolean anyLevelChange = false;
+
+            // Hard safety to avoid infinite loops if a mapping changes unexpectedly
+            for (int guard = 0; guard < 8; guard++) {
+                int level;
+                int xp;
+                try { level = vill.getVillagerData().getLevel(); } catch (Throwable t) { return anyLevelChange; }
+                try { xp = vill.getVillagerXp(); } catch (Throwable t) { return anyLevelChange; }
+
+                if (level >= 5) return anyLevelChange;
+
+                int needed = getVanillaMaxXpForLevel(level);
+                if (needed <= 0) return anyLevelChange;
+                if (xp < needed) return anyLevelChange;
+
+                int beforeLevel = level;
+
+                // Try the internal "level up" routines (names vary by version/mappings)
+                boolean invoked =
+                        tryInvokeNoArgMethodAnyVisibility(vill, "increaseMerchantCareer") ||
+                                tryInvokeNoArgMethodAnyVisibility(vill, "increaseProfessionLevel") ||
+                                tryInvokeNoArgMethodAnyVisibility(vill, "levelUp") ||
+                                tryInvokeNoArgMethodAnyVisibility(vill, "increaseProfessionLevelOnUpdate") ||
+                                tryInvokeNoArgMethodAnyVisibility(vill, "increaseMerchantCareerOnUpdate");
+
+                // Some mappings level-up by flagging and then calling updateTrades; try to help that path too.
+                // (If it doesn't exist, it's a no-op.)
+                tryInvokeNoArgMethodAnyVisibility(vill, "updateTrades");
+
+                int afterLevel = beforeLevel;
+                try { afterLevel = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+
+                if (!invoked) {
+                    EZVillagerReroll.LOG().debug("[EZVR] triggerVanillaLevelUpsIfNeeded: no known level-up method found (villager={} lvl={} xp={} needed={})",
+                            vill.getUUID(), beforeLevel, xp, needed);
+                    return anyLevelChange;
+                }
+
+                if (afterLevel <= beforeLevel) {
+                    // We invoked *something* but level didn't change; avoid looping forever.
+                    EZVillagerReroll.LOG().debug("[EZVR] triggerVanillaLevelUpsIfNeeded: invoked but level unchanged (villager={} lvl={} xp={} needed={})",
+                            vill.getUUID(), beforeLevel, xp, needed);
+                    return anyLevelChange;
+                }
+
+                anyLevelChange = true;
+            }
+
+            return anyLevelChange;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] triggerVanillaLevelUpsIfNeeded failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    /**
+     * Vanilla-ish XP thresholds per level.
+     * These have been stable for a long time; we use them only to decide whether we should poke level-up.
+     */
+    private static int getVanillaMaxXpForLevel(int level) {
+        // Level 1->2, 2->3, 3->4, 4->5
+        return switch (Math.max(1, Math.min(5, level))) {
+            case 1 -> 10;
+            case 2 -> 70;
+            case 3 -> 150;
+            case 4 -> 250;
+            default -> 0;
+        };
+    }
+
+    private static boolean tryInvokeNoArgMethodAnyVisibility(Object target, String name) {
+        try {
+            if (target == null || name == null) return false;
+
+            Class<?> c = target.getClass();
+            while (c != null && c != Object.class) {
+                try {
+                    Method m = c.getDeclaredMethod(name);
+                    m.setAccessible(true);
+                    m.invoke(target);
+                    return true;
+                } catch (NoSuchMethodException ignored) {
+                    try {
+                        Method m2 = c.getMethod(name);
+                        m2.invoke(target);
+                        return true;
+                    } catch (NoSuchMethodException ignored2) {
+                        // keep walking
+                    }
+                }
+                c = c.getSuperclass();
+            }
+            return false;
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] tryInvokeNoArgMethodAnyVisibility failed name={} err={}", name, t.toString());
+            return false;
+        }
+    }
+
+    private static boolean addVillagerXpSafe(Villager vill, int add) {
+        try {
+            if (vill == null) return false;
+            if (add <= 0) return true;
+
+            // 1) Prefer "proper" XP methods if present (these may also trigger level-up logic depending on mapping)
+            if (tryInvokeIntMethodAnyVisibility(vill, "increaseMerchantXp", add)) return true;
+            if (tryInvokeIntMethodAnyVisibility(vill, "addVillagerXp", add)) return true;
+            if (tryInvokeIntMethodAnyVisibility(vill, "addXp", add)) return true;
+            if (tryInvokeIntMethodAnyVisibility(vill, "gainExperience", add)) return true;
+            if (tryInvokeIntMethodAnyVisibility(vill, "addExperience", add)) return true;
+
+            // 2) Fallback: setVillagerXp(getVillagerXp() + add)  (THIS is what your manual reroll fallback does)
+            try {
+                int cur = 0;
+                try {
+                    cur = Math.max(0, vill.getVillagerXp());
+                } catch (Throwable ignored) {
+                    cur = 0;
+                }
+
+                long next = (long) cur + (long) add;
+                if (next < 0L) next = 0L;
+                if (next > Integer.MAX_VALUE) next = Integer.MAX_VALUE;
+
+                if (tryInvokeIntMethodAnyVisibility(vill, "setVillagerXp", (int) next)) return true;
+            } catch (Throwable ignored) {
+                // keep going
+            }
+
+            // 3) Field fallback: try common field names (best-effort)
+            String[] fields = new String[]{"villagerXp", "xp"};
+            for (String fn : fields) {
+                try {
+                    var f = findFieldAnyVisibility(vill.getClass(), fn);
+                    if (f == null) continue;
+
+                    int cur = 0;
+                    try { cur = Math.max(0, f.getInt(vill)); } catch (Throwable ignored) { cur = 0; }
+
+                    long sum = (long) cur + (long) add;
+                    if (sum < 0L) sum = 0L;
+                    if (sum > Integer.MAX_VALUE) sum = Integer.MAX_VALUE;
+
+                    f.setInt(vill, (int) sum);
+                    return true;
+                } catch (Throwable ignored) {
+                    // try next
+                }
+            }
+
+            EZVillagerReroll.LOG().warn("[EZVR] addVillagerXpSafe: no known XP method/field found; villager={} add={}",
+                    vill.getUUID(), add);
+            return false;
+
+        } catch (Throwable t) {
+            EZVillagerReroll.LOG().debug("[EZVR] addVillagerXpSafe failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    private static boolean tryInvokeIntMethodAnyVisibility(Object target, String name, int arg) {
+        try {
+            if (target == null || name == null) return false;
+
+            Class<?> c = target.getClass();
+            while (c != null && c != Object.class) {
+                // Try declared (covers private/protected/package)
+                try {
+                    Method m = c.getDeclaredMethod(name, int.class);
+                    m.setAccessible(true);
+                    m.invoke(target, arg);
+                    return true;
+                } catch (NoSuchMethodException ignored) {
+                    // Try public/inherited
+                    try {
+                        Method m2 = c.getMethod(name, int.class);
+                        m2.invoke(target, arg);
+                        return true;
+                    } catch (NoSuchMethodException ignored2) {
+                        // keep walking
+                    } catch (Throwable invokeErr2) {
+                        EZVillagerReroll.LOG().debug("[EZVR] tryInvokeIntMethodAnyVisibility: invoke failed name={} arg={} err={}",
+                                name, arg, invokeErr2.toString());
+                        return false;
+                    }
+                } catch (Throwable invokeErr) {
+                    EZVillagerReroll.LOG().debug("[EZVR] tryInvokeIntMethodAnyVisibility: invoke failed name={} arg={} err={}",
+                            name, arg, invokeErr.toString());
+                    return false;
+                }
+
+                c = c.getSuperclass();
+            }
+
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static java.lang.reflect.Field findFieldAnyVisibility(Class<?> cls, String name) {
+        try {
+            if (cls == null || name == null) return null;
+
+            Class<?> c = cls;
+            while (c != null && c != Object.class) {
+                try {
+                    java.lang.reflect.Field f = c.getDeclaredField(name);
+                    f.setAccessible(true);
+                    return f;
+                } catch (NoSuchFieldException ignored) {
+                    c = c.getSuperclass();
+                }
+            }
+            return null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Mask sanitation helper for "offersAtStart" context
+    // ---------------------------------------------------------------------
+
+    private static long sanitizeMaskForSize(long mask, int offerCount) {
+        try {
+            int n = Math.max(0, Math.min(63, offerCount));
+            if (n <= 0) return 0L;
+            long allowed = (1L << n) - 1L;
+            return mask & allowed;
+        } catch (Throwable t) {
+            return 0L;
         }
     }
 }

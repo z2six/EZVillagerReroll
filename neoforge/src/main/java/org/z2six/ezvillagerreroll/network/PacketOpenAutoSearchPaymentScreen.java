@@ -13,6 +13,8 @@ import org.z2six.ezvillagerreroll.EZVillagerReroll;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Server -> Client: open the "auto-search payment" screen (settlement pending).
@@ -21,6 +23,7 @@ import java.util.List;
  * - hourlyCost
  * - elapsedSeconds
  * - finalCost
+ * - totalVillagerXp
  * - row of result items if paid (derived from offersIfPay)
  * - row of result items if declined (derived from offersIfDecline)
  * - highlight locked indices (lockMaskBefore) in green on BOTH rows
@@ -34,7 +37,8 @@ public record PacketOpenAutoSearchPaymentScreen(
         ListTag offersIfPay,
         ListTag offersIfDecline,
         long lockMaskBefore,
-        List<String> requestedTargets
+        List<String> requestedTargets,
+        int totalVillagerXp
 ) implements CustomPacketPayload {
 
     public static final Type<PacketOpenAutoSearchPaymentScreen> TYPE =
@@ -42,6 +46,33 @@ public record PacketOpenAutoSearchPaymentScreen(
 
     private static final String TAG_PAY = "pay";
     private static final String TAG_DECLINE = "decline";
+
+    /**
+     * Client-only cache to avoid requiring client handler signature changes.
+     * - decode() stores totalVillagerXp keyed by villagerEntityId
+     * - AutoSearchPaymentScreen can read it during construction
+     *
+     * Safe to exist on dedicated server too; it's just an in-memory map.
+     */
+    private static final Map<Integer, Integer> CLIENT_TOTAL_XP_CACHE = new ConcurrentHashMap<>();
+
+    public static void cacheClientTotalVillagerXp(int villagerEntityId, int xp) {
+        try {
+            if (villagerEntityId < 0) return;
+            if (xp < 0) xp = 0;
+            CLIENT_TOTAL_XP_CACHE.put(villagerEntityId, xp);
+        } catch (Throwable ignored) {}
+    }
+
+    public static int popClientTotalVillagerXp(int villagerEntityId) {
+        try {
+            if (villagerEntityId < 0) return -1;
+            Integer v = CLIENT_TOTAL_XP_CACHE.remove(villagerEntityId);
+            return v == null ? -1 : v;
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
 
     public static final StreamCodec<RegistryFriendlyByteBuf, PacketOpenAutoSearchPaymentScreen> STREAM_CODEC = new StreamCodec<>() {
         @Override
@@ -95,11 +126,23 @@ public record PacketOpenAutoSearchPaymentScreen(
                     EZVillagerReroll.LOG().debug("[EZVR] PacketOpenAutoSearchPaymentScreen.decode: requestedTargets read failed (soft): {}", t.toString());
                 }
 
-                return new PacketOpenAutoSearchPaymentScreen(id, hourly, fin, ticks, pay, decline, lockMask, requested);
+                // NEW (backwards-friendly): totalVillagerXp appended at end
+                int totalXp = -1;
+                try {
+                    totalXp = Math.max(0, buf.readVarInt());
+                } catch (Throwable ignored) {
+                    totalXp = -1;
+                }
+
+                if (totalXp >= 0) {
+                    cacheClientTotalVillagerXp(id, totalXp);
+                }
+
+                return new PacketOpenAutoSearchPaymentScreen(id, hourly, fin, ticks, pay, decline, lockMask, requested, totalXp);
 
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] PacketOpenAutoSearchPaymentScreen decode failed", t);
-                return new PacketOpenAutoSearchPaymentScreen(-1, 0, 0, 0, new ListTag(), new ListTag(), 0L, List.of());
+                return new PacketOpenAutoSearchPaymentScreen(-1, 0, 0, 0, new ListTag(), new ListTag(), 0L, List.of(), -1);
             }
         }
 
@@ -136,6 +179,13 @@ public record PacketOpenAutoSearchPaymentScreen(
                     if (s == null) s = "";
                     if (s.length() > 32767) s = s.substring(0, 32767);
                     buf.writeUtf(s);
+                }
+
+                // NEW: append totalVillagerXp (so older decoders can still read the old prefix safely)
+                try {
+                    buf.writeVarInt(Math.max(-1, msg.totalVillagerXp()));
+                } catch (Throwable t) {
+                    buf.writeVarInt(-1);
                 }
 
             } catch (Throwable t) {

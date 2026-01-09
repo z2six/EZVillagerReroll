@@ -20,6 +20,7 @@ import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.network.Network;
 import org.z2six.ezvillagerreroll.network.PacketDeclineAutoSearchSettlement;
+import org.z2six.ezvillagerreroll.network.PacketOpenAutoSearchPaymentScreen;
 import org.z2six.ezvillagerreroll.network.PacketPayAutoSearchSettlement;
 
 import java.lang.reflect.Method;
@@ -34,6 +35,7 @@ import java.util.*;
  *   Time
  *   Hourly cost
  *   Final cost
+ *   Villager XP gained
  *   Pay to keep the ...
  *   Row of items (if pay)  [no "IF YOU PAY" label]
  *   Pay button
@@ -62,6 +64,12 @@ public final class AutoSearchPaymentScreen extends Screen {
     private final int finalCost;
     private final int elapsedTicks;
 
+    /**
+     * Total villager XP that will be granted ONLY if Pay succeeds.
+     * - If < 0, display will show "?" as unknown.
+     */
+    private final int totalVillagerXp;
+
     // snapshots
     private final ListTag offersIfPayTag;
     private final ListTag offersIfDeclineTag;
@@ -86,6 +94,10 @@ public final class AutoSearchPaymentScreen extends Screen {
     private Button btnDecline;
     private boolean sentAction = false;
 
+    /**
+     * Back-compat constructor: older call-sites can keep using it.
+     * We attempt to pull total XP from the client packet decode cache.
+     */
     public AutoSearchPaymentScreen(
             int villagerEntityId,
             int hourlyCost,
@@ -96,11 +108,37 @@ public final class AutoSearchPaymentScreen extends Screen {
             long declineLockMask,
             List<String> requestedTargets
     ) {
+        this(
+                villagerEntityId,
+                hourlyCost,
+                finalCost,
+                elapsedTicks,
+                offersIfPay,
+                offersIfDecline,
+                declineLockMask,
+                requestedTargets,
+                PacketOpenAutoSearchPaymentScreen.popClientTotalVillagerXp(villagerEntityId)
+        );
+    }
+
+    public AutoSearchPaymentScreen(
+            int villagerEntityId,
+            int hourlyCost,
+            int finalCost,
+            int elapsedTicks,
+            ListTag offersIfPay,
+            ListTag offersIfDecline,
+            long declineLockMask,
+            List<String> requestedTargets,
+            int totalVillagerXp
+    ) {
         super(Component.translatable("ezvr.auto_search.payment.title"));
         this.villagerEntityId = villagerEntityId;
         this.hourlyCost = Math.max(0, hourlyCost);
         this.finalCost = Math.max(0, finalCost);
         this.elapsedTicks = Math.max(0, elapsedTicks);
+
+        this.totalVillagerXp = (totalVillagerXp < 0 ? -1 : Math.max(0, totalVillagerXp));
 
         this.offersIfPayTag = deepCopyOfferList(offersIfPay);
         this.offersIfDeclineTag = deepCopyOfferList(offersIfDecline);
@@ -156,8 +194,8 @@ public final class AutoSearchPaymentScreen extends Screen {
             // Set positions based on the requested vertical stack layout.
             layoutButtons();
 
-            EZVillagerReroll.LOG().info("[EZVR] AutoSearchPaymentScreen opened: villagerEntityId={} hourlyCost={} finalCost={} elapsedTicks={} payOffersTag={} declineOffersTag={} lockMask={} requestedTargets={}",
-                    villagerEntityId, hourlyCost, finalCost, elapsedTicks,
+            EZVillagerReroll.LOG().info("[EZVR] AutoSearchPaymentScreen opened: villagerEntityId={} hourlyCost={} finalCost={} elapsedTicks={} totalVillagerXp={} payOffersTag={} declineOffersTag={} lockMask={} requestedTargets={}",
+                    villagerEntityId, hourlyCost, finalCost, elapsedTicks, totalVillagerXp,
                     offersIfPayTag == null ? -1 : offersIfPayTag.size(),
                     offersIfDeclineTag == null ? -1 : offersIfDeclineTag.size(),
                     Long.toUnsignedString(declineLockMask),
@@ -176,23 +214,14 @@ public final class AutoSearchPaymentScreen extends Screen {
             // Mirror the exact render layout so buttons land under the correct rows.
             int cx = this.width / 2;
 
-            int y = 18;      // title
-            y += 18;         // time
-            y += 14;         // hourly
-            y += 16;         // final
-            y += 16;         // hint
-            y += 18;         // pay row
-            y += (SLOT + 8); // pay button
-            y += 28;         // decline row
-            y += (SLOT + 8); // decline button
-
-            // But we need actual Y’s:
             int y0 = 18;
             int yTitle = y0;
             int yTime = yTitle + 18;
             int yHourly = yTime + 14;
             int yFinal = yHourly + 16;
-            int yHint = yFinal + 16;
+
+            int yXp = yFinal + 16;
+            int yHint = yXp + 16;
 
             int yPayRow = yHint + 18;
             int yPayButton = yPayRow + SLOT + 8;
@@ -201,7 +230,6 @@ public final class AutoSearchPaymentScreen extends Screen {
             int yDeclineButton = yDeclineRow + SLOT + 8;
 
             // Clamp into screen height so it doesn't go off-screen on small windows.
-            // If clamped, layout still stacks; worst case, buttons are near bottom.
             int bottomPad = 10;
             int maxBtnY = Math.max(bottomPad, this.height - bottomPad - 20);
 
@@ -268,12 +296,8 @@ public final class AutoSearchPaymentScreen extends Screen {
                 ItemStack p = safeCopy(pay.get(i));
                 if (p.isEmpty()) continue;
 
-                // IMPORTANT: yellow highlight must be based on the SAME key format as server matching.
-                // This prevents "all enchanted books" from matching one requested enchanted book.
                 if (!isRequestedResultStack(p)) continue;
 
-                // Optional: only highlight if it differs from the baseline snapshot.
-                // Keeps yellow from appearing on trades that already existed pre-search.
                 boolean changed = true;
                 if (decline != null && i < decline.size()) {
                     ItemStack d = safeCopy(decline.get(i));
@@ -304,7 +328,6 @@ public final class AutoSearchPaymentScreen extends Screen {
             }
 
             if (out.isEmpty() && EZVillagerReroll.LOG().isDebugEnabled()) {
-                // Helpful diagnostics: show what we got vs what we tried to match.
                 String oneTarget = requestedTargets.stream().findFirst().orElse("<none>");
                 EZVillagerReroll.LOG().debug("[EZVR] AutoSearchPaymentScreen.computeFoundPayIndices: 0 matches. requestedTargetsSize={} exampleTarget={}",
                         requestedTargets.size(), oneTarget);
@@ -341,53 +364,17 @@ public final class AutoSearchPaymentScreen extends Screen {
         }
     }
 
-    private boolean matchesRequestedFlexible(ItemStack st) {
-        try {
-            if (st == null || st.isEmpty()) return false;
-            if (requestedTargets == null || requestedTargets.isEmpty()) return false;
-
-            var key = BuiltInRegistries.ITEM.getKey(st.getItem());
-            if (key == null) return false;
-
-            String itemId = key.toString(); // "namespace:path"
-            if (requestedTargets.contains(itemId)) return true;
-
-            // Allow richer "key" strings, e.g.:
-            // "minecraft:enchanted_book{components...}" or "minecraft:paper|..." or "minecraft:paper#..."
-            for (String s : requestedTargets) {
-                if (s == null) continue;
-                if (s.equals(itemId)) return true;
-
-                // strict prefix variants first
-                if (s.startsWith(itemId + "{")) return true;
-                if (s.startsWith(itemId + "|")) return true;
-                if (s.startsWith(itemId + "#")) return true;
-                if (s.startsWith(itemId + "@")) return true;
-                if (s.startsWith(itemId + " ")) return true;
-
-                // looser: contains (handles "key=namespace:path" formats)
-                if (s.contains(itemId)) return true;
-            }
-
-            return false;
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
     private static boolean sameItemSameComponentsSafe(ItemStack a, ItemStack b) {
         try {
             if (a == null) a = ItemStack.EMPTY;
             if (b == null) b = ItemStack.EMPTY;
 
-            // Try ItemStack.isSameItemSameComponents(a,b) (exists in recent versions).
             try {
                 Method m = ItemStack.class.getMethod("isSameItemSameComponents", ItemStack.class, ItemStack.class);
                 Object r = m.invoke(null, a, b);
                 if (r instanceof Boolean bb) return bb;
             } catch (Throwable ignored) {}
 
-            // Fallback: item equality only (less precise).
             return a.getItem() == b.getItem();
         } catch (Throwable t) {
             return false;
@@ -553,7 +540,6 @@ public final class AutoSearchPaymentScreen extends Screen {
 
             int cx = this.width / 2;
 
-            // --- Vertical stack layout (each on its own row) ---
             int y = 18;
 
             gg.drawCenteredString(this.font,
@@ -575,6 +561,12 @@ public final class AutoSearchPaymentScreen extends Screen {
 
             y += 16;
 
+            // NEW: villager XP line
+            String xpStr = (totalVillagerXp < 0) ? "?" : String.valueOf(totalVillagerXp);
+            drawCenteredKeyValueLine(gg, cx, y, "Villager XP gained:", xpStr);
+
+            y += 16;
+
             gg.drawCenteredString(this.font,
                     sentAction
                             ? Component.literal("Waiting for server…").withStyle(ChatFormatting.DARK_GRAY)
@@ -591,18 +583,15 @@ public final class AutoSearchPaymentScreen extends Screen {
                     cx,
                     y,
                     payResults,
-                    true,   // allow yellow highlight on pay row
+                    true,
                     mouseX,
                     mouseY,
                     hovered
             );
 
-            // Pay button sits below the pay row; init/resize places it, but we keep it consistent if render runs before init finishes.
             y += SLOT + 8;
 
             // Decline items row (no label)
-            // place it below the pay button visually; we don't use btnPay.y because that's UI state,
-            // but we keep the same spacing so it matches layoutButtons().
             y += 28;
 
             hovered = renderResultsRow(
@@ -610,13 +599,12 @@ public final class AutoSearchPaymentScreen extends Screen {
                     cx,
                     y,
                     declineResults,
-                    false,  // no yellow highlight on decline row
+                    false,
                     mouseX,
                     mouseY,
                     hovered
             );
 
-            // Tooltip last
             if (hovered != null && !hovered.isEmpty()) {
                 try {
                     gg.renderTooltip(this.font, hovered, mouseX, mouseY);
@@ -630,11 +618,6 @@ public final class AutoSearchPaymentScreen extends Screen {
         }
     }
 
-    /**
-     * Single-row item render:
-     * - Green outline always for locked-before mask indices (both rows).
-     * - Yellow outline only on pay row for computed foundPayIndices.
-     */
     private ItemStack renderResultsRow(
             GuiGraphics gg,
             int centerX,
@@ -665,7 +648,6 @@ public final class AutoSearchPaymentScreen extends Screen {
                 int x = startX + (i * STRIDE);
                 int y = topY;
 
-                // subtle slot backdrop
                 gg.fill(x - 1, y - 1, x + SLOT + 1, y + SLOT + 1, 0x66000000);
 
                 if (!st.isEmpty()) {
@@ -673,17 +655,14 @@ public final class AutoSearchPaymentScreen extends Screen {
                     gg.renderItemDecorations(this.font, st, x, y);
                 }
 
-                // Green on BOTH rows for indices locked before.
                 if (isLockedIndex(i)) {
                     drawOutline(gg, x - 1, y - 1, SLOT + 2, SLOT + 2, OUTLINE_GREEN);
                 }
 
-                // Yellow only on PAY row for found indices.
                 if (isPayRow && isFoundPayIndex(i)) {
                     drawOutline(gg, x - 1, y - 1, SLOT + 2, SLOT + 2, OUTLINE_YELLOW);
                 }
 
-                // Hover -> tooltip
                 if (!st.isEmpty()) {
                     if (mouseX >= x && mouseX < (x + SLOT) && mouseY >= y && mouseY < (y + SLOT)) {
                         currentHovered = st;
@@ -691,7 +670,6 @@ public final class AutoSearchPaymentScreen extends Screen {
                 }
             }
 
-            // optional "more" indicator
             if (stacks.size() > shown) {
                 gg.drawCenteredString(this.font,
                         Component.literal("+" + (stacks.size() - shown) + " more").withStyle(ChatFormatting.DARK_GRAY),
@@ -726,10 +704,10 @@ public final class AutoSearchPaymentScreen extends Screen {
 
     private void drawOutline(GuiGraphics gg, int x, int y, int w, int h, int argb) {
         try {
-            gg.fill(x, y, x + w, y + 1, argb);                 // top
-            gg.fill(x, y + h - 1, x + w, y + h, argb);         // bottom
-            gg.fill(x, y, x + 1, y + h, argb);                 // left
-            gg.fill(x + w - 1, y, x + w, y + h, argb);         // right
+            gg.fill(x, y, x + w, y + 1, argb);
+            gg.fill(x, y + h - 1, x + w, y + h, argb);
+            gg.fill(x, y, x + 1, y + h, argb);
+            gg.fill(x + w - 1, y, x + w, y + h, argb);
         } catch (Throwable ignored) {}
     }
 
@@ -782,12 +760,8 @@ public final class AutoSearchPaymentScreen extends Screen {
     private boolean isRequestedResultStack(ItemStack result) {
         try {
             if (result == null || result.isEmpty()) return false;
-
-            // If we have no requested targets, we can't highlight anything.
             if (this.requestedTargets == null || this.requestedTargets.isEmpty()) return false;
 
-            // 1) Preferred: compare using the SAME key used by SearchService.containsAnyRequested:
-            //    CatalogBuilder.keyOf(stack)
             String key = safeCatalogKeyOf(result);
             if (key != null && !key.isBlank()) {
                 boolean hit = this.requestedTargets.contains(key);
@@ -797,9 +771,6 @@ public final class AutoSearchPaymentScreen extends Screen {
                 if (hit) return true;
             }
 
-            // 2) Back-compat fallback: if the server ever sent plain item ids, match those too.
-            //    This is what caused "all enchanted books" to match when the target is "minecraft:enchanted_book".
-            //    We'll only allow this fallback when the requestedTargets actually contains the plain id.
             String id = safeItemIdString(result);
             if (id != null && !id.isBlank()) {
                 boolean hit = this.requestedTargets.contains(id);
@@ -821,12 +792,9 @@ public final class AutoSearchPaymentScreen extends Screen {
         try {
             if (stack == null || stack.isEmpty()) return "";
 
-            // This must match whatever SearchService uses (CatalogBuilder.keyOf).
-            // If this ever throws on client for any reason, we fall back to item id matching.
             try {
                 return org.z2six.ezvillagerreroll.server.CatalogBuilder.keyOf(stack);
             } catch (Throwable t) {
-                // Soft failure; don't spam unless debug is enabled.
                 if (EZVillagerReroll.LOG().isDebugEnabled()) {
                     EZVillagerReroll.LOG().debug("[EZVR] safeCatalogKeyOf: CatalogBuilder.keyOf failed (soft): {}", t.toString());
                 }
@@ -837,9 +805,6 @@ public final class AutoSearchPaymentScreen extends Screen {
         }
     }
 
-    /**
-     * ESC closes locally; settlement remains pending server-side.
-     */
     @Override
     public void onClose() {
         try {
