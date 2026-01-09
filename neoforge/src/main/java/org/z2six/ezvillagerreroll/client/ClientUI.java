@@ -1,3 +1,4 @@
+// ClientUI.java
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/ClientUI.java
 package org.z2six.ezvillagerreroll.client;
 
@@ -20,6 +21,7 @@ import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ClientConfig;
+import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 import org.z2six.ezvillagerreroll.mixin.MerchantScreenAccessor;
 import org.z2six.ezvillagerreroll.network.ClientSyncedConfig;
 import org.z2six.ezvillagerreroll.network.ClientTooltipCache;
@@ -56,11 +58,10 @@ public final class ClientUI {
     private static final int TIP_PAD_X = 6;
     private static final int TIP_PAD_Y = 6;
     private static final int TIP_LINE_GAP = 2;
-    private static final int TIP_ICON_SIZE = 9;      // close to vanilla "small"
-    private static final int TIP_ICON_GAP = 3;       // space between text and icon
-    private static final int TIP_Z = 400;            // background depth; we render text above this
+    private static final int TIP_ICON_SIZE = 9;
+    private static final int TIP_ICON_GAP = 3;
+    private static final int TIP_Z = 400;
 
-    // IMPORTANT: ARGB (AARRGGBB). 0xFFFFFF is transparent in ARGB contexts.
     private static final int COLOR_WHITE_OPAQUE = 0xFFFFFFFF;
 
     public static void registerRuntimeClientEvents() {
@@ -110,13 +111,9 @@ public final class ClientUI {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null || parent == null) return;
 
-            EZVillagerReroll.LOG().info("[EZVR] Stats button clicked (villagerEntityId={}) - placeholder", villagerEntityId);
+            EZVillagerReroll.LOG().info("[EZVR] Opening VillagerInfoScreen (villagerEntityId={})", villagerEntityId);
+            mc.setScreen(new VillagerInfoScreen(parent, villagerEntityId));
 
-            try {
-                if (mc.player != null) {
-                    mc.player.displayClientMessage(Component.literal("Villager stats screen: coming soon!"), true);
-                }
-            } catch (Throwable ignored) {}
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] openVillagerStatsPlaceholder failed", t);
         }
@@ -139,7 +136,6 @@ public final class ClientUI {
 
             int w = 18, h = 18;
 
-            // IMPORTANT: empty label; we will draw a bigger glyph ourselves in render pass.
             Button reroll = Button.builder(Component.empty(), btn -> {
                         try {
                             int cid = resolveContainerId(screen);
@@ -177,9 +173,8 @@ public final class ClientUI {
             e.addListener(reroll);
             REROLL_BUTTONS.put(screen, reroll);
 
-            // Stats button (unchanged)
-            int statsBaseX = x;              // align with reroll by default
-            int statsBaseY = y + h + 2;      // directly below reroll
+            int statsBaseX = x;
+            int statsBaseY = y + h + 2;
 
             int sx = statsBaseX + ClientConfig.statsButtonOffsetX;
             int sy = statsBaseY + ClientConfig.statsButtonOffsetY;
@@ -244,15 +239,12 @@ public final class ClientUI {
             if (btn.active == cooling) btn.active = !cooling;
             if (overlay != null) overlay.active = cooling;
 
-            // -------------------------------------------------------------
-            // Draw a larger reroll glyph centered on the reroll button
-            // -------------------------------------------------------------
             try {
                 GuiGraphics gg = e.getGuiGraphics();
                 Font font = Minecraft.getInstance().font;
 
                 final String glyph = "↻";
-                final float scale = 1.65f; // tweak 1.4..1.9
+                final float scale = 1.65f;
                 final int color = btn.active ? 0xFFFFFFFF : 0xFF777777;
 
                 int bx = btn.getX();
@@ -269,13 +261,9 @@ public final class ClientUI {
                 gg.pose().pushPose();
                 gg.pose().translate(cx, cy, 500.0f);
                 gg.pose().scale(scale, scale, 1.0f);
-
-                // Center around (0,0) after translate
                 gg.drawString(font, glyph, -textW / 2.0f, -textH / 2.0f, color, true);
-
                 gg.pose().popPose();
             } catch (Throwable ignored) {}
-            // -------------------------------------------------------------
 
             boolean hoverOverlay = overlay != null && overlay.active && overlay.isMouseOver(e.getMouseX(), e.getMouseY());
             boolean hoverButton = btn.isMouseOver(e.getMouseX(), e.getMouseY());
@@ -538,12 +526,10 @@ public final class ClientUI {
     private static TooltipRenderPlan buildPrettyTooltipPlan(PacketTooltipData d, MerchantScreen screen) {
         TooltipRenderPlan plan = new TooltipRenderPlan();
 
-        // 1) Title (green)
         plan.lines.add(Component.translatable("ezvr.ui.reroll").withStyle(ChatFormatting.GREEN));
 
         int cid = resolveContainerId(screen);
 
-        // Cooldown calculation
         int remainingTicks = 0;
         boolean cooling = false;
         try {
@@ -555,7 +541,6 @@ public final class ClientUI {
             EZVillagerReroll.LOG().debug("[EZVR] Tooltip cooldown remaining read failed (soft): {}", t.toString());
         }
 
-        // 2) Cooldown line: "Cooldown:" orange
         Component cooldownLine;
         if (cooling) {
             double sec = remainingTicks / 20.0;
@@ -602,7 +587,6 @@ public final class ClientUI {
         int paidOffers = safeIntField(d.cost, "paidOffers");
         int costPerOffer = safeIntField(d.cost, "costPerOffer");
 
-        // 3) Cost line: emerald ICON instead of word
         if (cost <= 0) {
             plan.lines.add(Component.empty()
                     .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
@@ -616,7 +600,6 @@ public final class ClientUI {
             plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
         }
 
-        // 4) Offers/Locked/Deducted
         plan.lines.add(Component.empty()
                 .append(Component.literal(" Offers: ").withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(String.valueOf(Math.max(0, totalOffers))).withStyle(ChatFormatting.WHITE))
@@ -628,7 +611,6 @@ public final class ClientUI {
                 .append(Component.literal(String.valueOf(Math.max(0, deductedLocks))).withStyle(ChatFormatting.WHITE))
         );
 
-        // 5) Free/Paid + xN with emerald icon appended
         int lineIdxFreePaid = plan.lines.size();
         plan.lines.add(Component.empty()
                 .append(Component.literal(" Free: ").withStyle(ChatFormatting.GREEN))
@@ -643,7 +625,6 @@ public final class ClientUI {
             plan.icons.add(new TooltipIcon(lineIdxFreePaid, new ItemStack(Items.EMERALD)));
         }
 
-        // 6) Affordable line green/red
         if (d.afford != null && cost > 0) {
             boolean can = d.afford.canAfford;
             String src = d.afford.source == null ? "none" : d.afford.source;
@@ -652,7 +633,6 @@ public final class ClientUI {
             plan.lines.add(aff);
         }
 
-        // 7) Villager level label orange
         if (d.villager != null && d.villager.level > 0) {
             plan.lines.add(Component.empty()
                     .append(Component.literal("Villager level: ").withStyle(ChatFormatting.GOLD))
@@ -708,10 +688,8 @@ public final class ClientUI {
             if (y + tooltipH > screenH) y = screenH - tooltipH - 6;
             if (y < 4) y = 4;
 
-            // Background at TIP_Z
             renderTooltipBackgroundCompat(gg, x, y, tooltipW, tooltipH, TIP_Z);
 
-            // Text/icons above background
             gg.pose().pushPose();
             gg.pose().translate(0.0D, 0.0D, (double) (TIP_Z + 5));
 
@@ -722,14 +700,11 @@ public final class ClientUI {
                 int yy = textY + i * (lineHeight + TIP_LINE_GAP);
                 Component line = plan.lines.get(i);
 
-                // CRITICAL FIX: use opaque ARGB (0xFFFFFFFF), not 0xFFFFFF.
                 gg.drawString(font, line, textX, yy, COLOR_WHITE_OPAQUE, true);
 
                 if (hasIcon[i]) {
                     int textW = font.width(line);
-                    // pull icon 1px closer to text
                     int iconX = textX + textW + Math.max(0, TIP_ICON_GAP - 3);
-                    // vertically center a TIP_ICON_SIZE icon within the current line box
                     int iconY = yy + Math.max(0, (lineHeight - TIP_ICON_SIZE) / 2) - 4;
 
                     for (TooltipIcon ic : plan.icons) {
@@ -805,23 +780,34 @@ public final class ClientUI {
     }
 
     // ---------------------------------------------------------------------
-    // Trader entity id resolver (unchanged)
+    // Trader entity id resolver (FIXED: prioritize actual trader, not player)
     // ---------------------------------------------------------------------
 
     public static int resolveTraderEntityId(MerchantScreen screen) {
         try {
             if (screen == null) return -1;
 
+            // 1) Best: ask the MerchantMenu for its trader via our accessor (avoids "player" fields on screen)
+            try {
+                if (screen.getMenu() instanceof MerchantMenu menu) {
+                    Object trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+                    if (trader instanceof net.minecraft.world.entity.Entity ent) {
+                        return ent.getId();
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            // 2) Fallback: reflection search, but do NOT accept LocalPlayer as the "trader"
             try {
                 MerchantMenu menu = (screen.getMenu() instanceof MerchantMenu mm) ? mm : null;
                 if (menu != null) {
-                    Integer id = reflectFindEntityId(menu);
+                    Integer id = reflectFindEntityIdPreferNonPlayer(menu);
                     if (id != null) return id;
                 }
             } catch (Throwable ignored) {}
 
             try {
-                Integer id = reflectFindEntityId(screen);
+                Integer id = reflectFindEntityIdPreferNonPlayer(screen);
                 if (id != null) return id;
             } catch (Throwable ignored) {}
 
@@ -831,7 +817,7 @@ public final class ClientUI {
         }
     }
 
-    private static Integer reflectFindEntityId(Object holder) {
+    private static Integer reflectFindEntityIdPreferNonPlayer(Object holder) {
         try {
             if (holder == null) return null;
 
@@ -844,10 +830,13 @@ public final class ClientUI {
                         Object v = f.get(holder);
                         if (v == null) continue;
 
-                        if (v instanceof net.minecraft.world.entity.Entity ent) return ent.getId();
+                        if (v instanceof net.minecraft.world.entity.Entity ent) {
+                            if (ent instanceof net.minecraft.client.player.LocalPlayer) continue;
+                            return ent.getId();
+                        }
 
                         if (!(v instanceof Number) && !(v instanceof String) && !(v.getClass().isPrimitive())) {
-                            Integer nested = reflectFindEntityIdShallow(v);
+                            Integer nested = reflectFindEntityIdPreferNonPlayerShallow(v);
                             if (nested != null) return nested;
                         }
                     } catch (Throwable ignoredField) {}
@@ -860,7 +849,7 @@ public final class ClientUI {
         }
     }
 
-    private static Integer reflectFindEntityIdShallow(Object holder) {
+    private static Integer reflectFindEntityIdPreferNonPlayerShallow(Object holder) {
         try {
             if (holder == null) return null;
 
@@ -870,7 +859,10 @@ public final class ClientUI {
                 try {
                     f.setAccessible(true);
                     Object v = f.get(holder);
-                    if (v instanceof net.minecraft.world.entity.Entity ent) return ent.getId();
+                    if (v instanceof net.minecraft.world.entity.Entity ent) {
+                        if (ent instanceof net.minecraft.client.player.LocalPlayer) continue;
+                        return ent.getId();
+                    }
                 } catch (Throwable ignored) {}
             }
             return null;

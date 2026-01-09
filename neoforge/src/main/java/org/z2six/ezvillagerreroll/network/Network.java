@@ -1,11 +1,14 @@
+// Network.java
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/network/Network.java
 package org.z2six.ezvillagerreroll.network;
 
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.server.TradeLockService;
+import org.z2six.ezvillagerreroll.server.VillagerStatsService;
 
 public final class Network {
 
@@ -48,6 +51,10 @@ public final class Network {
             r.playToServer(PacketDeclineAutoSearchSettlement.TYPE, PacketDeclineAutoSearchSettlement.STREAM_CODEC,
                     (msg, ctx) -> handleDeclineAutoSearchSettlementServer(msg, ctx));
 
+            // NEW: villager stats query
+            r.playToServer(PacketVillagerStatsQuery.TYPE, PacketVillagerStatsQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerStatsQueryServer(msg, ctx));
+
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTooltipData", msg, ctx));
@@ -75,6 +82,10 @@ public final class Network {
             r.playToClient(PacketAutoSearchSettlementCleared.TYPE, PacketAutoSearchSettlementCleared.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onAutoSearchSettlementCleared", msg, ctx));
 
+            // NEW: villager stats data (we update cache directly; no client-only class refs)
+            r.playToClient(PacketVillagerStatsData.TYPE, PacketVillagerStatsData.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerStatsDataClient(msg, ctx));
+
             EZVillagerReroll.LOG().info("[EZVR] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Network payload registration failed.", t);
@@ -98,6 +109,21 @@ public final class Network {
             EZVillagerReroll.LOG().error("[EZVR] Missing client handler class {} (cannot handle {}).", CLIENT_HANDLERS_CLASS, methodName);
         } catch (Throwable t) {
             EZVillagerReroll.LOG().error("[EZVR] Client handler dispatch failed for {}", methodName, t);
+        }
+    }
+
+    private static void handleVillagerStatsDataClient(PacketVillagerStatsData msg, IPayloadContext ctx) {
+        try {
+            // This handler is safe on both sides; actual execution occurs on client connection.
+            ctx.enqueueWork(() -> {
+                try {
+                    ClientVillagerStatsCache.accept(msg);
+                } catch (Throwable t) {
+                    EZVillagerReroll.LOG().debug("[EZVR] handleVillagerStatsDataClient failed (soft): {}", t.toString());
+                }
+            });
+        } catch (Throwable t) {
+            // soft
         }
     }
 
@@ -137,6 +163,7 @@ public final class Network {
     public static void sendToServer(PacketCancelAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketContinueAutoSearch msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketRerollCooldownQuery msg) { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketVillagerStatsQuery msg) { sendToServer((CustomPacketPayload) msg); }
 
     // Optional convenience (not required, but consistent):
     public static void sendToServer(PacketPayAutoSearchSettlement msg) { sendToServer((CustomPacketPayload) msg); }
@@ -252,6 +279,49 @@ public final class Network {
                 ServerHandlers.handleDeclineAutoSearchSettlement(msg, ctx);
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] DeclineAutoSearchSettlement handler error", t);
+            }
+        });
+    }
+
+    private static void handleVillagerStatsQueryServer(PacketVillagerStatsQuery msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+
+                int id = msg.villagerEntityId();
+                var level = sp.serverLevel();
+                if (level == null) {
+                    ctx.reply(PacketVillagerStatsData.missing(id));
+                    return;
+                }
+
+                var ent = level.getEntity(id);
+                if (ent == null || !VillagerStatsService.isSupportedMerchantEntity(ent)) {
+                    ctx.reply(PacketVillagerStatsData.missing(id));
+                    return;
+                }
+
+                // Ensure server has stats assigned (no-op if already present)
+                VillagerStatsService.ensureStats(ent);
+
+                CompoundTag pd = ent.getPersistentData();
+                if (pd == null || !pd.contains(VillagerStatsService.TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
+                    ctx.reply(PacketVillagerStatsData.missing(id));
+                    return;
+                }
+
+                CompoundTag root = pd.getCompound(VillagerStatsService.TAG_ROOT);
+
+                int g = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_GENEROSITY));
+                int t = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_TIMELINESS));
+                int i = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_INTELLECT));
+                int h = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_HOARDER));
+                int a = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_AMBITIOUS));
+
+                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, a));
+
+            } catch (Throwable t) {
+                EZVillagerReroll.LOG().error("[EZVR] VillagerStatsQuery handler error", t);
             }
         });
     }
