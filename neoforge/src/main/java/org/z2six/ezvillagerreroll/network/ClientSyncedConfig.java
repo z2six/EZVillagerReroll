@@ -28,6 +28,13 @@ public final class ClientSyncedConfig {
         // NEW (double)
         public double manualRerollXpPerOffer;
 
+        // NEW: trait bounds (% at points=-100 and points=+100)
+        public double generosityMinPct, generosityMaxPct;
+        public double timelinessMinPct, timelinessMaxPct;
+        public double intellectMinPct, intellectMaxPct;
+        public double hoarderMinPct, hoarderMaxPct;
+        public double ambitiousMinPct, ambitiousMaxPct;
+
         @Override
         public String toString() {
             return "Snapshot{" +
@@ -45,6 +52,11 @@ public final class ClientSyncedConfig {
                     ", autoHourlyDiscountOrIncreasePct=" + autoHourlyDiscountOrIncreasePct +
                     ", allowAfterTradeUsed=" + allowAfterTradeUsed +
                     ", manualRerollXpPerOffer=" + manualRerollXpPerOffer +
+                    ", generosity=[" + generosityMinPct + "," + generosityMaxPct + "]" +
+                    ", timeliness=[" + timelinessMinPct + "," + timelinessMaxPct + "]" +
+                    ", intellect=[" + intellectMinPct + "," + intellectMaxPct + "]" +
+                    ", hoarder=[" + hoarderMinPct + "," + hoarderMaxPct + "]" +
+                    ", ambitious=[" + ambitiousMinPct + "," + ambitiousMaxPct + "]" +
                     '}';
         }
     }
@@ -77,6 +89,22 @@ public final class ClientSyncedConfig {
 
             // NEW (double)
             s.manualRerollXpPerOffer = Math.max(0.0, msg.manualRerollXpPerOffer);
+
+            // NEW: trait bounds (server already normalizes min<=max)
+            s.generosityMinPct = msg.generosityMinPct;
+            s.generosityMaxPct = msg.generosityMaxPct;
+
+            s.timelinessMinPct = msg.timelinessMinPct;
+            s.timelinessMaxPct = msg.timelinessMaxPct;
+
+            s.intellectMinPct = msg.intellectMinPct;
+            s.intellectMaxPct = msg.intellectMaxPct;
+
+            s.hoarderMinPct = msg.hoarderMinPct;
+            s.hoarderMaxPct = msg.hoarderMaxPct;
+
+            s.ambitiousMinPct = msg.ambitiousMinPct;
+            s.ambitiousMaxPct = msg.ambitiousMaxPct;
 
             last = s;
 

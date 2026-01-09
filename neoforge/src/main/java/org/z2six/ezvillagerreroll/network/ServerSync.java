@@ -42,6 +42,22 @@ public final class ServerSync {
             // NEW (double)
             pkt.manualRerollXpPerOffer = ServerConfig.manualRerollXpPerOffer;
 
+            // NEW: trait bounds
+            pkt.generosityMinPct = ServerConfig.generosityMinPct;
+            pkt.generosityMaxPct = ServerConfig.generosityMaxPct;
+
+            pkt.timelinessMinPct = ServerConfig.timelinessMinPct;
+            pkt.timelinessMaxPct = ServerConfig.timelinessMaxPct;
+
+            pkt.intellectMinPct = ServerConfig.intellectMinPct;
+            pkt.intellectMaxPct = ServerConfig.intellectMaxPct;
+
+            pkt.hoarderMinPct = ServerConfig.hoarderMinPct;
+            pkt.hoarderMaxPct = ServerConfig.hoarderMaxPct;
+
+            pkt.ambitiousMinPct = ServerConfig.ambitiousMinPct;
+            pkt.ambitiousMaxPct = ServerConfig.ambitiousMaxPct;
+
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));
 
             EZVillagerReroll.LOG().debug(

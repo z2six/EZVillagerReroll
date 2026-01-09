@@ -18,11 +18,15 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.WanderingTrader;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.network.ClientSyncedConfig;
 import org.z2six.ezvillagerreroll.network.ClientVillagerStatsCache;
 import org.z2six.ezvillagerreroll.network.PacketVillagerStatsData;
 import org.z2six.ezvillagerreroll.network.PacketVillagerStatsQuery;
 import org.z2six.ezvillagerreroll.server.VillagerStatsService;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.TextColor;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public final class VillagerInfoScreen extends Screen {
@@ -73,6 +77,17 @@ public final class VillagerInfoScreen extends Screen {
     private static final int C_INTELLECT  = 0xFFB26BFF; // purple
     private static final int C_HOARDER    = 0xFFFFB347; // orange
     private static final int C_AMBITIOUS  = 0xFFFF4B4B; // red
+
+    private enum StatKind {
+        GENEROSITY("Generosity"),
+        TIMELINESS("Timeliness"),
+        INTELLECT("Intellect"),
+        HOARDER("Hoarder"),
+        AMBITIOUS("Ambitious");
+
+        final String label;
+        StatKind(String label) { this.label = label; }
+    }
 
     public VillagerInfoScreen(MerchantScreen parent, int villagerEntityId) {
         super(Component.literal("Villager Info"));
@@ -251,19 +266,19 @@ public final class VillagerInfoScreen extends Screen {
         int barsX = boxRight + PAD;
         int barsY = top + 78;
 
-        renderStatBar(gg, font, "Generosity", this.hasStats ? this.generosity : null,
+        renderStatBar(gg, font, StatKind.GENEROSITY, this.hasStats ? this.generosity : null,
                 barsX, barsY, BAR_W, BAR_H, C_GENEROSITY, mouseX, mouseY);
 
-        renderStatBar(gg, font, "Timeliness", this.hasStats ? this.timeliness : null,
+        renderStatBar(gg, font, StatKind.TIMELINESS, this.hasStats ? this.timeliness : null,
                 barsX, barsY + (BAR_H + BAR_GAP) * 1, BAR_W, BAR_H, C_TIMELINESS, mouseX, mouseY);
 
-        renderStatBar(gg, font, "Intellect", this.hasStats ? this.intellect : null,
+        renderStatBar(gg, font, StatKind.INTELLECT, this.hasStats ? this.intellect : null,
                 barsX, barsY + (BAR_H + BAR_GAP) * 2, BAR_W, BAR_H, C_INTELLECT, mouseX, mouseY);
 
-        renderStatBar(gg, font, "Hoarder", this.hasStats ? this.hoarder : null,
+        renderStatBar(gg, font, StatKind.HOARDER, this.hasStats ? this.hoarder : null,
                 barsX, barsY + (BAR_H + BAR_GAP) * 3, BAR_W, BAR_H, C_HOARDER, mouseX, mouseY);
 
-        renderStatBar(gg, font, "Ambitious", this.hasStats ? this.ambitious : null,
+        renderStatBar(gg, font, StatKind.AMBITIOUS, this.hasStats ? this.ambitious : null,
                 barsX, barsY + (BAR_H + BAR_GAP) * 4, BAR_W, BAR_H, C_AMBITIOUS, mouseX, mouseY);
 
         if (!this.hasStats) {
@@ -370,7 +385,7 @@ public final class VillagerInfoScreen extends Screen {
     private static void renderStatBar(
             GuiGraphics gg,
             Font font,
-            String label,
+            StatKind kind,
             Integer valueOrNull,
             int x, int y, int w, int h,
             int color,
@@ -406,10 +421,136 @@ public final class VillagerInfoScreen extends Screen {
 
             boolean hover = mouseX >= x && mouseX < (x + w) && mouseY >= y && mouseY < (y + h);
             if (hover) {
-                Component line1 = Component.literal(label);
-                Component line2 = Component.literal(valueOrNull == null ? "Value: (syncing…)" : ("Value: " + valueOrNull));
-                gg.renderComponentTooltip(font, List.of(line1, line2), mouseX, mouseY);
+                gg.renderComponentTooltip(font, buildStatTooltip(kind, valueOrNull), mouseX, mouseY);
             }
         } catch (Throwable ignored) {}
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Tooltip building: points + server-config-based percent + player-facing explanation.
+    // -----------------------------------------------------------------------------------------
+
+    private static List<Component> buildStatTooltip(StatKind kind, Integer valueOrNull) {
+        List<Component> lines = new ArrayList<>(6);
+
+        // Colored title (same as bar color)
+        lines.add(Component.literal(kind.label).withStyle(s ->
+                s.withColor(TextColor.fromRgb(statColorRgb(kind)))
+        ));
+
+        if (valueOrNull == null) {
+            lines.add(Component.literal("Value: (syncing…)").withStyle(ChatFormatting.DARK_GRAY));
+            return lines;
+        }
+
+        int points = Mth.clamp(valueOrNull, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
+
+        // Value line colored based on sign
+        ChatFormatting valueColor =
+                points > 0 ? ChatFormatting.GREEN :
+                        points < 0 ? ChatFormatting.RED :
+                                ChatFormatting.GRAY;
+
+        Double pct = pointsToPercentFromServerConfig(kind, points);
+
+        if (pct == null) {
+            lines.add(Component.literal("Value: " + points).withStyle(valueColor));
+        } else {
+            lines.add(Component.literal("Value: " + points + " (" + formatPercent(pct) + ")").withStyle(valueColor));
+        }
+
+        // Spacer
+        lines.add(Component.literal(""));
+
+        // Flavor text: grey-ish + cursive (italic)
+        for (Component c : flavorLines(kind)) {
+            lines.add(c);
+        }
+
+        return lines;
+    }
+
+    private static List<Component> flavorLines(StatKind kind) {
+        List<String> raw = switch (kind) {
+            case GENEROSITY -> List.of(
+                    "Affects the price of rerolling.",
+                    "Higher = cheaper, lower = pricier."
+            );
+            case TIMELINESS -> List.of(
+                    "Affects how quickly rerolls recharge.",
+                    "Higher = faster cooldown, lower = slower."
+            );
+            case INTELLECT -> List.of(
+                    "Affects experience gained from rerolls.",
+                    "Higher = more experience, lower = less."
+            );
+            case HOARDER -> List.of(
+                    "Affects how many trade offers are available.",
+                    "Higher = more offers, lower = fewer."
+            );
+            case AMBITIOUS -> List.of(
+                    "Further boosts experience gained from rerolls.",
+                    "Higher = more experience from rerolls."
+            );
+        };
+
+        // Slightly grey-ish + cursive (italic)
+        List<Component> out = new ArrayList<>(raw.size());
+        for (String s : raw) {
+            out.add(Component.literal(s).withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC));
+        }
+        return out;
+    }
+
+    private static int statColorRgb(StatKind kind) {
+        int argb = switch (kind) {
+            case GENEROSITY -> C_GENEROSITY;
+            case TIMELINESS -> C_TIMELINESS;
+            case INTELLECT  -> C_INTELLECT;
+            case HOARDER    -> C_HOARDER;
+            case AMBITIOUS  -> C_AMBITIOUS;
+        };
+        return argb & 0x00FFFFFF; // strip alpha
+    }
+
+    private static String formatPercent(double pct) {
+        // Match your example: integer percent, rounded.
+        long rounded = Math.round(pct);
+
+        if (rounded > 0) return "+" + rounded + "%";
+        if (rounded < 0) return rounded + "%";
+        return "0%";
+    }
+
+    private static Double pointsToPercentFromServerConfig(StatKind kind, int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+
+            double min;
+            double max;
+
+            switch (kind) {
+                case GENEROSITY -> { min = cfg.generosityMinPct; max = cfg.generosityMaxPct; }
+                case TIMELINESS -> { min = cfg.timelinessMinPct; max = cfg.timelinessMaxPct; }
+                case INTELLECT -> { min = cfg.intellectMinPct; max = cfg.intellectMaxPct; }
+                case HOARDER -> { min = cfg.hoarderMinPct; max = cfg.hoarderMaxPct; }
+                case AMBITIOUS -> { min = cfg.ambitiousMinPct; max = cfg.ambitiousMaxPct; }
+                default -> { return null; }
+            }
+
+            // points is [-100..100]
+            int p = Mth.clamp(points, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
+
+            // t in [0..1]
+            double t = (p + 100.0) / 200.0;
+            t = Mth.clamp((float) t, 0.0f, 1.0f);
+
+            // lerp(min, max, t)
+            return min + (max - min) * t;
+
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 }

@@ -32,6 +32,25 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     // NEW: XP config (manual reroll XP per rerolled offer)
     public double manualRerollXpPerOffer;
 
+    // -----------------------------------------------------------------------------------------
+    // NEW: Villager stat effect bounds (percent at points=-100 and points=+100)
+    // Client uses: percent = lerp(minPct, maxPct, (points + 100) / 200.0)
+    // -----------------------------------------------------------------------------------------
+    public double generosityMinPct;
+    public double generosityMaxPct;
+
+    public double timelinessMinPct;
+    public double timelinessMaxPct;
+
+    public double intellectMinPct;
+    public double intellectMaxPct;
+
+    public double hoarderMinPct;
+    public double hoarderMaxPct;
+
+    public double ambitiousMinPct;
+    public double ambitiousMaxPct;
+
     public PacketSyncConfig() {}
 
     public static final StreamCodec<FriendlyByteBuf, PacketSyncConfig> STREAM_CODEC = new StreamCodec<>() {
@@ -76,6 +95,38 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.manualRerollXpPerOffer = 0.0;
             try { p.manualRerollXpPerOffer = buf.readDouble(); } catch (Throwable ignored) {}
 
+            // Defaults for bounds (match ServerConfig defaults)
+            p.generosityMinPct = -20.0;
+            p.generosityMaxPct = 20.0;
+
+            p.timelinessMinPct = -20.0;
+            p.timelinessMaxPct = 20.0;
+
+            p.intellectMinPct = -20.0;
+            p.intellectMaxPct = 20.0;
+
+            p.hoarderMinPct = -20.0;
+            p.hoarderMaxPct = 20.0;
+
+            p.ambitiousMinPct = -20.0;
+            p.ambitiousMaxPct = 20.0;
+
+            // NEW: trait bounds (safe read; keeps backwards tolerance if older server)
+            try { p.generosityMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.generosityMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+
+            try { p.timelinessMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.timelinessMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+
+            try { p.intellectMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.intellectMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+
+            try { p.hoarderMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.hoarderMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+
+            try { p.ambitiousMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.ambitiousMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+
             return p;
         }
 
@@ -106,6 +157,22 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
             // NEW
             buf.writeDouble(Math.max(0.0, p.manualRerollXpPerOffer));
+
+            // NEW: trait bounds (no clamping here; server already normalizes min<=max)
+            buf.writeDouble(p.generosityMinPct);
+            buf.writeDouble(p.generosityMaxPct);
+
+            buf.writeDouble(p.timelinessMinPct);
+            buf.writeDouble(p.timelinessMaxPct);
+
+            buf.writeDouble(p.intellectMinPct);
+            buf.writeDouble(p.intellectMaxPct);
+
+            buf.writeDouble(p.hoarderMinPct);
+            buf.writeDouble(p.hoarderMaxPct);
+
+            buf.writeDouble(p.ambitiousMinPct);
+            buf.writeDouble(p.ambitiousMaxPct);
         }
     };
 
