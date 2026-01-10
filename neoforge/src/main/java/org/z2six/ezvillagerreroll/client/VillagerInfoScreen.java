@@ -2,6 +2,7 @@
 // MainFile: neoforge/src/main/java/org/z2six/ezvillagerreroll/client/VillagerInfoScreen.java
 package org.z2six.ezvillagerreroll.client;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -11,6 +12,7 @@ import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -23,8 +25,6 @@ import org.z2six.ezvillagerreroll.network.ClientVillagerStatsCache;
 import org.z2six.ezvillagerreroll.network.PacketVillagerStatsData;
 import org.z2six.ezvillagerreroll.network.PacketVillagerStatsQuery;
 import org.z2six.ezvillagerreroll.server.VillagerStatsService;
-import net.minecraft.ChatFormatting;
-import net.minecraft.network.chat.TextColor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,12 +45,12 @@ public final class VillagerInfoScreen extends Screen {
     private int timeliness = 0;
     private int intellect  = 0;
     private int hoarder    = 0;
-    private int ambitious  = 0;
 
     private long lastStatsQueryMs = 0L;
 
     // Layout
-    private static final int PANEL_W = 292;
+    // (slightly wider than before: ~8% increase)
+    private static final int PANEL_W = 316;
     private static final int PANEL_H = 190;
 
     private static final int PAD = 10;
@@ -76,14 +76,12 @@ public final class VillagerInfoScreen extends Screen {
     private static final int C_TIMELINESS = 0xFF2FC7FF; // cyan
     private static final int C_INTELLECT  = 0xFFB26BFF; // purple
     private static final int C_HOARDER    = 0xFFFFB347; // orange
-    private static final int C_AMBITIOUS  = 0xFFFF4B4B; // red
 
     private enum StatKind {
         GENEROSITY("Generosity"),
         TIMELINESS("Timeliness"),
         INTELLECT("Intellect"),
-        HOARDER("Hoarder"),
-        AMBITIOUS("Ambitious");
+        HOARDER("Hoarder");
 
         final String label;
         StatKind(String label) { this.label = label; }
@@ -160,7 +158,6 @@ public final class VillagerInfoScreen extends Screen {
             this.timeliness = VillagerStatsService.clampPoints(snap.timeliness());
             this.intellect  = VillagerStatsService.clampPoints(snap.intellect());
             this.hoarder    = VillagerStatsService.clampPoints(snap.hoarder());
-            this.ambitious  = VillagerStatsService.clampPoints(snap.ambitious());
 
             this.hasStats = true;
             this.statsUnavailable = false;
@@ -255,10 +252,7 @@ public final class VillagerInfoScreen extends Screen {
             Component prof = safeProfession(le);
             gg.drawString(font, Component.literal("Profession: ").append(prof), textX, textY + 12, 0xFFFFFFFF, false);
 
-            ResourceLocation typeId = safeEntityTypeId(le);
-            if (typeId != null) {
-                gg.drawString(font, Component.literal("Type: " + typeId), textX, textY + 24, 0xFFBFBFBF, false);
-            }
+            // Removed "Type: <namespace:id>" row (not needed)
         }
 
         renderVillagerModel(gg, boxLeft, boxTop, boxRight, boxBottom, mouseX, mouseY);
@@ -278,14 +272,13 @@ public final class VillagerInfoScreen extends Screen {
         renderStatBar(gg, font, StatKind.HOARDER, this.hasStats ? this.hoarder : null,
                 barsX, barsY + (BAR_H + BAR_GAP) * 3, BAR_W, BAR_H, C_HOARDER, mouseX, mouseY);
 
-        renderStatBar(gg, font, StatKind.AMBITIOUS, this.hasStats ? this.ambitious : null,
-                barsX, barsY + (BAR_H + BAR_GAP) * 4, BAR_W, BAR_H, C_AMBITIOUS, mouseX, mouseY);
-
         if (!this.hasStats) {
             if (this.statsUnavailable) {
-                gg.drawString(font, Component.literal("Stats: unavailable"), barsX, barsY + (BAR_H + BAR_GAP) * 5 + 2, 0xFFFF7777, false);
+                gg.drawString(font, Component.literal("Stats: unavailable"),
+                        barsX, barsY + (BAR_H + BAR_GAP) * 5 + 2, 0xFFFF7777, false);
             } else {
-                gg.drawString(font, Component.literal("Stats: syncing…"), barsX, barsY + (BAR_H + BAR_GAP) * 5 + 2, 0xFFAAAAAA, false);
+                gg.drawString(font, Component.literal("Stats: syncing…"),
+                        barsX, barsY + (BAR_H + BAR_GAP) * 5 + 2, 0xFFAAAAAA, false);
             }
         }
 
@@ -374,8 +367,19 @@ public final class VillagerInfoScreen extends Screen {
                 return Component.literal("Villager");
             }
 
+            // Non-villager merchants: show a human-friendly label for known goblintraders entity ids.
             ResourceLocation typeId = safeEntityTypeId(le);
-            if (typeId != null) return Component.literal(typeId.toString());
+            if (typeId != null) {
+                String id = typeId.toString();
+                if ("goblintraders:vein_goblin_trader".equals(id)) {
+                    return Component.literal("Vein Goblin Trader");
+                }
+                if ("goblintraders:goblin_trader".equals(id)) {
+                    return Component.literal("Goblin Trader");
+                }
+                return Component.literal(id);
+            }
+
             return Component.literal("Unknown");
         } catch (Throwable t) {
             return Component.literal("Unknown");
@@ -431,7 +435,7 @@ public final class VillagerInfoScreen extends Screen {
     // -----------------------------------------------------------------------------------------
 
     private static List<Component> buildStatTooltip(StatKind kind, Integer valueOrNull) {
-        List<Component> lines = new ArrayList<>(6);
+        List<Component> lines = new ArrayList<>(8);
 
         // Colored title (same as bar color)
         lines.add(Component.literal(kind.label).withStyle(s ->
@@ -453,10 +457,18 @@ public final class VillagerInfoScreen extends Screen {
 
         Double pct = pointsToPercentFromServerConfig(kind, points);
 
+        // Main "Value" line now shows *player-facing effect* (not the raw trait pct)
         if (pct == null) {
             lines.add(Component.literal("Value: " + points).withStyle(valueColor));
         } else {
-            lines.add(Component.literal("Value: " + points + " (" + formatPercent(pct) + ")").withStyle(valueColor));
+            String effectShort = shortEffectParen(kind, pct);
+            lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
+
+            // Extra “what it means” line: show multiplier where it is well-defined in code
+            String multLine = multiplierLine(kind, pct);
+            if (multLine != null) {
+                lines.add(Component.literal(multLine).withStyle(ChatFormatting.DARK_GRAY));
+            }
         }
 
         // Spacer
@@ -468,6 +480,82 @@ public final class VillagerInfoScreen extends Screen {
         }
 
         return lines;
+    }
+
+    /**
+     * Short parenthetical summary shown next to the points.
+     * Example: "Reroll cost +19.9%" for negative Generosity.
+     */
+    private static String shortEffectParen(StatKind kind, double traitPct) {
+        double p = safeFinite(traitPct);
+
+        return switch (kind) {
+            case GENEROSITY -> "Reroll cost " + formatSignedPercent1(-p);
+            case TIMELINESS -> "Cooldown " + formatSignedPercent1(-p);
+            case INTELLECT  -> "XP " + formatSignedPercent1(p);
+            case HOARDER    -> "Offers " + formatSignedPercent1(p);
+        };
+    }
+
+    /**
+     * Optional second line that shows the actual multiplier used by the server-side logic.
+     * Only emits for stats with a clearly-defined multiplier in your code today.
+     */
+    private static String multiplierLine(StatKind kind, double traitPct) {
+        double p = safeFinite(traitPct);
+
+        return switch (kind) {
+            case GENEROSITY -> {
+                // costMult = 1 - pct/100
+                double m = 1.0 - (p / 100.0);
+                if (m < 0.0) m = 0.0;
+                yield "Multiplier: x" + formatMultiplier(m) + " (cost)";
+            }
+            case TIMELINESS -> {
+                // cooldownMult = 1 - pct/100
+                double m = 1.0 - (p / 100.0);
+                if (m < 0.0) m = 0.0;
+                yield "Multiplier: x" + formatMultiplier(m) + " (cooldown)";
+            }
+            case INTELLECT -> {
+                // xpMult = 1 + pct/100
+                double m = 1.0 + (p / 100.0);
+                if (m < 0.0) m = 0.0;
+                yield "Multiplier: x" + formatMultiplier(m) + " (XP)";
+            }
+            case HOARDER -> null; // effect model isn't a simple multiplier (yet / depends on your implementation)
+        };
+    }
+
+    private static String formatSignedPercent1(double pct) {
+        double v = safeFinite(pct);
+
+        // round to 1 decimal (so you can get e.g. 19.9%)
+        double r = Math.round(v * 10.0) / 10.0;
+
+        // avoid "-0.0%"
+        if (Math.abs(r) < 0.05) r = 0.0;
+
+        if (r > 0.0) return "+" + r + "%";
+        if (r < 0.0) return r + "%";
+        return "0%";
+    }
+
+    private static String formatMultiplier(double m) {
+        double v = safeFinite(m);
+        if (v < 0.0) v = 0.0;
+
+        // 3 decimals feels nice for multipliers (x1.200, x0.801, etc.)
+        double r = Math.round(v * 1000.0) / 1000.0;
+
+        // make "1.0" show as "1" if you prefer; leaving as-is is also fine
+        if (Math.abs(r - 1.0) < 0.0005) return "1.000";
+        return String.valueOf(r);
+    }
+
+    private static double safeFinite(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return 0.0;
+        return v;
     }
 
     private static List<Component> flavorLines(StatKind kind) {
@@ -488,13 +576,8 @@ public final class VillagerInfoScreen extends Screen {
                     "Affects how many trade offers are available.",
                     "Higher = more offers, lower = fewer."
             );
-            case AMBITIOUS -> List.of(
-                    "Further boosts experience gained from rerolls.",
-                    "Higher = more experience from rerolls."
-            );
         };
 
-        // Slightly grey-ish + cursive (italic)
         List<Component> out = new ArrayList<>(raw.size());
         for (String s : raw) {
             out.add(Component.literal(s).withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC));
@@ -508,15 +591,12 @@ public final class VillagerInfoScreen extends Screen {
             case TIMELINESS -> C_TIMELINESS;
             case INTELLECT  -> C_INTELLECT;
             case HOARDER    -> C_HOARDER;
-            case AMBITIOUS  -> C_AMBITIOUS;
         };
         return argb & 0x00FFFFFF; // strip alpha
     }
 
     private static String formatPercent(double pct) {
-        // Match your example: integer percent, rounded.
         long rounded = Math.round(pct);
-
         if (rounded > 0) return "+" + rounded + "%";
         if (rounded < 0) return rounded + "%";
         return "0%";
@@ -535,18 +615,14 @@ public final class VillagerInfoScreen extends Screen {
                 case TIMELINESS -> { min = cfg.timelinessMinPct; max = cfg.timelinessMaxPct; }
                 case INTELLECT -> { min = cfg.intellectMinPct; max = cfg.intellectMaxPct; }
                 case HOARDER -> { min = cfg.hoarderMinPct; max = cfg.hoarderMaxPct; }
-                case AMBITIOUS -> { min = cfg.ambitiousMinPct; max = cfg.ambitiousMaxPct; }
                 default -> { return null; }
             }
 
-            // points is [-100..100]
             int p = Mth.clamp(points, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
 
-            // t in [0..1]
             double t = (p + 100.0) / 200.0;
             t = Mth.clamp((float) t, 0.0f, 1.0f);
 
-            // lerp(min, max, t)
             return min + (max - min) * t;
 
         } catch (Throwable ignored) {

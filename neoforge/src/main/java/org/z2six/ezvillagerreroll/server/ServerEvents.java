@@ -141,9 +141,8 @@ public final class ServerEvents {
             int t = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_TIMELINESS));
             int i = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_INTELLECT));
             int h = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_HOARDER));
-            int a = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_AMBITIOUS));
 
-            sp.connection.send(new ClientboundCustomPayloadPacket(new PacketVillagerStatsData(id, true, g, t, i, h, a)));
+            sp.connection.send(new ClientboundCustomPayloadPacket(new PacketVillagerStatsData(id, true, g, t, i, h)));
 
             EZVillagerReroll.LOG().debug("[EZVR] Sent villager stats snapshot to {} for entityId={} uuid={}",
                     sp.getGameProfile().getName(), id, merchant.getUUID());

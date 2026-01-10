@@ -20,8 +20,7 @@ public record PacketVillagerStatsData(
         int generosity,
         int timeliness,
         int intellect,
-        int hoarder,
-        int ambitious
+        int hoarder
 ) implements CustomPacketPayload {
 
     public static final Type<PacketVillagerStatsData> TYPE =
@@ -31,7 +30,7 @@ public record PacketVillagerStatsData(
      * StreamCodec.composite in this environment only supports up to 6 fields,
      * so we bundle the 5 stats into a nested record and compose (id, ok, stats).
      */
-    private record StatsBundle(int generosity, int timeliness, int intellect, int hoarder, int ambitious) {}
+    private record StatsBundle(int generosity, int timeliness, int intellect, int hoarder) {}
 
     private static final StreamCodec<RegistryFriendlyByteBuf, StatsBundle> STATS_CODEC =
             StreamCodec.composite(
@@ -39,7 +38,6 @@ public record PacketVillagerStatsData(
                     ByteBufCodecs.VAR_INT, StatsBundle::timeliness,
                     ByteBufCodecs.VAR_INT, StatsBundle::intellect,
                     ByteBufCodecs.VAR_INT, StatsBundle::hoarder,
-                    ByteBufCodecs.VAR_INT, StatsBundle::ambitious,
                     StatsBundle::new
             );
 
@@ -47,12 +45,12 @@ public record PacketVillagerStatsData(
             StreamCodec.composite(
                     ByteBufCodecs.VAR_INT, PacketVillagerStatsData::villagerEntityId,
                     ByteBufCodecs.BOOL, PacketVillagerStatsData::ok,
-                    STATS_CODEC, d -> new StatsBundle(d.generosity(), d.timeliness(), d.intellect(), d.hoarder(), d.ambitious()),
-                    (id, ok, s) -> new PacketVillagerStatsData(id, ok, s.generosity(), s.timeliness(), s.intellect(), s.hoarder(), s.ambitious())
+                    STATS_CODEC, d -> new StatsBundle(d.generosity(), d.timeliness(), d.intellect(), d.hoarder()),
+                    (id, ok, s) -> new PacketVillagerStatsData(id, ok, s.generosity(), s.timeliness(), s.intellect(), s.hoarder())
             );
 
     public static PacketVillagerStatsData missing(int entityId) {
-        return new PacketVillagerStatsData(entityId, false, 0, 0, 0, 0, 0);
+        return new PacketVillagerStatsData(entityId, false, 0, 0, 0, 0);
     }
 
     @Override

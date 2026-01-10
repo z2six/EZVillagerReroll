@@ -35,7 +35,7 @@ public final class ClientVillagerStatsCache {
             MAP.put(data.villagerEntityId(), new Entry(data, System.currentTimeMillis()));
             EZVillagerReroll.LOG().debug("[EZVR] ClientVillagerStatsCache.accept: entityId={} ok={} g={} t={} i={} h={} a={}",
                     data.villagerEntityId(), data.ok(),
-                    data.generosity(), data.timeliness(), data.intellect(), data.hoarder(), data.ambitious());
+                    data.generosity(), data.timeliness(), data.intellect(), data.hoarder());
         } catch (Throwable t) {
             // soft
         }

@@ -27,6 +27,8 @@ import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 import org.z2six.ezvillagerreroll.server.CatalogBuilder;
 import org.z2six.ezvillagerreroll.server.SearchService;
 import org.z2six.ezvillagerreroll.server.VillagerOffersSavedData;
+import org.z2six.ezvillagerreroll.logic.VillagerTraitEffects;
+import org.z2six.ezvillagerreroll.server.VillagerStatsService;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -413,8 +415,31 @@ public final class ServerHandlers {
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
             if (!(trader instanceof Villager vill)) return;
 
+            // Remaining cooldown (already uses the effective cooldown via RerollState)
             int remaining = RerollState.cooldownRemainingTicks(sp.serverLevel(), vill);
-            ctx.reply(new PacketRerollCooldownState(menu.containerId, remaining, ServerConfig.cooldownTicks));
+
+            // Configured cooldown shown to client SHOULD match what the server uses (Timeliness-adjusted)
+            int configured = 0;
+            try {
+                int base = ServerConfig.cooldownTicks;
+                if (base > 0) {
+                    try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
+
+                    double pct = 0.0;
+                    try { pct = VillagerTraitEffects.timelinessPct(vill); } catch (Throwable ignored) { pct = 0.0; }
+
+                    configured = VillagerTraitEffects.applyCooldownPercent(base, pct);
+
+                    // cooldown enabled => never allow it to become "0" from modifiers
+                    if (configured <= 0) configured = 1;
+                } else {
+                    configured = 0; // disabled at config level
+                }
+            } catch (Throwable ignored) {
+                configured = Math.max(0, ServerConfig.cooldownTicks);
+            }
+
+            ctx.reply(new PacketRerollCooldownState(menu.containerId, remaining, configured));
         } catch (Throwable ignored) {}
     }
 

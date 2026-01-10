@@ -24,7 +24,6 @@ public final class VillagerStatsService {
     public static final String K_TIMELINESS = "timeliness";
     public static final String K_INTELLECT  = "intellect";
     public static final String K_HOARDER    = "hoarder";
-    public static final String K_AMBITIOUS  = "ambitious";
 
     public static final int POINTS_MIN = -100;
     public static final int POINTS_MAX = 100;
@@ -68,8 +67,7 @@ public final class VillagerStatsService {
                     root.contains(K_GENEROSITY) &&
                             root.contains(K_TIMELINESS) &&
                             root.contains(K_INTELLECT) &&
-                            root.contains(K_HOARDER) &&
-                            root.contains(K_AMBITIOUS);
+                            root.contains(K_HOARDER);
 
             if (ver >= STATS_VERSION && hasAll) {
                 return;
@@ -88,13 +86,12 @@ public final class VillagerStatsService {
             root.putInt(K_TIMELINESS, t);
             root.putInt(K_INTELLECT, i);
             root.putInt(K_HOARDER, h);
-            root.putInt(K_AMBITIOUS, a);
 
             pd.put(TAG_ROOT, root);
 
             // INFO so you see it without debug logs enabled
             EZVillagerReroll.LOG().info(
-                    "[EZVR] VillagerStats assigned: type={} entityId={} uuid={} generosity={} timeliness={} intellect={} hoarder={} ambitious={}",
+                    "[EZVR] VillagerStats assigned: type={} entityId={} uuid={} generosity={} timeliness={} intellect={} hoarder={}",
                     String.valueOf(e.getType()),
                     e.getId(),
                     e.getUUID(),

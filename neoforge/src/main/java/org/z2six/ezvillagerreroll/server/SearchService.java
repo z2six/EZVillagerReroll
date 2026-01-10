@@ -21,6 +21,7 @@ import org.z2six.ezvillagerreroll.logic.TradeUtil;
 import org.z2six.ezvillagerreroll.network.PacketAutoSearchDone;
 import org.z2six.ezvillagerreroll.network.PacketOpenAutoSearchPaymentScreen;
 import org.z2six.ezvillagerreroll.network.PacketOpenBusyScreen;
+import org.z2six.ezvillagerreroll.logic.VillagerTraitEffects;
 
 import java.lang.reflect.Method;
 import java.util.*;
@@ -465,8 +466,21 @@ public final class SearchService {
                 return;
             }
 
-            // AUTO uses its own cooldown now
-            int cooldown = Math.max(1, ServerConfig.cooldownTicksAuto);
+            // Ensure villager has stats (no-op if already present)
+            try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
+
+            // AUTO uses its own cooldown now + Timeliness modifies it
+            int baseCd = Math.max(1, ServerConfig.cooldownTicksAuto);
+            double tPct = 0.0;
+            int cooldown = baseCd;
+            try {
+                tPct = VillagerTraitEffects.timelinessPct(vill);
+                cooldown = VillagerTraitEffects.applyCooldownPercent(baseCd, tPct);
+            } catch (Throwable ignored) {
+                cooldown = baseCd;
+                tPct = 0.0;
+            }
+
             long now = vill.level().getGameTime();
 
             Task t = new Task(vill, sp, requested, now, cooldown);
@@ -479,11 +493,14 @@ public final class SearchService {
 
             TASKS.put(vill.getUUID(), t);
 
-            EZVillagerReroll.LOG().info("[EZVR] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicksAuto={} lockMaskBefore={} offersBefore={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={}",
+            EZVillagerReroll.LOG().info("[EZVR] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicksAuto={} baseCd={} timelinessPct={} effectiveCd={} lockMaskBefore={} offersBefore={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={}",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getId(),
                     t.requestedKeys.size(),
+                    cooldown,
+                    baseCd,
+                    tPct,
                     cooldown,
                     Long.toUnsignedString(t.lockMaskBefore),
                     t.offersBeforeTag == null ? -1 : t.offersBeforeTag.size(),
@@ -622,13 +639,26 @@ public final class SearchService {
                     continue;
                 }
 
+                // Ensure villager has stats (no-op if already present)
+                try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
+
                 try { updateGlowForBusyVillager(vill, server); } catch (Throwable ignored) {}
 
                 long now = vill.level().getGameTime();
                 if (now < task.nextRerollGameTime) continue;
 
-                // AUTO uses its own cooldown now (hot-reload friendly)
-                int cooldown = Math.max(1, ServerConfig.cooldownTicksAuto);
+                // AUTO uses its own cooldown + Timeliness modifies it (hot-reload friendly)
+                int baseCd = Math.max(1, ServerConfig.cooldownTicksAuto);
+                double tPct = 0.0;
+                int cooldown = baseCd;
+                try {
+                    tPct = VillagerTraitEffects.timelinessPct(vill);
+                    cooldown = VillagerTraitEffects.applyCooldownPercent(baseCd, tPct);
+                } catch (Throwable ignored) {
+                    cooldown = baseCd;
+                    tPct = 0.0;
+                }
+
                 task.cooldownTicks = cooldown;
                 task.nextRerollGameTime = now + cooldown;
 
@@ -645,8 +675,8 @@ public final class SearchService {
                 try {
                     TradeUtil.rebuildOffersInternal(vill, null, false);
                     task.rerollCount = Math.max(0, task.rerollCount + 1);
-                    EZVillagerReroll.LOG().debug("[EZVR] Auto-search reroll success: villager={} entityId={} rerollCount={}",
-                            vill.getUUID(), vill.getId(), task.rerollCount);
+                    EZVillagerReroll.LOG().debug("[EZVR] Auto-search reroll success: villager={} entityId={} rerollCount={} baseCd={} timelinessPct={} effectiveCd={}",
+                            vill.getUUID(), vill.getId(), task.rerollCount, baseCd, tPct, cooldown);
                 } catch (Throwable rerollErr) {
                     EZVillagerReroll.LOG().error("[EZVR] Auto-search reroll failed (villager={} entityId={})",
                             vill.getUUID(), vill.getId(), rerollErr);
@@ -699,7 +729,8 @@ public final class SearchService {
                 }
             } catch (Throwable ignored) {}
 
-            int totalXp = computeTotalVillagerXpForTask(task);
+            // XP now includes Intellect multiplier
+            int totalXp = computeTotalVillagerXpForTask(task, vill);
 
             Settlement settle = new Settlement(
                     vill.getUUID(),
@@ -739,7 +770,7 @@ public final class SearchService {
         }
     }
 
-    private static int computeTotalVillagerXpForTask(Task task) {
+    private static int computeTotalVillagerXpForTask(Task task, Villager vill) {
         try {
             if (task == null) return 0;
 
@@ -750,12 +781,19 @@ public final class SearchService {
             int offersRerolledPer = Math.max(0, task.offersRerolledPerRerollAtStart);
             if (rerolls <= 0 || offersRerolledPer <= 0) return 0;
 
-            double raw = (double) rerolls * (double) offersRerolledPer * perOffer;
-            long rounded = Math.round(raw);
+            // base XP from server config
+            double baseRaw = (double) rerolls * (double) offersRerolledPer * perOffer;
 
-            if (rounded < 0L) rounded = 0L;
-            if (rounded > Integer.MAX_VALUE) rounded = Integer.MAX_VALUE;
-            return (int) rounded;
+            // --- APPLY INTELLECT only (Ambitious removed) ---
+            double iPct = 0.0;
+            try {
+                if (vill != null) {
+                    iPct = VillagerTraitEffects.intellectPct(vill);
+                }
+            } catch (Throwable ignored) {}
+
+            // keep existing helper
+            return VillagerTraitEffects.applyXpPercentsRounded(baseRaw, iPct);
         } catch (Throwable t) {
             return 0;
         }
@@ -782,6 +820,9 @@ public final class SearchService {
     public static int computeHourlyCostServer(Villager vill) {
         try {
             if (vill == null) return 0;
+
+            // Ensure villager has stats (no-op if already present)
+            try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
 
             int totalOffers = (vill.getOffers() == null) ? 0 : Math.max(0, vill.getOffers().size());
 
@@ -823,13 +864,26 @@ public final class SearchService {
             if (scaled < 0L) scaled = 0L;
             if (scaled > Integer.MAX_VALUE) scaled = Integer.MAX_VALUE;
 
-            if (EZVillagerReroll.LOG().isDebugEnabled()) {
-                EZVillagerReroll.LOG().debug("[EZVR] computeHourlyCostServer: offers={} locked={} deductibleLocks={} free={} paid={} manual={} hourlyBase={} threshold={} pct={} steps={} factor={} hourly={}",
-                        totalOffers, lockedOffers, deductibleLocks, freeOffers, paidOffers, manual, hourlyBase,
-                        threshold, pct, steps, factor, scaled);
+            int hourly = (int) scaled;
+
+            // --- APPLY GENEROSITY: positive reduces cost, negative increases ---
+            double gPct = 0.0;
+            int finalHourly = hourly;
+            try {
+                gPct = VillagerTraitEffects.generosityPct(vill);
+                finalHourly = VillagerTraitEffects.applyCostPercent(hourly, gPct);
+            } catch (Throwable ignored) {
+                finalHourly = hourly;
+                gPct = 0.0;
             }
 
-            return (int) scaled;
+            if (EZVillagerReroll.LOG().isDebugEnabled()) {
+                EZVillagerReroll.LOG().debug("[EZVR] computeHourlyCostServer: offers={} locked={} deductibleLocks={} free={} paid={} manual={} hourlyBase={} threshold={} pct={} steps={} factor={} hourlyBeforeGen={} generosityPct={} hourlyFinal={}",
+                        totalOffers, lockedOffers, deductibleLocks, freeOffers, paidOffers, manual, hourlyBase,
+                        threshold, pct, steps, factor, hourly, gPct, finalHourly);
+            }
+
+            return finalHourly;
         } catch (Throwable t) {
             EZVillagerReroll.LOG().debug("[EZVR] computeHourlyCostServer failed (soft): {}", t.toString());
             return 0;

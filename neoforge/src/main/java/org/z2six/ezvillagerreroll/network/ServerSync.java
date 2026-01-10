@@ -55,9 +55,6 @@ public final class ServerSync {
             pkt.hoarderMinPct = ServerConfig.hoarderMinPct;
             pkt.hoarderMaxPct = ServerConfig.hoarderMaxPct;
 
-            pkt.ambitiousMinPct = ServerConfig.ambitiousMinPct;
-            pkt.ambitiousMaxPct = ServerConfig.ambitiousMaxPct;
-
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));
 
             EZVillagerReroll.LOG().debug(

@@ -6,6 +6,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.npc.Villager;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
 import org.z2six.ezvillagerreroll.EZVillagerReroll;
+import org.z2six.ezvillagerreroll.server.VillagerStatsService;
+
 
 import java.util.HashMap;
 import java.util.Map;
@@ -33,7 +35,7 @@ public final class RerollState {
             lastDay = day;
         }
 
-        int cooldown = ServerConfig.cooldownTicks;
+        int cooldown = effectiveCooldownTicks(vill);
         if (cooldown > 0) {
             long last = lastTick.getOrDefault(vill.getUUID(), Long.MIN_VALUE);
             if (last != Long.MIN_VALUE && now - last < cooldown) return false;
@@ -64,6 +66,31 @@ public final class RerollState {
         }
     }
 
+    private static int effectiveCooldownTicks(Villager vill) {
+        try {
+            int base = ServerConfig.cooldownTicks;
+            if (base <= 0) return 0;
+
+            if (vill != null) {
+                try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
+
+                double pct = 0.0;
+                try { pct = VillagerTraitEffects.timelinessPct(vill); } catch (Throwable ignored) { pct = 0.0; }
+
+                int eff = VillagerTraitEffects.applyCooldownPercent(base, pct);
+
+                // If cooldown is enabled, never allow it to become 0 from modifiers.
+                // (Server config uses 0 as "disabled".)
+                if (eff <= 0) eff = 1;
+                return eff;
+            }
+
+            return base;
+        } catch (Throwable t) {
+            return Math.max(0, ServerConfig.cooldownTicks);
+        }
+    }
+
     /**
      * Returns how many ticks remain until cooldown is finished for this villager.
      * 0 means "no cooldown currently active" OR "cooldown disabled".
@@ -74,7 +101,7 @@ public final class RerollState {
         try {
             if (lvl == null || vill == null) return 0;
 
-            int cooldown = ServerConfig.cooldownTicks;
+            int cooldown = effectiveCooldownTicks(vill);
             if (cooldown <= 0) return 0;
 
             long now = lvl.getGameTime();

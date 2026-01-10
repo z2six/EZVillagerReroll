@@ -316,9 +316,8 @@ public final class Network {
                 int t = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_TIMELINESS));
                 int i = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_INTELLECT));
                 int h = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_HOARDER));
-                int a = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_AMBITIOUS));
 
-                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, a));
+                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h));
 
             } catch (Throwable t) {
                 EZVillagerReroll.LOG().error("[EZVR] VillagerStatsQuery handler error", t);

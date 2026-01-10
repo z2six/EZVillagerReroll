@@ -86,9 +86,6 @@ public final class ServerConfig {
     public static final ModConfigSpec.DoubleValue HOARDER_MIN_PCT;
     public static final ModConfigSpec.DoubleValue HOARDER_MAX_PCT;
 
-    public static final ModConfigSpec.DoubleValue AMBITIOUS_MIN_PCT;
-    public static final ModConfigSpec.DoubleValue AMBITIOUS_MAX_PCT;
-
     // ---------------------------------------------------------------------
     // SPEC DEFINITION
     // ---------------------------------------------------------------------
@@ -288,20 +285,6 @@ public final class ServerConfig {
                         """)
                         .defineInRange("hoarderMaxPct", 20.0, -1000.0, 1000.0);
 
-        AMBITIOUS_MIN_PCT =
-                B.comment("""
-                        Ambitious effect MIN percent at points = -100.
-                        This will later modify XP gained (a separate multiplier from Intellect).
-                        """)
-                        .defineInRange("ambitiousMinPct", -20.0, -1000.0, 1000.0);
-
-        AMBITIOUS_MAX_PCT =
-                B.comment("""
-                        Ambitious effect MAX percent at points = +100.
-                        This will later modify XP gained (a separate multiplier from Intellect).
-                        """)
-                        .defineInRange("ambitiousMaxPct", 20.0, -1000.0, 1000.0);
-
         B.pop();
     }
 
@@ -342,9 +325,6 @@ public final class ServerConfig {
 
     public static double hoarderMinPct = -20.0;
     public static double hoarderMaxPct = 20.0;
-
-    public static double ambitiousMinPct = -20.0;
-    public static double ambitiousMaxPct = 20.0;
 
     private static int[] levelCosts = new int[]{0, 16, 52, 64, 96};
 
@@ -407,12 +387,6 @@ public final class ServerConfig {
             hoarderMinPct = hh[0];
             hoarderMaxPct = hh[1];
 
-            double aMin = AMBITIOUS_MIN_PCT.get();
-            double aMax = AMBITIOUS_MAX_PCT.get();
-            double[] aa = normalizeMinMax(aMin, aMax);
-            ambitiousMinPct = aa[0];
-            ambitiousMaxPct = aa[1];
-
             levelCosts = parseLevelCosts(LEVEL_COSTS.get());
 
             if (autoPreferLCIfPresent
@@ -438,7 +412,6 @@ public final class ServerConfig {
                     timelinessMinPct, timelinessMaxPct,
                     intellectMinPct, intellectMaxPct,
                     hoarderMinPct, hoarderMaxPct,
-                    ambitiousMinPct, ambitiousMaxPct,
                     debug(levelCosts)
             );
 
@@ -515,9 +488,6 @@ public final class ServerConfig {
 
         h = 31 * h + hashD(hoarderMinPct);
         h = 31 * h + hashD(hoarderMaxPct);
-
-        h = 31 * h + hashD(ambitiousMinPct);
-        h = 31 * h + hashD(ambitiousMaxPct);
 
         for (int v : levelCosts) h = 31 * h + v;
         return h;

@@ -48,9 +48,6 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public double hoarderMinPct;
     public double hoarderMaxPct;
 
-    public double ambitiousMinPct;
-    public double ambitiousMaxPct;
-
     public PacketSyncConfig() {}
 
     public static final StreamCodec<FriendlyByteBuf, PacketSyncConfig> STREAM_CODEC = new StreamCodec<>() {
@@ -108,9 +105,6 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.hoarderMinPct = -20.0;
             p.hoarderMaxPct = 20.0;
 
-            p.ambitiousMinPct = -20.0;
-            p.ambitiousMaxPct = 20.0;
-
             // NEW: trait bounds (safe read; keeps backwards tolerance if older server)
             try { p.generosityMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.generosityMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
@@ -123,9 +117,6 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
             try { p.hoarderMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.hoarderMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
-
-            try { p.ambitiousMinPct = buf.readDouble(); } catch (Throwable ignored) {}
-            try { p.ambitiousMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
 
             return p;
         }
@@ -170,9 +161,6 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
             buf.writeDouble(p.hoarderMinPct);
             buf.writeDouble(p.hoarderMaxPct);
-
-            buf.writeDouble(p.ambitiousMinPct);
-            buf.writeDouble(p.ambitiousMaxPct);
         }
     };
 

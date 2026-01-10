@@ -144,11 +144,25 @@ public final class ClientUI {
                                 return;
                             }
 
+                            // ------------------------------
+                            // FIX: optimistic cooldown should prefer the last-known total cooldown ticks
+                            // (which should be villager-adjusted once we've received a server snapshot),
+                            // and only fall back to global config cooldown ticks if unknown.
+                            // ------------------------------
                             int optimisticTicks = 0;
+
                             try {
-                                ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
-                                if (cfg != null) optimisticTicks = Math.max(0, cfg.cooldownTicks);
+                                if (cid >= 0) {
+                                    optimisticTicks = Math.max(0, ClientRerollCooldownCache.getLastKnownTotalCooldownTicks(cid));
+                                }
                             } catch (Throwable ignored) {}
+
+                            if (optimisticTicks <= 0) {
+                                try {
+                                    ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+                                    if (cfg != null) optimisticTicks = Math.max(0, cfg.cooldownTicks);
+                                } catch (Throwable ignored) {}
+                            }
 
                             if (cid >= 0 && optimisticTicks > 0) {
                                 ClientRerollCooldownCache.setOptimisticCooldown(cid, optimisticTicks);
@@ -559,12 +573,16 @@ public final class ClientUI {
                 } catch (Throwable ignored) {}
             }
 
+            // ------------------------------
+            // FIX: do NOT ceil to whole seconds here; it hides small changes from Timeliness.
+            // Show 0.1s precision and include ticks as a gray hint.
+            // ------------------------------
             if (cfgTicks > 0) {
-                int secs = (int) Math.ceil(cfgTicks / 20.0);
-                if (secs < 0) secs = 0;
+                double sec = cfgTicks / 20.0;
                 cooldownLine = Component.empty()
                         .append(Component.literal("Cooldown: ").withStyle(ChatFormatting.GOLD))
-                        .append(Component.literal(secs + "s"));
+                        .append(Component.literal(String.format("%.1fs", sec)))
+                        .append(Component.literal(" (" + cfgTicks + "t)").withStyle(ChatFormatting.DARK_GRAY));
             } else {
                 cooldownLine = Component.empty()
                         .append(Component.literal("Cooldown: ").withStyle(ChatFormatting.GOLD))

@@ -33,7 +33,6 @@ public final class ClientSyncedConfig {
         public double timelinessMinPct, timelinessMaxPct;
         public double intellectMinPct, intellectMaxPct;
         public double hoarderMinPct, hoarderMaxPct;
-        public double ambitiousMinPct, ambitiousMaxPct;
 
         @Override
         public String toString() {
@@ -56,7 +55,6 @@ public final class ClientSyncedConfig {
                     ", timeliness=[" + timelinessMinPct + "," + timelinessMaxPct + "]" +
                     ", intellect=[" + intellectMinPct + "," + intellectMaxPct + "]" +
                     ", hoarder=[" + hoarderMinPct + "," + hoarderMaxPct + "]" +
-                    ", ambitious=[" + ambitiousMinPct + "," + ambitiousMaxPct + "]" +
                     '}';
         }
     }
@@ -102,9 +100,6 @@ public final class ClientSyncedConfig {
 
             s.hoarderMinPct = msg.hoarderMinPct;
             s.hoarderMaxPct = msg.hoarderMaxPct;
-
-            s.ambitiousMinPct = msg.ambitiousMinPct;
-            s.ambitiousMaxPct = msg.ambitiousMaxPct;
 
             last = s;
 

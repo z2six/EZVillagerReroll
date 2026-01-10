@@ -12,6 +12,7 @@ import org.z2six.ezvillagerreroll.EZVillagerReroll;
 import org.z2six.ezvillagerreroll.config.ServerConfig;
 import org.z2six.ezvillagerreroll.mixin.MerchantMenuAccessor;
 import org.z2six.ezvillagerreroll.server.VillagerOffersSavedData;
+import org.z2six.ezvillagerreroll.logic.VillagerTraitEffects;
 
 import java.lang.reflect.Method;
 
@@ -39,6 +40,9 @@ public final class RerollExecutor {
                 );
                 return;
             }
+
+            // Ensure villager has stats (no-op if already present)
+            try { org.z2six.ezvillagerreroll.server.VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
 
             int level = Math.max(1, Math.min(5, vill.getVillagerData().getLevel()));
             int xp = vill.getVillagerXp();
@@ -88,18 +92,29 @@ public final class RerollExecutor {
 
             int paidOffers = Math.max(0, effectiveOffers - freeOffers);
 
-            int cost;
+            int baseCost;
             try {
                 long c = (long) paidOffers * (long) costPerOffer;
                 if (c < 0) c = 0;
                 if (c > Integer.MAX_VALUE) c = Integer.MAX_VALUE;
-                cost = (int) c;
+                baseCost = (int) c;
             } catch (Throwable t) {
-                cost = Integer.MAX_VALUE;
+                baseCost = Integer.MAX_VALUE;
+            }
+
+            // --- APPLY GENEROSITY: positive generosity reduces cost, negative increases ---
+            double generosityPct = 0.0;
+            int cost = baseCost;
+            try {
+                generosityPct = VillagerTraitEffects.generosityPct(vill);
+                cost = VillagerTraitEffects.applyCostPercent(baseCost, generosityPct);
+            } catch (Throwable ignored) {
+                cost = baseCost;
+                generosityPct = 0.0;
             }
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, offersRerolled={}, deductibleLocks={}, effectiveOffers={}, freeOffers={}, paidOffers={}, costPerOffer={}, cost={}, costSpec='{}' (preferWallet={})",
+                    "[EZVR] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, offersRerolled={}, deductibleLocks={}, effectiveOffers={}, freeOffers={}, paidOffers={}, costPerOffer={}, baseCost={}, generosityPct={}, cost={}, costSpec='{}' (preferWallet={})",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getVillagerData().getProfession(),
@@ -107,7 +122,8 @@ public final class RerollExecutor {
                     lockedCount, offersRerolled,
                     deductibleLocks, effectiveOffers,
                     freeOffers, paidOffers, costPerOffer,
-                    cost, ServerConfig.costSpec, ServerConfig.preferWallet
+                    baseCost, generosityPct, cost,
+                    ServerConfig.costSpec, ServerConfig.preferWallet
             );
 
             boolean paid = false;
@@ -159,9 +175,7 @@ public final class RerollExecutor {
                 return;
             }
 
-            // NEW: Grant villager XP for successful manual reroll.
-            // We do this AFTER rebuild succeeded, but BEFORE capturing canonical offers
-            // so the persisted "canonical" offers reflect any immediate changes from XP gain.
+            // Grant villager XP for successful manual reroll (includes Intellect multiplier)
             grantVillagerXpForManualReroll(sp, menu, vill, offersRerolled);
 
             // MANUAL REROLL RULE: After a successful manual reroll, store the new offers as canonical.
@@ -210,15 +224,26 @@ public final class RerollExecutor {
                 return;
             }
 
-            // float-config XP -> rounded int XP
-            double raw = perOffer * (double) rerolled;
-            long addLong = Math.round(raw);
-            if (addLong < 0L) addLong = 0L;
-            if (addLong > Integer.MAX_VALUE) addLong = Integer.MAX_VALUE;
-            int add = (int) addLong;
+            // --- APPLY INTELLECT only (Ambitious removed) ---
+            double iPct = 0.0;
+            double baseRaw = perOffer * (double) rerolled;
+
+            int add;
+            try {
+                iPct = VillagerTraitEffects.intellectPct(vill);
+                // apply Intellect multiplier only
+                add = VillagerTraitEffects.applyXpPercentsRounded(baseRaw, iPct);
+            } catch (Throwable ignored) {
+                // fallback: original behavior (no multipliers)
+                long addLong = Math.round(baseRaw);
+                if (addLong < 0L) addLong = 0L;
+                if (addLong > Integer.MAX_VALUE) addLong = Integer.MAX_VALUE;
+                add = (int) addLong;
+            }
 
             if (add <= 0) {
-                EZVillagerReroll.LOG().debug("[EZVR] Manual reroll XP rounded to 0 (perOffer={} rerolled={} raw={}).", perOffer, rerolled, raw);
+                EZVillagerReroll.LOG().debug("[EZVR] Manual reroll XP rounded to 0 (perOffer={} rerolled={} baseRaw={} intellectPct={}).",
+                        perOffer, rerolled, baseRaw, iPct);
                 return;
             }
 
@@ -234,8 +259,6 @@ public final class RerollExecutor {
                 return;
             }
 
-            // ✅ The important part:
-            // Use vanilla's own shouldIncreaseLevel(), and if true, call vanilla's increaseMerchantCareer().
             boolean scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vill);
 
             int xpAfter = xpBefore;
@@ -243,7 +266,7 @@ public final class RerollExecutor {
             try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
             try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
 
-            // Re-sync merchant offers to update XP bar immediately (level/trades may change via vanilla flow).
+            // Re-sync merchant offers to update XP bar immediately.
             try {
                 sp.sendMerchantOffers(
                         menu.containerId,
@@ -258,8 +281,8 @@ public final class RerollExecutor {
             }
 
             EZVillagerReroll.LOG().info(
-                    "[EZVR] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} add={} scheduledVanillaLevelUp={} xp {}->{} level {}->{}",
-                    vill.getUUID(), rerolled, perOffer, add, scheduledVanillaLevelUp,
+                    "[EZVR] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} baseRaw={} intellectPct={} add={} scheduledVanillaLevelUp={} xp {}->{} level {}->{}",
+                    vill.getUUID(), rerolled, perOffer, baseRaw, iPct, add, scheduledVanillaLevelUp,
                     xpBefore, xpAfter, lvlBefore, lvlAfter
             );
 
