@@ -16,6 +16,7 @@ import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.network.Network;
 import org.z2six.villageroverhaul.server.BusyVillagerBlocker;
 import org.z2six.villageroverhaul.server.ServerEvents;
+import org.z2six.villageroverhaul.server.VillagerCombatAttributesBootstrap;
 
 @Mod(Constants.MOD_ID)
 public final class VillagerOverhaul {
@@ -40,8 +41,6 @@ public final class VillagerOverhaul {
             LOG.error("[VillagerOverhaul] Failed to register CLIENT config spec (continuing).", t);
         }
 
-        // --- MOD BUS listeners (IModBusEvent + lifecycle) ---
-        // IMPORTANT: do NOT register these on NeoForge.EVENT_BUS
         try {
             modBus.addListener(Network::onRegisterPayloadHandlers);
             LOG.info("[VillagerOverhaul] Registered Network payload handler registration on MOD bus.");
@@ -55,6 +54,13 @@ public final class VillagerOverhaul {
             LOG.info("[VillagerOverhaul] Registered ServerConfig load/reload listeners on MOD bus.");
         } catch (Throwable t) {
             LOG.error("[VillagerOverhaul] Failed to register ServerConfig listeners.", t);
+        }
+
+        try {
+            VillagerCombatAttributesBootstrap.register(modBus);
+            LOG.info("[VillagerOverhaul] Registered VillagerCombatAttributesBootstrap on MOD BUS.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to register VillagerCombatAttributesBootstrap listeners.", t);
         }
 
         try {

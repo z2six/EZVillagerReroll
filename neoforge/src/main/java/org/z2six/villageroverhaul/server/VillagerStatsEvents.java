@@ -1,4 +1,3 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/VillagerStatsEvents.java
 package org.z2six.villageroverhaul.server;
 
 import net.neoforged.bus.api.IEventBus;
@@ -32,8 +31,11 @@ public final class VillagerStatsEvents {
             var entity = e.getEntity();
             if (entity == null) return;
 
-            // Assign stats to any supported merchant/villager-like entity.
+            // 1) Ensure NBT stat points exist
             VillagerStatsService.ensureStats(entity);
+
+            // 2) Apply attribute modifiers (vitality/agility/strength/armor)
+            VillagerCombatAttributeService.applyCombatModifiers(entity);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerStatsEvents.onEntityJoinLevel failed (soft): {}", t.toString());

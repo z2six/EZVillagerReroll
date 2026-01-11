@@ -64,6 +64,8 @@ public final class RecruitVillagerScreen extends Screen {
     private boolean sentRecruit = false;
     private boolean sentCostQuery = false;
 
+    private static final int TIP_ICON = 9;
+
     public RecruitVillagerScreen(int villagerEntityId, int cost, boolean eligible, boolean alreadyRecruited, String serverMessage) {
         super(Component.literal("Recruit villager"));
         this.villagerEntityId = villagerEntityId;
@@ -265,16 +267,16 @@ public final class RecruitVillagerScreen extends Screen {
             gg.drawString(this.font, s, col2X, lineY, c);
         } else {
             // Merchant column
-            drawStatLine(gg, col1X, lineY + lh * 0, "Generosity", generosity, C_GENEROSITY, merchantEffect("generosity", generosity));
-            drawStatLine(gg, col1X, lineY + lh * 1, "Timeliness", timeliness, C_TIMELINESS, merchantEffect("timeliness", timeliness));
-            drawStatLine(gg, col1X, lineY + lh * 2, "Intellect", intellect, C_INTELLECT, merchantEffect("intellect", intellect));
-            drawStatLine(gg, col1X, lineY + lh * 3, "Hoarder", hoarder, C_HOARDER, hoarderEffect(hoarder));
+            drawStatLine(gg, col1X, lineY + lh * 0, "Generosity", generosity, C_GENEROSITY, merchantTooltip("generosity", generosity), mouseX, mouseY);
+            drawStatLine(gg, col1X, lineY + lh * 1, "Timeliness", timeliness, C_TIMELINESS, merchantTooltip("timeliness", timeliness), mouseX, mouseY);
+            drawStatLine(gg, col1X, lineY + lh * 2, "Intellect", intellect, C_INTELLECT, merchantTooltip("intellect", intellect), mouseX, mouseY);
+            drawStatLine(gg, col1X, lineY + lh * 3, "Hoarder", hoarder, C_HOARDER, hoarderTooltip(hoarder), mouseX, mouseY);
 
             // Combat column
-            drawStatLine(gg, col2X, lineY + lh * 0, "Vitality", vitality, C_VITALITY, vitalityEffect(vitality));
-            drawStatLine(gg, col2X, lineY + lh * 1, "Agility", agility, C_AGILITY, agilityEffect(agility));
-            drawStatLine(gg, col2X, lineY + lh * 2, "Strength", strength, C_STRENGTH, strengthEffect(strength));
-            drawStatLine(gg, col2X, lineY + lh * 3, "Armor", armor, C_ARMOR, armorEffect(armor));
+            drawStatLine(gg, col2X, lineY + lh * 0, "Vitality", vitality, C_VITALITY, vitalityTooltip(vitality), mouseX, mouseY);
+            drawStatLine(gg, col2X, lineY + lh * 1, "Agility", agility, C_AGILITY, agilityTooltip(agility), mouseX, mouseY);
+            drawStatLine(gg, col2X, lineY + lh * 2, "Strength", strength, C_STRENGTH, strengthTooltip(strength), mouseX, mouseY);
+            drawStatLine(gg, col2X, lineY + lh * 3, "Armor", armor, C_ARMOR, armorTooltip(armor), mouseX, mouseY);
         }
 
         // Render widgets manually (buttons), WITHOUT re-drawing background.
@@ -289,7 +291,7 @@ public final class RecruitVillagerScreen extends Screen {
         }
     }
 
-    private void drawStatLine(GuiGraphics gg, int x, int y, String label, int points, int argbLabel, String effect) {
+    private void drawStatLine(GuiGraphics gg, int x, int y, String label, int points, int argbLabel, String tooltipSentence, int mouseX, int mouseY) {
         try {
             int p = Mth.clamp(points, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
 
@@ -298,12 +300,38 @@ public final class RecruitVillagerScreen extends Screen {
                             p < 0 ? ChatFormatting.RED :
                                     ChatFormatting.GRAY;
 
-            Component c = Component.literal(label + ": ")
+            // Base line: "Label: +12"
+            Component base = Component.literal(label + ": ")
                     .withStyle(s -> s.withColor(TextColor.fromRgb(argbLabel & 0x00FFFFFF)))
-                    .append(Component.literal(formatSignedPoints(p)).withStyle(pv))
-                    .append(Component.literal(" (" + (effect == null ? "config…" : effect) + ")").withStyle(ChatFormatting.DARK_GRAY));
+                    .append(Component.literal(formatSignedPoints(p)).withStyle(pv));
 
-            gg.drawString(this.font, c, x, y, 0xFFFFFFFF, false);
+            gg.drawString(this.font, base, x, y, 0xFFFFFFFF, false);
+
+            // If we have a tooltip, draw the ? icon and show tooltip on hover
+            if (tooltipSentence != null && !tooltipSentence.isBlank()) {
+                int baseW = this.font.width(base);
+                int ix = x + baseW + 6;
+                int iy = y + 1;
+
+                // little box
+                int bg = 0xFF2A2A2A;
+                int border = 0xFF6A6A6A;
+                gg.fill(ix, iy, ix + TIP_ICON, iy + TIP_ICON, bg);
+
+                // border (1px)
+                gg.fill(ix, iy, ix + TIP_ICON, iy + 1, border);
+                gg.fill(ix, iy + TIP_ICON - 1, ix + TIP_ICON, iy + TIP_ICON, border);
+                gg.fill(ix, iy, ix + 1, iy + TIP_ICON, border);
+                gg.fill(ix + TIP_ICON - 1, iy, ix + TIP_ICON, iy + TIP_ICON, border);
+
+                // "?"
+                gg.drawString(this.font, "?", ix + 3, iy + 1, 0xFFEAEAEA, false);
+
+                boolean hover = mouseX >= ix && mouseX < (ix + TIP_ICON) && mouseY >= iy && mouseY < (iy + TIP_ICON);
+                if (hover) {
+                    gg.renderTooltip(this.font, Component.literal(tooltipSentence).withStyle(ChatFormatting.GRAY), mouseX, mouseY);
+                }
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -316,7 +344,7 @@ public final class RecruitVillagerScreen extends Screen {
     // Effect text helpers (uses ClientSyncedConfig)
     // -----------------------------
 
-    private static String merchantEffect(String kind, int points) {
+    private static String merchantTooltip(String kind, int points) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
@@ -331,22 +359,38 @@ public final class RecruitVillagerScreen extends Screen {
 
             double pct = lerpFromPoints(points, min, max);
             long r = Math.round(Math.abs(pct));
+            if (r == 0) {
+                return switch (kind) {
+                    case "generosity" -> "Prices will be unchanged.";
+                    case "timeliness" -> "Reroll cooldown will be unchanged.";
+                    case "intellect"  -> "XP gains will be unchanged.";
+                    default -> null;
+                };
+            }
 
             if ("generosity".equals(kind)) {
-                return (pct >= 0.0) ? (r + "% discount") : (r + "% surcharge");
+                return (pct >= 0.0)
+                        ? ("Prices will be " + r + "% cheaper.")
+                        : ("Prices will be " + r + "% more expensive.");
             }
+
             if ("timeliness".equals(kind)) {
-                return (pct >= 0.0) ? (r + "% faster") : (r + "% slower");
+                return (pct >= 0.0)
+                        ? ("Reroll cooldown will be " + r + "% faster.")
+                        : ("Reroll cooldown will be " + r + "% slower.");
             }
+
             // intellect
-            return (pct >= 0.0) ? (r + "% more XP") : (r + "% less XP");
+            return (pct >= 0.0)
+                    ? ("Villager XP gains will be " + r + "% higher.")
+                    : ("Villager XP gains will be " + r + "% lower.");
 
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static String hoarderEffect(int points) {
+    private static String hoarderTooltip(int points) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
@@ -358,66 +402,86 @@ public final class RecruitVillagerScreen extends Screen {
             double d = lerpFromPoints(points, min, max);
             int delta = (int) Math.round(d);
 
-            if (delta > 0) return "+" + delta + " offers";
-            if (delta < 0) return delta + " offers";
-            return "0 offers";
+            if (delta > 0) return "This villager will tend to have " + delta + " extra trade offer(s).";
+            if (delta < 0) return "This villager will tend to have " + Math.abs(delta) + " fewer trade offer(s).";
+            return "Trade offer count will be unchanged.";
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static String vitalityEffect(int points) {
+    private static String vitalityTooltip(int points) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
 
-            // Config is in HEALTH POINTS (2.0 = 1 heart)
             double hp = lerpFromPoints(points, cfg.vitalityMinHealth, cfg.vitalityMaxHealth);
             double hearts = hp / 2.0;
 
-            return formatSigned1(hearts) + " hearts";
+            if (Math.abs(hearts) < 0.05) return "Maximum health will be unchanged.";
+            return (hearts > 0)
+                    ? ("Maximum health will increase by " + formatAbs1(hearts) + " heart(s).")
+                    : ("Maximum health will decrease by " + formatAbs1(hearts) + " heart(s).");
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static String agilityEffect(int points) {
+    private static String agilityTooltip(int points) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
 
-            // Config is raw movement speed ADDITIVE delta (not percent)
             double delta = lerpFromPoints(points, cfg.agilityMinSpeed, cfg.agilityMaxSpeed);
-
-            // Show more precision because these are usually small (e.g. 0.03)
-            return formatSigned3(delta) + " move speed";
+            if (Math.abs(delta) < 0.0005) return "Movement speed will be unchanged.";
+            return (delta > 0)
+                    ? ("Movement speed will increase by " + formatAbs3(delta) + ".")
+                    : ("Movement speed will decrease by " + formatAbs3(delta) + ".");
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static String strengthEffect(int points) {
+    private static String strengthTooltip(int points) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
 
             double dmg = lerpFromPoints(points, cfg.strengthMinDamage, cfg.strengthMaxDamage);
-            return formatSigned1(dmg) + " damage";
+            if (Math.abs(dmg) < 0.05) return "Attack damage will be unchanged.";
+            return (dmg > 0)
+                    ? ("Attack damage will increase by " + formatAbs1(dmg) + ".")
+                    : ("Attack damage will decrease by " + formatAbs1(dmg) + ".");
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static String armorEffect(int points) {
+    private static String armorTooltip(int points) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
 
             double arm = lerpFromPoints(points, cfg.armorMin, cfg.armorMax);
-            return formatSigned1(arm) + " armor";
+            if (Math.abs(arm) < 0.05) return "Armor will be unchanged.";
+            return (arm > 0)
+                    ? ("Armor will increase by " + formatAbs1(arm) + ".")
+                    : ("Armor will decrease by " + formatAbs1(arm) + ".");
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    private static String formatAbs1(double v) {
+        double r = Math.round(Math.abs(v) * 10.0) / 10.0;
+        if (Math.abs(r) < 0.05) r = 0.0;
+        return String.valueOf(r);
+    }
+
+    private static String formatAbs3(double v) {
+        double r = Math.round(Math.abs(v) * 1000.0) / 1000.0;
+        if (Math.abs(r) < 0.0005) r = 0.0;
+        return String.valueOf(r);
     }
 
     private static double lerpFromPoints(int points, double min, double max) {

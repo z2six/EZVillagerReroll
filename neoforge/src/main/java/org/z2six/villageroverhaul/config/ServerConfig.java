@@ -340,14 +340,14 @@ public final class ServerConfig {
                         Unit: raw movement_speed additive value.
                         Typical base values are around 0.1; keep changes small.
                         """)
-                        .defineInRange("agilityMinSpeed", -0.02, -1.0, 1.0);
+                        .defineInRange("agilityMinSpeed", -0.1, -1.0, 1.0);
 
         AGILITY_MAX_SPEED =
                 B.comment("""
                         Agility MAX delta applied to generic.movement_speed at points=+100.
                         Unit: raw movement_speed additive value.
                         """)
-                        .defineInRange("agilityMaxSpeed", 0.03, -1.0, 1.0);
+                        .defineInRange("agilityMaxSpeed", 0.1, -1.0, 1.0);
 
         STRENGTH_MIN_DAMAGE =
                 B.comment("""
