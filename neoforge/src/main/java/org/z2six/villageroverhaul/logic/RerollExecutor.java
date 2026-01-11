@@ -243,24 +243,16 @@ public final class RerollExecutor {
 
             boolean scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vill);
 
-            // ✅ CRITICAL FIX:
-            // Level-up APPENDS offers. That is NOT a rebuild.
-            // We must use normalizeOffers() so drift correction can infer baseline correctly.
-            try {
-                HoarderOffers.normalizeOffers(vill, sp);
-            } catch (Throwable ignored) {}
-
-            // Keep generosity consistent too.
-            try {
-                VillagerGenerosityOfferService.normalizeAndApply(vill);
-            } catch (Throwable ignored) {}
+            // Immediate normalize (best effort)
+            try { HoarderOffers.normalizeOffers(vill, sp); } catch (Throwable ignored) {}
+            try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
 
             int xpAfter = xpBefore;
             int lvlAfter = lvlBefore;
             try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
             try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
 
-            // Re-sync merchant offers so player sees correct offers + XP bar immediately.
+            // Immediate GUI refresh
             try {
                 sp.sendMerchantOffers(
                         menu.containerId,
@@ -273,6 +265,10 @@ public final class RerollExecutor {
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Manual reroll XP: sendMerchantOffers refresh failed (soft): {}", t.toString());
             }
+
+            // CRITICAL: vanilla may still append/refresh offers AFTER this call stack.
+            // Next tick we re-apply Hoarder+Generosity and re-sync if still open.
+            scheduleNextTickOfferRecheck(vill, sp, menu);
 
             VillagerOverhaul.LOG().info(
                     "[VillagerOverhaul] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} baseRaw={} intellectPct={} add={} scheduledVanillaLevelUp={} xp {}->{} level {}->{} offersNow={}",
@@ -436,6 +432,69 @@ public final class RerollExecutor {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().warn("[VillagerOverhaul] toast failed for key={}: {}", key, t.toString());
         }
+    }
+
+    private static void scheduleNextTickOfferRecheck(Villager vill, ServerPlayer sp, MerchantMenu menu) {
+        try {
+            if (vill == null) return;
+
+            final net.minecraft.server.MinecraftServer srv;
+            try {
+                srv = vill.getServer();
+            } catch (Throwable ignored) {
+                return;
+            }
+            if (srv == null) return;
+
+            final java.util.UUID villUuid;
+            try {
+                villUuid = vill.getUUID();
+            } catch (Throwable ignored) {
+                return;
+            }
+
+            final java.util.UUID playerUuid = (sp == null ? null : sp.getUUID());
+
+            srv.execute(() -> {
+                try {
+                    // Resolve villager next tick (entity reference may be stale)
+                    Villager v = null;
+                    for (var lvl : srv.getAllLevels()) {
+                        var ent = lvl.getEntity(villUuid);
+                        if (ent instanceof Villager vv) { v = vv; break; }
+                    }
+                    if (v == null) return;
+
+                    ServerPlayer p = (playerUuid == null) ? null : srv.getPlayerList().getPlayer(playerUuid);
+
+                    // Re-apply Hoarder after vanilla has appended/updated offers.
+                    try { HoarderOffers.normalizeOffers(v, p); } catch (Throwable ignored) {}
+
+                    // Re-apply Generosity after vanilla has appended/updated offers.
+                    try { org.z2six.villageroverhaul.server.VillagerGenerosityOfferService.normalizeAndApply(v); } catch (Throwable ignored) {}
+
+                    // If the player is still trading THIS villager, resync the GUI.
+                    if (p != null && p.containerMenu instanceof MerchantMenu mm) {
+                        try {
+                            net.minecraft.world.item.trading.Merchant trader =
+                                    ((org.z2six.villageroverhaul.mixin.MerchantMenuAccessor) mm).ezvr$getTrader();
+                            if (trader == v) {
+                                p.sendMerchantOffers(
+                                        mm.containerId,
+                                        v.getOffers(),
+                                        v.getVillagerData().getLevel(),
+                                        v.getVillagerXp(),
+                                        v.showProgressBar(),
+                                        v.canRestock()
+                                );
+                            }
+                        } catch (Throwable ignored) {}
+                    }
+
+                } catch (Throwable ignored) {}
+            });
+
+        } catch (Throwable ignored) {}
     }
 
     private RerollExecutor() {}

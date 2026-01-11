@@ -1,4 +1,3 @@
-//
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -23,13 +22,17 @@ public final class VillagerGenerosityOfferService {
     private static final String K_APPLIED_PCT = "appliedPct"; // double
     private static final String K_BASE_A = "baseA"; // int[]
     private static final String K_BASE_B = "baseB"; // int[]
+    private static final String K_BASE_SPD = "baseSpd"; // int[]  (specialPriceDiff baseline)
 
     /**
      * Normalizes and applies Generosity discount/surcharge to all offers that cost emeralds.
      *
      * Stack-safe:
-     * - Always applies from baseline (baseA/baseB) so it never compounds.
+     * - Always applies from baseline so it never compounds.
      * - Fingerprint ignores counts so our own mutations don't cause re-baseline loops.
+     *
+     * GUI-safe:
+     * - For Cost A emeralds, uses specialPriceDiff (reliably changes displayed price).
      *
      * @return true if the offers were mutated or we changed stored appliedPct/baseline.
      */
@@ -60,20 +63,24 @@ public final class VillagerGenerosityOfferService {
             int n = offers.size();
             int[] baseA;
             int[] baseB;
+            int[] baseSpd;
 
             boolean needRebaseline = (fpOld != fpNow)
                     || !gen.contains(K_BASE_A, IntArrayTag.TAG_INT_ARRAY)
-                    || !gen.contains(K_BASE_B, IntArrayTag.TAG_INT_ARRAY);
+                    || !gen.contains(K_BASE_B, IntArrayTag.TAG_INT_ARRAY)
+                    || !gen.contains(K_BASE_SPD, IntArrayTag.TAG_INT_ARRAY);
 
             if (!needRebaseline) {
                 baseA = gen.getIntArray(K_BASE_A);
                 baseB = gen.getIntArray(K_BASE_B);
-                needRebaseline = (baseA.length != n) || (baseB.length != n);
+                baseSpd = gen.getIntArray(K_BASE_SPD);
+                needRebaseline = (baseA.length != n) || (baseB.length != n) || (baseSpd.length != n);
             }
 
             if (needRebaseline) {
                 baseA = new int[n];
                 baseB = new int[n];
+                baseSpd = new int[n];
 
                 for (int i = 0; i < n; i++) {
                     MerchantOffer o = offers.get(i);
@@ -84,15 +91,19 @@ public final class VillagerGenerosityOfferService {
 
                     baseA[i] = (isEmerald(a) ? clampEmeraldCount(a.getCount()) : 0);
                     baseB[i] = (isEmerald(b) ? clampEmeraldCount(b.getCount()) : 0);
+                    baseSpd[i] = safeGetSpecialPriceDiff(o);
                 }
 
                 gen.putInt(K_FP, fpNow);
                 gen.put(K_BASE_A, new IntArrayTag(baseA));
                 gen.put(K_BASE_B, new IntArrayTag(baseB));
+                gen.put(K_BASE_SPD, new IntArrayTag(baseSpd));
                 gen.putDouble(K_APPLIED_PCT, 0.0); // reset; we will apply fresh below
+
             } else {
                 baseA = gen.getIntArray(K_BASE_A);
                 baseB = gen.getIntArray(K_BASE_B);
+                baseSpd = gen.getIntArray(K_BASE_SPD);
             }
 
             double oldPct = gen.getDouble(K_APPLIED_PCT);
@@ -100,7 +111,7 @@ public final class VillagerGenerosityOfferService {
             // If pct is ~0, restore baseline (if we previously applied something)
             if (Math.abs(pct) < 0.0001) {
                 if (Math.abs(oldPct) >= 0.0001) {
-                    restoreBaseline(offers, baseA, baseB);
+                    restoreBaseline(offers, baseA, baseB, baseSpd);
                     gen.putDouble(K_APPLIED_PCT, 0.0);
                     root.put(TAG_GEN, gen);
                     pd.put(VillagerStatsService.TAG_ROOT, root);
@@ -116,7 +127,7 @@ public final class VillagerGenerosityOfferService {
             }
 
             // Apply from baseline => no stacking
-            boolean changed = applyFromBaseline(offers, baseA, baseB, pct);
+            boolean changed = applyFromBaseline(offers, baseA, baseB, baseSpd, pct);
             if (changed || Math.abs(oldPct - pct) > 0.0001 || needRebaseline) {
                 gen.putDouble(K_APPLIED_PCT, pct);
                 root.put(TAG_GEN, gen);
@@ -137,10 +148,46 @@ public final class VillagerGenerosityOfferService {
         }
     }
 
-    private static boolean applyFromBaseline(MerchantOffers offers, int[] baseA, int[] baseB, double pct) {
+    private static boolean applyFromBaseline(MerchantOffers offers, int[] baseA, int[] baseB, int[] baseSpd, double pct) {
         boolean changed = false;
-        int n = Math.min(offers.size(), Math.min(baseA.length, baseB.length));
+        int n = Math.min(offers.size(), Math.min(baseA.length, Math.min(baseB.length, baseSpd.length)));
 
+        for (int i = 0; i < n; i++) {
+            MerchantOffer o = offers.get(i);
+            if (o == null) continue;
+
+            ItemStack a = safeBaseCostA(o);
+            ItemStack b = safeCostB(o);
+
+            // ✅ Cost A emeralds: use specialPriceDiff (reliably affects GUI price)
+            if (baseA[i] > 0 && isEmerald(a)) {
+                int want = scaleCount(baseA[i], pct);
+                int newSpd = baseSpd[i] + (want - baseA[i]); // shift price without mutating base stack
+
+                int curSpd = safeGetSpecialPriceDiff(o);
+                if (curSpd != newSpd) {
+                    safeSetSpecialPriceDiff(o, newSpd);
+                    changed = true;
+                }
+            }
+
+            // Cost B emeralds (rare): best-effort mutate stack count
+            if (baseB[i] > 0 && isEmerald(b)) {
+                int want = scaleCount(baseB[i], pct);
+                try {
+                    if (b.getCount() != want) {
+                        b.setCount(want);
+                        changed = true;
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
+
+        return changed;
+    }
+
+    private static void restoreBaseline(MerchantOffers offers, int[] baseA, int[] baseB, int[] baseSpd) {
+        int n = Math.min(offers.size(), Math.min(baseA.length, Math.min(baseB.length, baseSpd.length)));
         for (int i = 0; i < n; i++) {
             MerchantOffer o = offers.get(i);
             if (o == null) continue;
@@ -149,36 +196,12 @@ public final class VillagerGenerosityOfferService {
             ItemStack b = safeCostB(o);
 
             if (baseA[i] > 0 && isEmerald(a)) {
-                int want = scaleCount(baseA[i], pct);
-                if (a.getCount() != want) {
-                    a.setCount(want);
-                    changed = true;
-                }
+                safeSetSpecialPriceDiff(o, baseSpd[i]);
             }
 
             if (baseB[i] > 0 && isEmerald(b)) {
-                int want = scaleCount(baseB[i], pct);
-                if (b.getCount() != want) {
-                    b.setCount(want);
-                    changed = true;
-                }
+                try { b.setCount(clampEmeraldCount(baseB[i])); } catch (Throwable ignored) {}
             }
-        }
-
-        return changed;
-    }
-
-    private static void restoreBaseline(MerchantOffers offers, int[] baseA, int[] baseB) {
-        int n = Math.min(offers.size(), Math.min(baseA.length, baseB.length));
-        for (int i = 0; i < n; i++) {
-            MerchantOffer o = offers.get(i);
-            if (o == null) continue;
-
-            ItemStack a = safeBaseCostA(o);
-            ItemStack b = safeCostB(o);
-
-            if (baseA[i] > 0 && isEmerald(a)) a.setCount(clampEmeraldCount(baseA[i]));
-            if (baseB[i] > 0 && isEmerald(b)) b.setCount(clampEmeraldCount(baseB[i]));
         }
     }
 
@@ -212,8 +235,7 @@ public final class VillagerGenerosityOfferService {
     /**
      * Fingerprint used to detect "structure changes" in offers that should trigger re-baseline.
      *
-     * CRITICAL: this must ignore stack counts, because generosity itself mutates emerald counts.
-     * If counts are included, re-calling normalizeAndApply will re-baseline on already-discounted values and drift/stack.
+     * CRITICAL: this must ignore stack counts, because generosity itself changes the visible emerald cost.
      */
     private static int fingerprint(MerchantOffers offers) {
         int h = 1;
@@ -244,9 +266,14 @@ public final class VillagerGenerosityOfferService {
         }
     }
 
-    // These are mapped names in modern Mojang mappings; adjust if your IDE complains.
+    // Mojmap names typically:
+    // - getBaseCostA()
+    // - getCostA() fallback
     private static ItemStack safeBaseCostA(MerchantOffer o) {
-        try { return o.getBaseCostA(); } catch (Throwable t) { try { return o.getCostA(); } catch (Throwable ignored) { return ItemStack.EMPTY; } }
+        try { return o.getBaseCostA(); }
+        catch (Throwable t) {
+            try { return o.getCostA(); } catch (Throwable ignored) { return ItemStack.EMPTY; }
+        }
     }
 
     private static ItemStack safeCostB(MerchantOffer o) {
@@ -255,6 +282,23 @@ public final class VillagerGenerosityOfferService {
 
     private static ItemStack safeResult(MerchantOffer o) {
         try { return o.getResult(); } catch (Throwable t) { return ItemStack.EMPTY; }
+    }
+
+    private static int safeGetSpecialPriceDiff(MerchantOffer o) {
+        try { return o.getSpecialPriceDiff(); } catch (Throwable t) { return 0; }
+    }
+
+    private static void safeSetSpecialPriceDiff(MerchantOffer o, int v) {
+        try {
+            o.setSpecialPriceDiff(v);
+            return;
+        } catch (Throwable ignored) {}
+
+        // reflection fallback (paranoid)
+        try {
+            var m = o.getClass().getMethod("setSpecialPriceDiff", int.class);
+            m.invoke(o, v);
+        } catch (Throwable ignored2) {}
     }
 
     private static double round2(double v) {

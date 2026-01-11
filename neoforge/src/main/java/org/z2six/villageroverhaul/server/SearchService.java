@@ -23,6 +23,7 @@ import org.z2six.villageroverhaul.network.PacketOpenBusyScreen;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import net.minecraft.nbt.Tag;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
+import org.z2six.villageroverhaul.server.VillagerGenerosityOfferService;
 
 import java.lang.reflect.Method;
 import java.util.*;
@@ -1272,6 +1273,7 @@ public final class SearchService {
                 // Nothing awarded, but vanilla/mods may still have changed offers.
                 // Use normalizeOffers (drift correction) since this is NOT guaranteed to be a rebuild.
                 try { HoarderOffers.normalizeOffers(vill, payer); } catch (Throwable ignored) {}
+                try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
 
                 scheduleNextTickHoarderRecheck(vill, payer);
                 return 0;
@@ -1289,11 +1291,9 @@ public final class SearchService {
                 scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vill);
             }
 
-            // ✅ CRITICAL FIX:
-            // Level-up appends offers. Do NOT reset baseline. Let drift correction infer the new baseline.
-            try {
-                HoarderOffers.normalizeOffers(vill, payer);
-            } catch (Throwable ignored) {}
+            // Level-up appends offers. Do NOT reset baseline.
+            try { HoarderOffers.normalizeOffers(vill, payer); } catch (Throwable ignored) {}
+            try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
 
             int lvlAfter = lvlBefore;
             int xpAfter = xpBefore;
@@ -1332,12 +1332,12 @@ public final class SearchService {
 
             final MinecraftServer srv = server;
 
-            UUID villagerId = null;
+            java.util.UUID villagerId = null;
             try { villagerId = vill.getUUID(); } catch (Throwable ignored) { villagerId = null; }
             if (villagerId == null) return;
 
-            final UUID vId = villagerId;
-            final UUID payerId = (payer == null ? null : payer.getUUID());
+            final java.util.UUID vId = villagerId;
+            final java.util.UUID payerId = (payer == null ? null : payer.getUUID());
 
             srv.execute(() -> {
                 try {
@@ -1351,13 +1351,9 @@ public final class SearchService {
 
                     int before = (v.getOffers() == null ? -1 : v.getOffers().size());
 
-                    // ✅ CRITICAL FIX:
-                    // Next tick after XP/level-up, vanilla may append more offers.
-                    // Use normalizeOffers() so drift correction does the right thing.
                     boolean changed = false;
-                    try {
-                        changed = HoarderOffers.normalizeOffers(v, p);
-                    } catch (Throwable ignored3) {}
+                    try { changed = HoarderOffers.normalizeOffers(v, p); } catch (Throwable ignored3) {}
+                    try { VillagerGenerosityOfferService.normalizeAndApply(v); } catch (Throwable ignored) {}
 
                     int after = (v.getOffers() == null ? -1 : v.getOffers().size());
 

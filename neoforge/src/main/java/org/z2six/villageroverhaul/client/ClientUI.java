@@ -31,6 +31,9 @@ import org.z2six.villageroverhaul.network.PacketRerollCooldownQuery;
 import org.z2six.villageroverhaul.network.PacketTooltipData;
 import org.z2six.villageroverhaul.network.PacketTooltipQuery;
 import org.z2six.villageroverhaul.network.PacketTradeLocksQuery;
+import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
+import org.z2six.villageroverhaul.network.PacketVillagerStatsQuery;
+import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -43,6 +46,8 @@ import java.util.WeakHashMap;
 public final class ClientUI {
 
     private static final long TOOLTIP_REFRESH_DEBOUNCE_MS = 750;
+
+    private static final long VILLAGER_STATS_REFRESH_DEBOUNCE_MS = 1500;
 
     private static final Map<Screen, Button> REROLL_BUTTONS = new WeakHashMap<>();
     private static final Map<Screen, CooldownOverlayWidget> COOLDOWN_OVERLAYS = new WeakHashMap<>();
@@ -497,9 +502,27 @@ public final class ClientUI {
         try {
             int traderId = resolveTraderEntityId(screen);
             ClientNetwork.sendToServer(new PacketTooltipQuery(traderId));
+
+            // NEW: also request villager stats so we can compute Generosity-adjusted manual cost.
+            tryRequestVillagerStatsSnapshot(traderId);
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client send tooltip query failed", t);
         }
+    }
+
+    private static void tryRequestVillagerStatsSnapshot(int traderEntityId) {
+        try {
+            if (traderEntityId <= 0) return;
+
+            long age = Long.MAX_VALUE;
+            try { age = ClientVillagerStatsCache.ageMs(traderEntityId); } catch (Throwable ignored) {}
+
+            // Debounce requests; refresh if missing/stale.
+            if (age > VILLAGER_STATS_REFRESH_DEBOUNCE_MS) {
+                ClientNetwork.sendToServer(new PacketVillagerStatsQuery(traderEntityId));
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static void trySendTradeLocksQuery() {
@@ -573,10 +596,6 @@ public final class ClientUI {
                 } catch (Throwable ignored) {}
             }
 
-            // ------------------------------
-            // FIX: do NOT ceil to whole seconds here; it hides small changes from Timeliness.
-            // Show 0.1s precision and include ticks as a gray hint.
-            // ------------------------------
             if (cfgTicks > 0) {
                 double sec = cfgTicks / 20.0;
                 cooldownLine = Component.empty()
@@ -596,27 +615,68 @@ public final class ClientUI {
             return plan;
         }
 
-        int cost = Math.max(0, d.cost.scaledCost);
+        // ------------------------------
+        // COST (FIXED): apply Generosity to manual reroll price in tooltip
+        // ------------------------------
+        int baseCost = Math.max(0, d.cost.scaledCost);
 
+        int traderId = resolveTraderEntityId(screen);
+        double generosityPct = computeGenerosityPctForTrader(traderId); // positive = discount, negative = increase
+        int finalCost = applyDiscountOrIncreasePct(baseCost, generosityPct);
+
+        if (baseCost <= 0) {
+            plan.lines.add(Component.empty()
+                    .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal("Free").withStyle(ChatFormatting.GREEN)));
+        } else if (finalCost == baseCost || Math.abs(generosityPct) < 0.0001) {
+            int lineIdx = plan.lines.size();
+            plan.lines.add(Component.empty()
+                    .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal(String.valueOf(baseCost)))
+                    .append(Component.literal(" × ")));
+            plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
+        } else {
+            // Show base cost struck through, then adjusted cost
+            int lineIdx = plan.lines.size();
+
+            ChatFormatting adjColor = (finalCost < baseCost) ? ChatFormatting.GREEN : ChatFormatting.RED;
+
+            Component adjustedPart;
+            if (finalCost <= 0) {
+                adjustedPart = Component.literal("Free").withStyle(ChatFormatting.GREEN);
+            } else {
+                adjustedPart = Component.literal(String.valueOf(finalCost)).withStyle(adjColor);
+            }
+
+            plan.lines.add(Component.empty()
+                    .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal(String.valueOf(baseCost)).withStyle(ChatFormatting.RED, ChatFormatting.STRIKETHROUGH))
+                    .append(Component.literal(" "))
+                    .append(adjustedPart)
+                    .append(Component.literal(" × ")));
+
+            plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
+
+            // Optional: show the applied generosity percent explicitly
+            String sign = (generosityPct > 0.0) ? "-" : "+";
+            double shown = Math.abs(generosityPct);
+
+            ChatFormatting pctColor = (generosityPct > 0.0) ? ChatFormatting.GREEN : ChatFormatting.RED;
+
+            plan.lines.add(Component.empty()
+                    .append(Component.literal(" Generosity: ").withStyle(ChatFormatting.AQUA))
+                    .append(Component.literal(sign + trimPct(shown) + "%").withStyle(pctColor)));
+        }
+
+        // ------------------------------
+        // Breakdown (unchanged)
+        // ------------------------------
         int totalOffers = safeIntField(d.cost, "totalOffers");
         int lockedOffers = safeIntField(d.cost, "lockedOffers");
         int deductedLocks = safeIntField(d.cost, "deductibleLockedOffers");
         int freeOffers = safeIntField(d.cost, "freeOffers");
         int paidOffers = safeIntField(d.cost, "paidOffers");
         int costPerOffer = safeIntField(d.cost, "costPerOffer");
-
-        if (cost <= 0) {
-            plan.lines.add(Component.empty()
-                    .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
-                    .append(Component.literal("Free").withStyle(ChatFormatting.GREEN)));
-        } else {
-            int lineIdx = plan.lines.size();
-            plan.lines.add(Component.empty()
-                    .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
-                    .append(Component.literal(String.valueOf(cost)))
-                    .append(Component.literal(" × ")));
-            plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
-        }
 
         plan.lines.add(Component.empty()
                 .append(Component.literal(" Offers: ").withStyle(ChatFormatting.AQUA))
@@ -643,12 +703,15 @@ public final class ClientUI {
             plan.icons.add(new TooltipIcon(lineIdxFreePaid, new ItemStack(Items.EMERALD)));
         }
 
-        if (d.afford != null && cost > 0) {
+        // Affordability check should use FINAL cost (not base)
+        if (d.afford != null && finalCost > 0) {
             boolean can = d.afford.canAfford;
             String src = d.afford.source == null ? "none" : d.afford.source;
             Component aff = Component.literal(can ? ("Affordable (" + src + ")") : ("Not affordable (" + src + ")"))
                     .withStyle(can ? ChatFormatting.GREEN : ChatFormatting.RED);
             plan.lines.add(aff);
+        } else if (finalCost <= 0) {
+            plan.lines.add(Component.literal("Affordable").withStyle(ChatFormatting.GREEN));
         }
 
         if (d.villager != null && d.villager.level > 0) {
@@ -659,6 +722,79 @@ public final class ClientUI {
         }
 
         return plan;
+    }
+
+    private static double computeGenerosityPctForTrader(int traderEntityId) {
+        try {
+            // Need both stats + synced config bounds
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return 0.0;
+
+            PacketVillagerStatsData stats = null;
+            try { stats = ClientVillagerStatsCache.get(traderEntityId); } catch (Throwable ignored) {}
+
+            if (stats == null || !stats.ok()) return 0.0;
+
+            int points = stats.generosity(); // expected -100..100
+            return pointsToPct(points, cfg.generosityMinPct, cfg.generosityMaxPct);
+        } catch (Throwable t) {
+            return 0.0;
+        }
+    }
+
+    private static double pointsToPct(int points, double minPct, double maxPct) {
+        if (Double.isNaN(minPct)) minPct = 0.0;
+        if (Double.isNaN(maxPct)) maxPct = 0.0;
+
+        int p = points;
+        if (p < -100) p = -100;
+        if (p > 100) p = 100;
+
+        double t = (p + 100.0) / 200.0; // 0..1
+        return minPct + (maxPct - minPct) * t;
+    }
+
+    /**
+     * Positive pct => discount (cheaper).
+     * Negative pct => increase (more expensive).
+     */
+    private static int applyDiscountOrIncreasePct(int baseCost, double pct) {
+        try {
+            int base = Math.max(0, baseCost);
+            if (base <= 0) return 0;
+
+            if (Double.isNaN(pct)) pct = 0.0;
+
+            // scale = 1 - pct/100
+            double scale = 1.0 - (pct / 100.0);
+
+            // Prevent negative prices if pct > 100
+            if (scale < 0.0) scale = 0.0;
+
+            double raw = base * scale;
+
+            // Use round to be stable; if you want "always charge at least 1 when base>0 and scale>0",
+            // switch to Math.ceil(raw).
+            long rounded = Math.round(raw);
+
+            if (rounded < 0L) rounded = 0L;
+            if (rounded > Integer.MAX_VALUE) rounded = Integer.MAX_VALUE;
+
+            return (int) rounded;
+        } catch (Throwable t) {
+            return Math.max(0, baseCost);
+        }
+    }
+
+    private static String trimPct(double v) {
+        // Show clean percent: 50 or 12.5 (not 12.500000)
+        try {
+            if (Double.isNaN(v)) return "0";
+            if (Math.abs(v - Math.rint(v)) < 0.0001) return String.valueOf((int) Math.rint(v));
+            return String.format(java.util.Locale.ROOT, "%.1f", v);
+        } catch (Throwable t) {
+            return "0";
+        }
     }
 
     private static int safeIntField(Object obj, String fieldName) {
