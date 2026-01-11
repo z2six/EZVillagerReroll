@@ -1,3 +1,4 @@
+// PacketSyncConfig.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketSyncConfig.java
 package org.z2six.villageroverhaul.network;
 
@@ -45,8 +46,11 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public double intellectMinPct;
     public double intellectMaxPct;
 
-    public double hoarderMinPct;
-    public double hoarderMaxPct;
+    // -----------------------------------------------------------------------------------------
+    // NEW: Hoarder is NOT a percent. It is an offer delta clamp (ints).
+    // -----------------------------------------------------------------------------------------
+    public int hoarderExtraOffersMin;
+    public int hoarderExtraOffersMax;
 
     public PacketSyncConfig() {}
 
@@ -102,10 +106,11 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.intellectMinPct = -20.0;
             p.intellectMaxPct = 20.0;
 
-            p.hoarderMinPct = -20.0;
-            p.hoarderMaxPct = 20.0;
+            // Defaults for hoarder clamp
+            p.hoarderExtraOffersMin = -3;
+            p.hoarderExtraOffersMax = 3;
 
-            // NEW: trait bounds (safe read; keeps backwards tolerance if older server)
+            // NEW: trait bounds (safe read; keeps backwards tolerance if older server is missing)
             try { p.generosityMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.generosityMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
 
@@ -115,8 +120,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.intellectMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.intellectMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
 
-            try { p.hoarderMinPct = buf.readDouble(); } catch (Throwable ignored) {}
-            try { p.hoarderMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+            // NEW: hoarder clamp ints (safe read)
+            try { p.hoarderExtraOffersMin = buf.readVarInt(); } catch (Throwable ignored) {}
+            try { p.hoarderExtraOffersMax = buf.readVarInt(); } catch (Throwable ignored) {}
 
             return p;
         }
@@ -159,8 +165,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeDouble(p.intellectMinPct);
             buf.writeDouble(p.intellectMaxPct);
 
-            buf.writeDouble(p.hoarderMinPct);
-            buf.writeDouble(p.hoarderMaxPct);
+            // NEW: hoarder clamp ints
+            buf.writeVarInt(p.hoarderExtraOffersMin);
+            buf.writeVarInt(p.hoarderExtraOffersMax);
         }
     };
 

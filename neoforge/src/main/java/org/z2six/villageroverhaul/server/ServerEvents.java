@@ -19,6 +19,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.ServerSync;
+import org.z2six.villageroverhaul.server.HoarderOfferService;
 
 public final class ServerEvents {
 
@@ -44,10 +45,13 @@ public final class ServerEvents {
             bus.addListener(ServerEvents::onServerStopping);
             bus.addListener(ServerEvents::onContainerOpen);
 
-            // NEW: sync server config to players when they log in (fixes client tooltip mapping)
+            // For Hoarder logic
+            bus.addListener(ServerEvents::onContainerClose);
+
+            // sync server config to players when they log in (fixes client tooltip mapping)
             bus.addListener(ServerEvents::onPlayerLoggedIn);
 
-            // NEW: villager/merchant stat initialization (EntityJoinLevelEvent)
+            // villager/merchant stat initialization (EntityJoinLevelEvent)
             // Safe even when running on client because the handler exits if level.isClientSide().
             VillagerStatsEvents.register(bus);
 
@@ -108,35 +112,53 @@ public final class ServerEvents {
             }
 
             boolean had = data.has(vill.getUUID());
+            boolean applied = false;
 
             if (had) {
-                boolean applied = data.apply(vill);
-                if (applied) {
-                    VillagerOffersSavedData.syncOffersToPlayerIfPossible(sp, menu, vill);
-
-                    VillagerOverhaul.LOG().info(
-                            "[VillagerOverhaul] onContainerOpen: restored canonical offers for villager={} (player={}, offers={})",
-                            vill.getUUID(),
-                            sp.getGameProfile().getName(),
-                            (vill.getOffers() == null ? -1 : vill.getOffers().size())
-                    );
-                } else {
+                applied = data.apply(vill);
+                if (!applied) {
                     VillagerOverhaul.LOG().debug(
-                            "[VillagerOverhaul] onContainerOpen: had entry but apply failed; leaving vanilla state (villager={}, player={})",
-                            vill.getUUID(),
-                            sp.getGameProfile().getName()
+                            "[VillagerOverhaul] onContainerOpen: had entry but apply failed; will treat current state as canonical after Hoarder normalize (villager={}, player={})",
+                            vill.getUUID(), sp.getGameProfile().getName()
                     );
                 }
             } else {
-                data.capture(vill);
-
-                VillagerOverhaul.LOG().info(
-                        "[VillagerOverhaul] onContainerOpen: captured initial offers as canonical for villager={} (player={}, offers={})",
-                        vill.getUUID(),
-                        sp.getGameProfile().getName(),
-                        (vill.getOffers() == null ? -1 : vill.getOffers().size())
+                VillagerOverhaul.LOG().debug(
+                        "[VillagerOverhaul] onContainerOpen: no canonical entry yet; will capture after Hoarder normalize (villager={}, player={})",
+                        vill.getUUID(), sp.getGameProfile().getName()
                 );
             }
+
+            // Enforce Hoarder *after* canonical apply, so what the player sees is correct.
+            // Also robust against vanilla/modded offer injections (baseline is dynamic).
+            boolean hoarderChanged = false;
+            try {
+                hoarderChanged = org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, sp);
+            } catch (Throwable ignored) {}
+
+            // Keep world canonical offers aligned:
+            // - if first-time villager => always capture after normalize
+            // - if apply failed => capture after normalize (repairs broken entry)
+            // - if hoarder changed offers => capture so restore uses correct size immediately
+            try {
+                if (!had || !applied || hoarderChanged) {
+                    data.capture(vill);
+                    VillagerOverhaul.LOG().info(
+                            "[VillagerOverhaul] onContainerOpen: canonical offers captured/updated (villager={} player={} offers={} had={} applied={} hoarderChanged={})",
+                            vill.getUUID(), sp.getGameProfile().getName(),
+                            (vill.getOffers() == null ? -1 : vill.getOffers().size()),
+                            had, applied, hoarderChanged
+                    );
+                }
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerOpen: failed to capture after Hoarder normalize (soft): {}", t.toString());
+            }
+
+            // Track this open menu so we can re-normalize if offer count changes mid-session (vanilla level-up / other mods).
+            try {
+                HoarderOfferService.onMerchantMenuOpen(sp, menu, vill);
+            } catch (Throwable ignored) {}
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] onContainerOpen failed", t);
         }
@@ -194,6 +216,12 @@ public final class ServerEvents {
             }
 
             try {
+                HoarderOfferService.tick(server);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] ServerEvents: HoarderOfferService.tick failed (soft): {}", t.toString());
+            }
+
+            try {
                 long gt = server.overworld().getGameTime();
                 if (gt % 200L == 0L && gt != lastTickDebugGameTime) {
                     lastTickDebugGameTime = gt;
@@ -241,4 +269,17 @@ public final class ServerEvents {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ServerEvents.onServerStopping failed", t);
         }
     }
+
+    private static void onContainerClose(PlayerContainerEvent.Close e) {
+        try {
+            if (e == null) return;
+            if (!(e.getEntity() instanceof ServerPlayer sp)) return;
+            if (!(e.getContainer() instanceof MerchantMenu)) return;
+
+            HoarderOfferService.onMerchantMenuClose(sp);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerClose failed (soft): {}", t.toString());
+        }
+    }
+
 }

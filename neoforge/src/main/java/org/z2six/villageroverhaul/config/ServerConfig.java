@@ -84,8 +84,14 @@ public final class ServerConfig {
     public static final ModConfigSpec.DoubleValue INTELLECT_MIN_PCT;
     public static final ModConfigSpec.DoubleValue INTELLECT_MAX_PCT;
 
-    public static final ModConfigSpec.DoubleValue HOARDER_MIN_PCT;
-    public static final ModConfigSpec.DoubleValue HOARDER_MAX_PCT;
+    // ---------------------------------------------------------------------
+    // HOARDER (offer delta clamp) (NEW)
+    // Hoarder points translate into an *offer delta* (integer), clamped by these.
+    // Example: min=-3 max=+3 means Hoarder can remove up to 3 offers or add up to 3.
+    // ---------------------------------------------------------------------
+
+    public static final ModConfigSpec.IntValue HOARDER_EXTRA_OFFERS_MIN;
+    public static final ModConfigSpec.IntValue HOARDER_EXTRA_OFFERS_MAX;
 
     // ---------------------------------------------------------------------
     // SPEC DEFINITION
@@ -272,19 +278,19 @@ public final class ServerConfig {
                         """)
                         .defineInRange("intellectMaxPct", 20.0, -1000.0, 1000.0);
 
-        HOARDER_MIN_PCT =
+        HOARDER_EXTRA_OFFERS_MIN =
                 B.comment("""
-                        Hoarder effect MIN percent at points = -100.
-                        This will later modify offer slot behavior (negative = fewer / constrained).
+                        Hoarder offer DELTA clamp MIN (applied to hoarder points).
+                        Example: -3 means at most 3 fewer offers.
                         """)
-                        .defineInRange("hoarderMinPct", -20.0, -1000.0, 1000.0);
+                        .defineInRange("hoarderExtraOffersMin", -3, -64, 64);
 
-        HOARDER_MAX_PCT =
+        HOARDER_EXTRA_OFFERS_MAX =
                 B.comment("""
-                        Hoarder effect MAX percent at points = +100.
-                        This will later modify offer slot behavior (positive = more / expanded).
+                        Hoarder offer DELTA clamp MAX (applied to hoarder points).
+                        Example: +3 means at most 3 extra offers.
                         """)
-                        .defineInRange("hoarderMaxPct", 20.0, -1000.0, 1000.0);
+                        .defineInRange("hoarderExtraOffersMax", 3, -64, 64);
 
         B.pop();
     }
@@ -306,8 +312,10 @@ public final class ServerConfig {
     public static int autoHourlyThreshold = 6;
     public static double autoHourlyDiscountOrIncreasePct = 5.0;
 
-    public static int cooldownTicks = 200;
-    public static int cooldownTicksAuto = 40;
+    // Match spec defaults
+    public static int cooldownTicks = 100;
+    public static int cooldownTicksAuto = 600;
+
     public static int perVillagerDaily = 0;
     public static boolean allowAfterTradeUsed = true;
 
@@ -324,8 +332,9 @@ public final class ServerConfig {
     public static double intellectMinPct = -20.0;
     public static double intellectMaxPct = 20.0;
 
-    public static double hoarderMinPct = -20.0;
-    public static double hoarderMaxPct = 20.0;
+    // NEW: hoarder offer delta clamp (ints)
+    public static int hoarderExtraOffersMin = -3;
+    public static int hoarderExtraOffersMax = 3;
 
     private static int[] levelCosts = new int[]{0, 16, 52, 64, 96};
 
@@ -364,29 +373,24 @@ public final class ServerConfig {
             autoSearchXpPerOffer = Math.max(0.0, AUTO_SEARCH_XP_PER_OFFER.get());
 
             // NEW: trait bounds (normalize min/max so min<=max even if user misconfigures)
-            double gMin = GENEROSITY_MIN_PCT.get();
-            double gMax = GENEROSITY_MAX_PCT.get();
-            double[] gg = normalizeMinMax(gMin, gMax);
+            double[] gg = normalizeMinMax(GENEROSITY_MIN_PCT.get(), GENEROSITY_MAX_PCT.get());
             generosityMinPct = gg[0];
             generosityMaxPct = gg[1];
 
-            double tMin = TIMELINESS_MIN_PCT.get();
-            double tMax = TIMELINESS_MAX_PCT.get();
-            double[] tt = normalizeMinMax(tMin, tMax);
+            double[] tt = normalizeMinMax(TIMELINESS_MIN_PCT.get(), TIMELINESS_MAX_PCT.get());
             timelinessMinPct = tt[0];
             timelinessMaxPct = tt[1];
 
-            double iMin = INTELLECT_MIN_PCT.get();
-            double iMax = INTELLECT_MAX_PCT.get();
-            double[] ii = normalizeMinMax(iMin, iMax);
+            double[] ii = normalizeMinMax(INTELLECT_MIN_PCT.get(), INTELLECT_MAX_PCT.get());
             intellectMinPct = ii[0];
             intellectMaxPct = ii[1];
 
-            double hMin = HOARDER_MIN_PCT.get();
-            double hMax = HOARDER_MAX_PCT.get();
-            double[] hh = normalizeMinMax(hMin, hMax);
-            hoarderMinPct = hh[0];
-            hoarderMaxPct = hh[1];
+            // NEW: hoarder clamp (ints) (normalize order)
+            int hMin = HOARDER_EXTRA_OFFERS_MIN.get();
+            int hMax = HOARDER_EXTRA_OFFERS_MAX.get();
+            if (hMin > hMax) { int tmp = hMin; hMin = hMax; hMax = tmp; }
+            hoarderExtraOffersMin = hMin;
+            hoarderExtraOffersMax = hMax;
 
             levelCosts = parseLevelCosts(LEVEL_COSTS.get());
 
@@ -400,9 +404,8 @@ public final class ServerConfig {
             cfgVersion++;
             cfgHash = computeHash();
 
-            // FIX: placeholder count now matches argument count (4 trait pairs, not 5).
             VillagerOverhaul.LOG().info(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} {}/{} legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
@@ -413,7 +416,7 @@ public final class ServerConfig {
                     generosityMinPct, generosityMaxPct,
                     timelinessMinPct, timelinessMaxPct,
                     intellectMinPct, intellectMaxPct,
-                    hoarderMinPct, hoarderMaxPct,
+                    hoarderExtraOffersMin, hoarderExtraOffersMax,
                     debug(levelCosts)
             );
 
@@ -488,8 +491,9 @@ public final class ServerConfig {
         h = 31 * h + hashD(intellectMinPct);
         h = 31 * h + hashD(intellectMaxPct);
 
-        h = 31 * h + hashD(hoarderMinPct);
-        h = 31 * h + hashD(hoarderMaxPct);
+        // NEW: hoarder clamp ints
+        h = 31 * h + hoarderExtraOffersMin;
+        h = 31 * h + hoarderExtraOffersMax;
 
         for (int v : levelCosts) h = 31 * h + v;
         return h;

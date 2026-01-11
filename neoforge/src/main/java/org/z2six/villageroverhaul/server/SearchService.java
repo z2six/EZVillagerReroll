@@ -482,6 +482,11 @@ public final class SearchService {
 
             long now = vill.level().getGameTime();
 
+            // Ensure Hoarder is enforced before we snapshot "offersBeforeTag" for settlement decline/restore correctness.
+            try {
+                org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, sp);
+            } catch (Throwable ignored) {}
+
             Task t = new Task(vill, sp, requested, now, cooldown);
 
             if (t.requestedKeys.isEmpty()) {
@@ -674,6 +679,12 @@ public final class SearchService {
                 try {
                     TradeUtil.rebuildOffersInternal(vill, null, false);
                     task.rerollCount = Math.max(0, task.rerollCount + 1);
+
+                    // Apply Hoarder after each reroll so the offer list reflects the configured delta.
+                    try {
+                        org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, null);
+                    } catch (Throwable ignored) {}
+
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search reroll success: villager={} entityId={} rerollCount={} baseCd={} timelinessPct={} effectiveCd={}",
                             vill.getUUID(), vill.getId(), task.rerollCount, baseCd, tPct, cooldown);
                 } catch (Throwable rerollErr) {

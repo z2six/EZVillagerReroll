@@ -174,6 +174,11 @@ public final class RerollExecutor {
                 return;
             }
 
+            // Apply Hoarder after rebuild so extra/less offers are enforced and get persisted as canonical.
+            try {
+                org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, sp);
+            } catch (Throwable ignored) {}
+
             // Grant villager XP for successful manual reroll (includes Intellect multiplier)
             grantVillagerXpForManualReroll(sp, menu, vill, offersRerolled);
 

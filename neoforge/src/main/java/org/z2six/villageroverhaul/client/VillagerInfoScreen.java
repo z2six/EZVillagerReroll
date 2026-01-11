@@ -260,25 +260,31 @@ public final class VillagerInfoScreen extends Screen {
         int barsX = boxRight + PAD;
         int barsY = top + 78;
 
+        // NEW: ensure there's always 10px between a bar and the next bar's title label.
+        // Title is drawn at (barY - (font.lineHeight + 2)), so:
+        // distance(barBottom -> nextTitleTop) = step - (font.lineHeight + 2) - BAR_H
+        // choose step = BAR_H + (font.lineHeight + 2) + 10 => distance = 10
+        final int stepY = BAR_H + (font.lineHeight + 2) + 3;
+
         renderStatBar(gg, font, StatKind.GENEROSITY, this.hasStats ? this.generosity : null,
-                barsX, barsY, BAR_W, BAR_H, C_GENEROSITY, mouseX, mouseY);
+                barsX, barsY + stepY * 0, BAR_W, BAR_H, C_GENEROSITY, mouseX, mouseY);
 
         renderStatBar(gg, font, StatKind.TIMELINESS, this.hasStats ? this.timeliness : null,
-                barsX, barsY + (BAR_H + BAR_GAP) * 1, BAR_W, BAR_H, C_TIMELINESS, mouseX, mouseY);
+                barsX, barsY + stepY * 1, BAR_W, BAR_H, C_TIMELINESS, mouseX, mouseY);
 
         renderStatBar(gg, font, StatKind.INTELLECT, this.hasStats ? this.intellect : null,
-                barsX, barsY + (BAR_H + BAR_GAP) * 2, BAR_W, BAR_H, C_INTELLECT, mouseX, mouseY);
+                barsX, barsY + stepY * 2, BAR_W, BAR_H, C_INTELLECT, mouseX, mouseY);
 
         renderStatBar(gg, font, StatKind.HOARDER, this.hasStats ? this.hoarder : null,
-                barsX, barsY + (BAR_H + BAR_GAP) * 3, BAR_W, BAR_H, C_HOARDER, mouseX, mouseY);
+                barsX, barsY + stepY * 3, BAR_W, BAR_H, C_HOARDER, mouseX, mouseY);
 
         if (!this.hasStats) {
             if (this.statsUnavailable) {
                 gg.drawString(font, Component.literal("Stats: unavailable"),
-                        barsX, barsY + (BAR_H + BAR_GAP) * 5 + 2, 0xFFFF7777, false);
+                        barsX, barsY + stepY * 4 + 2, 0xFFFF7777, false);
             } else {
                 gg.drawString(font, Component.literal("Stats: syncing…"),
-                        barsX, barsY + (BAR_H + BAR_GAP) * 5 + 2, 0xFFAAAAAA, false);
+                        barsX, barsY + stepY * 4 + 2, 0xFFAAAAAA, false);
             }
         }
 
@@ -396,6 +402,14 @@ public final class VillagerInfoScreen extends Screen {
             int mouseX, int mouseY
     ) {
         try {
+            // Stat title ABOVE the bar, centered to the bar width (normal font size)
+            String label = kind.label;
+            int labelW = font.width(label);
+            int labelX = x + (w - labelW) / 2;
+            int labelY = y - (font.lineHeight + 2); // small gap above the bar
+            gg.drawString(font, label, labelX, labelY, 0xFFFFFFFF, true);
+
+            // Bar background + outline
             gg.fill(x, y, x + w, y + h, BAR_BG);
 
             gg.fill(x, y, x + w, y + 1, BAR_OUTLINE);
@@ -406,6 +420,7 @@ public final class VillagerInfoScreen extends Screen {
             int cx = x + w / 2;
             gg.fill(cx, y + 2, cx + 1, y + h - 2, BAR_CENTER);
 
+            // Fill
             if (valueOrNull != null) {
                 int v = Mth.clamp(valueOrNull, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
 
@@ -423,6 +438,7 @@ public final class VillagerInfoScreen extends Screen {
                 gg.drawString(font, "?", x + w - 10, y + 2, 0xFF777777, false);
             }
 
+            // Tooltip
             boolean hover = mouseX >= x && mouseX < (x + w) && mouseY >= y && mouseY < (y + h);
             if (hover) {
                 gg.renderComponentTooltip(font, buildStatTooltip(kind, valueOrNull), mouseX, mouseY);
@@ -455,16 +471,36 @@ public final class VillagerInfoScreen extends Screen {
                         points < 0 ? ChatFormatting.RED :
                                 ChatFormatting.GRAY;
 
+        // HOARDER is special: show offers delta (ints), not percent
+        if (kind == StatKind.HOARDER) {
+            String effectShort = shortEffectParen(kind, 0.0, points);
+            lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
+
+            String clampLine = hoarderClampLine();
+            if (clampLine != null) {
+                lines.add(Component.literal(clampLine).withStyle(ChatFormatting.DARK_GRAY));
+            }
+
+            // Spacer
+            lines.add(Component.literal(""));
+
+            // Flavor text: grey-ish + cursive (italic)
+            for (Component c : flavorLines(kind)) {
+                lines.add(c);
+            }
+
+            return lines;
+        }
+
+        // Non-hoarder: percent-based traits
         Double pct = pointsToPercentFromServerConfig(kind, points);
 
-        // Main "Value" line now shows *player-facing effect* (not the raw trait pct)
         if (pct == null) {
             lines.add(Component.literal("Value: " + points).withStyle(valueColor));
         } else {
-            String effectShort = shortEffectParen(kind, pct);
+            String effectShort = shortEffectParen(kind, pct, points);
             lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
 
-            // Extra “what it means” line: show multiplier where it is well-defined in code
             String multLine = multiplierLine(kind, pct);
             if (multLine != null) {
                 lines.add(Component.literal(multLine).withStyle(ChatFormatting.DARK_GRAY));
@@ -486,15 +522,27 @@ public final class VillagerInfoScreen extends Screen {
      * Short parenthetical summary shown next to the points.
      * Example: "Reroll cost +19.9%" for negative Generosity.
      */
-    private static String shortEffectParen(StatKind kind, double traitPct) {
-        double p = safeFinite(traitPct);
+    private static String shortEffectParen(StatKind kind, double traitPctOrUnused, Integer pointsOrNull) {
+        if (pointsOrNull == null) return "";
+
+        int points = Mth.clamp(pointsOrNull, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
 
         return switch (kind) {
-            case GENEROSITY -> "Reroll cost " + formatSignedPercent1(-p);
-            case TIMELINESS -> "Cooldown " + formatSignedPercent1(-p);
-            case INTELLECT  -> "XP " + formatSignedPercent1(p);
-            case HOARDER    -> "Offers " + formatSignedPercent1(p);
+            case GENEROSITY -> "Reroll cost " + formatSignedPercent1(-safeFinite(traitPctOrUnused));
+            case TIMELINESS -> "Cooldown " + formatSignedPercent1(-safeFinite(traitPctOrUnused));
+            case INTELLECT  -> "XP " + formatSignedPercent1(safeFinite(traitPctOrUnused));
+            case HOARDER    -> {
+                Integer delta = pointsToHoarderDeltaFromServerConfig(points);
+                if (delta == null) yield "Offers (syncing…)";
+                yield "Offers " + formatSignedInt(delta);
+            }
         };
+    }
+
+    private static String formatSignedInt(int v) {
+        if (v > 0) return "+" + v;
+        if (v < 0) return String.valueOf(v);
+        return "0";
     }
 
     /**
@@ -614,7 +662,6 @@ public final class VillagerInfoScreen extends Screen {
                 case GENEROSITY -> { min = cfg.generosityMinPct; max = cfg.generosityMaxPct; }
                 case TIMELINESS -> { min = cfg.timelinessMinPct; max = cfg.timelinessMaxPct; }
                 case INTELLECT -> { min = cfg.intellectMinPct; max = cfg.intellectMaxPct; }
-                case HOARDER -> { min = cfg.hoarderMinPct; max = cfg.hoarderMaxPct; }
                 default -> { return null; }
             }
 
@@ -629,4 +676,46 @@ public final class VillagerInfoScreen extends Screen {
             return null;
         }
     }
+
+    private static Integer pointsToHoarderDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+
+            int minDelta = cfg.hoarderExtraOffersMin;
+            int maxDelta = cfg.hoarderExtraOffersMax;
+            if (minDelta > maxDelta) { int tmp = minDelta; minDelta = maxDelta; maxDelta = tmp; }
+
+            int p = Mth.clamp(points, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
+
+            // Map points [-100..100] into delta range [minDelta..maxDelta]
+            double t = (p + 100.0) / 200.0;
+            t = Mth.clamp((float) t, 0.0f, 1.0f);
+
+            double d = minDelta + (maxDelta - minDelta) * t;
+            int delta = (int) Math.round(d);
+
+            // Safety clamp after rounding
+            if (delta < minDelta) delta = minDelta;
+            if (delta > maxDelta) delta = maxDelta;
+
+            return delta;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String hoarderClampLine() {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            int min = cfg.hoarderExtraOffersMin;
+            int max = cfg.hoarderExtraOffersMax;
+            if (min > max) { int tmp = min; min = max; max = tmp; }
+            return "Clamp: [" + min + ", " + max + "] offers";
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
 }

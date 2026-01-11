@@ -1,3 +1,4 @@
+// ClientSyncedConfig.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/ClientSyncedConfig.java
 package org.z2six.villageroverhaul.network;
 
@@ -32,7 +33,9 @@ public final class ClientSyncedConfig {
         public double generosityMinPct, generosityMaxPct;
         public double timelinessMinPct, timelinessMaxPct;
         public double intellectMinPct, intellectMaxPct;
-        public double hoarderMinPct, hoarderMaxPct;
+
+        // NEW: hoarder is offer delta clamp (ints)
+        public int hoarderExtraOffersMin, hoarderExtraOffersMax;
 
         @Override
         public String toString() {
@@ -54,7 +57,7 @@ public final class ClientSyncedConfig {
                     ", generosity=[" + generosityMinPct + "," + generosityMaxPct + "]" +
                     ", timeliness=[" + timelinessMinPct + "," + timelinessMaxPct + "]" +
                     ", intellect=[" + intellectMinPct + "," + intellectMaxPct + "]" +
-                    ", hoarder=[" + hoarderMinPct + "," + hoarderMaxPct + "]" +
+                    ", hoarderClamp=[" + hoarderExtraOffersMin + "," + hoarderExtraOffersMax + "]" +
                     '}';
         }
     }
@@ -98,8 +101,12 @@ public final class ClientSyncedConfig {
             s.intellectMinPct = msg.intellectMinPct;
             s.intellectMaxPct = msg.intellectMaxPct;
 
-            s.hoarderMinPct = msg.hoarderMinPct;
-            s.hoarderMaxPct = msg.hoarderMaxPct;
+            // NEW: hoarder clamp ints
+            int hMin = msg.hoarderExtraOffersMin;
+            int hMax = msg.hoarderExtraOffersMax;
+            if (hMin > hMax) { int tmp = hMin; hMin = hMax; hMax = tmp; }
+            s.hoarderExtraOffersMin = hMin;
+            s.hoarderExtraOffersMax = hMax;
 
             last = s;
 

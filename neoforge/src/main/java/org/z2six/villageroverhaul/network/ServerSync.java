@@ -1,3 +1,4 @@
+// ServerSync.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/ServerSync.java
 package org.z2six.villageroverhaul.network;
 
@@ -52,8 +53,9 @@ public final class ServerSync {
             pkt.intellectMinPct = ServerConfig.intellectMinPct;
             pkt.intellectMaxPct = ServerConfig.intellectMaxPct;
 
-            pkt.hoarderMinPct = ServerConfig.hoarderMinPct;
-            pkt.hoarderMaxPct = ServerConfig.hoarderMaxPct;
+            // NEW: hoarder clamp ints
+            pkt.hoarderExtraOffersMin = ServerConfig.hoarderExtraOffersMin;
+            pkt.hoarderExtraOffersMax = ServerConfig.hoarderExtraOffersMax;
 
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));
 
