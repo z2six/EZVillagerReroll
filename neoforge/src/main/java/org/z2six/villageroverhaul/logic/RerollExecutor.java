@@ -11,7 +11,8 @@ import net.minecraft.world.item.trading.Merchant;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
-import org.z2six.villageroverhaul.server.VillagerOffersSavedData;
+import org.z2six.villageroverhaul.logic.HoarderOffers;
+import org.z2six.villageroverhaul.server.VillagerGenerosityOfferService;
 
 import java.lang.reflect.Method;
 
@@ -40,7 +41,6 @@ public final class RerollExecutor {
                 return;
             }
 
-            // Ensure villager has stats (no-op if already present)
             try { org.z2six.villageroverhaul.server.VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
 
             int level = Math.max(1, Math.min(5, vill.getVillagerData().getLevel()));
@@ -62,7 +62,6 @@ public final class RerollExecutor {
                 return;
             }
 
-            // ---- offer-based cost + also defines "offers rerolled" count for XP ----
             int totalOffers = Math.max(0, offersBefore);
             long lockMask = TradeLockState.getMask(vill);
 
@@ -78,8 +77,6 @@ public final class RerollExecutor {
 
             int lockedCount = Long.bitCount(lockMask);
 
-            // This is the multiplier target for manual reroll XP:
-            // only offers that are NOT locked are actually rerolled.
             final int offersRerolled = Math.max(0, totalOffers - lockedCount);
 
             int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
@@ -101,7 +98,6 @@ public final class RerollExecutor {
                 baseCost = Integer.MAX_VALUE;
             }
 
-            // --- APPLY GENEROSITY: positive generosity reduces cost, negative increases ---
             double generosityPct = 0.0;
             int cost = baseCost;
             try {
@@ -132,7 +128,6 @@ public final class RerollExecutor {
                 ResourceLocation itemId = specIsTag ? null : ResourceLocation.tryParse(ServerConfig.costSpec);
                 boolean isExactItem = itemId != null && !specIsTag;
 
-                // Wallet paths only supported for exact item specs (not tags)
                 if (ServerConfig.preferWallet && isExactItem && MoneyBridge.isLCPresent()) {
                     boolean apiPaid = MoneyBridge.tryExtract(sp, itemId, cost);
                     if (apiPaid) {
@@ -174,28 +169,14 @@ public final class RerollExecutor {
                 return;
             }
 
-            // Apply Hoarder after rebuild so extra/less offers are enforced and get persisted as canonical.
+            // ✅ This IS a rebuild, so reset baseline/applied then enforce Hoarder.
             try {
-                org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, sp);
+                HoarderOffers.normalizeAfterOfferRebuild(vill, sp);
+                VillagerGenerosityOfferService.normalizeAndApply(vill);
             } catch (Throwable ignored) {}
 
-            // Grant villager XP for successful manual reroll (includes Intellect multiplier)
+            // XP + potential level-up (which now re-normalizes inside grantVillagerXpForManualReroll)
             grantVillagerXpForManualReroll(sp, menu, vill, offersRerolled);
-
-            // MANUAL REROLL RULE: After a successful manual reroll, store the new offers as canonical.
-            try {
-                VillagerOffersSavedData sd = VillagerOffersSavedData.get(sp.serverLevel());
-                if (sd != null) {
-                    sd.capture(vill);
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Manual reroll: canonical offers captured (villager={}, offers={})",
-                            vill.getUUID(), vill.getOffers() == null ? -1 : vill.getOffers().size());
-                } else {
-                    VillagerOverhaul.LOG().warn("[VillagerOverhaul] Manual reroll: VillagerOffersSavedData was null; canonical offers NOT captured (villager={})",
-                            vill.getUUID());
-                }
-            } catch (Throwable t) {
-                VillagerOverhaul.LOG().error("[VillagerOverhaul] Manual reroll: failed to capture canonical offers (soft) (villager={})", vill.getUUID(), t);
-            }
 
             int offersAfter = vill.getOffers() != null ? vill.getOffers().size() : -1;
             RerollState.markRerolled(sp, vill);
@@ -228,17 +209,14 @@ public final class RerollExecutor {
                 return;
             }
 
-            // --- APPLY INTELLECT only (Ambitious removed) ---
             double iPct = 0.0;
             double baseRaw = perOffer * (double) rerolled;
 
             int add;
             try {
                 iPct = VillagerTraitEffects.intellectPct(vill);
-                // apply Intellect multiplier only
                 add = VillagerTraitEffects.applyXpPercentsRounded(baseRaw, iPct);
             } catch (Throwable ignored) {
-                // fallback: original behavior (no multipliers)
                 long addLong = Math.round(baseRaw);
                 if (addLong < 0L) addLong = 0L;
                 if (addLong > Integer.MAX_VALUE) addLong = Integer.MAX_VALUE;
@@ -265,12 +243,24 @@ public final class RerollExecutor {
 
             boolean scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vill);
 
+            // ✅ CRITICAL FIX:
+            // Level-up APPENDS offers. That is NOT a rebuild.
+            // We must use normalizeOffers() so drift correction can infer baseline correctly.
+            try {
+                HoarderOffers.normalizeOffers(vill, sp);
+            } catch (Throwable ignored) {}
+
+            // Keep generosity consistent too.
+            try {
+                VillagerGenerosityOfferService.normalizeAndApply(vill);
+            } catch (Throwable ignored) {}
+
             int xpAfter = xpBefore;
             int lvlAfter = lvlBefore;
             try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
             try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
 
-            // Re-sync merchant offers to update XP bar immediately.
+            // Re-sync merchant offers so player sees correct offers + XP bar immediately.
             try {
                 sp.sendMerchantOffers(
                         menu.containerId,
@@ -285,9 +275,10 @@ public final class RerollExecutor {
             }
 
             VillagerOverhaul.LOG().info(
-                    "[VillagerOverhaul] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} baseRaw={} intellectPct={} add={} scheduledVanillaLevelUp={} xp {}->{} level {}->{}",
+                    "[VillagerOverhaul] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} baseRaw={} intellectPct={} add={} scheduledVanillaLevelUp={} xp {}->{} level {}->{} offersNow={}",
                     vill.getUUID(), rerolled, perOffer, baseRaw, iPct, add, scheduledVanillaLevelUp,
-                    xpBefore, xpAfter, lvlBefore, lvlAfter
+                    xpBefore, xpAfter, lvlBefore, lvlAfter,
+                    (vill.getOffers() == null ? -1 : vill.getOffers().size())
             );
 
         } catch (Throwable t) {

@@ -16,6 +16,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Tracks open Merchant menus and re-normalizes Hoarder offers if vanilla/mods change the offer list while the UI is open
  * (e.g., delayed level-up flow, modded offer injections, etc.).
+ *
+ * Also enforces Generosity pricing (emerald costs) in a stack-safe way.
  */
 public final class HoarderOfferService {
 
@@ -46,8 +48,25 @@ public final class HoarderOfferService {
             // Don’t mess with settlement states.
             if (SearchService.isAwaitingPayment(vill)) return;
 
-            // Enforce immediately so UI opens with correct count.
+            // Enforce Hoarder immediately so UI opens with correct count.
             HoarderOffers.normalizeOffers(vill, sp);
+
+            // Enforce Generosity immediately so UI opens with correct emerald costs.
+            boolean genChanged = VillagerGenerosityOfferService.normalizeAndApply(vill);
+
+            // If generosity mutated costs after Hoarder sync, re-sync once so client sees correct prices.
+            if (genChanged) {
+                try {
+                    sp.sendMerchantOffers(
+                            menu.containerId,
+                            vill.getOffers(),
+                            vill.getVillagerData().getLevel(),
+                            vill.getVillagerXp(),
+                            vill.showProgressBar(),
+                            vill.canRestock()
+                    );
+                } catch (Throwable ignored) {}
+            }
 
             int size = (vill.getOffers() == null) ? 0 : vill.getOffers().size();
             long now = sp.serverLevel().getGameTime();
@@ -99,15 +118,35 @@ public final class HoarderOfferService {
 
                 if (!needs) continue;
 
-                boolean changed = HoarderOffers.normalizeOffers(vill, sp);
+                boolean hoarderChanged = HoarderOffers.normalizeOffers(vill, sp);
                 int sizeAfter = (vill.getOffers() == null) ? 0 : vill.getOffers().size();
+
+                // Always run Generosity when we decide we need enforcement (safe + stack-proof).
+                boolean genChanged = false;
+                try {
+                    genChanged = VillagerGenerosityOfferService.normalizeAndApply(vill);
+                } catch (Throwable ignored) {}
+
+                // If generosity changed but hoarder didn't, we still need to refresh the menu.
+                if (genChanged && sp.containerMenu instanceof MerchantMenu m) {
+                    try {
+                        sp.sendMerchantOffers(
+                                m.containerId,
+                                vill.getOffers(),
+                                vill.getVillagerData().getLevel(),
+                                vill.getVillagerXp(),
+                                vill.showProgressBar(),
+                                vill.canRestock()
+                        );
+                    } catch (Throwable ignored) {}
+                }
 
                 s.lastOfferSize = sizeAfter;
                 s.lastEnforceGameTime = gt;
 
-                if (changed && VillagerOverhaul.LOG().isDebugEnabled()) {
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] HoarderOfferService: re-normalized offers while trading (player={} villager={} {}->{}).",
-                            sp.getGameProfile().getName(), vill.getUUID(), sizeNow, sizeAfter);
+                if ((hoarderChanged || genChanged) && VillagerOverhaul.LOG().isDebugEnabled()) {
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] HoarderOfferService: re-normalized offers while trading (player={} villager={} size {}->{} hoarderChanged={} genChanged={}).",
+                            sp.getGameProfile().getName(), vill.getUUID(), sizeNow, sizeAfter, hoarderChanged, genChanged);
                 }
             }
 

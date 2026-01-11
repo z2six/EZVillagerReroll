@@ -21,6 +21,8 @@ import org.z2six.villageroverhaul.network.PacketAutoSearchDone;
 import org.z2six.villageroverhaul.network.PacketOpenAutoSearchPaymentScreen;
 import org.z2six.villageroverhaul.network.PacketOpenBusyScreen;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
+import net.minecraft.nbt.Tag;
+import org.z2six.villageroverhaul.logic.HoarderOffers;
 
 import java.lang.reflect.Method;
 import java.util.*;
@@ -129,9 +131,8 @@ public final class SearchService {
         final int hourlyCost;
         final int finalCost;
 
-        // UI snapshots
-        final ListTag offersIfPayTag;
-        final ListTag offersIfDeclineTag;
+        // ONLY snapshot we keep: offers BEFORE auto-search started (used for decline restore + UI)
+        final ListTag offersBeforeTag;
 
         // lock state at START (green outlines)
         final long lockMaskBefore;
@@ -142,10 +143,9 @@ public final class SearchService {
         // villager XP to award if paid
         final int totalVillagerXp;
 
-        // NEW: how many successful rerolls happened during the auto-search
+        // number of successful rerolls during auto-search
         final int rerollCount;
 
-        // Old constructor (used by old saved-data import paths) -> rerollCount defaults to 0
         Settlement(UUID villagerUuid,
                    int villagerEntityId,
                    UUID ownerPlayerUuid,
@@ -153,39 +153,7 @@ public final class SearchService {
                    long completedAtGameTime,
                    int hourlyCost,
                    int finalCost,
-                   ListTag offersIfPayTag,
-                   ListTag offersIfDeclineTag,
-                   long lockMaskBefore,
-                   List<String> requestedTargets,
-                   int totalVillagerXp
-        ) {
-            this(
-                    villagerUuid,
-                    villagerEntityId,
-                    ownerPlayerUuid,
-                    startedAtGameTime,
-                    completedAtGameTime,
-                    hourlyCost,
-                    finalCost,
-                    offersIfPayTag,
-                    offersIfDeclineTag,
-                    lockMaskBefore,
-                    requestedTargets,
-                    totalVillagerXp,
-                    0
-            );
-        }
-
-        // New constructor
-        Settlement(UUID villagerUuid,
-                   int villagerEntityId,
-                   UUID ownerPlayerUuid,
-                   long startedAtGameTime,
-                   long completedAtGameTime,
-                   int hourlyCost,
-                   int finalCost,
-                   ListTag offersIfPayTag,
-                   ListTag offersIfDeclineTag,
+                   ListTag offersBeforeTag,
                    long lockMaskBefore,
                    List<String> requestedTargets,
                    int totalVillagerXp,
@@ -194,13 +162,14 @@ public final class SearchService {
             this.villagerUuid = villagerUuid;
             this.villagerEntityId = villagerEntityId;
             this.ownerPlayerUuid = ownerPlayerUuid;
+
             this.startedAtGameTime = Math.max(0L, startedAtGameTime);
             this.completedAtGameTime = Math.max(this.startedAtGameTime, completedAtGameTime);
+
             this.hourlyCost = Math.max(0, hourlyCost);
             this.finalCost = Math.max(0, finalCost);
 
-            this.offersIfPayTag = offersIfPayTag == null ? new ListTag() : offersIfPayTag;
-            this.offersIfDeclineTag = offersIfDeclineTag == null ? new ListTag() : offersIfDeclineTag;
+            this.offersBeforeTag = offersBeforeTag == null ? new ListTag() : offersBeforeTag;
 
             this.lockMaskBefore = lockMaskBefore;
 
@@ -339,12 +308,11 @@ public final class SearchService {
                             Math.max(0L, sd.completedAtGameTime),
                             Math.max(0, sd.hourlyCost),
                             Math.max(0, sd.finalCost),
-                            sd.offersIfPay == null ? new ListTag() : sd.offersIfPay,
-                            sd.offersIfDecline == null ? new ListTag() : sd.offersIfDecline,
+                            sd.offersBeforeTag == null ? new ListTag() : sd.offersBeforeTag,
                             sd.lockMaskBefore,
                             sd.requestedTargets == null ? List.of() : sd.requestedTargets,
                             Math.max(0, sd.totalVillagerXp),
-                            Math.max(0, sd.rerollCount) // NEW
+                            Math.max(0, sd.rerollCount)
                     );
 
                     SETTLEMENTS.put(sd.villagerUuid, s);
@@ -425,8 +393,8 @@ public final class SearchService {
                     sd.hourlyCost = Math.max(0, s.hourlyCost);
                     sd.finalCost = Math.max(0, s.finalCost);
 
-                    sd.offersIfPay = deepCopyOfferList(s.offersIfPayTag);
-                    sd.offersIfDecline = deepCopyOfferList(s.offersIfDeclineTag);
+                    sd.offersBeforeTag = deepCopyOfferList(s.offersBeforeTag);
+
                     sd.lockMaskBefore = s.lockMaskBefore;
 
                     sd.requestedTargets = new ArrayList<>();
@@ -541,10 +509,41 @@ public final class SearchService {
             }
 
             Task removed = TASKS.remove(vill.getUUID());
-            if (removed != null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search CANCEL: player={} villager={} entityId={} rerollCount={}",
-                        sp.getGameProfile().getName(), vill.getUUID(), vill.getId(), removed.rerollCount);
+            if (removed == null) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] cancelByEntityId: no active task to cancel (villager={} entityId={})",
+                        vill.getUUID(), vill.getId());
+                return;
             }
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search CANCEL: player={} villager={} entityId={} rerollCount={}",
+                    sp.getGameProfile().getName(), vill.getUUID(), vill.getId(), removed.rerollCount);
+
+            // ✅ RULE: cancel reverts to SNAPSHOT trades
+            applyOffersFromWrappedCodecList(vill, removed.offersBeforeTag, "cancel.task.offersBeforeTag");
+
+            // Restore lock mask too
+            long sanitized = TradeLockState.sanitizeMaskForSize(removed.lockMaskBefore, safeOfferSize(vill));
+            TradeLockState.setMask(vill, sanitized);
+            try {
+                org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(vill, sanitized);
+            } catch (Throwable ignored) {}
+
+            // If the player currently has this villager open, refresh their offers client-side
+            try {
+                if (sp.containerMenu instanceof net.minecraft.world.inventory.MerchantMenu menu) {
+                    var trader = ((org.z2six.villageroverhaul.mixin.MerchantMenuAccessor) menu).ezvr$getTrader();
+                    if (trader == vill) {
+                        sp.sendMerchantOffers(
+                                menu.containerId,
+                                vill.getOffers(),
+                                vill.getVillagerData().getLevel(),
+                                vill.getVillagerXp(),
+                                vill.showProgressBar(),
+                                vill.canRestock()
+                        );
+                    }
+                }
+            } catch (Throwable ignored) {}
 
             trySetVillagerGlow(vill, false);
 
@@ -561,6 +560,12 @@ public final class SearchService {
             if (settle != null) {
                 int elapsedTicks = (int) Math.max(0L, settle.completedAtGameTime - settle.startedAtGameTime);
 
+                // ✅ Pay row = CURRENT offers (LIVE, after rerolling)
+                ListTag payOffersLive = serializeOffersCodec(vill);
+
+                // ✅ Decline row = SNAPSHOT offers from before rerolling started
+                ListTag declineOffersSnapshot = deepCopyOfferList(settle.offersBeforeTag);
+
                 try {
                     sp.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
                             new PacketOpenAutoSearchPaymentScreen(
@@ -568,8 +573,8 @@ public final class SearchService {
                                     settle.hourlyCost,
                                     settle.finalCost,
                                     elapsedTicks,
-                                    settle.offersIfPayTag,
-                                    settle.offersIfDeclineTag,
+                                    payOffersLive,
+                                    declineOffersSnapshot,
                                     settle.lockMaskBefore,
                                     settle.requestedTargets,
                                     settle.totalVillagerXp,
@@ -577,15 +582,16 @@ public final class SearchService {
                             )
                     ));
 
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={} totalVillagerXp={} payOffers={} declineOffers={} lockMaskBefore={} requestedTargets={})",
+                    VillagerOverhaul.LOG().debug(
+                            "[VillagerOverhaul] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={} totalVillagerXp={} payOffersLive={} declineSnapshot={} lockMaskBefore={} requestedTargets={})",
                             sp.getGameProfile().getName(),
                             vill.getId(),
                             settle.hourlyCost,
                             settle.finalCost,
                             elapsedTicks,
                             settle.totalVillagerXp,
-                            settle.offersIfPayTag == null ? -1 : settle.offersIfPayTag.size(),
-                            settle.offersIfDeclineTag == null ? -1 : settle.offersIfDeclineTag.size(),
+                            payOffersLive == null ? -1 : payOffersLive.size(),
+                            declineOffersSnapshot == null ? -1 : declineOffersSnapshot.size(),
                             Long.toUnsignedString(settle.lockMaskBefore),
                             settle.requestedTargets == null ? -1 : settle.requestedTargets.size()
                     );
@@ -643,7 +649,6 @@ public final class SearchService {
                     continue;
                 }
 
-                // Ensure villager has stats (no-op if already present)
                 try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
 
                 try { updateGlowForBusyVillager(vill, server); } catch (Throwable ignored) {}
@@ -651,7 +656,6 @@ public final class SearchService {
                 long now = vill.level().getGameTime();
                 if (now < task.nextRerollGameTime) continue;
 
-                // AUTO uses its own cooldown + Timeliness modifies it (hot-reload friendly)
                 int baseCd = Math.max(1, ServerConfig.cooldownTicksAuto);
                 double tPct = 0.0;
                 int cooldown = baseCd;
@@ -677,12 +681,14 @@ public final class SearchService {
                 }
 
                 try {
+                    // This is a rebuild/replace type operation.
                     TradeUtil.rebuildOffersInternal(vill, null, false);
                     task.rerollCount = Math.max(0, task.rerollCount + 1);
 
-                    // Apply Hoarder after each reroll so the offer list reflects the configured delta.
+                    // ✅ CRITICAL FIX:
+                    // After a rebuild, reset baseline/applied then normalize.
                     try {
-                        org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, null);
+                        HoarderOffers.normalizeAfterOfferRebuild(vill, null);
                     } catch (Throwable ignored) {}
 
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search reroll success: villager={} entityId={} rerollCount={} baseCd={} timelinessPct={} effectiveCd={}",
@@ -720,8 +726,7 @@ public final class SearchService {
             int finalCost = computeFinalCost(hourly, elapsedTicks);
 
             // Snapshot offers to show in UI
-            ListTag payOffers = serializeOffersCodec(vill);
-            ListTag declineOffers = deepCopyOfferList(task.offersBeforeTag);
+            ListTag beforeOffers = deepCopyOfferList(task.offersBeforeTag);
 
             // requested targets = requestedKeys, but as a stable list
             List<String> requested = new ArrayList<>();
@@ -750,8 +755,7 @@ public final class SearchService {
                     completed,
                     hourly,
                     finalCost,
-                    payOffers,
-                    declineOffers,
+                    beforeOffers,
                     task.lockMaskBefore,
                     requested,
                     totalXp,
@@ -760,10 +764,14 @@ public final class SearchService {
 
             SETTLEMENTS.put(vill.getUUID(), settle);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} payOffers={} declineOffers={} lockMaskBefore={} requestedTargets={} rerollCount={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={} totalVillagerXp={}",
+            int offersNow = -1;
+            try { offersNow = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
+
+            VillagerOverhaul.LOG().info(
+                    "[VillagerOverhaul] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} offersBeforeTag={} offersNow={} lockMaskBefore={} requestedTargets={} rerollCount={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={} totalVillagerXp={}",
                     vill.getUUID(), vill.getId(), hourly, elapsedTicks, finalCost, String.valueOf(task.ownerPlayerUuid),
-                    payOffers == null ? -1 : payOffers.size(),
-                    declineOffers == null ? -1 : declineOffers.size(),
+                    beforeOffers == null ? -1 : beforeOffers.size(),
+                    offersNow,
                     Long.toUnsignedString(task.lockMaskBefore),
                     requested.size(),
                     task.rerollCount,
@@ -1117,9 +1125,87 @@ public final class SearchService {
         }
     }
 
+    // -----------------------------------------------------------------------------------------
+// Restore offers from snapshot (wrapper format: { "v": <offerTag> })
+// -----------------------------------------------------------------------------------------
+    private static boolean applyOffersFromWrappedCodecList(Villager vill, ListTag wrappedList, String reason) {
+        try {
+            if (vill == null) return false;
+            if (wrappedList == null || wrappedList.isEmpty()) return false;
+            if (!(vill.level() instanceof ServerLevel level)) return false;
+
+            var ops = RegistryOps.create(NbtOps.INSTANCE, level.registryAccess());
+
+            MerchantOffers decoded = new MerchantOffers();
+            int n = Math.min(256, wrappedList.size());
+
+            for (int i = 0; i < n; i++) {
+                final int idx = i;
+
+                CompoundTag wrap;
+                try {
+                    wrap = wrappedList.getCompound(i);
+                } catch (Throwable t) {
+                    continue;
+                }
+                if (wrap == null) continue;
+
+                Tag offerTag;
+                try {
+                    offerTag = wrap.get(TAG_WRAP_VALUE); // "v"
+                } catch (Throwable t) {
+                    offerTag = null;
+                }
+                if (offerTag == null) continue;
+
+                var res = MerchantOffer.CODEC.parse(ops, offerTag);
+                res.resultOrPartial(err ->
+                        VillagerOverhaul.LOG().debug(
+                                "[VillagerOverhaul] applyOffersFromWrappedCodecList: decode error villager={} idx={} reason={} err={}",
+                                vill.getUUID(), idx, reason, err
+                        )
+                ).ifPresent(decoded::add);
+            }
+
+            // Apply by mutating existing list (safest for vanilla references)
+            MerchantOffers cur = vill.getOffers();
+            cur.clear();
+            cur.addAll(decoded);
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] applyOffersFromWrappedCodecList: applied villager={} reason={} offers={}",
+                    vill.getUUID(), reason, decoded.size());
+
+            return true;
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] applyOffersFromWrappedCodecList failed (reason=" + reason + ")", t);
+            return false;
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Settlement accessors
     // ---------------------------------------------------------------------
+
+    public static ListTag getSettlementOffersBeforeTag(Villager vill) {
+        try {
+            if (vill == null) return new ListTag();
+            Settlement s = SETTLEMENTS.get(vill.getUUID());
+            return s == null ? new ListTag() : deepCopyOfferList(s.offersBeforeTag);
+        } catch (Throwable t) {
+            return new ListTag();
+        }
+    }
+
+    public static long getSettlementLockMaskBefore(Villager vill) {
+        try {
+            if (vill == null) return 0L;
+            Settlement s = SETTLEMENTS.get(vill.getUUID());
+            return s == null ? 0L : s.lockMaskBefore;
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
 
     public static int getSettlementFinalCost(Villager vill) {
         try {
@@ -1172,12 +1258,22 @@ public final class SearchService {
     // ---------------------------------------------------------------------
 
     public static int awardSettlementVillagerXpIfAny(Villager vill, Settlement settlement) {
+        return awardSettlementVillagerXpIfAny(null, vill, settlement);
+    }
+
+    public static int awardSettlementVillagerXpIfAny(ServerPlayer payer, Villager vill, Settlement settlement) {
         try {
             if (vill == null || settlement == null) return 0;
 
             int xp = Math.max(0, settlement.totalVillagerXp);
             if (xp <= 0) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] awardSettlementVillagerXpIfAny: nothing to award (xp<=0) villager={}", vill.getUUID());
+
+                // Nothing awarded, but vanilla/mods may still have changed offers.
+                // Use normalizeOffers (drift correction) since this is NOT guaranteed to be a rebuild.
+                try { HoarderOffers.normalizeOffers(vill, payer); } catch (Throwable ignored) {}
+
+                scheduleNextTickHoarderRecheck(vill, payer);
                 return 0;
             }
 
@@ -1188,12 +1284,16 @@ public final class SearchService {
 
             boolean ok = addVillagerXpSafe(vill, xp);
 
-            // IMPORTANT: now nudge vanilla to perform its own level-up process if XP threshold was reached
-            boolean leveled = false;
             boolean scheduledVanillaLevelUp = false;
             if (ok) {
                 scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vill);
             }
+
+            // ✅ CRITICAL FIX:
+            // Level-up appends offers. Do NOT reset baseline. Let drift correction infer the new baseline.
+            try {
+                HoarderOffers.normalizeOffers(vill, payer);
+            } catch (Throwable ignored) {}
 
             int lvlAfter = lvlBefore;
             int xpAfter = xpBefore;
@@ -1201,11 +1301,15 @@ public final class SearchService {
             try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().info(
-                    "[VillagerOverhaul] awardSettlementVillagerXpIfAny: villager={} entityId={} addXp={} success={} scheduledVanillaLevelUp={} level {}->{} xp {}->{}",
-                    vill.getUUID(), vill.getId(), xp, ok, scheduledVanillaLevelUp, lvlBefore, lvlAfter, xpBefore, xpAfter
+                    "[VillagerOverhaul] awardSettlementVillagerXpIfAny: villager={} entityId={} addXp={} success={} scheduledVanillaLevelUp={} level {}->{} xp {}->{} offersNow={}",
+                    vill.getUUID(), vill.getId(), xp, ok, scheduledVanillaLevelUp,
+                    lvlBefore, lvlAfter, xpBefore, xpAfter,
+                    (vill.getOffers() == null ? -1 : vill.getOffers().size())
             );
 
+            scheduleNextTickHoarderRecheck(vill, payer);
             return ok ? xp : 0;
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] awardSettlementVillagerXpIfAny failed", t);
             return 0;
@@ -1213,11 +1317,74 @@ public final class SearchService {
     }
 
     /**
+     * Vanilla may still modify villager offers after our immediate call stack.
+     * Re-apply Hoarder on the next server tick and update canonical offers after stabilization.
+     *
+     * IMPORTANT: use normalizeAfterOfferRebuild here, because vanilla may have replaced or appended offers.
+     */
+    private static void scheduleNextTickHoarderRecheck(Villager vill, ServerPlayer payer) {
+        try {
+            if (vill == null) return;
+
+            MinecraftServer server = null;
+            try { server = vill.getServer(); } catch (Throwable ignored) { server = null; }
+            if (server == null) return;
+
+            final MinecraftServer srv = server;
+
+            UUID villagerId = null;
+            try { villagerId = vill.getUUID(); } catch (Throwable ignored) { villagerId = null; }
+            if (villagerId == null) return;
+
+            final UUID vId = villagerId;
+            final UUID payerId = (payer == null ? null : payer.getUUID());
+
+            srv.execute(() -> {
+                try {
+                    Villager v = resolveVillagerByUuid(srv, vId);
+                    if (v == null) return;
+
+                    ServerPlayer p = null;
+                    if (payerId != null) {
+                        try { p = srv.getPlayerList().getPlayer(payerId); } catch (Throwable ignored2) { p = null; }
+                    }
+
+                    int before = (v.getOffers() == null ? -1 : v.getOffers().size());
+
+                    // ✅ CRITICAL FIX:
+                    // Next tick after XP/level-up, vanilla may append more offers.
+                    // Use normalizeOffers() so drift correction does the right thing.
+                    boolean changed = false;
+                    try {
+                        changed = HoarderOffers.normalizeOffers(v, p);
+                    } catch (Throwable ignored3) {}
+
+                    int after = (v.getOffers() == null ? -1 : v.getOffers().size());
+
+                    if (changed || before != after) {
+                        VillagerOverhaul.LOG().info("[VillagerOverhaul] NextTick Hoarder recheck: villager={} entityId={} size {}->{}",
+                                v.getUUID(), v.getId(), before, after);
+                    } else if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] NextTick Hoarder recheck: no change villager={} entityId={} size={}",
+                                v.getUUID(), v.getId(), after);
+                    }
+
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] scheduleNextTickHoarderRecheck failed (soft): {}", t.toString());
+                }
+            });
+
+        } catch (Throwable ignored) {}
+    }
+
+    /**
      * Vanilla-accurate level-up trigger:
      * - call Villager.shouldIncreaseLevel() (private)
      * - if true, call Villager.increaseMerchantCareer() (private)
      *
-     * No hardcoded XP thresholds.
+     * IMPORTANT: Do NOT call updateTrades() here.
+     * In many versions/mappings, increaseMerchantCareer() already refreshes/extends offers.
+     * Calling updateTrades() again can duplicate the level's offers (e.g. 4 -> 6 at level 2).
      */
     private static boolean maybeInvokeVanillaLevelUpFlow(Villager vill) {
         try {
@@ -1227,28 +1394,20 @@ public final class SearchService {
             try { lvl = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
             if (lvl >= 5) return false;
 
-            // Mojmap: shouldIncreaseLevel()
             boolean should = tryInvokeBooleanNoArgMethodAnyVisibility(vill, "shouldIncreaseLevel");
-
-            // Optional fallbacks (won't exist in Mojmap, harmless if missing)
             if (!should) should = tryInvokeBooleanNoArgMethodAnyVisibility(vill, "canLevelUp");
-
             if (!should) return false;
 
             // Mojmap: increaseMerchantCareer()
             if (tryInvokeNoArgMethodAnyVisibility(vill, "increaseMerchantCareer")) {
-                // Some versions/paths refresh trades via updateTrades; harmless if absent.
-                tryInvokeNoArgMethodAnyVisibility(vill, "updateTrades");
                 return true;
             }
 
             // Fallback aliases across mappings
             if (tryInvokeNoArgMethodAnyVisibility(vill, "levelUp")) {
-                tryInvokeNoArgMethodAnyVisibility(vill, "updateTrades");
                 return true;
             }
             if (tryInvokeNoArgMethodAnyVisibility(vill, "increaseProfessionLevel")) {
-                tryInvokeNoArgMethodAnyVisibility(vill, "updateTrades");
                 return true;
             }
 
@@ -1435,6 +1594,17 @@ public final class SearchService {
             return null;
         } catch (Throwable t) {
             return null;
+        }
+    }
+
+    // yuh
+
+    private static int safeOfferSize(Villager vill) {
+        try {
+            if (vill == null || vill.getOffers() == null) return 0;
+            return Math.max(0, vill.getOffers().size());
+        } catch (Throwable ignored) {
+            return 0;
         }
     }
 

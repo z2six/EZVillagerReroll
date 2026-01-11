@@ -52,9 +52,8 @@ public final class SearchSavedData extends SavedData {
         public int hourlyCost;
         public int finalCost;
 
-        // UI snapshots
-        public ListTag offersIfPay = new ListTag();
-        public ListTag offersIfDecline = new ListTag();
+        // ONLY snapshot we persist: offers BEFORE auto-search started
+        public ListTag offersBeforeTag = new ListTag();
 
         // lock state at START
         public long lockMaskBefore = 0L;
@@ -385,8 +384,7 @@ public final class SearchSavedData extends SavedData {
 
             ListTag before = new ListTag();
             if (td.offersBeforeTag != null) {
-                int m = Math.min(256, td.offersBeforeTag.size());
-                for (int i = 0; i < m; i++) {
+                for (int i = 0; i < td.offersBeforeTag.size(); i++) {
                     try {
                         CompoundTag wrap = td.offersBeforeTag.getCompound(i);
                         if (wrap != null) before.add(wrap.copy());
@@ -423,24 +421,14 @@ public final class SearchSavedData extends SavedData {
             sd.hourlyCost = Math.max(0, t.getInt("hourlyCost"));
             sd.finalCost = Math.max(0, t.getInt("finalCost"));
 
-            sd.offersIfPay = new ListTag();
-            if (t.contains("offersIfPay", Tag.TAG_LIST)) {
-                ListTag list = t.getList("offersIfPay", Tag.TAG_COMPOUND);
+            // ✅ ONLY snapshot we persist: offers BEFORE auto-search started
+            sd.offersBeforeTag = new ListTag();
+            if (t.contains("offersBeforeTag", Tag.TAG_LIST)) {
+                ListTag list = t.getList("offersBeforeTag", Tag.TAG_COMPOUND);
                 for (int i = 0; i < list.size(); i++) {
                     try {
                         CompoundTag wrap = list.getCompound(i);
-                        if (wrap != null) sd.offersIfPay.add(wrap.copy());
-                    } catch (Throwable ignored) {}
-                }
-            }
-
-            sd.offersIfDecline = new ListTag();
-            if (t.contains("offersIfDecline", Tag.TAG_LIST)) {
-                ListTag list = t.getList("offersIfDecline", Tag.TAG_COMPOUND);
-                for (int i = 0; i < list.size(); i++) {
-                    try {
-                        CompoundTag wrap = list.getCompound(i);
-                        if (wrap != null) sd.offersIfDecline.add(wrap.copy());
+                        if (wrap != null) sd.offersBeforeTag.add(wrap.copy());
                     } catch (Throwable ignored) {}
                 }
             }
@@ -490,27 +478,17 @@ public final class SearchSavedData extends SavedData {
             t.putInt("hourlyCost", Math.max(0, sd.hourlyCost));
             t.putInt("finalCost", Math.max(0, sd.finalCost));
 
-            ListTag pay = new ListTag();
-            if (sd.offersIfPay != null) {
-                for (int i = 0; i < sd.offersIfPay.size(); i++) {
+            // ONLY persisted snapshot
+            ListTag before = new ListTag();
+            if (sd.offersBeforeTag != null) {
+                for (int i = 0; i < sd.offersBeforeTag.size(); i++) {
                     try {
-                        CompoundTag wrap = sd.offersIfPay.getCompound(i);
-                        if (wrap != null) pay.add(wrap.copy());
+                        CompoundTag wrap = sd.offersBeforeTag.getCompound(i);
+                        if (wrap != null) before.add(wrap.copy());
                     } catch (Throwable ignored) {}
                 }
             }
-            t.put("offersIfPay", pay);
-
-            ListTag decline = new ListTag();
-            if (sd.offersIfDecline != null) {
-                for (int i = 0; i < sd.offersIfDecline.size(); i++) {
-                    try {
-                        CompoundTag wrap = sd.offersIfDecline.getCompound(i);
-                        if (wrap != null) decline.add(wrap.copy());
-                    } catch (Throwable ignored) {}
-                }
-            }
-            t.put("offersIfDecline", decline);
+            t.put("offersBeforeTag", before);
 
             t.putLong("lockMaskBefore", sd.lockMaskBefore);
 
@@ -528,7 +506,6 @@ public final class SearchSavedData extends SavedData {
             t.put("requestedTargets", targets);
 
             t.putInt("totalVillagerXp", Math.max(0, sd.totalVillagerXp));
-
             t.putInt("rerollCount", Math.max(0, sd.rerollCount));
 
             return t;

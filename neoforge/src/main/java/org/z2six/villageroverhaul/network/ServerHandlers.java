@@ -26,7 +26,6 @@ import org.z2six.villageroverhaul.logic.WalletBridge;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.server.CatalogBuilder;
 import org.z2six.villageroverhaul.server.SearchService;
-import org.z2six.villageroverhaul.server.VillagerOffersSavedData;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
@@ -278,14 +277,6 @@ public final class ServerHandlers {
             // Remove settlement after successful payment + XP award attempt
             SearchService.popSettlement(vill.getUUID());
 
-            var data = VillagerOffersSavedData.get(sp.serverLevel());
-            if (data != null) {
-                data.capture(vill);
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePayAutoSearchSettlement: captured post-pay offers (villager={})", vill.getUUID());
-            } else {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePayAutoSearchSettlement: VillagerOffersSavedData missing (villager={})", vill.getUUID());
-            }
-
             VillagerOverhaul.LOG().info("[VillagerOverhaul] handlePayAutoSearchSettlement: success (player={} villager={} cost={} awardedXp={} settlementXp={})",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
@@ -308,56 +299,21 @@ public final class ServerHandlers {
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
 
-            Object settlement = SearchService.getSettlement(vill);
+            SearchService.Settlement settlement = SearchService.getSettlement(vill);
             if (settlement == null) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleDeclineAutoSearchSettlement: no settlement (villagerId={} uuid={})", vill.getId(), vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleDeclineAutoSearchSettlement: no settlement (villagerId={} uuid={})",
+                        vill.getId(), vill.getUUID());
                 return;
             }
 
-            // ---------------------------------------------------------------------------------
-            // FIX: Prefer the settlement’s own "offersIfDecline" snapshot (server-authoritative),
-            // NOT the generic VillagerOffersSavedData, which may have been overwritten by other saves.
-            // ---------------------------------------------------------------------------------
-            boolean restored = false;
+            applyOffersFromOfferTagList(vill, SearchService.getSettlementOffersBeforeTag(vill), "settlement.offersBeforeTag");
+            long lockMaskBefore = SearchService.getSettlementLockMaskBefore(vill);
+            long sanitized = TradeLockState.sanitizeMaskForSize(lockMaskBefore, safeOfferSize(vill));
 
-            ListTag offersIfDecline = reflectListTag(settlement, "offersIfDecline");
-            if (offersIfDecline != null && !offersIfDecline.isEmpty()) {
-                restored = applyOffersFromOfferTagList(vill, offersIfDecline, "settlement.offersIfDecline");
-            } else {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleDeclineAutoSearchSettlement: settlement.offersIfDecline missing/empty (villager={})", vill.getUUID());
-            }
-
-            // Restore lock mask from settlement (so lock highlights + cost math revert too)
-            Long lockMaskBefore = reflectLong(settlement, "lockMaskBefore");
-            if (lockMaskBefore != null) {
-                long sanitized = TradeLockState.sanitizeMaskForSize(lockMaskBefore, safeOfferSize(vill));
-                TradeLockState.setMask(vill, sanitized);
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleDeclineAutoSearchSettlement: restored lockMaskBefore={} sanitized={} offers={} villager={}",
-                        Long.toUnsignedString(lockMaskBefore),
-                        Long.toUnsignedString(sanitized),
-                        safeOfferSize(vill),
-                        vill.getUUID());
-                try {
-                    org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(vill, sanitized);
-                } catch (Throwable ignored) {
-                    // soft
-                }
-            } else {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleDeclineAutoSearchSettlement: settlement.lockMaskBefore missing (villager={})", vill.getUUID());
-            }
-
-            // Fallback if settlement snapshot unavailable for any reason
-            if (!restored) {
-                var data = VillagerOffersSavedData.get(sp.serverLevel());
-                if (data != null && data.has(vill.getUUID())) {
-                    data.apply(vill);
-                    restored = true;
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleDeclineAutoSearchSettlement: fallback restored via VillagerOffersSavedData (villager={})", vill.getUUID());
-                } else {
-                    VillagerOverhaul.LOG().warn("[VillagerOverhaul] handleDeclineAutoSearchSettlement: failed to restore offers (no settlement snapshot, no saveddata) villager={}",
-                            vill.getUUID());
-                }
-            }
+            TradeLockState.setMask(vill, sanitized);
+            try {
+                org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(vill, sanitized);
+            } catch (Throwable ignored) {}
 
             SearchService.popSettlement(vill.getUUID());
             ctx.reply(new PacketAutoSearchSettlementCleared(vill.getId()));
@@ -461,58 +417,45 @@ public final class ServerHandlers {
     // encoded via MerchantOffer.CODEC (which is how 1.21.x expects it).
     // -----------------------------------------------------------------------------------------
 
-    // ServerHandlers.java
     private static boolean applyOffersFromOfferTagList(Villager vill, ListTag offerList, String reason) {
         try {
             if (vill == null) return false;
             if (offerList == null || offerList.isEmpty()) return false;
+            if (!(vill.level() instanceof ServerLevel level)) return false;
+
+            var ops = net.minecraft.resources.RegistryOps.create(NbtOps.INSTANCE, level.registryAccess());
 
             MerchantOffers decoded = new MerchantOffers();
-
             int n = Math.min(256, offerList.size());
-            int ok = 0;
-            int bad = 0;
 
             for (int i = 0; i < n; i++) {
-                final int idx = i; // <-- FIX: capture loop index for lambda
+                final int idx = i;
 
-                Tag t = offerList.get(i);
-                if (t == null) {
-                    bad++;
+                // offerList elements are CompoundTag wrappers { "v": <offerTag> }
+                net.minecraft.nbt.CompoundTag wrap;
+                try {
+                    wrap = offerList.getCompound(i);
+                } catch (Throwable t) {
                     continue;
                 }
+                if (wrap == null) continue;
 
-                DataResult<MerchantOffer> res = MerchantOffer.CODEC.parse(NbtOps.INSTANCE, t);
-                Optional<MerchantOffer> opt = res.resultOrPartial(err ->
+                Tag offerTag = wrap.get("v");
+                if (offerTag == null) continue;
+
+                var res = MerchantOffer.CODEC.parse(ops, offerTag);
+                res.resultOrPartial(err ->
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] applyOffersFromOfferTagList: decode error (villager={} idx={} reason={}): {}",
                                 vill.getUUID(), idx, reason, err)
-                );
-
-                if (opt.isPresent()) {
-                    decoded.add(opt.get());
-                    ok++;
-                } else {
-                    bad++;
-                }
+                ).ifPresent(decoded::add);
             }
 
-            // Apply by mutating the existing MerchantOffers list. This avoids needing accessors and
-            // plays nicer with any vanilla code holding a reference to vill.getOffers().
-            try {
-                MerchantOffers current = vill.getOffers();
-                current.clear();
-                current.addAll(decoded);
-            } catch (Throwable t) {
-                // As a fallback, try a best-effort reflection set (rarely needed).
-                if (!trySetOffersReflect(vill, decoded)) {
-                    VillagerOverhaul.LOG().warn("[VillagerOverhaul] applyOffersFromOfferTagList: failed to apply offers (villager={} reason={} ok={} bad={})",
-                            vill.getUUID(), reason, ok, bad);
-                    return false;
-                }
-            }
+            MerchantOffers current = vill.getOffers();
+            current.clear();
+            current.addAll(decoded);
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] applyOffersFromOfferTagList: applied offers (villager={} reason={} count={} ok={} bad={})",
-                    vill.getUUID(), reason, decoded.size(), ok, bad);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] applyOffersFromOfferTagList: applied offers (villager={} reason={} count={})",
+                    vill.getUUID(), reason, decoded.size());
             return true;
 
         } catch (Throwable e) {
@@ -578,62 +521,6 @@ public final class ServerHandlers {
             return Math.max(0, vill.getOffers().size());
         } catch (Throwable ignored) {
             return 0;
-        }
-    }
-
-    private static ListTag reflectListTag(Object obj, String fieldName) {
-        try {
-            if (obj == null || fieldName == null) return null;
-
-            Field f = findField(obj.getClass(), fieldName);
-            if (f == null) return null;
-
-            Object v = f.get(obj);
-            if (v instanceof ListTag lt) return lt;
-            return null;
-
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] reflectListTag failed (soft): {}", t.toString());
-            return null;
-        }
-    }
-
-    private static Long reflectLong(Object obj, String fieldName) {
-        try {
-            if (obj == null || fieldName == null) return null;
-
-            Field f = findField(obj.getClass(), fieldName);
-            if (f == null) return null;
-
-            Object v = f.get(obj);
-            if (v instanceof Long l) return l;
-            if (v instanceof Number n) return n.longValue();
-            return null;
-
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] reflectLong failed (soft): {}", t.toString());
-            return null;
-        }
-    }
-
-    private static Field findField(Class<?> cls, String name) {
-        try {
-            if (cls == null || name == null) return null;
-
-            Class<?> c = cls;
-            while (c != null && c != Object.class) {
-                try {
-                    Field f = c.getDeclaredField(name);
-                    f.setAccessible(true);
-                    return f;
-                } catch (NoSuchFieldException ignored) {
-                    c = c.getSuperclass();
-                }
-            }
-            return null;
-
-        } catch (Throwable t) {
-            return null;
         }
     }
 }

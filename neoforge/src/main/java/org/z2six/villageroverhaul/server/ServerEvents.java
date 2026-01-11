@@ -22,6 +22,7 @@ import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.PacketOpenRecruitScreen;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.ServerSync;
+import org.z2six.villageroverhaul.logic.HoarderOffers;
 
 public final class ServerEvents {
 
@@ -133,58 +134,44 @@ public final class ServerEvents {
 
             if (!(merchant instanceof Villager vill)) return;
 
-            if (SearchService.isAwaitingPayment(vill)) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerOpen: villager awaiting payment; skipping offer persistence (villager={} player={})",
+            // If busy (task OR settlement), do NOT touch offers.
+            // Auto-search must be reversible back to snapshot without other systems mutating trades.
+            if (SearchService.isBusy(vill)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerOpen: villager busy; skipping hoarder/gen (villager={} player={})",
                         vill.getUUID(), sp.getGameProfile().getName());
                 return;
             }
 
-            var level = sp.serverLevel();
-            if (level == null) return;
-
-            VillagerOffersSavedData data = VillagerOffersSavedData.get(level);
-            if (data == null) {
-                VillagerOverhaul.LOG().warn("[VillagerOverhaul] onContainerOpen: offers saved data unavailable; skipping (player={})", sp.getGameProfile().getName());
+            // If awaiting payment, DO NOT touch offers (settlement UI relies on exact state).
+            if (SearchService.isAwaitingPayment(vill)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerOpen: villager awaiting payment; skipping hoarder/gen (villager={} player={})",
+                        vill.getUUID(), sp.getGameProfile().getName());
                 return;
             }
 
-            boolean had = data.has(vill.getUUID());
-            boolean applied = false;
-
-            if (had) {
-                applied = data.apply(vill);
-                if (!applied) {
-                    VillagerOverhaul.LOG().debug(
-                            "[VillagerOverhaul] onContainerOpen: had entry but apply failed; will treat current state as canonical after Hoarder normalize (villager={}, player={})",
-                            vill.getUUID(), sp.getGameProfile().getName()
-                    );
-                }
-            } else {
-                VillagerOverhaul.LOG().debug(
-                        "[VillagerOverhaul] onContainerOpen: no canonical entry yet; will capture after Hoarder normalize (villager={}, player={})",
-                        vill.getUUID(), sp.getGameProfile().getName()
-                );
-            }
-
-            boolean hoarderChanged = false;
+            // Enforce Hoarder immediately so the UI opens with the correct offer count.
             try {
-                hoarderChanged = org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, sp);
+                HoarderOffers.normalizeOffers(vill, sp);
             } catch (Throwable ignored) {}
 
+            // Enforce Generosity immediately so prices are correct.
             try {
-                if (!had || !applied || hoarderChanged) {
-                    data.capture(vill);
-                    VillagerOverhaul.LOG().info(
-                            "[VillagerOverhaul] onContainerOpen: canonical offers captured/updated (villager={} player={} offers={} had={} applied={} hoarderChanged={})",
-                            vill.getUUID(), sp.getGameProfile().getName(),
-                            (vill.getOffers() == null ? -1 : vill.getOffers().size()),
-                            had, applied, hoarderChanged
-                    );
+                boolean genChanged = VillagerGenerosityOfferService.normalizeAndApply(vill);
+                if (genChanged) {
+                    try {
+                        sp.sendMerchantOffers(
+                                menu.containerId,
+                                vill.getOffers(),
+                                vill.getVillagerData().getLevel(),
+                                vill.getVillagerXp(),
+                                vill.showProgressBar(),
+                                vill.canRestock()
+                        );
+                    } catch (Throwable ignored2) {}
                 }
-            } catch (Throwable t) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerOpen: failed to capture after Hoarder normalize (soft): {}", t.toString());
-            }
+            } catch (Throwable ignored) {}
 
+            // Start the “while menu open” enforcement loop.
             try {
                 HoarderOfferService.onMerchantMenuOpen(sp, menu, vill);
             } catch (Throwable ignored) {}

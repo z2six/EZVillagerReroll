@@ -25,16 +25,13 @@ public final class HoarderOffers {
 
     /**
      * Normalize villager offer count to:
-     *   target = clampMin1( baselineRaw + desiredDelta )
+     *   target = clampMin1( baseline + desiredDelta )
      *
-     * baselineRaw is dynamic:
-     *   rawNow = currentOffersSize - previouslyAppliedDelta
-     *   baseline = max(baseline, rawNow) (only grows by default)
-     *
-     * Returns true if offers were changed.
-     *
-     * IMPORTANT: reductions are enforced even if trades are locked.
-     * We always truncate from the end to the exact target size, then sanitize the lock mask for the new size.
+     * Key rules:
+     * - baseline is the "external/vanilla/modpack" baseline offer count (dynamic; can go up or down)
+     * - appliedDelta is the delta we ACTUALLY applied last time (NOT the desired delta)
+     * - drift correction: if current offers != baseline + appliedDelta, treat it as external change and recompute baseline
+     * - reductions are enforced even if trades are locked; we truncate from the end and then sanitize lock mask
      */
     public static boolean normalizeOffers(Villager vill, ServerPlayer maybePlayerForSync) {
         try {
@@ -45,20 +42,37 @@ public final class HoarderOffers {
 
             int beforeSize = safeSize(offers);
 
-            // Step 1: baseline refresh based on what was previously applied.
-            int prevApplied = getAppliedDelta(vill);
-            int rawNow = beforeSize - prevApplied;
-            if (rawNow < 0) rawNow = 0;
-
             int baseline = getBaseline(vill);
-            if (baseline < 0) baseline = -1;
+            int prevApplied = getAppliedDelta(vill);
 
+            // If baseline missing, initialize baseline as "current offers minus applied delta"
+            // (applied delta is usually 0 on first run, so baseline becomes current).
             if (baseline < 0) {
-                baseline = rawNow;
+                baseline = beforeSize - prevApplied;
+                if (baseline < 0) baseline = 0;
                 setBaseline(vill, baseline);
-            } else if (rawNow > baseline) {
-                baseline = rawNow;
-                setBaseline(vill, baseline);
+            }
+
+            // ---- DRIFT CORRECTION ----
+            // If vanilla/mods changed the offer list (level-up, injections, reloads, etc.),
+            // recompute baseline so that: baseline + prevApplied == current offers.
+            // This lets baseline move BOTH directions (no hardcoding by level).
+            int expected = baseline + prevApplied;
+            if (expected != beforeSize) {
+                int newBaseline = beforeSize - prevApplied;
+                if (newBaseline < 0) newBaseline = 0;
+
+                if (newBaseline != baseline) {
+                    baseline = newBaseline;
+                    setBaseline(vill, baseline);
+
+                    if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                        VillagerOverhaul.LOG().debug(
+                                "[VillagerOverhaul] HoarderOffers drift detected: villager={} current={} expected={} prevApplied={} baseline {}->{}",
+                                vill.getUUID(), beforeSize, expected, prevApplied, (expected - prevApplied), baseline
+                        );
+                    }
+                }
             }
 
             // Step 2: compute desired delta (config-clamped)
@@ -133,8 +147,11 @@ public final class HoarderOffers {
                 }
             } catch (Throwable ignored) {}
 
-            // Step 5: record what we consider "applied delta" now
-            setAppliedDelta(vill, desiredDelta);
+            // Step 5: record ACTUAL applied delta now (not desired delta)
+            // This is CRITICAL for correct drift handling when target is clamped (min 1 offer).
+            int finalSize = safeSize(offers);
+            int appliedActual = finalSize - baseline;
+            setAppliedDelta(vill, appliedActual);
 
             // Step 6: resync UI if player is currently in a MerchantMenu
             if (maybePlayerForSync != null && maybePlayerForSync.containerMenu instanceof MerchantMenu menu) {
@@ -153,6 +170,38 @@ public final class HoarderOffers {
             return changed;
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] HoarderOffers.normalizeOffers failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    /**
+     * IMPORTANT: Call this after an offer list has been REPLACED (clear+rebuild, restore canonical offers,
+     * settlement pay/decline apply, etc.)
+     *
+     * It resets:
+     * - baseline = currentOffersSize  (can go DOWN as well as up)
+     * - appliedDelta = 0
+     *
+     * Then calls normalizeOffers to enforce the configured hoarder delta.
+     */
+    public static boolean normalizeAfterOfferRebuild(Villager vill, ServerPlayer maybePlayerForSync) {
+        try {
+            if (vill == null) return false;
+
+            MerchantOffers offers = vill.getOffers();
+            if (offers == null) return false;
+
+            int nowSize = safeSize(offers);
+
+            // Treat current list as new baseline (can decrease compared to previous baseline).
+            setBaseline(vill, nowSize);
+
+            // Reset applied delta so drift correction is clean.
+            setAppliedDelta(vill, 0);
+
+            return normalizeOffers(vill, maybePlayerForSync);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] HoarderOffers.normalizeAfterOfferRebuild failed (soft): {}", t.toString());
             return false;
         }
     }
