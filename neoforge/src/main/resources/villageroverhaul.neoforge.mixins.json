@@ -1,0 +1,19 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "org.z2six.villageroverhaul.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "AbstractVillagerAccessor",
+    "MerchantMenuAccessor",
+    "VillagerAccessor",
+    "VillagerDisableVanillaAutoTradeRefreshMixin"
+  ],
+  "client": [
+    "MerchantScreenTradeLockRightClickMixin",
+    "MerchantScreenRerollButtonRightClickMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

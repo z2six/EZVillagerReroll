@@ -16,7 +16,7 @@
     "environment": "*",
     "entrypoints": {
         "main": [
-          "org.z2six.ezvillagerreroll.ExampleMod"
+          "org.z2six.villageroverhaul.ExampleMod"
         ]
     },
     "mixins": [
