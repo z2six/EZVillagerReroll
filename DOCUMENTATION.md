@@ -31,3 +31,6 @@ _Hoarder adjusts offer slots by an integer delta derived from points and config 
 ## Auto rerolling flow
 
 ## Stats & multipliers
+
+## Recruiting Villagers
+Only Recruited Villagers can use all of our mod's features. Just RMB on a Villager without a profession and Recruit it (for Emeralds). The min/max cost can be configured on the server and the final cost is based on the total value of all stats combined, normalized to the min/max range the server config has.

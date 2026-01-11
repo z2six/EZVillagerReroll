@@ -1,5 +1,3 @@
-// PacketSyncConfig.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketSyncConfig.java
 package org.z2six.villageroverhaul.network;
 
 import net.minecraft.network.FriendlyByteBuf;
@@ -33,10 +31,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     // NEW: XP config (manual reroll XP per rerolled offer)
     public double manualRerollXpPerOffer;
 
-    // -----------------------------------------------------------------------------------------
-    // NEW: Villager stat effect bounds (percent at points=-100 and points=+100)
-    // Client uses: percent = lerp(minPct, maxPct, (points + 100) / 200.0)
-    // -----------------------------------------------------------------------------------------
+    // NEW: Villager stat effect bounds
     public double generosityMinPct;
     public double generosityMaxPct;
 
@@ -46,11 +41,13 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public double intellectMinPct;
     public double intellectMaxPct;
 
-    // -----------------------------------------------------------------------------------------
-    // NEW: Hoarder is NOT a percent. It is an offer delta clamp (ints).
-    // -----------------------------------------------------------------------------------------
+    // NEW: Hoarder clamp ints
     public int hoarderExtraOffersMin;
     public int hoarderExtraOffersMax;
+
+    // NEW: recruit bounds
+    public int recruitCostMin;
+    public int recruitCostMax;
 
     public PacketSyncConfig() {}
 
@@ -110,7 +107,11 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.hoarderExtraOffersMin = -3;
             p.hoarderExtraOffersMax = 3;
 
-            // NEW: trait bounds (safe read; keeps backwards tolerance if older server is missing)
+            // Defaults for recruit
+            p.recruitCostMin = 8;
+            p.recruitCostMax = 64;
+
+            // NEW: trait bounds
             try { p.generosityMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.generosityMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
 
@@ -120,9 +121,13 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.intellectMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.intellectMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
 
-            // NEW: hoarder clamp ints (safe read)
+            // NEW: hoarder clamp ints
             try { p.hoarderExtraOffersMin = buf.readVarInt(); } catch (Throwable ignored) {}
             try { p.hoarderExtraOffersMax = buf.readVarInt(); } catch (Throwable ignored) {}
+
+            // NEW: recruit bounds
+            try { p.recruitCostMin = Math.max(0, buf.readVarInt()); } catch (Throwable ignored) {}
+            try { p.recruitCostMax = Math.max(0, buf.readVarInt()); } catch (Throwable ignored) {}
 
             return p;
         }
@@ -155,7 +160,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             // NEW
             buf.writeDouble(Math.max(0.0, p.manualRerollXpPerOffer));
 
-            // NEW: trait bounds (no clamping here; server already normalizes min<=max)
+            // NEW: trait bounds
             buf.writeDouble(p.generosityMinPct);
             buf.writeDouble(p.generosityMaxPct);
 
@@ -168,6 +173,10 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             // NEW: hoarder clamp ints
             buf.writeVarInt(p.hoarderExtraOffersMin);
             buf.writeVarInt(p.hoarderExtraOffersMax);
+
+            // NEW: recruit bounds
+            buf.writeVarInt(Math.max(0, p.recruitCostMin));
+            buf.writeVarInt(Math.max(0, p.recruitCostMax));
         }
     };
 

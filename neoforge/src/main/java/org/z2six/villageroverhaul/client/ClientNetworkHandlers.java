@@ -12,6 +12,9 @@ import org.z2six.villageroverhaul.network.PacketAutoSearchDone;
 import org.z2six.villageroverhaul.network.PacketAutoSearchSettlementCleared;
 import org.z2six.villageroverhaul.network.PacketOpenAutoSearchPaymentScreen;
 import org.z2six.villageroverhaul.network.PacketOpenBusyScreen;
+import org.z2six.villageroverhaul.network.PacketOpenRecruitScreen;
+import org.z2six.villageroverhaul.network.PacketRecruitCostData;
+import org.z2six.villageroverhaul.network.PacketRecruitResult;
 import org.z2six.villageroverhaul.network.PacketRerollCooldownState;
 import org.z2six.villageroverhaul.network.PacketSearchCatalogData;
 import org.z2six.villageroverhaul.network.PacketSyncConfig;
@@ -241,7 +244,6 @@ public final class ClientNetworkHandlers {
                         requested = java.util.List.of();
                     }
 
-                    // Defensive: clamp insane sizes so UI can't be abused by a broken server or corrupt packet.
                     if (requested.size() > 256) {
                         requested = requested.subList(0, 256);
                     }
@@ -274,7 +276,6 @@ public final class ClientNetworkHandlers {
                     }
 
                     if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                        // Print the first few targets to confirm the yellow-outline matching has something to work with.
                         int shown = Math.min(8, requested.size());
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] PaymentScreen requestedTargets (first {}): {}", shown,
                                 requested.isEmpty() ? "[]" : requested.subList(0, shown));
@@ -336,6 +337,150 @@ public final class ClientNetworkHandlers {
                     msg == null ? "null" : msg.getClass().getName());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoSearchSettlementCleared(Object) failed", t);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // NEW: Recruit screens + packets
+    // -----------------------------------------------------------------------------------------
+
+    public static void onOpenRecruitScreen(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketOpenRecruitScreen p) {
+                onOpenRecruitScreen(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onOpenRecruitScreen(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRecruitScreen(Object) failed", t);
+        }
+    }
+
+    public static void onOpenRecruitScreen(PacketOpenRecruitScreen msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    // If already open for same villager, just update.
+                    Screen current = mc.screen;
+                    if (current instanceof RecruitVillagerScreen rvs && rvs.getVillagerEntityId() == msg.villagerEntityId()) {
+                        rvs.applyCostUpdate(true, msg.eligible(), msg.alreadyRecruited(), msg.cost(), msg.message());
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Updated existing RecruitVillagerScreen for villagerEntityId={}.",
+                                msg.villagerEntityId());
+                        return;
+                    }
+
+                    RecruitVillagerScreen screen = new RecruitVillagerScreen(
+                            msg.villagerEntityId(),
+                            msg.cost(),
+                            msg.eligible(),
+                            msg.alreadyRecruited(),
+                            msg.message()
+                    );
+
+                    mc.setScreen(screen);
+
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Client opened RecruitVillagerScreen villagerEntityId={} eligible={} alreadyRecruited={} cost={}",
+                            msg.villagerEntityId(), msg.eligible(), msg.alreadyRecruited(), msg.cost());
+
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRecruitScreen failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRecruitScreen enqueue failed", t);
+        }
+    }
+
+    public static void onRecruitCostData(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketRecruitCostData p) {
+                onRecruitCostData(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onRecruitCostData(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitCostData(Object) failed", t);
+        }
+    }
+
+    public static void onRecruitCostData(PacketRecruitCostData msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    Screen s = mc.screen;
+                    if (s instanceof RecruitVillagerScreen rvs && rvs.getVillagerEntityId() == msg.villagerEntityId()) {
+                        rvs.applyCostUpdate(msg.ok(), msg.eligible(), msg.alreadyRecruited(), msg.cost(), msg.message());
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client applied PacketRecruitCostData to RecruitVillagerScreen villagerEntityId={}.",
+                                msg.villagerEntityId());
+                        return;
+                    }
+
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client received PacketRecruitCostData but no RecruitVillagerScreen was open (current={}).",
+                            s == null ? "null" : s.getClass().getName());
+
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitCostData failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitCostData enqueue failed", t);
+        }
+    }
+
+    public static void onRecruitResult(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketRecruitResult p) {
+                onRecruitResult(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onRecruitResult(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitResult(Object) failed", t);
+        }
+    }
+
+    public static void onRecruitResult(PacketRecruitResult msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    Screen s = mc.screen;
+                    if (s instanceof RecruitVillagerScreen rvs && rvs.getVillagerEntityId() == msg.villagerEntityId()) {
+                        rvs.applyResult(msg.success(), msg.nowRecruited(), msg.costPaid(), msg.message());
+                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Client applied PacketRecruitResult villagerEntityId={} success={} nowRecruited={} costPaid={}",
+                                msg.villagerEntityId(), msg.success(), msg.nowRecruited(), msg.costPaid());
+                        return;
+                    }
+
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client received PacketRecruitResult but no RecruitVillagerScreen was open (current={}).",
+                            s == null ? "null" : s.getClass().getName());
+
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitResult failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitResult enqueue failed", t);
         }
     }
 

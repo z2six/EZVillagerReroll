@@ -1,12 +1,18 @@
-// Network.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/Network.java
 package org.z2six.villageroverhaul.network;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.world.Container;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
@@ -45,7 +51,7 @@ public final class Network {
             r.playToServer(PacketRerollCooldownQuery.TYPE, PacketRerollCooldownQuery.STREAM_CODEC,
                     (msg, ctx) -> handleRerollCooldownQueryServer(msg, ctx));
 
-            // NEW: settlement payment actions (these were missing)
+            // NEW: settlement payment actions
             r.playToServer(PacketPayAutoSearchSettlement.TYPE, PacketPayAutoSearchSettlement.STREAM_CODEC,
                     (msg, ctx) -> handlePayAutoSearchSettlementServer(msg, ctx));
             r.playToServer(PacketDeclineAutoSearchSettlement.TYPE, PacketDeclineAutoSearchSettlement.STREAM_CODEC,
@@ -54,6 +60,14 @@ public final class Network {
             // NEW: villager stats query
             r.playToServer(PacketVillagerStatsQuery.TYPE, PacketVillagerStatsQuery.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerStatsQueryServer(msg, ctx));
+
+            // ============================
+            // NEW: Recruit serverbound
+            // ============================
+            r.playToServer(PacketRecruitCostQuery.TYPE, PacketRecruitCostQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleRecruitCostQueryServer(msg, ctx));
+            r.playToServer(PacketRecruitVillager.TYPE, PacketRecruitVillager.STREAM_CODEC,
+                    (msg, ctx) -> handleRecruitVillagerServer(msg, ctx));
 
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
@@ -76,7 +90,7 @@ public final class Network {
             r.playToClient(PacketRerollCooldownState.TYPE, PacketRerollCooldownState.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onRerollCooldownState", msg, ctx));
 
-            // NEW: settlement/payment UI packets (these were missing)
+            // NEW: settlement/payment UI packets
             r.playToClient(PacketOpenAutoSearchPaymentScreen.TYPE, PacketOpenAutoSearchPaymentScreen.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onOpenAutoSearchPaymentScreen", msg, ctx));
             r.playToClient(PacketAutoSearchSettlementCleared.TYPE, PacketAutoSearchSettlementCleared.STREAM_CODEC,
@@ -85,6 +99,16 @@ public final class Network {
             // NEW: villager stats data (we update cache directly; no client-only class refs)
             r.playToClient(PacketVillagerStatsData.TYPE, PacketVillagerStatsData.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerStatsDataClient(msg, ctx));
+
+            // ============================
+            // NEW: Recruit clientbound
+            // ============================
+            r.playToClient(PacketOpenRecruitScreen.TYPE, PacketOpenRecruitScreen.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onOpenRecruitScreen", msg, ctx));
+            r.playToClient(PacketRecruitCostData.TYPE, PacketRecruitCostData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onRecruitCostData", msg, ctx));
+            r.playToClient(PacketRecruitResult.TYPE, PacketRecruitResult.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onRecruitResult", msg, ctx));
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {
@@ -114,7 +138,6 @@ public final class Network {
 
     private static void handleVillagerStatsDataClient(PacketVillagerStatsData msg, IPayloadContext ctx) {
         try {
-            // This handler is safe on both sides; actual execution occurs on client connection.
             ctx.enqueueWork(() -> {
                 try {
                     ClientVillagerStatsCache.accept(msg);
@@ -122,9 +145,7 @@ public final class Network {
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerStatsDataClient failed (soft): {}", t.toString());
                 }
             });
-        } catch (Throwable t) {
-            // soft
-        }
+        } catch (Throwable ignored) {}
     }
 
     private static boolean isClientDist() {
@@ -165,9 +186,12 @@ public final class Network {
     public static void sendToServer(PacketRerollCooldownQuery msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketVillagerStatsQuery msg) { sendToServer((CustomPacketPayload) msg); }
 
-    // Optional convenience (not required, but consistent):
     public static void sendToServer(PacketPayAutoSearchSettlement msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketDeclineAutoSearchSettlement msg) { sendToServer((CustomPacketPayload) msg); }
+
+    // NEW: recruit convenience
+    public static void sendToServer(PacketRecruitCostQuery msg) { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketRecruitVillager msg) { sendToServer((CustomPacketPayload) msg); }
 
     private static void handleTooltipQueryServer(PacketTooltipQuery msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
@@ -301,7 +325,6 @@ public final class Network {
                     return;
                 }
 
-                // Ensure server has stats assigned (no-op if already present)
                 VillagerStatsService.ensureStats(ent);
 
                 CompoundTag pd = ent.getPersistentData();
@@ -323,5 +346,164 @@ public final class Network {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerStatsQuery handler error", t);
             }
         });
+    }
+
+    // =========================================================================================
+    // Recruit handlers
+    // =========================================================================================
+
+    private static void handleRecruitCostQueryServer(PacketRecruitCostQuery msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+
+                int id = msg.villagerEntityId();
+                Villager vill = getVillagerById(sp, id);
+                if (vill == null) {
+                    ctx.reply(PacketRecruitCostData.missing(id));
+                    return;
+                }
+
+                boolean recruited = RecruitService.isRecruited(vill);
+                boolean eligible = RecruitService.isEligible(vill);
+
+                int cost = 0;
+                String m = "";
+
+                if (!eligible) {
+                    m = vill.isBaby() ? "Too young" : "Not eligible";
+                } else if (recruited) {
+                    m = "Already recruited";
+                } else {
+                    cost = Math.max(0, RecruitService.computeRecruitCost(vill));
+                }
+
+                ctx.reply(new PacketRecruitCostData(id, true, eligible, recruited, cost, m));
+
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] RecruitCostQuery: player={} villagerId={} eligible={} recruited={} cost={}",
+                        sp.getGameProfile().getName(), id, eligible, recruited, cost);
+
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] RecruitCostQuery handler error", t);
+                try {
+                    ctx.reply(PacketRecruitCostData.missing(msg == null ? 0 : msg.villagerEntityId()));
+                } catch (Throwable ignored) {}
+            }
+        });
+    }
+
+    private static void handleRecruitVillagerServer(PacketRecruitVillager msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+
+                int id = msg.villagerEntityId();
+                Villager vill = getVillagerById(sp, id);
+                if (vill == null) {
+                    ctx.reply(new PacketRecruitResult(id, false, false, 0, "Missing villager"));
+                    return;
+                }
+
+                boolean eligible = RecruitService.isEligible(vill);
+                boolean recruited = RecruitService.isRecruited(vill);
+
+                if (!eligible) {
+                    ctx.reply(new PacketRecruitResult(id, false, recruited, 0, vill.isBaby() ? "Too young" : "Not eligible"));
+                    return;
+                }
+                if (recruited) {
+                    ctx.reply(new PacketRecruitResult(id, false, true, 0, "Already recruited"));
+                    return;
+                }
+
+                int cost = Math.max(0, RecruitService.computeRecruitCost(vill));
+                if (cost > 0) {
+                    boolean paid = tryConsumeItem(sp, Items.EMERALD, cost);
+                    if (!paid) {
+                        ctx.reply(new PacketRecruitResult(id, false, false, 0, "Not enough emeralds"));
+                        return;
+                    }
+                }
+
+                boolean marked = RecruitService.markRecruited(sp, vill);
+                if (!marked) {
+                    // Best-effort refund if we charged
+                    if (cost > 0) {
+                        try {
+                            ItemStack refund = new ItemStack(Items.EMERALD, cost);
+                            boolean added = sp.getInventory().add(refund);
+                            if (!added) {
+                                sp.drop(refund, false);
+                            }
+                        } catch (Throwable ignored) {}
+                    }
+                    ctx.reply(new PacketRecruitResult(id, false, false, 0, "Failed to recruit (server error)"));
+                    return;
+                }
+
+                ctx.reply(new PacketRecruitResult(id, true, true, cost, "Recruited!"));
+
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Recruited villager: player={} villagerUuid={} cost={}",
+                        sp.getGameProfile().getName(), vill.getUUID(), cost);
+
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] RecruitVillager handler error", t);
+                try {
+                    ctx.reply(new PacketRecruitResult(msg == null ? 0 : msg.villagerEntityId(), false, false, 0, "Server error"));
+                } catch (Throwable ignored) {}
+            }
+        });
+    }
+
+    private static Villager getVillagerById(net.minecraft.server.level.ServerPlayer sp, int entityId) {
+        try {
+            if (sp == null) return null;
+            var level = sp.serverLevel();
+            if (level == null) return null;
+            Entity e = level.getEntity(entityId);
+            if (!(e instanceof Villager vill)) return null;
+            return vill;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static boolean tryConsumeItem(net.minecraft.server.level.ServerPlayer sp, Item item, int count) {
+        try {
+            if (sp == null || item == null) return false;
+            if (count <= 0) return true;
+
+            Container inv = sp.getInventory();
+            if (inv == null) return false;
+
+            int have = 0;
+            int size = inv.getContainerSize();
+            for (int slot = 0; slot < size; slot++) {
+                ItemStack s = inv.getItem(slot);
+                if (!s.isEmpty() && s.is(item)) have += s.getCount();
+                if (have >= count) break;
+            }
+
+            if (have < count) return false;
+
+            int remaining = count;
+            for (int slot = 0; slot < size && remaining > 0; slot++) {
+                ItemStack s = inv.getItem(slot);
+                if (s.isEmpty() || !s.is(item)) continue;
+
+                int take = Math.min(remaining, s.getCount());
+                s.shrink(take);
+                remaining -= take;
+
+                if (s.isEmpty()) inv.setItem(slot, ItemStack.EMPTY);
+            }
+
+            try { inv.setChanged(); } catch (Throwable ignored) {}
+            return remaining <= 0;
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] tryConsumeItem failed (soft): {}", t.toString());
+            return false;
+        }
     }
 }

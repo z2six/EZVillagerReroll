@@ -1,5 +1,3 @@
-// ServerConfig.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/config/ServerConfig.java
 package org.z2six.villageroverhaul.config;
 
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -40,6 +38,13 @@ public final class ServerConfig {
     public static final ModConfigSpec.ConfigValue<List<? extends Number>> LEVEL_COSTS;
 
     // ---------------------------------------------------------------------
+    // RECRUIT (NEW)
+    // ---------------------------------------------------------------------
+
+    public static final ModConfigSpec.IntValue RECRUIT_COST_MIN;
+    public static final ModConfigSpec.IntValue RECRUIT_COST_MAX;
+
+    // ---------------------------------------------------------------------
     // LIMITS
     // ---------------------------------------------------------------------
 
@@ -67,12 +72,6 @@ public final class ServerConfig {
 
     // ---------------------------------------------------------------------
     // VILLAGER STATS (NEW)
-    // These are "effect percent bounds" for converting points [-100..100] into a percent modifier.
-    //
-    // Recommended mapping:
-    //   percent = lerp(minPct, maxPct, (points + 100) / 200.0)
-    //
-    // Default: -20% .. +20% for each trait.
     // ---------------------------------------------------------------------
 
     public static final ModConfigSpec.DoubleValue GENEROSITY_MIN_PCT;
@@ -86,8 +85,6 @@ public final class ServerConfig {
 
     // ---------------------------------------------------------------------
     // HOARDER (offer delta clamp) (NEW)
-    // Hoarder points translate into an *offer delta* (integer), clamped by these.
-    // Example: min=-3 max=+3 means Hoarder can remove up to 3 offers or add up to 3.
     // ---------------------------------------------------------------------
 
     public static final ModConfigSpec.IntValue HOARDER_EXTRA_OFFERS_MIN;
@@ -178,6 +175,27 @@ public final class ServerConfig {
                                         && n.longValue() >= 0
                                         && n.longValue() <= 640
                         );
+
+        B.pop();
+
+        // ----------------------------
+        // NEW: Recruit config
+        // ----------------------------
+        B.push("recruit");
+
+        RECRUIT_COST_MIN =
+                B.comment("""
+                        Minimum possible recruit cost for an unemployed villager.
+                        Cost is computed from villager stats and then normalized into [min..max].
+                        """)
+                        .defineInRange("recruitCostMin", 8, 0, 64_000);
+
+        RECRUIT_COST_MAX =
+                B.comment("""
+                        Maximum possible recruit cost for an unemployed villager.
+                        Cost is computed from villager stats and then normalized into [min..max].
+                        """)
+                        .defineInRange("recruitCostMax", 64, 0, 64_000);
 
         B.pop();
 
@@ -312,6 +330,10 @@ public final class ServerConfig {
     public static int autoHourlyThreshold = 6;
     public static double autoHourlyDiscountOrIncreasePct = 5.0;
 
+    // NEW: recruit cost bounds
+    public static int recruitCostMin = 8;
+    public static int recruitCostMax = 64;
+
     // Match spec defaults
     public static int cooldownTicks = 100;
     public static int cooldownTicksAuto = 600;
@@ -364,6 +386,13 @@ public final class ServerConfig {
             autoHourlyThreshold = Math.max(0, AUTO_HOURLY_THRESHOLD.get());
             autoHourlyDiscountOrIncreasePct = Math.max(0.0, AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT.get());
 
+            // NEW: recruit bounds (normalize order)
+            int rMin = Math.max(0, RECRUIT_COST_MIN.get());
+            int rMax = Math.max(0, RECRUIT_COST_MAX.get());
+            if (rMin > rMax) { int tmp = rMin; rMin = rMax; rMax = tmp; }
+            recruitCostMin = rMin;
+            recruitCostMax = rMax;
+
             cooldownTicks = Math.max(0, COOLDOWN_TICKS.get());
             cooldownTicksAuto = Math.max(0, COOLDOWN_TICKS_AUTO.get());
             perVillagerDaily = Math.max(0, PER_VILLAGER_DAILY.get());
@@ -405,11 +434,12 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             VillagerOverhaul.LOG().info(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} hoarderClamp=[{},{}] legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
+                    recruitCostMin, recruitCostMax,
                     cooldownTicks, cooldownTicksAuto, perVillagerDaily, allowAfterTradeUsed,
                     manualRerollXpPerOffer, autoSearchXpPerOffer,
                     // bounds summary
@@ -469,6 +499,10 @@ public final class ServerConfig {
         h = 31 * h + autoHourlyThreshold;
         long pctBits = Double.doubleToLongBits(autoHourlyDiscountOrIncreasePct);
         h = 31 * h + (int) (pctBits ^ (pctBits >>> 32));
+
+        // NEW: recruit
+        h = 31 * h + recruitCostMin;
+        h = 31 * h + recruitCostMax;
 
         h = 31 * h + cooldownTicks;
         h = 31 * h + cooldownTicksAuto;

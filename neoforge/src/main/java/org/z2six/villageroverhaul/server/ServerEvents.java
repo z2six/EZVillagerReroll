@@ -1,25 +1,27 @@
-// ServerEvents.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/ServerEvents.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
+import org.z2six.villageroverhaul.network.PacketOpenRecruitScreen;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.ServerSync;
-import org.z2six.villageroverhaul.server.HoarderOfferService;
 
 public final class ServerEvents {
 
@@ -51,8 +53,10 @@ public final class ServerEvents {
             // sync server config to players when they log in (fixes client tooltip mapping)
             bus.addListener(ServerEvents::onPlayerLoggedIn);
 
-            // villager/merchant stat initialization (EntityJoinLevelEvent)
-            // Safe even when running on client because the handler exits if level.isClientSide().
+            // NEW: recruit RMB handler
+            bus.addListener(ServerEvents::onEntityInteract);
+
+            // villager/merchant stat initialization
             VillagerStatsEvents.register(bus);
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] ServerEvents registered on gameplay bus.");
@@ -66,12 +70,50 @@ public final class ServerEvents {
             if (e == null) return;
             if (!(e.getEntity() instanceof ServerPlayer sp)) return;
 
-            // Make sure client has the synced server config early (tooltip mapping relies on this).
             ServerSync.syncTo(sp);
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] onPlayerLoggedIn: synced config to {}", sp.getGameProfile().getName());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] onPlayerLoggedIn failed (soft): {}", t.toString());
+        }
+    }
+
+    // NEW: RMB unemployed villager -> open recruit screen
+    private static void onEntityInteract(PlayerInteractEvent.EntityInteract e) {
+        try {
+            if (e == null) return;
+            if (e.getHand() != InteractionHand.MAIN_HAND) return;
+
+            if (!(e.getEntity() instanceof ServerPlayer sp)) return;
+            if (sp.connection == null) return;
+
+            var level = sp.serverLevel();
+            if (level == null || level.isClientSide()) return;
+
+            if (!(e.getTarget() instanceof Villager vill)) return;
+
+            // Only unemployed villagers
+            if (vill.getVillagerData().getProfession() != VillagerProfession.NONE) return;
+
+            // If already recruited, do nothing (later we could open info)
+            if (RecruitService.isRecruited(vill)) return;
+
+            // Compute cost + open GUI
+            int cost = RecruitService.computeRecruitCost(vill);
+
+            sp.connection.send(new ClientboundCustomPayloadPacket(
+                    new PacketOpenRecruitScreen(vill.getId(), true, false, cost, "")
+            ));
+
+            // Consume interaction so other mods / vanilla doesn't do anything weird.
+            e.setCanceled(true);
+            e.setCancellationResult(InteractionResult.SUCCESS);
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Opened recruit screen for player={} villager={} cost={}",
+                    sp.getGameProfile().getName(), vill.getUUID(), cost);
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] onEntityInteract failed (soft): {}", t.toString());
         }
     }
 
@@ -82,20 +124,15 @@ public final class ServerEvents {
             if (!(e.getEntity() instanceof ServerPlayer sp)) return;
             if (!(e.getContainer() instanceof MerchantMenu menu)) return;
 
-            // Extra safety: ensure config is synced by the time merchant UI opens.
-            // This prevents races in SP where the UI opens immediately after login.
             try { ServerSync.syncTo(sp); } catch (Throwable ignored) {}
 
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
             if (!(trader instanceof AbstractVillager merchant)) return;
 
-            // ---- NEW: push stats snapshot to the client when they open the merchant ----
             trySendVillagerStatsSnapshot(sp, merchant);
-            // --------------------------------------------------------------------------
 
             if (!(merchant instanceof Villager vill)) return;
 
-            // NEW: If awaiting payment settlement, do NOT restore/capture canonical offers here.
             if (SearchService.isAwaitingPayment(vill)) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerOpen: villager awaiting payment; skipping offer persistence (villager={} player={})",
                         vill.getUUID(), sp.getGameProfile().getName());
@@ -129,17 +166,11 @@ public final class ServerEvents {
                 );
             }
 
-            // Enforce Hoarder *after* canonical apply, so what the player sees is correct.
-            // Also robust against vanilla/modded offer injections (baseline is dynamic).
             boolean hoarderChanged = false;
             try {
                 hoarderChanged = org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, sp);
             } catch (Throwable ignored) {}
 
-            // Keep world canonical offers aligned:
-            // - if first-time villager => always capture after normalize
-            // - if apply failed => capture after normalize (repairs broken entry)
-            // - if hoarder changed offers => capture so restore uses correct size immediately
             try {
                 if (!had || !applied || hoarderChanged) {
                     data.capture(vill);
@@ -154,7 +185,6 @@ public final class ServerEvents {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerOpen: failed to capture after Hoarder normalize (soft): {}", t.toString());
             }
 
-            // Track this open menu so we can re-normalize if offer count changes mid-session (vanilla level-up / other mods).
             try {
                 HoarderOfferService.onMerchantMenuOpen(sp, menu, vill);
             } catch (Throwable ignored) {}
@@ -169,7 +199,6 @@ public final class ServerEvents {
             if (sp == null || sp.connection == null) return;
             if (merchant == null) return;
 
-            // Ensure stats exist on server (no-op if already assigned)
             VillagerStatsService.ensureStats(merchant);
 
             int id = merchant.getId();
@@ -281,5 +310,4 @@ public final class ServerEvents {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerClose failed (soft): {}", t.toString());
         }
     }
-
 }

@@ -1,5 +1,3 @@
-// ClientSyncedConfig.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/ClientSyncedConfig.java
 package org.z2six.villageroverhaul.network;
 
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -17,7 +15,6 @@ public final class ClientSyncedConfig {
         public int cooldownTicks;
         public int perVillagerDaily;
 
-        // New (required for client-side displays; server remains authoritative)
         public int freeOffers;
         public int costPerOffer;
         public int maxDeductibleLockedOffers;
@@ -26,16 +23,16 @@ public final class ClientSyncedConfig {
 
         public boolean allowAfterTradeUsed;
 
-        // NEW (double)
         public double manualRerollXpPerOffer;
 
-        // NEW: trait bounds (% at points=-100 and points=+100)
         public double generosityMinPct, generosityMaxPct;
         public double timelinessMinPct, timelinessMaxPct;
         public double intellectMinPct, intellectMaxPct;
 
-        // NEW: hoarder is offer delta clamp (ints)
         public int hoarderExtraOffersMin, hoarderExtraOffersMax;
+
+        // NEW: recruit bounds
+        public int recruitCostMin, recruitCostMax;
 
         @Override
         public String toString() {
@@ -58,6 +55,7 @@ public final class ClientSyncedConfig {
                     ", timeliness=[" + timelinessMinPct + "," + timelinessMaxPct + "]" +
                     ", intellect=[" + intellectMinPct + "," + intellectMaxPct + "]" +
                     ", hoarderClamp=[" + hoarderExtraOffersMin + "," + hoarderExtraOffersMax + "]" +
+                    ", recruitCost=[" + recruitCostMin + "," + recruitCostMax + "]" +
                     '}';
         }
     }
@@ -88,10 +86,8 @@ public final class ClientSyncedConfig {
 
             s.allowAfterTradeUsed = msg.allowAfterTradeUsed;
 
-            // NEW (double)
             s.manualRerollXpPerOffer = Math.max(0.0, msg.manualRerollXpPerOffer);
 
-            // NEW: trait bounds (server already normalizes min<=max)
             s.generosityMinPct = msg.generosityMinPct;
             s.generosityMaxPct = msg.generosityMaxPct;
 
@@ -101,12 +97,18 @@ public final class ClientSyncedConfig {
             s.intellectMinPct = msg.intellectMinPct;
             s.intellectMaxPct = msg.intellectMaxPct;
 
-            // NEW: hoarder clamp ints
             int hMin = msg.hoarderExtraOffersMin;
             int hMax = msg.hoarderExtraOffersMax;
             if (hMin > hMax) { int tmp = hMin; hMin = hMax; hMax = tmp; }
             s.hoarderExtraOffersMin = hMin;
             s.hoarderExtraOffersMax = hMax;
+
+            // NEW: recruit bounds
+            int rMin = Math.max(0, msg.recruitCostMin);
+            int rMax = Math.max(0, msg.recruitCostMax);
+            if (rMin > rMax) { int tmp = rMin; rMin = rMax; rMax = tmp; }
+            s.recruitCostMin = rMin;
+            s.recruitCostMax = rMax;
 
             last = s;
 
