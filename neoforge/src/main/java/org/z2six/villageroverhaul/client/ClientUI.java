@@ -616,7 +616,7 @@ public final class ClientUI {
         }
 
         // ------------------------------
-        // COST (FIXED): apply Generosity to manual reroll price in tooltip
+        // COST: apply Generosity to manual reroll price in tooltip
         // ------------------------------
         int baseCost = Math.max(0, d.cost.scaledCost);
 
@@ -636,7 +636,6 @@ public final class ClientUI {
                     .append(Component.literal(" × ")));
             plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
         } else {
-            // Show base cost struck through, then adjusted cost
             int lineIdx = plan.lines.size();
 
             ChatFormatting adjColor = (finalCost < baseCost) ? ChatFormatting.GREEN : ChatFormatting.RED;
@@ -657,16 +656,20 @@ public final class ClientUI {
 
             plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
 
-            // Optional: show the applied generosity percent explicitly
+            // Optional: show generosity pct explicitly
             String sign = (generosityPct > 0.0) ? "-" : "+";
             double shown = Math.abs(generosityPct);
-
             ChatFormatting pctColor = (generosityPct > 0.0) ? ChatFormatting.GREEN : ChatFormatting.RED;
 
             plan.lines.add(Component.empty()
                     .append(Component.literal(" Generosity: ").withStyle(ChatFormatting.AQUA))
                     .append(Component.literal(sign + trimPct(shown) + "%").withStyle(pctColor)));
         }
+
+        // ------------------------------
+        // Daily cap line (NEW): show remaining rerolls today
+        // ------------------------------
+        plan.lines.add(buildDailyCapLine(d));
 
         // ------------------------------
         // Breakdown (unchanged)
@@ -703,7 +706,7 @@ public final class ClientUI {
             plan.icons.add(new TooltipIcon(lineIdxFreePaid, new ItemStack(Items.EMERALD)));
         }
 
-        // Affordability check should use FINAL cost (not base)
+        // Affordability (note: server currently reports affordability; keep it)
         if (d.afford != null && finalCost > 0) {
             boolean can = d.afford.canAfford;
             String src = d.afford.source == null ? "none" : d.afford.source;
@@ -714,14 +717,42 @@ public final class ClientUI {
             plan.lines.add(Component.literal("Affordable").withStyle(ChatFormatting.GREEN));
         }
 
-        if (d.villager != null && d.villager.level > 0) {
-            plan.lines.add(Component.empty()
-                    .append(Component.literal("Villager level: ").withStyle(ChatFormatting.GOLD))
-                    .append(Component.literal(String.valueOf(d.villager.level)).withStyle(ChatFormatting.WHITE))
-            );
-        }
+        // NOTE: Villager level line REMOVED per request.
 
         return plan;
+    }
+
+    private static Component buildDailyCapLine(PacketTooltipData d) {
+        try {
+            if (d == null) {
+                return Component.literal("Daily cap: ?").withStyle(ChatFormatting.DARK_GRAY);
+            }
+
+            // If server cap is disabled (perVillagerDaily = 0), show disabled
+            if (d.cap == null || !d.cap.enabled || d.cap.cap <= 0) {
+                // If cfg says capEnabled but cap isn't enabled, it's usually a transient/mismatch; still show disabled.
+                return Component.empty()
+                        .append(Component.literal("Daily cap: ").withStyle(ChatFormatting.GOLD))
+                        .append(Component.literal("Disabled").withStyle(ChatFormatting.DARK_GRAY));
+            }
+
+            int cap = Math.max(0, d.cap.cap);
+            int remaining = Math.max(0, d.cap.remaining);
+
+            ChatFormatting color;
+            if (remaining <= 0) color = ChatFormatting.RED;
+            else if (remaining == 1) color = ChatFormatting.YELLOW;
+            else color = ChatFormatting.GREEN;
+
+            return Component.empty()
+                    .append(Component.literal("Daily rerolls left: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal(String.valueOf(remaining)).withStyle(color))
+                    .append(Component.literal(" / ").withStyle(ChatFormatting.DARK_GRAY))
+                    .append(Component.literal(String.valueOf(cap)).withStyle(ChatFormatting.DARK_GRAY));
+
+        } catch (Throwable t) {
+            return Component.literal("Daily cap: ?").withStyle(ChatFormatting.DARK_GRAY);
+        }
     }
 
     private static double computeGenerosityPctForTrader(int traderEntityId) {
