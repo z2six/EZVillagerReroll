@@ -335,12 +335,17 @@ public final class Network {
 
                 CompoundTag root = pd.getCompound(VillagerStatsService.TAG_ROOT);
 
-                int g = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_GENEROSITY));
-                int t = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_TIMELINESS));
-                int i = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_INTELLECT));
-                int h = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_HOARDER));
+                int g  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_GENEROSITY));
+                int t  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_TIMELINESS));
+                int i  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_INTELLECT));
+                int h  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_HOARDER));
 
-                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h));
+                int vit = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_VITALITY));
+                int agi = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_AGILITY));
+                int str = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_STRENGTH));
+                int arm = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_ARMOR));
+
+                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm));
 
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerStatsQuery handler error", t);

@@ -7,7 +7,18 @@ _It's important to know that we do "manual saving and restoring" to world data o
 - When auto rerolling is done, in Settlement screen, if player pays = set new offers & store
 - When auto rerolling is done, in Settlement screen, if player refuses to pay = restore to offers from before auto-rerolling
 
-## When & how is "Hoarder" stat applied
+## Villager stats
+
+### Generosity
+_Generosity can increase or decrease the cost of rerolling, both Manual as well as Auto-Rerolling. It is applied as a final modifier to the total cost already calculated._
+
+### Timeliness
+_Timeliness can increase or decrease the time needed for both Manual as well as Auto-Rerolling. In essence, both are the same, as Auto-Rerolling uses the same logic as Manual Rerolling._
+
+### Intellect
+_Intellect can increase or decrease the experience gained from both Manual as well as Auto-Rerolling. It does not affect experience gained from completing a trade with that villager._
+
+### Hoarder
 _Hoarder adjusts offer slots by an integer delta derived from points and config bounds (e.g. -10..+10). Final offers are clamped to at least 1, and also never reduced below the number of locked offers._
 
 **We maintain a per-merchant snapshot in persistent data containing:**
@@ -33,4 +44,4 @@ _Hoarder adjusts offer slots by an integer delta derived from points and config 
 ## Stats & multipliers
 
 ## Recruiting Villagers
-Only Recruited Villagers can use all of our mod's features. Just RMB on a Villager without a profession and Recruit it (for Emeralds). The min/max cost can be configured on the server and the final cost is based on the total value of all stats combined, normalized to the min/max range the server config has.
+_Only Recruited Villagers can use all of our mod's features. Just RMB on a Villager without a profession and Recruit it (for Emeralds). The min/max cost can be configured on the server and the final cost is based on the total value of all stats combined, normalized to the min/max range the server config has._

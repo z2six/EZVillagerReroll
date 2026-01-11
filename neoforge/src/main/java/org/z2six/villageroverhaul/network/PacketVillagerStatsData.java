@@ -1,9 +1,6 @@
-// PacketVillagerStatsData.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketVillagerStatsData.java
 package org.z2six.villageroverhaul.network;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -13,6 +10,9 @@ import net.minecraft.resources.ResourceLocation;
  *
  * ok=false means the server could not resolve/validate the entity (or stats missing).
  * The client should treat that as "unavailable" (not "syncing forever").
+ *
+ * NOTE: We use a custom StreamCodec (manual read with try/catch) so older/shorter payloads
+ * won't hard-crash decoding (fields will default to 0).
  */
 public record PacketVillagerStatsData(
         int villagerEntityId,
@@ -20,37 +20,62 @@ public record PacketVillagerStatsData(
         int generosity,
         int timeliness,
         int intellect,
-        int hoarder
+        int hoarder,
+        int vitality,
+        int agility,
+        int strength,
+        int armor
 ) implements CustomPacketPayload {
 
     public static final Type<PacketVillagerStatsData> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath("villageroverhaul", "villager_stats_data"));
 
-    /**
-     * StreamCodec.composite in this environment only supports up to 6 fields,
-     * so we bundle the 5 stats into a nested record and compose (id, ok, stats).
-     */
-    private record StatsBundle(int generosity, int timeliness, int intellect, int hoarder) {}
-
-    private static final StreamCodec<RegistryFriendlyByteBuf, StatsBundle> STATS_CODEC =
-            StreamCodec.composite(
-                    ByteBufCodecs.VAR_INT, StatsBundle::generosity,
-                    ByteBufCodecs.VAR_INT, StatsBundle::timeliness,
-                    ByteBufCodecs.VAR_INT, StatsBundle::intellect,
-                    ByteBufCodecs.VAR_INT, StatsBundle::hoarder,
-                    StatsBundle::new
-            );
-
     public static final StreamCodec<RegistryFriendlyByteBuf, PacketVillagerStatsData> STREAM_CODEC =
-            StreamCodec.composite(
-                    ByteBufCodecs.VAR_INT, PacketVillagerStatsData::villagerEntityId,
-                    ByteBufCodecs.BOOL, PacketVillagerStatsData::ok,
-                    STATS_CODEC, d -> new StatsBundle(d.generosity(), d.timeliness(), d.intellect(), d.hoarder()),
-                    (id, ok, s) -> new PacketVillagerStatsData(id, ok, s.generosity(), s.timeliness(), s.intellect(), s.hoarder())
-            );
+            new StreamCodec<>() {
+                @Override
+                public PacketVillagerStatsData decode(RegistryFriendlyByteBuf buf) {
+                    int id = 0;
+                    boolean ok = false;
+
+                    int g = 0, t = 0, i = 0, h = 0;
+                    int v = 0, a = 0, s = 0, ar = 0;
+
+                    try { id = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { ok = buf.readBoolean(); } catch (Throwable ignored) {}
+
+                    try { g = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { t = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { i = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { h = buf.readVarInt(); } catch (Throwable ignored) {}
+
+                    // New fields (safe-read)
+                    try { v = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { a = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { s = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { ar = buf.readVarInt(); } catch (Throwable ignored) {}
+
+                    return new PacketVillagerStatsData(id, ok, g, t, i, h, v, a, s, ar);
+                }
+
+                @Override
+                public void encode(RegistryFriendlyByteBuf buf, PacketVillagerStatsData d) {
+                    buf.writeVarInt(d.villagerEntityId());
+                    buf.writeBoolean(d.ok());
+
+                    buf.writeVarInt(d.generosity());
+                    buf.writeVarInt(d.timeliness());
+                    buf.writeVarInt(d.intellect());
+                    buf.writeVarInt(d.hoarder());
+
+                    buf.writeVarInt(d.vitality());
+                    buf.writeVarInt(d.agility());
+                    buf.writeVarInt(d.strength());
+                    buf.writeVarInt(d.armor());
+                }
+            };
 
     public static PacketVillagerStatsData missing(int entityId) {
-        return new PacketVillagerStatsData(entityId, false, 0, 0, 0, 0);
+        return new PacketVillagerStatsData(entityId, false, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     @Override

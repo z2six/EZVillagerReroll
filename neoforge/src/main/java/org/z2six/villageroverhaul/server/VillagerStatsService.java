@@ -1,5 +1,3 @@
-// VillagerStatsService.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/VillagerStatsService.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.nbt.CompoundTag;
@@ -18,13 +16,19 @@ public final class VillagerStatsService {
 
     // Version for future migrations
     private static final String TAG_VERSION = "v";
-    private static final int STATS_VERSION = 1;
+    private static final int STATS_VERSION = 2; // bumped for combat stats
 
-    // Stat keys (stored as int points)
+    // Merchant stat keys (stored as int points)
     public static final String K_GENEROSITY = "generosity";
     public static final String K_TIMELINESS = "timeliness";
     public static final String K_INTELLECT  = "intellect";
     public static final String K_HOARDER    = "hoarder";
+
+    // NEW: Combat stat keys (stored as int points)
+    public static final String K_VITALITY = "vitality";
+    public static final String K_AGILITY  = "agility";
+    public static final String K_STRENGTH = "strength";
+    public static final String K_ARMOR    = "armor";
 
     public static final int POINTS_MIN = -100;
     public static final int POINTS_MAX = 100;
@@ -60,7 +64,6 @@ public final class VillagerStatsService {
                 pd.put(TAG_ROOT, root);
             }
 
-            // Already initialized?
             int ver = 0;
             try { ver = root.getInt(TAG_VERSION); } catch (Throwable ignored) { ver = 0; }
 
@@ -68,47 +71,82 @@ public final class VillagerStatsService {
                     root.contains(K_GENEROSITY) &&
                             root.contains(K_TIMELINESS) &&
                             root.contains(K_INTELLECT) &&
-                            root.contains(K_HOARDER);
+                            root.contains(K_HOARDER) &&
+                            root.contains(K_VITALITY) &&
+                            root.contains(K_AGILITY) &&
+                            root.contains(K_STRENGTH) &&
+                            root.contains(K_ARMOR);
 
+            // Already initialized for this version + has all keys
             if (ver >= STATS_VERSION && hasAll) {
                 return;
             }
 
             RandomSource r = safeRandom(e);
 
-            int g = rollPoints(r);
-            int t = rollPoints(r);
-            int i = rollPoints(r);
-            int h = rollPoints(r);
+            // IMPORTANT: upgrade-in-place.
+            // Only roll missing keys; never reroll existing values.
+            boolean changed = false;
 
-            root.putInt(TAG_VERSION, STATS_VERSION);
-            root.putInt(K_GENEROSITY, g);
-            root.putInt(K_TIMELINESS, t);
-            root.putInt(K_INTELLECT, i);
-            root.putInt(K_HOARDER, h);
+            changed |= ensureKey(root, r, K_GENEROSITY);
+            changed |= ensureKey(root, r, K_TIMELINESS);
+            changed |= ensureKey(root, r, K_INTELLECT);
+            changed |= ensureKey(root, r, K_HOARDER);
 
-            pd.put(TAG_ROOT, root);
+            changed |= ensureKey(root, r, K_VITALITY);
+            changed |= ensureKey(root, r, K_AGILITY);
+            changed |= ensureKey(root, r, K_STRENGTH);
+            changed |= ensureKey(root, r, K_ARMOR);
 
-            // INFO so you see it without debug logs enabled
-            VillagerOverhaul.LOG().info(
-                    "[VillagerOverhaul] VillagerStats assigned: type={} entityId={} uuid={} generosity={} timeliness={} intellect={} hoarder={}",
-                    String.valueOf(e.getType()),
-                    e.getId(),
-                    e.getUUID(),
-                    g, t, i, h
-            );
+            // update version
+            if (ver < STATS_VERSION) {
+                root.putInt(TAG_VERSION, STATS_VERSION);
+                changed = true;
+            }
+
+            if (changed) {
+                pd.put(TAG_ROOT, root);
+
+                int g = clampPoints(root.getInt(K_GENEROSITY));
+                int t = clampPoints(root.getInt(K_TIMELINESS));
+                int i = clampPoints(root.getInt(K_INTELLECT));
+                int h = clampPoints(root.getInt(K_HOARDER));
+
+                int v = clampPoints(root.getInt(K_VITALITY));
+                int a = clampPoints(root.getInt(K_AGILITY));
+                int s = clampPoints(root.getInt(K_STRENGTH));
+                int ar = clampPoints(root.getInt(K_ARMOR));
+
+                VillagerOverhaul.LOG().info(
+                        "[VillagerOverhaul] VillagerStats assigned/upgraded: type={} entityId={} uuid={} generosity={} timeliness={} intellect={} hoarder={} vitality={} agility={} strength={} armor={}",
+                        String.valueOf(e.getType()),
+                        e.getId(),
+                        e.getUUID(),
+                        g, t, i, h,
+                        v, a, s, ar
+                );
+            }
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().warn("[VillagerOverhaul] VillagerStatsService.ensureStats failed (soft): {}", t.toString());
         }
     }
 
+    private static boolean ensureKey(CompoundTag root, RandomSource r, String key) {
+        try {
+            if (root == null || key == null) return false;
+            if (root.contains(key, CompoundTag.TAG_INT)) return false;
+            root.putInt(key, rollPoints(r));
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static boolean isSupportedMerchantEntity(Entity e) {
         try {
             if (e == null) return false;
-            // AbstractVillager covers Villager + WanderingTrader and many modded villager-like types.
             if (e instanceof AbstractVillager) return true;
-            // Merchant interface catch-all for modded merchant entities.
             return e instanceof Merchant;
         } catch (Throwable t) {
             return false;
@@ -118,7 +156,6 @@ public final class VillagerStatsService {
     public static int rollPoints(RandomSource r) {
         try {
             if (r == null) return 0;
-            // [-100..100] inclusive
             return r.nextInt((POINTS_MAX - POINTS_MIN) + 1) + POINTS_MIN;
         } catch (Throwable t) {
             return 0;

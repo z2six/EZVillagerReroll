@@ -31,8 +31,13 @@ public final class ClientSyncedConfig {
 
         public int hoarderExtraOffersMin, hoarderExtraOffersMax;
 
-        // NEW: recruit bounds
         public int recruitCostMin, recruitCostMax;
+
+        // NEW: combat bounds
+        public double vitalityMinHealth, vitalityMaxHealth;
+        public double agilityMinSpeed, agilityMaxSpeed;
+        public double strengthMinDamage, strengthMaxDamage;
+        public double armorMin, armorMax;
 
         @Override
         public String toString() {
@@ -56,6 +61,10 @@ public final class ClientSyncedConfig {
                     ", intellect=[" + intellectMinPct + "," + intellectMaxPct + "]" +
                     ", hoarderClamp=[" + hoarderExtraOffersMin + "," + hoarderExtraOffersMax + "]" +
                     ", recruitCost=[" + recruitCostMin + "," + recruitCostMax + "]" +
+                    ", vitalityHealth=[" + vitalityMinHealth + "," + vitalityMaxHealth + "]" +
+                    ", agilitySpeed=[" + agilityMinSpeed + "," + agilityMaxSpeed + "]" +
+                    ", strengthDamage=[" + strengthMinDamage + "," + strengthMaxDamage + "]" +
+                    ", armor=[" + armorMin + "," + armorMax + "]" +
                     '}';
         }
     }
@@ -103,12 +112,40 @@ public final class ClientSyncedConfig {
             s.hoarderExtraOffersMin = hMin;
             s.hoarderExtraOffersMax = hMax;
 
-            // NEW: recruit bounds
             int rMin = Math.max(0, msg.recruitCostMin);
             int rMax = Math.max(0, msg.recruitCostMax);
             if (rMin > rMax) { int tmp = rMin; rMin = rMax; rMax = tmp; }
             s.recruitCostMin = rMin;
             s.recruitCostMax = rMax;
+
+            // NEW: combat bounds (normalize each pair)
+            double vMin = msg.vitalityMinHealth, vMax = msg.vitalityMaxHealth;
+            if (Double.isNaN(vMin)) vMin = 0.0;
+            if (Double.isNaN(vMax)) vMax = 0.0;
+            if (vMin > vMax) { double tmp = vMin; vMin = vMax; vMax = tmp; }
+            s.vitalityMinHealth = vMin;
+            s.vitalityMaxHealth = vMax;
+
+            double aMin = msg.agilityMinSpeed, aMax = msg.agilityMaxSpeed;
+            if (Double.isNaN(aMin)) aMin = 0.0;
+            if (Double.isNaN(aMax)) aMax = 0.0;
+            if (aMin > aMax) { double tmp = aMin; aMin = aMax; aMax = tmp; }
+            s.agilityMinSpeed = aMin;
+            s.agilityMaxSpeed = aMax;
+
+            double stMin = msg.strengthMinDamage, stMax = msg.strengthMaxDamage;
+            if (Double.isNaN(stMin)) stMin = 0.0;
+            if (Double.isNaN(stMax)) stMax = 0.0;
+            if (stMin > stMax) { double tmp = stMin; stMin = stMax; stMax = tmp; }
+            s.strengthMinDamage = stMin;
+            s.strengthMaxDamage = stMax;
+
+            double arMin = msg.armorMin, arMax = msg.armorMax;
+            if (Double.isNaN(arMin)) arMin = 0.0;
+            if (Double.isNaN(arMax)) arMax = 0.0;
+            if (arMin > arMax) { double tmp = arMin; arMin = arMax; arMax = tmp; }
+            s.armorMin = arMin;
+            s.armorMax = arMax;
 
             last = s;
 

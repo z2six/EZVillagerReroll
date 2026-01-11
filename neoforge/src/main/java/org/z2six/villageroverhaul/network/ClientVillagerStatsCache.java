@@ -1,5 +1,3 @@
-// ClientVillagerStatsCache.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/ClientVillagerStatsCache.java
 package org.z2six.villageroverhaul.network;
 
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -33,9 +31,13 @@ public final class ClientVillagerStatsCache {
         try {
             if (data == null) return;
             MAP.put(data.villagerEntityId(), new Entry(data, System.currentTimeMillis()));
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] ClientVillagerStatsCache.accept: entityId={} ok={} g={} t={} i={} h={} a={}",
+
+            VillagerOverhaul.LOG().debug(
+                    "[VillagerOverhaul] ClientVillagerStatsCache.accept: entityId={} ok={} g={} t={} i={} h={} vit={} agi={} str={} arm={}",
                     data.villagerEntityId(), data.ok(),
-                    data.generosity(), data.timeliness(), data.intellect(), data.hoarder());
+                    data.generosity(), data.timeliness(), data.intellect(), data.hoarder(),
+                    data.vitality(), data.agility(), data.strength(), data.armor()
+            );
         } catch (Throwable t) {
             // soft
         }

@@ -39,9 +39,9 @@ public final class RecruitService {
 
     /**
      * Cost model:
-     *  - Read 4 stats (points in [-100..100] each).
-     *  - Sum in [-400..400].
-     *  - Normalize alpha = (sum + 400) / 800.
+     *  - Read 8 stats (points in [-100..100] each).
+     *  - Sum in [-800..800].
+     *  - Normalize alpha = (sum + 800) / 1600.
      *  - Lerp from maxCost (alpha=0) to minCost (alpha=1).
      *    => very "bad" villager (negative sum) costs near max, very "good" costs near min.
      */
@@ -53,6 +53,7 @@ public final class RecruitService {
             try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
 
             int g = 0, t = 0, i = 0, h = 0;
+            int vit = 0, agi = 0, str = 0, arm = 0;
 
             CompoundTag pd = vill.getPersistentData();
             if (pd != null && pd.contains(VillagerStatsService.TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
@@ -61,11 +62,16 @@ public final class RecruitService {
                 t = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_TIMELINESS));
                 i = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_INTELLECT));
                 h = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_HOARDER));
+
+                vit = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_VITALITY));
+                agi = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_AGILITY));
+                str = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_STRENGTH));
+                arm = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_ARMOR));
             }
 
-            int sum = g + t + i + h; // [-400..400]
-            if (sum < -400) sum = -400;
-            if (sum > 400) sum = 400;
+            int sum = g + t + i + h + vit + agi + str + arm; // [-800..800]
+            if (sum < -800) sum = -800;
+            if (sum > 800) sum = 800;
 
             int minCost = Math.max(0, ServerConfig.recruitCostMin);
             int maxCost = Math.max(0, ServerConfig.recruitCostMax);
@@ -73,7 +79,7 @@ public final class RecruitService {
 
             if (minCost == maxCost) return minCost;
 
-            double alpha = (sum + 400.0) / 800.0;
+            double alpha = (sum + 800.0) / 1600.0;
             if (alpha < 0.0) alpha = 0.0;
             if (alpha > 1.0) alpha = 1.0;
 

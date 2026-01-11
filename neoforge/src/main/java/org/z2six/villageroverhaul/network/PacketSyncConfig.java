@@ -19,7 +19,6 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public int cooldownTicks;
     public int perVillagerDaily;
 
-    // New (required client-side for auto-hourly preview & settlement math)
     public int freeOffers;
     public int costPerOffer;
     public int maxDeductibleLockedOffers;
@@ -28,10 +27,8 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
     public boolean allowAfterTradeUsed;
 
-    // NEW: XP config (manual reroll XP per rerolled offer)
     public double manualRerollXpPerOffer;
 
-    // NEW: Villager stat effect bounds
     public double generosityMinPct;
     public double generosityMaxPct;
 
@@ -41,13 +38,24 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public double intellectMinPct;
     public double intellectMaxPct;
 
-    // NEW: Hoarder clamp ints
     public int hoarderExtraOffersMin;
     public int hoarderExtraOffersMax;
 
-    // NEW: recruit bounds
     public int recruitCostMin;
     public int recruitCostMax;
+
+    // NEW: combat bounds
+    public double vitalityMinHealth;
+    public double vitalityMaxHealth;
+
+    public double agilityMinSpeed;
+    public double agilityMaxSpeed;
+
+    public double strengthMinDamage;
+    public double strengthMaxDamage;
+
+    public double armorMin;
+    public double armorMax;
 
     public PacketSyncConfig() {}
 
@@ -61,7 +69,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
             int len = buf.readVarInt();
             if (len < 0) len = 0;
-            if (len > 64) len = 64; // hard cap for safety
+            if (len > 64) len = 64;
             p.costsByLevel = new int[len];
             for (int i = 0; i < len; i++) p.costsByLevel[i] = Math.max(0, buf.readVarInt());
 
@@ -69,10 +77,8 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.cooldownTicks = buf.readVarInt();
             p.perVillagerDaily = buf.readVarInt();
 
-            // RESERVED slot (kept)
             try { buf.readVarInt(); } catch (Throwable ignored) {}
 
-            // New fields (wrap for safety)
             p.freeOffers = 0;
             p.costPerOffer = 0;
             p.maxDeductibleLockedOffers = 0;
@@ -85,11 +91,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.autoHourlyThreshold = buf.readVarInt(); } catch (Throwable ignored) {}
             try { p.autoHourlyDiscountOrIncreasePct = buf.readDouble(); } catch (Throwable ignored) {}
 
-            // Existing field
             try { p.allowAfterTradeUsed = buf.readBoolean(); }
             catch (Throwable ignored) { p.allowAfterTradeUsed = true; }
 
-            // NEW field
             p.manualRerollXpPerOffer = 0.0;
             try { p.manualRerollXpPerOffer = buf.readDouble(); } catch (Throwable ignored) {}
 
@@ -103,15 +107,26 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.intellectMinPct = -20.0;
             p.intellectMaxPct = 20.0;
 
-            // Defaults for hoarder clamp
             p.hoarderExtraOffersMin = -3;
             p.hoarderExtraOffersMax = 3;
 
-            // Defaults for recruit
             p.recruitCostMin = 8;
             p.recruitCostMax = 64;
 
-            // NEW: trait bounds
+            // NEW: combat defaults
+            p.vitalityMinHealth = -6.0;
+            p.vitalityMaxHealth = 10.0;
+
+            p.agilityMinSpeed = -0.02;
+            p.agilityMaxSpeed = 0.03;
+
+            p.strengthMinDamage = -1.0;
+            p.strengthMaxDamage = 3.0;
+
+            p.armorMin = -5.0;
+            p.armorMax = 15.0;
+
+            // trait bounds
             try { p.generosityMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.generosityMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
 
@@ -121,13 +136,26 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.intellectMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.intellectMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
 
-            // NEW: hoarder clamp ints
+            // hoarder clamp
             try { p.hoarderExtraOffersMin = buf.readVarInt(); } catch (Throwable ignored) {}
             try { p.hoarderExtraOffersMax = buf.readVarInt(); } catch (Throwable ignored) {}
 
-            // NEW: recruit bounds
+            // recruit bounds
             try { p.recruitCostMin = Math.max(0, buf.readVarInt()); } catch (Throwable ignored) {}
             try { p.recruitCostMax = Math.max(0, buf.readVarInt()); } catch (Throwable ignored) {}
+
+            // NEW: combat bounds (append-only, safe to be missing)
+            try { p.vitalityMinHealth = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.vitalityMaxHealth = buf.readDouble(); } catch (Throwable ignored) {}
+
+            try { p.agilityMinSpeed = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.agilityMaxSpeed = buf.readDouble(); } catch (Throwable ignored) {}
+
+            try { p.strengthMinDamage = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.strengthMaxDamage = buf.readDouble(); } catch (Throwable ignored) {}
+
+            try { p.armorMin = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.armorMax = buf.readDouble(); } catch (Throwable ignored) {}
 
             return p;
         }
@@ -146,9 +174,8 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeVarInt(p.cooldownTicks);
             buf.writeVarInt(p.perVillagerDaily);
 
-            buf.writeVarInt(0); // RESERVED for future expansion
+            buf.writeVarInt(0); // RESERVED
 
-            // New fields
             buf.writeVarInt(Math.max(0, p.freeOffers));
             buf.writeVarInt(Math.max(0, p.costPerOffer));
             buf.writeVarInt(Math.max(0, p.maxDeductibleLockedOffers));
@@ -157,10 +184,8 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
             buf.writeBoolean(p.allowAfterTradeUsed);
 
-            // NEW
             buf.writeDouble(Math.max(0.0, p.manualRerollXpPerOffer));
 
-            // NEW: trait bounds
             buf.writeDouble(p.generosityMinPct);
             buf.writeDouble(p.generosityMaxPct);
 
@@ -170,13 +195,24 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeDouble(p.intellectMinPct);
             buf.writeDouble(p.intellectMaxPct);
 
-            // NEW: hoarder clamp ints
             buf.writeVarInt(p.hoarderExtraOffersMin);
             buf.writeVarInt(p.hoarderExtraOffersMax);
 
-            // NEW: recruit bounds
             buf.writeVarInt(Math.max(0, p.recruitCostMin));
             buf.writeVarInt(Math.max(0, p.recruitCostMax));
+
+            // NEW: combat bounds (append-only)
+            buf.writeDouble(p.vitalityMinHealth);
+            buf.writeDouble(p.vitalityMaxHealth);
+
+            buf.writeDouble(p.agilityMinSpeed);
+            buf.writeDouble(p.agilityMaxSpeed);
+
+            buf.writeDouble(p.strengthMinDamage);
+            buf.writeDouble(p.strengthMaxDamage);
+
+            buf.writeDouble(p.armorMin);
+            buf.writeDouble(p.armorMax);
         }
     };
 

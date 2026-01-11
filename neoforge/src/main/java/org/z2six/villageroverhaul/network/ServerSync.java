@@ -50,9 +50,21 @@ public final class ServerSync {
             pkt.hoarderExtraOffersMin = ServerConfig.hoarderExtraOffersMin;
             pkt.hoarderExtraOffersMax = ServerConfig.hoarderExtraOffersMax;
 
-            // NEW: recruit bounds
             pkt.recruitCostMin = ServerConfig.recruitCostMin;
             pkt.recruitCostMax = ServerConfig.recruitCostMax;
+
+            // NEW: combat bounds
+            pkt.vitalityMinHealth = ServerConfig.vitalityMinHealth;
+            pkt.vitalityMaxHealth = ServerConfig.vitalityMaxHealth;
+
+            pkt.agilityMinSpeed = ServerConfig.agilityMinSpeed;
+            pkt.agilityMaxSpeed = ServerConfig.agilityMaxSpeed;
+
+            pkt.strengthMinDamage = ServerConfig.strengthMinDamage;
+            pkt.strengthMaxDamage = ServerConfig.strengthMaxDamage;
+
+            pkt.armorMin = ServerConfig.armorMin;
+            pkt.armorMax = ServerConfig.armorMax;
 
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));
 

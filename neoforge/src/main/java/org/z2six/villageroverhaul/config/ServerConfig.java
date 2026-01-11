@@ -71,7 +71,7 @@ public final class ServerConfig {
     public static final ModConfigSpec.DoubleValue AUTO_SEARCH_XP_PER_OFFER;
 
     // ---------------------------------------------------------------------
-    // VILLAGER STATS (NEW)
+    // VILLAGER STATS (merchant traits)
     // ---------------------------------------------------------------------
 
     public static final ModConfigSpec.DoubleValue GENEROSITY_MIN_PCT;
@@ -84,7 +84,31 @@ public final class ServerConfig {
     public static final ModConfigSpec.DoubleValue INTELLECT_MAX_PCT;
 
     // ---------------------------------------------------------------------
-    // HOARDER (offer delta clamp) (NEW)
+    // COMBAT STATS (NEW)
+    // ---------------------------------------------------------------------
+    // These are the real-value ranges that points (-100..100) map into.
+    // We keep them intentionally generic: they are *deltas* we apply as attribute modifiers later.
+    //
+    // Vitality -> generic.max_health (ADD_VALUE, in "health points", 2 = 1 heart)
+    // Agility  -> generic.movement_speed (ADD_VALUE, typical values ~0.0 - 0.2)
+    // Strength -> generic.attack_damage (ADD_VALUE)
+    // Armor    -> generic.armor (ADD_VALUE)
+    //
+
+    public static final ModConfigSpec.DoubleValue VITALITY_MIN_HEALTH;
+    public static final ModConfigSpec.DoubleValue VITALITY_MAX_HEALTH;
+
+    public static final ModConfigSpec.DoubleValue AGILITY_MIN_SPEED;
+    public static final ModConfigSpec.DoubleValue AGILITY_MAX_SPEED;
+
+    public static final ModConfigSpec.DoubleValue STRENGTH_MIN_DAMAGE;
+    public static final ModConfigSpec.DoubleValue STRENGTH_MAX_DAMAGE;
+
+    public static final ModConfigSpec.DoubleValue ARMOR_MIN;
+    public static final ModConfigSpec.DoubleValue ARMOR_MAX;
+
+    // ---------------------------------------------------------------------
+    // HOARDER (offer delta clamp)
     // ---------------------------------------------------------------------
 
     public static final ModConfigSpec.IntValue HOARDER_EXTRA_OFFERS_MIN;
@@ -179,7 +203,7 @@ public final class ServerConfig {
         B.pop();
 
         // ----------------------------
-        // NEW: Recruit config
+        // Recruit config
         // ----------------------------
         B.push("recruit");
 
@@ -250,63 +274,122 @@ public final class ServerConfig {
         B.pop();
 
         // ----------------------------
-        // NEW: Villager stats bounds
+        // Villager stats bounds
         // ----------------------------
         B.push("villagerStats");
 
         GENEROSITY_MIN_PCT =
                 B.comment("""
                         Generosity effect MIN percent at points = -100.
-                        Default -20 means a fully negative villager increases cost by 20% (if you map points -> percent linearly).
                         """)
                         .defineInRange("generosityMinPct", -20.0, -1000.0, 1000.0);
 
         GENEROSITY_MAX_PCT =
                 B.comment("""
                         Generosity effect MAX percent at points = +100.
-                        Default +20 means a fully positive villager reduces cost by 20% (if you map points -> percent linearly).
                         """)
                         .defineInRange("generosityMaxPct", 20.0, -1000.0, 1000.0);
 
         TIMELINESS_MIN_PCT =
                 B.comment("""
                         Timeliness effect MIN percent at points = -100.
-                        This will later modify cooldown speed (negative = slower).
                         """)
                         .defineInRange("timelinessMinPct", -20.0, -1000.0, 1000.0);
 
         TIMELINESS_MAX_PCT =
                 B.comment("""
                         Timeliness effect MAX percent at points = +100.
-                        This will later modify cooldown speed (positive = faster).
                         """)
                         .defineInRange("timelinessMaxPct", 20.0, -1000.0, 1000.0);
 
         INTELLECT_MIN_PCT =
                 B.comment("""
                         Intellect effect MIN percent at points = -100.
-                        This will later modify XP gained (negative = less XP).
                         """)
                         .defineInRange("intellectMinPct", -20.0, -1000.0, 1000.0);
 
         INTELLECT_MAX_PCT =
                 B.comment("""
                         Intellect effect MAX percent at points = +100.
-                        This will later modify XP gained (positive = more XP).
                         """)
                         .defineInRange("intellectMaxPct", 20.0, -1000.0, 1000.0);
+
+        // ----------------------------
+        // NEW: Combat stat bounds
+        // ----------------------------
+
+        VITALITY_MIN_HEALTH =
+                B.comment("""
+                        Vitality MIN delta applied to generic.max_health at points=-100.
+                        Unit: health points (2.0 = 1 heart).
+                        Example: -6.0 means -3 hearts.
+                        """)
+                        .defineInRange("vitalityMinHealth", -6.0, -1024.0, 1024.0);
+
+        VITALITY_MAX_HEALTH =
+                B.comment("""
+                        Vitality MAX delta applied to generic.max_health at points=+100.
+                        Unit: health points (2.0 = 1 heart).
+                        Example: +10.0 means +5 hearts.
+                        """)
+                        .defineInRange("vitalityMaxHealth", 10.0, -1024.0, 1024.0);
+
+        AGILITY_MIN_SPEED =
+                B.comment("""
+                        Agility MIN delta applied to generic.movement_speed at points=-100.
+                        Unit: raw movement_speed additive value.
+                        Typical base values are around 0.1; keep changes small.
+                        """)
+                        .defineInRange("agilityMinSpeed", -0.02, -1.0, 1.0);
+
+        AGILITY_MAX_SPEED =
+                B.comment("""
+                        Agility MAX delta applied to generic.movement_speed at points=+100.
+                        Unit: raw movement_speed additive value.
+                        """)
+                        .defineInRange("agilityMaxSpeed", 0.03, -1.0, 1.0);
+
+        STRENGTH_MIN_DAMAGE =
+                B.comment("""
+                        Strength MIN delta applied to generic.attack_damage at points=-100.
+                        Unit: damage points.
+                        """)
+                        .defineInRange("strengthMinDamage", -1.0, -1024.0, 1024.0);
+
+        STRENGTH_MAX_DAMAGE =
+                B.comment("""
+                        Strength MAX delta applied to generic.attack_damage at points=+100.
+                        Unit: damage points.
+                        """)
+                        .defineInRange("strengthMaxDamage", 3.0, -1024.0, 1024.0);
+
+        ARMOR_MIN =
+                B.comment("""
+                        Armor MIN delta applied to generic.armor at points=-100.
+                        Unit: armor points.
+                        """)
+                        .defineInRange("armorMin", -5.0, -1024.0, 1024.0);
+
+        ARMOR_MAX =
+                B.comment("""
+                        Armor MAX delta applied to generic.armor at points=+100.
+                        Unit: armor points.
+                        """)
+                        .defineInRange("armorMax", 15.0, -1024.0, 1024.0);
+
+        // ----------------------------
+        // Hoarder clamp
+        // ----------------------------
 
         HOARDER_EXTRA_OFFERS_MIN =
                 B.comment("""
                         Hoarder offer DELTA clamp MIN (applied to hoarder points).
-                        Example: -3 means at most 3 fewer offers.
                         """)
                         .defineInRange("hoarderExtraOffersMin", -3, -64, 64);
 
         HOARDER_EXTRA_OFFERS_MAX =
                 B.comment("""
                         Hoarder offer DELTA clamp MAX (applied to hoarder points).
-                        Example: +3 means at most 3 extra offers.
                         """)
                         .defineInRange("hoarderExtraOffersMax", 3, -64, 64);
 
@@ -330,11 +413,9 @@ public final class ServerConfig {
     public static int autoHourlyThreshold = 6;
     public static double autoHourlyDiscountOrIncreasePct = 5.0;
 
-    // NEW: recruit cost bounds
     public static int recruitCostMin = 8;
     public static int recruitCostMax = 64;
 
-    // Match spec defaults
     public static int cooldownTicks = 100;
     public static int cooldownTicksAuto = 600;
 
@@ -344,7 +425,6 @@ public final class ServerConfig {
     public static double manualRerollXpPerOffer = 1.0;
     public static double autoSearchXpPerOffer = 0.1;
 
-    // NEW: trait effect bounds (%)
     public static double generosityMinPct = -20.0;
     public static double generosityMaxPct = 20.0;
 
@@ -354,7 +434,19 @@ public final class ServerConfig {
     public static double intellectMinPct = -20.0;
     public static double intellectMaxPct = 20.0;
 
-    // NEW: hoarder offer delta clamp (ints)
+    // NEW: combat bounds
+    public static double vitalityMinHealth = -6.0;
+    public static double vitalityMaxHealth = 10.0;
+
+    public static double agilityMinSpeed = -0.02;
+    public static double agilityMaxSpeed = 0.03;
+
+    public static double strengthMinDamage = -1.0;
+    public static double strengthMaxDamage = 3.0;
+
+    public static double armorMin = -5.0;
+    public static double armorMax = 15.0;
+
     public static int hoarderExtraOffersMin = -3;
     public static int hoarderExtraOffersMax = 3;
 
@@ -386,7 +478,6 @@ public final class ServerConfig {
             autoHourlyThreshold = Math.max(0, AUTO_HOURLY_THRESHOLD.get());
             autoHourlyDiscountOrIncreasePct = Math.max(0.0, AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT.get());
 
-            // NEW: recruit bounds (normalize order)
             int rMin = Math.max(0, RECRUIT_COST_MIN.get());
             int rMax = Math.max(0, RECRUIT_COST_MAX.get());
             if (rMin > rMax) { int tmp = rMin; rMin = rMax; rMax = tmp; }
@@ -401,7 +492,6 @@ public final class ServerConfig {
             manualRerollXpPerOffer = Math.max(0.0, MANUAL_REROLL_XP_PER_OFFER.get());
             autoSearchXpPerOffer = Math.max(0.0, AUTO_SEARCH_XP_PER_OFFER.get());
 
-            // NEW: trait bounds (normalize min/max so min<=max even if user misconfigures)
             double[] gg = normalizeMinMax(GENEROSITY_MIN_PCT.get(), GENEROSITY_MAX_PCT.get());
             generosityMinPct = gg[0];
             generosityMaxPct = gg[1];
@@ -414,7 +504,23 @@ public final class ServerConfig {
             intellectMinPct = ii[0];
             intellectMaxPct = ii[1];
 
-            // NEW: hoarder clamp (ints) (normalize order)
+            // NEW: combat bounds (normalize each pair)
+            double[] vh = normalizeMinMax(VITALITY_MIN_HEALTH.get(), VITALITY_MAX_HEALTH.get());
+            vitalityMinHealth = vh[0];
+            vitalityMaxHealth = vh[1];
+
+            double[] as = normalizeMinMax(AGILITY_MIN_SPEED.get(), AGILITY_MAX_SPEED.get());
+            agilityMinSpeed = as[0];
+            agilityMaxSpeed = as[1];
+
+            double[] sd = normalizeMinMax(STRENGTH_MIN_DAMAGE.get(), STRENGTH_MAX_DAMAGE.get());
+            strengthMinDamage = sd[0];
+            strengthMaxDamage = sd[1];
+
+            double[] ar = normalizeMinMax(ARMOR_MIN.get(), ARMOR_MAX.get());
+            armorMin = ar[0];
+            armorMax = ar[1];
+
             int hMin = HOARDER_EXTRA_OFFERS_MIN.get();
             int hMax = HOARDER_EXTRA_OFFERS_MAX.get();
             if (hMin > hMax) { int tmp = hMin; hMin = hMax; hMax = tmp; }
@@ -434,7 +540,7 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             VillagerOverhaul.LOG().info(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} hoarderClamp=[{},{}] legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
@@ -442,10 +548,13 @@ public final class ServerConfig {
                     recruitCostMin, recruitCostMax,
                     cooldownTicks, cooldownTicksAuto, perVillagerDaily, allowAfterTradeUsed,
                     manualRerollXpPerOffer, autoSearchXpPerOffer,
-                    // bounds summary
                     generosityMinPct, generosityMaxPct,
                     timelinessMinPct, timelinessMaxPct,
                     intellectMinPct, intellectMaxPct,
+                    vitalityMinHealth, vitalityMaxHealth,
+                    agilityMinSpeed, agilityMaxSpeed,
+                    strengthMinDamage, strengthMaxDamage,
+                    armorMin, armorMax,
                     hoarderExtraOffersMin, hoarderExtraOffersMax,
                     debug(levelCosts)
             );
@@ -500,7 +609,6 @@ public final class ServerConfig {
         long pctBits = Double.doubleToLongBits(autoHourlyDiscountOrIncreasePct);
         h = 31 * h + (int) (pctBits ^ (pctBits >>> 32));
 
-        // NEW: recruit
         h = 31 * h + recruitCostMin;
         h = 31 * h + recruitCostMax;
 
@@ -515,7 +623,6 @@ public final class ServerConfig {
         long aBits = Double.doubleToLongBits(autoSearchXpPerOffer);
         h = 31 * h + (int) (aBits ^ (aBits >>> 32));
 
-        // NEW: trait bounds
         h = 31 * h + hashD(generosityMinPct);
         h = 31 * h + hashD(generosityMaxPct);
 
@@ -525,7 +632,19 @@ public final class ServerConfig {
         h = 31 * h + hashD(intellectMinPct);
         h = 31 * h + hashD(intellectMaxPct);
 
-        // NEW: hoarder clamp ints
+        // NEW: combat bounds
+        h = 31 * h + hashD(vitalityMinHealth);
+        h = 31 * h + hashD(vitalityMaxHealth);
+
+        h = 31 * h + hashD(agilityMinSpeed);
+        h = 31 * h + hashD(agilityMaxSpeed);
+
+        h = 31 * h + hashD(strengthMinDamage);
+        h = 31 * h + hashD(strengthMaxDamage);
+
+        h = 31 * h + hashD(armorMin);
+        h = 31 * h + hashD(armorMax);
+
         h = 31 * h + hoarderExtraOffersMin;
         h = 31 * h + hoarderExtraOffersMax;
 
