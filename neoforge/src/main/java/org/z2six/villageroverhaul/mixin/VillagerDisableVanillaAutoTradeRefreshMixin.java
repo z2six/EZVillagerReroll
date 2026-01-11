@@ -19,7 +19,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  *   - NBT load paths during server restart / chunk load (the missing piece)
  *
  * Critical constraint:
- * - EZVR still needs to be able to reroll trades by invoking updateTrades() manually via your invoker.
+ * - VillagerOverhaul still needs to be able to reroll trades by invoking updateTrades() manually via your invoker.
  * - Therefore, we do NOT cancel updateTrades() globally.
  * - Instead, we no-op ONLY when updateTrades() is invoked from vanilla "auto" call-sites.
  *

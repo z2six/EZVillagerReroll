@@ -32,7 +32,7 @@ import java.util.UUID;
  * Robustness goals:
  * - Store "canonical" offers for each villager UUID.
  * - Re-apply canonical offers on MerchantMenu open.
- * - Update canonical offers after EZVR rerolls.
+ * - Update canonical offers after VillagerOverhaul rerolls.
  *
  * IMPORTANT: In 1.21.x, MerchantOffer.CODEC parsing/encoding should use registry-aware ops.
  * Using plain NbtOps can cause partial decode failures (dropping offers).

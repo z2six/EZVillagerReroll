@@ -1,3 +1,4 @@
+// ServerConfig.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/config/ServerConfig.java
 package org.z2six.villageroverhaul.config;
 
@@ -399,8 +400,9 @@ public final class ServerConfig {
             cfgVersion++;
             cfgHash = computeHash();
 
+            // FIX: placeholder count now matches argument count (4 trait pairs, not 5).
             VillagerOverhaul.LOG().info(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} {}/{} {}/{} legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} {}/{} legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,

@@ -11,12 +11,14 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
+import org.z2six.villageroverhaul.network.ServerSync;
 
 public final class ServerEvents {
 
@@ -42,6 +44,9 @@ public final class ServerEvents {
             bus.addListener(ServerEvents::onServerStopping);
             bus.addListener(ServerEvents::onContainerOpen);
 
+            // NEW: sync server config to players when they log in (fixes client tooltip mapping)
+            bus.addListener(ServerEvents::onPlayerLoggedIn);
+
             // NEW: villager/merchant stat initialization (EntityJoinLevelEvent)
             // Safe even when running on client because the handler exits if level.isClientSide().
             VillagerStatsEvents.register(bus);
@@ -52,12 +57,30 @@ public final class ServerEvents {
         }
     }
 
+    private static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent e) {
+        try {
+            if (e == null) return;
+            if (!(e.getEntity() instanceof ServerPlayer sp)) return;
+
+            // Make sure client has the synced server config early (tooltip mapping relies on this).
+            ServerSync.syncTo(sp);
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] onPlayerLoggedIn: synced config to {}", sp.getGameProfile().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] onPlayerLoggedIn failed (soft): {}", t.toString());
+        }
+    }
+
     private static void onContainerOpen(PlayerContainerEvent.Open e) {
         try {
             if (e == null) return;
 
             if (!(e.getEntity() instanceof ServerPlayer sp)) return;
             if (!(e.getContainer() instanceof MerchantMenu menu)) return;
+
+            // Extra safety: ensure config is synced by the time merchant UI opens.
+            // This prevents races in SP where the UI opens immediately after login.
+            try { ServerSync.syncTo(sp); } catch (Throwable ignored) {}
 
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
             if (!(trader instanceof AbstractVillager merchant)) return;

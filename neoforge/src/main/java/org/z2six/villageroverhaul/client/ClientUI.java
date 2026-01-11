@@ -51,7 +51,7 @@ public final class ClientUI {
     private static final ResourceLocation CHAIN_TEX =
             ResourceLocation.fromNamespaceAndPath("minecraft", "textures/block/chain.png");
 
-    private static final String EZVR_TRADE_BUTTON_CLASS =
+    private static final String VillagerOverhaul_TRADE_BUTTON_CLASS =
             "net.minecraft.client.gui.screens.inventory.MerchantScreen$TradeOfferButton";
 
     // Tooltip rendering tuning
@@ -399,7 +399,7 @@ public final class ClientUI {
             for (GuiEventListener child : screen.children()) {
                 if (!(child instanceof AbstractWidget w)) continue;
                 String cn = w.getClass().getName();
-                if (EZVR_TRADE_BUTTON_CLASS.equals(cn)) out.add(w);
+                if (VillagerOverhaul_TRADE_BUTTON_CLASS.equals(cn)) out.add(w);
             }
             out.sort(Comparator.comparingInt(AbstractWidget::getY).thenComparingInt(AbstractWidget::getX));
         } catch (Throwable t) {

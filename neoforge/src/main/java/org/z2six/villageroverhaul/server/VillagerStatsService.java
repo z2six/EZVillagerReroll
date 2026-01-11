@@ -1,3 +1,4 @@
+// VillagerStatsService.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/VillagerStatsService.java
 package org.z2six.villageroverhaul.server;
 
@@ -79,7 +80,6 @@ public final class VillagerStatsService {
             int t = rollPoints(r);
             int i = rollPoints(r);
             int h = rollPoints(r);
-            int a = rollPoints(r);
 
             root.putInt(TAG_VERSION, STATS_VERSION);
             root.putInt(K_GENEROSITY, g);
@@ -95,7 +95,7 @@ public final class VillagerStatsService {
                     String.valueOf(e.getType()),
                     e.getId(),
                     e.getUUID(),
-                    g, t, i, h, a
+                    g, t, i, h
             );
 
         } catch (Throwable t) {

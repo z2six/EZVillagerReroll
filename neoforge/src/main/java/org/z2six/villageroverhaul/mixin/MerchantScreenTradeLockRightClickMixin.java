@@ -35,7 +35,7 @@ import java.util.List;
 public abstract class MerchantScreenTradeLockRightClickMixin {
 
     @Unique
-    private static final String EZVR_TRADE_BUTTON_CLASS =
+    private static final String VillagerOverhaul_TRADE_BUTTON_CLASS =
             "net.minecraft.client.gui.screens.inventory.MerchantScreen$TradeOfferButton";
 
     @Inject(
@@ -201,7 +201,7 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
             for (GuiEventListener child : list) {
                 if (!(child instanceof AbstractWidget w)) continue;
                 String cn = w.getClass().getName();
-                if (!EZVR_TRADE_BUTTON_CLASS.equals(cn)) continue;
+                if (!VillagerOverhaul_TRADE_BUTTON_CLASS.equals(cn)) continue;
                 if (!w.visible) continue;
                 if (!w.isMouseOver(mouseX, mouseY)) continue;
                 return w;
@@ -229,7 +229,7 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
                     for (Object o : list) {
                         if (!(o instanceof AbstractWidget w)) continue;
                         String cn = w.getClass().getName();
-                        if (!EZVR_TRADE_BUTTON_CLASS.equals(cn)) continue;
+                        if (!VillagerOverhaul_TRADE_BUTTON_CLASS.equals(cn)) continue;
                         if (!w.visible) continue;
                         if (!w.isMouseOver(mouseX, mouseY)) continue;
                         return w;

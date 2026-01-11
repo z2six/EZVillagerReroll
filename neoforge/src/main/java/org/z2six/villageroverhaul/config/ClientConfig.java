@@ -15,14 +15,14 @@ public final class ClientConfig {
     public static final ModConfigSpec.IntValue BUTTON_OFFSET_X =
             B.comment("""
                     Client-only UI: X offset applied to the reroll button relative to the base position.
-                    Base position is the vanilla MerchantScreen anchor used by EZVR.
-                    """).defineInRange("ui.buttonOffsetX", 0, -5000, 5000);
+                    Base position is the vanilla MerchantScreen anchor used by VillagerOverhaul.
+                    """).defineInRange("ui.buttonOffsetX", 20, -5000, 5000);
 
     public static final ModConfigSpec.IntValue BUTTON_OFFSET_Y =
             B.comment("""
                     Client-only UI: Y offset applied to the reroll button relative to the base position.
-                    Base position is the vanilla MerchantScreen anchor used by EZVR.
-                    """).defineInRange("ui.buttonOffsetY", 0, -5000, 5000);
+                    Base position is the vanilla MerchantScreen anchor used by VillagerOverhaul.
+                    """).defineInRange("ui.buttonOffsetY", -5, -5000, 5000);
 
     // ----------------------------
     // NEW: Stats/info button offsets
@@ -42,8 +42,8 @@ public final class ClientConfig {
 
     public static final ModConfigSpec SPEC = B.build();
 
-    public static int buttonOffsetX = 0;
-    public static int buttonOffsetY = 0;
+    public static int buttonOffsetX = 20;
+    public static int buttonOffsetY = -5;
 
     public static int statsButtonOffsetX = 0;
     public static int statsButtonOffsetY = 0;
