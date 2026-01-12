@@ -5,7 +5,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
-
 import java.util.EnumSet;
 import java.util.UUID;
 
@@ -19,10 +18,10 @@ public final class VillagerFollowGoal extends Goal {
     private final Villager vill;
 
     // Tuning
-    private static final double SPEED = 1.05;           // path speed
+    private static final double SPEED = 0.50;           // path speed
     private static final double STOP_DIST = 2.0;        // stop when within this many blocks
     private static final double START_DIST = 3.0;       // start moving when farther than this
-    private static final int RECALC_PATH_EVERY_TICKS = 10;
+    private static final int RECALC_PATH_EVERY_TICKS = 2;
 
     private int recalcCooldown = 0;
 
@@ -74,6 +73,9 @@ public final class VillagerFollowGoal extends Goal {
                 return;
             }
             recalcCooldown = RECALC_PATH_EVERY_TICKS;
+
+            // Refresh path frequently so it “walks” smoothly instead of waiting/catching up
+            vill.getNavigation().moveTo(target, SPEED);
 
             // If far enough, path toward player
             if (dist >= START_DIST) {

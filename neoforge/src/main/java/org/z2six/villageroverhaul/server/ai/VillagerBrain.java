@@ -10,7 +10,12 @@ import net.minecraft.world.entity.npc.Villager;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.server.RecruitService;
+import net.minecraft.world.entity.ai.Brain;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -28,7 +33,6 @@ public final class VillagerBrain {
     // -------------------------
     private static final String TAG_ROOT = "ezvr_brain";
     private static final String K_MODE = "mode";
-    private static final String K_ATTACHED = "attached";
 
     // Follow target
     private static final String K_FOLLOW_PLAYER = "follow_player";
@@ -57,6 +61,8 @@ public final class VillagerBrain {
         if (!isControllable(vill)) return false;
 
         ensureAttached(vill);
+
+        prepareForManualControl(vill);
         setMode(vill, Mode.IDLE);
 
         try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
@@ -85,6 +91,8 @@ public final class VillagerBrain {
         if (!isControllable(vill)) return false;
 
         ensureAttached(vill);
+
+        prepareForManualControl(vill);
 
         setFollowPlayer(vill, player.getUUID());
         setMode(vill, Mode.FOLLOW);
@@ -176,20 +184,52 @@ public final class VillagerBrain {
             if (vill == null) return;
             if (vill.level().isClientSide()) return;
 
-            CompoundTag root = getOrCreateRoot(vill);
-            if (root.getBoolean(K_ATTACHED)) return;
+            // Don't use persistent flags for "attached" — goals are not persistent.
+            // Instead, attach only if the goal types are not already present.
+            if (!hasGoal(vill, VillagerIdleGoal.class)) {
+                vill.goalSelector.addGoal(0, new VillagerIdleGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
+            }
 
-            // Attach modules (Goals)
-            // Priority 0 = strongest movement override
-            vill.goalSelector.addGoal(0, new VillagerIdleGoal(vill));
-            vill.goalSelector.addGoal(1, new VillagerFollowGoal(vill));
+            if (!hasGoal(vill, VillagerFollowGoal.class)) {
+                vill.goalSelector.addGoal(1, new VillagerFollowGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerFollowGoal (villager={})", vill.getUUID());
+            }
 
-            root.putBoolean(K_ATTACHED, true);
-
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerBrain attached goals (villager={})", vill.getUUID());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerBrain.ensureAttached failed (soft): {}", t.toString());
         }
+    }
+
+    private static boolean hasGoal(Villager vill, Class<?> goalClazz) {
+        try {
+            if (vill == null || goalClazz == null) return false;
+
+            // GoalSelector stores goals internally; we reflect to detect duplicates safely.
+            var selector = vill.goalSelector;
+
+            for (var f : selector.getClass().getDeclaredFields()) {
+                f.setAccessible(true);
+                Object v = f.get(selector);
+
+                if (!(v instanceof Iterable<?> it)) continue;
+
+                for (Object wrapped : it) {
+                    if (wrapped == null) continue;
+
+                    // WrappedGoal usually has a field of type Goal inside it
+                    for (var wf : wrapped.getClass().getDeclaredFields()) {
+                        wf.setAccessible(true);
+                        Object g = wf.get(wrapped);
+                        if (g != null && goalClazz.isInstance(g)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        return false;
     }
 
     public static boolean shouldTickVanillaBrain(Villager vill) {
@@ -204,6 +244,80 @@ public final class VillagerBrain {
         } catch (Throwable t) {
             return true; // fail-open to avoid breaking villagers
         }
+    }
+
+    // ------------------------------------------------------------
+// Manual-control prep: stop panic/flee/etc and release trade lock
+// ------------------------------------------------------------
+
+    private static final Set<MemoryModuleType<?>> KEEP_MEMORIES = buildKeepMemories();
+
+    private static Set<MemoryModuleType<?>> buildKeepMemories() {
+        Set<MemoryModuleType<?>> keep = new HashSet<>();
+        // "bed"
+        try { keep.add(MemoryModuleType.HOME); } catch (Throwable ignored) {}
+        // "workstation"
+        try { keep.add(MemoryModuleType.JOB_SITE); } catch (Throwable ignored) {}
+        // optional but harmless (often important for villager brain stability)
+        try { keep.add(MemoryModuleType.POTENTIAL_JOB_SITE); } catch (Throwable ignored) {}
+        try { keep.add(MemoryModuleType.MEETING_POINT); } catch (Throwable ignored) {}
+        return keep;
+    }
+
+    /** Call whenever we enter a manual mode (IDLE/FOLLOW/...) */
+    private static void prepareForManualControl(Villager vill) {
+        if (vill == null) return;
+
+        // 1) Release “trading lock” immediately (prevents follow freeze/rubberband)
+        tryClearTradingPlayer(vill);
+
+        // 2) Stop any existing pathing right now
+        try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+
+        // 3) Wipe all brain memories except the ones we want to preserve
+        wipeBrainMemoriesExcept(vill, KEEP_MEMORIES);
+    }
+
+    private static void tryClearTradingPlayer(Villager vill) {
+        try {
+            // AbstractVillager#setTradingPlayer(@Nullable Player)
+            // Villager inherits it.
+            vill.setTradingPlayer(null);
+        } catch (Throwable ignored) {
+            // If mappings ever differ, you can reflect here, but in 1.21.x this is fine.
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void wipeBrainMemoriesExcept(Villager vill, Set<MemoryModuleType<?>> keep) {
+        try {
+            Brain<?> brain = vill.getBrain();
+            if (brain == null) return;
+
+            // Brain has a private Map<MemoryModuleType<?>, Optional<?>> "memories"
+            Map<MemoryModuleType<?>, ?> memories = null;
+
+            for (var f : brain.getClass().getDeclaredFields()) {
+                try {
+                    f.setAccessible(true);
+                    Object v = f.get(brain);
+                    if (!(v instanceof Map<?, ?> m)) continue;
+
+                    // Heuristic: look for a map where keys are MemoryModuleType
+                    Object anyKey = m.keySet().stream().findFirst().orElse(null);
+                    if (anyKey instanceof MemoryModuleType<?>) {
+                        memories = (Map<MemoryModuleType<?>, ?>) m;
+                        break;
+                    }
+                } catch (Throwable ignoredField) {}
+            }
+
+            if (memories == null || memories.isEmpty()) return;
+
+            // Remove everything not in keep
+            memories.keySet().removeIf(k -> k != null && (keep == null || !keep.contains(k)));
+
+        } catch (Throwable ignored) {}
     }
 
     // ============================================================
@@ -221,10 +335,9 @@ public final class VillagerBrain {
 
     private static CompoundTag getOrCreateRoot(Villager vill) {
         CompoundTag pd = vill.getPersistentData();
-        if (!pd.contains(TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
+        if (!pd.contains(TAG_ROOT, net.minecraft.nbt.Tag.TAG_COMPOUND)) {
             CompoundTag root = new CompoundTag();
             root.putString(K_MODE, Mode.NATURAL.id); // default
-            root.putBoolean(K_ATTACHED, false);
             pd.put(TAG_ROOT, root);
         }
         return pd.getCompound(TAG_ROOT);
