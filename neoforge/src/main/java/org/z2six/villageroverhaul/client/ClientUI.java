@@ -475,7 +475,7 @@ public final class ClientUI {
                 // then we place columns inside it with padding.
                 int panelX = cmdX + w + gap;
 
-                String[] movement = new String[] { "Natural", "Idle", "Follow", "Patrol" };
+                String[] movement = new String[] { "Neutral", "Idle", "Follow", "Patrol" };
                 String[] combat   = new String[] { "Flee", "Defend", "Aggressive" };
 
                 int movementBlockH = movement.length * h + (movement.length - 1) * gap;
@@ -539,21 +539,21 @@ public final class ClientUI {
                                 try {
                                     int villagerEntityId = resolveTraderEntityId(screen);
 
-                                    if ("Natural".equalsIgnoreCase(label)) {
+                                    if ("Neutral".equalsIgnoreCase(label)) {
                                         ClientNetwork.sendToServer(new PacketVillagerCommand(
                                                 villagerEntityId,
-                                                PacketVillagerCommand.Command.NATURAL
+                                                PacketVillagerCommand.Command.NEUTRAL
                                         ));
 
                                         Minecraft mc = Minecraft.getInstance();
                                         if (mc != null && mc.player != null) {
                                             mc.player.displayClientMessage(
-                                                    Component.literal("Command sent: Natural").withStyle(ChatFormatting.YELLOW),
+                                                    Component.literal("Command sent: Neutral").withStyle(ChatFormatting.YELLOW),
                                                     true
                                             );
                                         }
 
-                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: NATURAL (villagerEntityId={})", villagerEntityId);
+                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: NEUTRAL (villagerEntityId={})", villagerEntityId);
 
                                     } else if ("Idle".equalsIgnoreCase(label)) {
                                         ClientNetwork.sendToServer(new PacketVillagerCommand(

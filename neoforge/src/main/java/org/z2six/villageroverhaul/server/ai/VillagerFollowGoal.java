@@ -54,8 +54,8 @@ public final class VillagerFollowGoal extends Goal {
         try {
             ServerPlayer target = getTargetPlayer();
             if (target == null) {
-                // If target vanished, go NATURAL to avoid "stuck follow" state.
-                VillagerBrain.setMode(vill, VillagerBrain.Mode.NATURAL);
+                // If target vanished, go NEUTRAL to avoid "stuck follow" state.
+                VillagerBrain.setMode(vill, VillagerBrain.Mode.NEUTRAL);
                 return;
             }
 

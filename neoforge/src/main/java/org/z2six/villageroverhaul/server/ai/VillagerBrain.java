@@ -38,7 +38,7 @@ public final class VillagerBrain {
     private static final String K_FOLLOW_PLAYER = "follow_player";
 
     public enum Mode {
-        NATURAL("natural"),
+        NEUTRAL("neutral"),
         IDLE("idle"),
         FOLLOW("follow");
 
@@ -46,9 +46,9 @@ public final class VillagerBrain {
         Mode(String id) { this.id = id; }
 
         public static Mode fromId(String s) {
-            if (s == null) return NATURAL;
+            if (s == null) return NEUTRAL;
             for (Mode m : values()) if (m.id.equalsIgnoreCase(s)) return m;
-            return NATURAL;
+            return NEUTRAL;
         }
     }
 
@@ -69,13 +69,13 @@ public final class VillagerBrain {
         return true;
     }
 
-    public static boolean natural(Villager vill) {
+    public static boolean neutral(Villager vill) {
         if (vill == null) return false;
 
-        // Natural is safe to allow even if not recruited; but your vanilla tick gate
+        // Neutral is safe to allow even if not recruited; but your vanilla tick gate
         // already fail-opens for non-recruited anyway.
         ensureAttached(vill);
-        setMode(vill, Mode.NATURAL);
+        setMode(vill, Mode.NEUTRAL);
 
         // Clear follow target so we don't resume follow if someone flips modes back/forth.
         clearFollowPlayer(vill);
@@ -106,9 +106,9 @@ public final class VillagerBrain {
         return idle(v);
     }
 
-    public static boolean natural(MinecraftServer server, UUID villagerUuid) {
+    public static boolean neutral(MinecraftServer server, UUID villagerUuid) {
         Villager v = findVillager(server, villagerUuid);
-        return natural(v);
+        return neutral(v);
     }
 
     // ============================================================
@@ -117,11 +117,11 @@ public final class VillagerBrain {
 
     public static Mode getMode(Villager vill) {
         try {
-            if (vill == null) return Mode.NATURAL;
+            if (vill == null) return Mode.NEUTRAL;
             CompoundTag root = getOrCreateRoot(vill);
             return Mode.fromId(root.getString(K_MODE));
         } catch (Throwable t) {
-            return Mode.NATURAL;
+            return Mode.NEUTRAL;
         }
     }
 
@@ -239,8 +239,8 @@ public final class VillagerBrain {
             // Non-recruited villagers should always run vanilla.
             if (!RecruitService.isRecruited(vill)) return true;
 
-            // Recruited villagers: only allow vanilla brain in NATURAL mode.
-            return getMode(vill) == Mode.NATURAL;
+            // Recruited villagers: only allow vanilla brain in NEUTRAL mode.
+            return getMode(vill) == Mode.NEUTRAL;
         } catch (Throwable t) {
             return true; // fail-open to avoid breaking villagers
         }
@@ -337,7 +337,7 @@ public final class VillagerBrain {
         CompoundTag pd = vill.getPersistentData();
         if (!pd.contains(TAG_ROOT, net.minecraft.nbt.Tag.TAG_COMPOUND)) {
             CompoundTag root = new CompoundTag();
-            root.putString(K_MODE, Mode.NATURAL.id); // default
+            root.putString(K_MODE, Mode.NEUTRAL.id); // default
             pd.put(TAG_ROOT, root);
         }
         return pd.getCompound(TAG_ROOT);

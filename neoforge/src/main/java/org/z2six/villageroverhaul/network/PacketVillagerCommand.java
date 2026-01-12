@@ -10,7 +10,7 @@ public record PacketVillagerCommand(int villagerEntityId, Command command) imple
 
     public enum Command {
         IDLE(1),
-        NATURAL(2),
+        NEUTRAL(2),
         FOLLOW(3);
 
         public final int id;
