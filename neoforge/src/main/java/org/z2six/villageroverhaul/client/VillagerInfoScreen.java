@@ -6,7 +6,9 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
@@ -41,17 +43,38 @@ public final class VillagerInfoScreen extends Screen {
     private boolean hasStats = false;
     private boolean statsUnavailable = false;
 
+    // Merchant stats
     private int generosity = 0;
     private int timeliness = 0;
     private int intellect  = 0;
     private int hoarder    = 0;
 
+    // Combat stats
+    private int vitality = 0;
+    private int agility  = 0;
+    private int strength = 0;
+    private int armor    = 0;
+
     private long lastStatsQueryMs = 0L;
 
+    // Tabs
+    private enum Tab {
+        MERCHANT("Merchant stats"),
+        COMBAT("Combat stats");
+
+        final String label;
+        Tab(String label) { this.label = label; }
+    }
+
+    private Tab currentTab = Tab.MERCHANT;
+
+    private IconTabButton tabMerchantBtn;
+    private IconTabButton tabCombatBtn;
+
     // Layout
-    // (slightly wider than before: ~8% increase)
     private static final int PANEL_W = 316;
-    private static final int PANEL_H = 190;
+    // Slightly taller so bottom icon buttons have breathing room.
+    private static final int PANEL_H = 206;
 
     private static final int PAD = 10;
 
@@ -62,7 +85,12 @@ public final class VillagerInfoScreen extends Screen {
     // Bars (right)
     private static final int BAR_W = 140;
     private static final int BAR_H = 12;
-    private static final int BAR_GAP = 10;
+
+    // Custom tab icons
+    private static final int TAB_BTN_SIZE = 18;
+    private static final int TAB_BTN_GAP = 8;
+    // More bottom padding so buttons don't hug the panel edge.
+    private static final int TAB_BTN_BOTTOM_PAD = 8;
 
     // Colors (ARGB)
     private static final int PANEL_BG = 0xCC0B0B0B;
@@ -72,19 +100,37 @@ public final class VillagerInfoScreen extends Screen {
     private static final int BAR_OUTLINE = 0xFF404040;
     private static final int BAR_CENTER = 0xFFAAAAAA;
 
+    // Merchant colors
     private static final int C_GENEROSITY = 0xFF42D16C; // green
     private static final int C_TIMELINESS = 0xFF2FC7FF; // cyan
     private static final int C_INTELLECT  = 0xFFB26BFF; // purple
     private static final int C_HOARDER    = 0xFFFFB347; // orange
 
+    // Combat colors
+    private static final int C_VITALITY = 0xFFFF5A5A; // red-ish
+    private static final int C_AGILITY  = 0xFF4DD6FF; // light blue
+    private static final int C_STRENGTH = 0xFFFF7A2F; // orange-red
+    private static final int C_ARMOR    = 0xFFB0B0B0; // silver
+
     private enum StatKind {
+        // Merchant
         GENEROSITY("Generosity"),
         TIMELINESS("Timeliness"),
         INTELLECT("Intellect"),
-        HOARDER("Hoarder");
+        HOARDER("Hoarder"),
+
+        // Combat
+        VITALITY("Vitality"),
+        AGILITY("Agility"),
+        STRENGTH("Strength"),
+        ARMOR("Armor");
 
         final String label;
         StatKind(String label) { this.label = label; }
+
+        boolean isMerchant() {
+            return this == GENEROSITY || this == TIMELINESS || this == INTELLECT || this == HOARDER;
+        }
     }
 
     public VillagerInfoScreen(MerchantScreen parent, int villagerEntityId) {
@@ -119,12 +165,26 @@ public final class VillagerInfoScreen extends Screen {
         int left = (this.width - PANEL_W) / 2;
         int top = (this.height - PANEL_H) / 2;
 
+        // Back button (vanilla is fine)
         this.addRenderableWidget(
                 Button.builder(Component.literal("Back"), b -> onClose())
                         .pos(left + PANEL_W - 58 - PAD, top + PAD)
                         .size(58, 18)
                         .build()
         );
+
+        // Custom tab buttons centered at the bottom INSIDE the panel.
+        int groupW = TAB_BTN_SIZE * 2 + TAB_BTN_GAP;
+        int tabsX = left + (PANEL_W - groupW) / 2;
+        int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
+
+        tabMerchantBtn = new IconTabButton(tabsX, tabsY, TAB_BTN_SIZE, "¤",
+                Component.literal("Merchant stats"), Tab.MERCHANT);
+        tabCombatBtn = new IconTabButton(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY, TAB_BTN_SIZE, "⚔",
+                Component.literal("Combat stats"), Tab.COMBAT);
+
+        this.addRenderableWidget(tabMerchantBtn);
+        this.addRenderableWidget(tabCombatBtn);
 
         // Kick initial request immediately
         trySendStatsQuery(false);
@@ -154,10 +214,17 @@ public final class VillagerInfoScreen extends Screen {
                 return;
             }
 
+            // Merchant
             this.generosity = VillagerStatsService.clampPoints(snap.generosity());
             this.timeliness = VillagerStatsService.clampPoints(snap.timeliness());
             this.intellect  = VillagerStatsService.clampPoints(snap.intellect());
             this.hoarder    = VillagerStatsService.clampPoints(snap.hoarder());
+
+            // Combat
+            this.vitality = VillagerStatsService.clampPoints(snap.vitality());
+            this.agility  = VillagerStatsService.clampPoints(snap.agility());
+            this.strength = VillagerStatsService.clampPoints(snap.strength());
+            this.armor    = VillagerStatsService.clampPoints(snap.armor());
 
             this.hasStats = true;
             this.statsUnavailable = false;
@@ -251,8 +318,6 @@ public final class VillagerInfoScreen extends Screen {
 
             Component prof = safeProfession(le);
             gg.drawString(font, Component.literal("Profession: ").append(prof), textX, textY + 12, 0xFFFFFFFF, false);
-
-            // Removed "Type: <namespace:id>" row (not needed)
         }
 
         renderVillagerModel(gg, boxLeft, boxTop, boxRight, boxBottom, mouseX, mouseY);
@@ -260,23 +325,36 @@ public final class VillagerInfoScreen extends Screen {
         int barsX = boxRight + PAD;
         int barsY = top + 78;
 
-        // NEW: ensure there's always 10px between a bar and the next bar's title label.
-        // Title is drawn at (barY - (font.lineHeight + 2)), so:
-        // distance(barBottom -> nextTitleTop) = step - (font.lineHeight + 2) - BAR_H
-        // choose step = BAR_H + (font.lineHeight + 2) + 10 => distance = 10
+        // keep titles from colliding with the previous bar
         final int stepY = BAR_H + (font.lineHeight + 2) + 3;
 
-        renderStatBar(gg, font, StatKind.GENEROSITY, this.hasStats ? this.generosity : null,
-                barsX, barsY + stepY * 0, BAR_W, BAR_H, C_GENEROSITY, mouseX, mouseY);
+        boolean tooltipDrawn = false;
 
-        renderStatBar(gg, font, StatKind.TIMELINESS, this.hasStats ? this.timeliness : null,
-                barsX, barsY + stepY * 1, BAR_W, BAR_H, C_TIMELINESS, mouseX, mouseY);
+        if (currentTab == Tab.MERCHANT) {
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.GENEROSITY, this.hasStats ? this.generosity : null,
+                    barsX, barsY + stepY * 0, BAR_W, BAR_H, C_GENEROSITY, mouseX, mouseY, !tooltipDrawn);
 
-        renderStatBar(gg, font, StatKind.INTELLECT, this.hasStats ? this.intellect : null,
-                barsX, barsY + stepY * 2, BAR_W, BAR_H, C_INTELLECT, mouseX, mouseY);
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.TIMELINESS, this.hasStats ? this.timeliness : null,
+                    barsX, barsY + stepY * 1, BAR_W, BAR_H, C_TIMELINESS, mouseX, mouseY, !tooltipDrawn);
 
-        renderStatBar(gg, font, StatKind.HOARDER, this.hasStats ? this.hoarder : null,
-                barsX, barsY + stepY * 3, BAR_W, BAR_H, C_HOARDER, mouseX, mouseY);
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.INTELLECT, this.hasStats ? this.intellect : null,
+                    barsX, barsY + stepY * 2, BAR_W, BAR_H, C_INTELLECT, mouseX, mouseY, !tooltipDrawn);
+
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.HOARDER, this.hasStats ? this.hoarder : null,
+                    barsX, barsY + stepY * 3, BAR_W, BAR_H, C_HOARDER, mouseX, mouseY, !tooltipDrawn);
+        } else {
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.VITALITY, this.hasStats ? this.vitality : null,
+                    barsX, barsY + stepY * 0, BAR_W, BAR_H, C_VITALITY, mouseX, mouseY, !tooltipDrawn);
+
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.AGILITY, this.hasStats ? this.agility : null,
+                    barsX, barsY + stepY * 1, BAR_W, BAR_H, C_AGILITY, mouseX, mouseY, !tooltipDrawn);
+
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.STRENGTH, this.hasStats ? this.strength : null,
+                    barsX, barsY + stepY * 2, BAR_W, BAR_H, C_STRENGTH, mouseX, mouseY, !tooltipDrawn);
+
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.ARMOR, this.hasStats ? this.armor : null,
+                    barsX, barsY + stepY * 3, BAR_W, BAR_H, C_ARMOR, mouseX, mouseY, !tooltipDrawn);
+        }
 
         if (!this.hasStats) {
             if (this.statsUnavailable) {
@@ -288,7 +366,17 @@ public final class VillagerInfoScreen extends Screen {
             }
         }
 
-        // Render widgets (Back button)
+        // If no stat bar tooltip was drawn this frame, allow tab-button tooltip.
+        // This prevents the “sticky overlay” you saw.
+        if (!tooltipDrawn) {
+            if (tabMerchantBtn != null && tabMerchantBtn.isHoveredOrFocused()) {
+                gg.renderTooltip(font, Component.literal("Merchant stats"), mouseX, mouseY);
+            } else if (tabCombatBtn != null && tabCombatBtn.isHoveredOrFocused()) {
+                gg.renderTooltip(font, Component.literal("Combat stats"), mouseX, mouseY);
+            }
+        }
+
+        // Render widgets (tab icons + Back button)
         super.render(gg, mouseX, mouseY, partialTick);
     }
 
@@ -373,16 +461,11 @@ public final class VillagerInfoScreen extends Screen {
                 return Component.literal("Villager");
             }
 
-            // Non-villager merchants: show a human-friendly label for known goblintraders entity ids.
             ResourceLocation typeId = safeEntityTypeId(le);
             if (typeId != null) {
                 String id = typeId.toString();
-                if ("goblintraders:vein_goblin_trader".equals(id)) {
-                    return Component.literal("Vein Goblin Trader");
-                }
-                if ("goblintraders:goblin_trader".equals(id)) {
-                    return Component.literal("Goblin Trader");
-                }
+                if ("goblintraders:vein_goblin_trader".equals(id)) return Component.literal("Vein Goblin Trader");
+                if ("goblintraders:goblin_trader".equals(id)) return Component.literal("Goblin Trader");
                 return Component.literal(id);
             }
 
@@ -392,24 +475,26 @@ public final class VillagerInfoScreen extends Screen {
         }
     }
 
-    private static void renderStatBar(
+    /**
+     * @return true if this bar rendered a tooltip this frame.
+     */
+    private static boolean renderStatBar(
             GuiGraphics gg,
             Font font,
             StatKind kind,
             Integer valueOrNull,
             int x, int y, int w, int h,
             int color,
-            int mouseX, int mouseY
+            int mouseX, int mouseY,
+            boolean allowTooltip
     ) {
         try {
-            // Stat title ABOVE the bar, centered to the bar width (normal font size)
             String label = kind.label;
             int labelW = font.width(label);
             int labelX = x + (w - labelW) / 2;
-            int labelY = y - (font.lineHeight + 2); // small gap above the bar
+            int labelY = y - (font.lineHeight + 2);
             gg.drawString(font, label, labelX, labelY, 0xFFFFFFFF, true);
 
-            // Bar background + outline
             gg.fill(x, y, x + w, y + h, BAR_BG);
 
             gg.fill(x, y, x + w, y + 1, BAR_OUTLINE);
@@ -420,7 +505,6 @@ public final class VillagerInfoScreen extends Screen {
             int cx = x + w / 2;
             gg.fill(cx, y + 2, cx + 1, y + h - 2, BAR_CENTER);
 
-            // Fill
             if (valueOrNull != null) {
                 int v = Mth.clamp(valueOrNull, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
 
@@ -438,22 +522,18 @@ public final class VillagerInfoScreen extends Screen {
                 gg.drawString(font, "?", x + w - 10, y + 2, 0xFF777777, false);
             }
 
-            // Tooltip
             boolean hover = mouseX >= x && mouseX < (x + w) && mouseY >= y && mouseY < (y + h);
-            if (hover) {
+            if (allowTooltip && hover) {
                 gg.renderComponentTooltip(font, buildStatTooltip(kind, valueOrNull), mouseX, mouseY);
+                return true;
             }
         } catch (Throwable ignored) {}
+        return false;
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Tooltip building: points + server-config-based percent + player-facing explanation.
-    // -----------------------------------------------------------------------------------------
-
     private static List<Component> buildStatTooltip(StatKind kind, Integer valueOrNull) {
-        List<Component> lines = new ArrayList<>(8);
+        List<Component> lines = new ArrayList<>(12);
 
-        // Colored title (same as bar color)
         lines.add(Component.literal(kind.label).withStyle(s ->
                 s.withColor(TextColor.fromRgb(statColorRgb(kind)))
         ));
@@ -465,76 +545,95 @@ public final class VillagerInfoScreen extends Screen {
 
         int points = Mth.clamp(valueOrNull, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
 
-        // Value line colored based on sign
         ChatFormatting valueColor =
                 points > 0 ? ChatFormatting.GREEN :
                         points < 0 ? ChatFormatting.RED :
                                 ChatFormatting.GRAY;
 
-        // HOARDER is special: show offers delta (ints), not percent
         if (kind == StatKind.HOARDER) {
             String effectShort = shortEffectParen(kind, 0.0, points);
             lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
 
             String clampLine = hoarderClampLine();
-            if (clampLine != null) {
-                lines.add(Component.literal(clampLine).withStyle(ChatFormatting.DARK_GRAY));
-            }
+            if (clampLine != null) lines.add(Component.literal(clampLine).withStyle(ChatFormatting.DARK_GRAY));
 
-            // Spacer
             lines.add(Component.literal(""));
-
-            // Flavor text: grey-ish + cursive (italic)
-            for (Component c : flavorLines(kind)) {
-                lines.add(c);
-            }
-
+            for (Component c : flavorLines(kind)) lines.add(c);
             return lines;
         }
 
-        // Non-hoarder: percent-based traits
-        Double pct = pointsToPercentFromServerConfig(kind, points);
+        if (kind.isMerchant()) {
+            Double pct = pointsToPercentFromServerConfig(kind, points);
 
-        if (pct == null) {
-            lines.add(Component.literal("Value: " + points).withStyle(valueColor));
-        } else {
-            String effectShort = shortEffectParen(kind, pct, points);
-            lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
+            if (pct == null) {
+                lines.add(Component.literal("Value: " + points).withStyle(valueColor));
+            } else {
+                String effectShort = shortEffectParen(kind, pct, points);
+                lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
 
-            String multLine = multiplierLine(kind, pct);
-            if (multLine != null) {
-                lines.add(Component.literal(multLine).withStyle(ChatFormatting.DARK_GRAY));
+                String multLine = multiplierLine(kind, pct);
+                if (multLine != null) lines.add(Component.literal(multLine).withStyle(ChatFormatting.DARK_GRAY));
             }
+
+            lines.add(Component.literal(""));
+            for (Component c : flavorLines(kind)) lines.add(c);
+            return lines;
         }
 
-        // Spacer
+        // Combat stats
+        String effectShort = shortEffectParen(kind, 0.0, points);
+        lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
+
+        if (kind == StatKind.VITALITY) {
+            lines.add(Component.literal("Unit: HP (2.0 HP = 1 ❤)").withStyle(ChatFormatting.DARK_GRAY));
+        }
+
+        String clampLine = combatClampLine(kind);
+        if (clampLine != null) lines.add(Component.literal(clampLine).withStyle(ChatFormatting.DARK_GRAY));
+
         lines.add(Component.literal(""));
-
-        // Flavor text: grey-ish + cursive (italic)
-        for (Component c : flavorLines(kind)) {
-            lines.add(c);
-        }
+        for (Component c : flavorLines(kind)) lines.add(c);
 
         return lines;
     }
 
-    /**
-     * Short parenthetical summary shown next to the points.
-     * Example: "Reroll cost +19.9%" for negative Generosity.
-     */
     private static String shortEffectParen(StatKind kind, double traitPctOrUnused, Integer pointsOrNull) {
         if (pointsOrNull == null) return "";
 
         int points = Mth.clamp(pointsOrNull, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
 
         return switch (kind) {
-            case GENEROSITY -> "Reroll cost " + formatSignedPercent1(-safeFinite(traitPctOrUnused));
+            case GENEROSITY -> "Emerald costs " + formatSignedPercent1(-safeFinite(traitPctOrUnused));
             case TIMELINESS -> "Cooldown " + formatSignedPercent1(-safeFinite(traitPctOrUnused));
             case INTELLECT  -> "XP " + formatSignedPercent1(safeFinite(traitPctOrUnused));
             case HOARDER    -> {
                 Integer delta = pointsToHoarderDeltaFromServerConfig(points);
                 if (delta == null) yield "Offers (syncing…)";
                 yield "Offers " + formatSignedInt(delta);
+            }
+
+            // IMPORTANT: vitality config is in HP, but players think in hearts.
+            // Show both so it matches server config and avoids confusion.
+            case VITALITY -> {
+                Double hp = pointsToVitalityHpDeltaFromServerConfig(points);
+                if (hp == null) yield "Max health (syncing…)";
+                double hearts = hp / 2.0;
+                yield "Max health " + formatSigned1(hp) + " HP (" + formatSigned1(hearts) + "❤)";
+            }
+            case AGILITY -> {
+                Double delta = pointsToAgilityDeltaFromServerConfig(points);
+                if (delta == null) yield "Speed (syncing…)";
+                yield "Speed " + formatSigned3(delta);
+            }
+            case STRENGTH -> {
+                Double dmg = pointsToStrengthDeltaFromServerConfig(points);
+                if (dmg == null) yield "Damage (syncing…)";
+                yield "Damage " + formatSigned1(dmg);
+            }
+            case ARMOR -> {
+                Double arm = pointsToArmorDeltaFromServerConfig(points);
+                if (arm == null) yield "Armor (syncing…)";
+                yield "Armor " + formatSigned1(arm);
             }
         };
     }
@@ -545,58 +644,60 @@ public final class VillagerInfoScreen extends Screen {
         return "0";
     }
 
-    /**
-     * Optional second line that shows the actual multiplier used by the server-side logic.
-     * Only emits for stats with a clearly-defined multiplier in your code today.
-     */
     private static String multiplierLine(StatKind kind, double traitPct) {
         double p = safeFinite(traitPct);
 
         return switch (kind) {
             case GENEROSITY -> {
-                // costMult = 1 - pct/100
                 double m = 1.0 - (p / 100.0);
                 if (m < 0.0) m = 0.0;
                 yield "Multiplier: x" + formatMultiplier(m) + " (cost)";
             }
             case TIMELINESS -> {
-                // cooldownMult = 1 - pct/100
                 double m = 1.0 - (p / 100.0);
                 if (m < 0.0) m = 0.0;
                 yield "Multiplier: x" + formatMultiplier(m) + " (cooldown)";
             }
             case INTELLECT -> {
-                // xpMult = 1 + pct/100
                 double m = 1.0 + (p / 100.0);
                 if (m < 0.0) m = 0.0;
                 yield "Multiplier: x" + formatMultiplier(m) + " (XP)";
             }
-            case HOARDER -> null; // effect model isn't a simple multiplier (yet / depends on your implementation)
+            default -> null;
         };
     }
 
     private static String formatSignedPercent1(double pct) {
         double v = safeFinite(pct);
-
-        // round to 1 decimal (so you can get e.g. 19.9%)
         double r = Math.round(v * 10.0) / 10.0;
-
-        // avoid "-0.0%"
         if (Math.abs(r) < 0.05) r = 0.0;
-
         if (r > 0.0) return "+" + r + "%";
         if (r < 0.0) return r + "%";
         return "0%";
     }
 
+    private static String formatSigned1(double v) {
+        double x = safeFinite(v);
+        double r = Math.round(x * 10.0) / 10.0;
+        if (Math.abs(r) < 0.05) r = 0.0;
+        if (r > 0.0) return "+" + r;
+        if (r < 0.0) return String.valueOf(r);
+        return "0";
+    }
+
+    private static String formatSigned3(double v) {
+        double x = safeFinite(v);
+        double r = Math.round(x * 1000.0) / 1000.0;
+        if (Math.abs(r) < 0.0005) r = 0.0;
+        if (r > 0.0) return "+" + r;
+        if (r < 0.0) return String.valueOf(r);
+        return "0";
+    }
+
     private static String formatMultiplier(double m) {
         double v = safeFinite(m);
         if (v < 0.0) v = 0.0;
-
-        // 3 decimals feels nice for multipliers (x1.200, x0.801, etc.)
         double r = Math.round(v * 1000.0) / 1000.0;
-
-        // make "1.0" show as "1" if you prefer; leaving as-is is also fine
         if (Math.abs(r - 1.0) < 0.0005) return "1.000";
         return String.valueOf(r);
     }
@@ -608,28 +709,19 @@ public final class VillagerInfoScreen extends Screen {
 
     private static List<Component> flavorLines(StatKind kind) {
         List<String> raw = switch (kind) {
-            case GENEROSITY -> List.of(
-                    "Affects the price of rerolling & trades.",
-                    "Higher = cheaper, lower = pricier."
-            );
-            case TIMELINESS -> List.of(
-                    "Affects how quickly rerolls recharge.",
-                    "Higher = faster cooldown, lower = slower."
-            );
-            case INTELLECT -> List.of(
-                    "Affects experience gained from rerolls.",
-                    "Higher = more experience, lower = less."
-            );
-            case HOARDER -> List.of(
-                    "Affects how many trade offers are available.",
-                    "Higher = more offers, lower = fewer."
-            );
+            case GENEROSITY -> List.of("Affects the price of rerolling & trades.", "Higher = cheaper, lower = pricier.");
+            case TIMELINESS -> List.of("Affects how quickly rerolls recharge.", "Higher = faster cooldown, lower = slower.");
+            case INTELLECT  -> List.of("Affects experience gained from rerolls.", "Higher = more experience, lower = less.");
+            case HOARDER    -> List.of("Affects how many trade offers are available.", "Higher = more offers, lower = fewer.");
+
+            case VITALITY -> List.of("Affects maximum health.", "Higher = tougher, lower = frailer.");
+            case AGILITY  -> List.of("Affects movement speed.", "Higher = faster, lower = slower.");
+            case STRENGTH -> List.of("Affects attack damage.", "Higher = stronger, lower = weaker.");
+            case ARMOR    -> List.of("Affects armor value.", "Higher = tankier, lower = squishier.");
         };
 
         List<Component> out = new ArrayList<>(raw.size());
-        for (String s : raw) {
-            out.add(Component.literal(s).withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC));
-        }
+        for (String s : raw) out.add(Component.literal(s).withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC));
         return out;
     }
 
@@ -639,15 +731,12 @@ public final class VillagerInfoScreen extends Screen {
             case TIMELINESS -> C_TIMELINESS;
             case INTELLECT  -> C_INTELLECT;
             case HOARDER    -> C_HOARDER;
+            case VITALITY   -> C_VITALITY;
+            case AGILITY    -> C_AGILITY;
+            case STRENGTH   -> C_STRENGTH;
+            case ARMOR      -> C_ARMOR;
         };
-        return argb & 0x00FFFFFF; // strip alpha
-    }
-
-    private static String formatPercent(double pct) {
-        long rounded = Math.round(pct);
-        if (rounded > 0) return "+" + rounded + "%";
-        if (rounded < 0) return rounded + "%";
-        return "0%";
+        return argb & 0x00FFFFFF;
     }
 
     private static Double pointsToPercentFromServerConfig(StatKind kind, int points) {
@@ -661,17 +750,11 @@ public final class VillagerInfoScreen extends Screen {
             switch (kind) {
                 case GENEROSITY -> { min = cfg.generosityMinPct; max = cfg.generosityMaxPct; }
                 case TIMELINESS -> { min = cfg.timelinessMinPct; max = cfg.timelinessMaxPct; }
-                case INTELLECT -> { min = cfg.intellectMinPct; max = cfg.intellectMaxPct; }
+                case INTELLECT  -> { min = cfg.intellectMinPct; max = cfg.intellectMaxPct; }
                 default -> { return null; }
             }
 
-            int p = Mth.clamp(points, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
-
-            double t = (p + 100.0) / 200.0;
-            t = Mth.clamp((float) t, 0.0f, 1.0f);
-
-            return min + (max - min) * t;
-
+            return lerpFromPoints(points, min, max);
         } catch (Throwable ignored) {
             return null;
         }
@@ -686,16 +769,9 @@ public final class VillagerInfoScreen extends Screen {
             int maxDelta = cfg.hoarderExtraOffersMax;
             if (minDelta > maxDelta) { int tmp = minDelta; minDelta = maxDelta; maxDelta = tmp; }
 
-            int p = Mth.clamp(points, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
-
-            // Map points [-100..100] into delta range [minDelta..maxDelta]
-            double t = (p + 100.0) / 200.0;
-            t = Mth.clamp((float) t, 0.0f, 1.0f);
-
-            double d = minDelta + (maxDelta - minDelta) * t;
+            double d = lerpFromPoints(points, minDelta, maxDelta);
             int delta = (int) Math.round(d);
 
-            // Safety clamp after rounding
             if (delta < minDelta) delta = minDelta;
             if (delta > maxDelta) delta = maxDelta;
 
@@ -718,4 +794,162 @@ public final class VillagerInfoScreen extends Screen {
         }
     }
 
+    private static Double pointsToVitalityHpDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            return lerpFromPoints(points, cfg.vitalityMinHealth, cfg.vitalityMaxHealth);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Double pointsToAgilityDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            return lerpFromPoints(points, cfg.agilityMinSpeed, cfg.agilityMaxSpeed);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Double pointsToStrengthDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            return lerpFromPoints(points, cfg.strengthMinDamage, cfg.strengthMaxDamage);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Double pointsToArmorDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            return lerpFromPoints(points, cfg.armorMin, cfg.armorMax);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String combatClampLine(StatKind kind) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+
+            return switch (kind) {
+                case VITALITY -> {
+                    // Config is in HP. Show HP first (matches server config), then hearts.
+                    double minHp = safeFinite(cfg.vitalityMinHealth);
+                    double maxHp = safeFinite(cfg.vitalityMaxHealth);
+                    if (minHp > maxHp) { double t = minHp; minHp = maxHp; maxHp = t; }
+
+                    double minHearts = minHp / 2.0;
+                    double maxHearts = maxHp / 2.0;
+
+                    yield "Clamp: [" + formatSigned1(minHp) + ", " + formatSigned1(maxHp) + "] HP"
+                            + " (" + formatSigned1(minHearts) + " to " + formatSigned1(maxHearts) + "❤)";
+                }
+                case AGILITY -> {
+                    double min = safeFinite(cfg.agilityMinSpeed);
+                    double max = safeFinite(cfg.agilityMaxSpeed);
+                    if (min > max) { double t = min; min = max; max = t; }
+                    yield "Clamp: [" + formatSigned3(min) + ", " + formatSigned3(max) + "] speed";
+                }
+                case STRENGTH -> {
+                    double min = safeFinite(cfg.strengthMinDamage);
+                    double max = safeFinite(cfg.strengthMaxDamage);
+                    if (min > max) { double t = min; min = max; max = t; }
+                    yield "Clamp: [" + formatSigned1(min) + ", " + formatSigned1(max) + "] damage";
+                }
+                case ARMOR -> {
+                    double min = safeFinite(cfg.armorMin);
+                    double max = safeFinite(cfg.armorMax);
+                    if (min > max) { double t = min; min = max; max = t; }
+                    yield "Clamp: [" + formatSigned1(min) + ", " + formatSigned1(max) + "] armor";
+                }
+                default -> null;
+            };
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static double lerpFromPoints(int points, double min, double max) {
+        int p = Mth.clamp(points, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
+        double t = (p + 100.0) / 200.0;
+        t = Mth.clamp((float) t, 0.0f, 1.0f);
+        return min + (max - min) * t;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Custom icon tab widget (NO tooltip rendering here; screen handles tooltips to avoid overlap).
+    // -----------------------------------------------------------------------------------------
+
+    private final class IconTabButton extends AbstractWidget {
+
+        private final String symbol;
+        private final Component tooltip;
+        private final Tab target;
+
+        IconTabButton(int x, int y, int size, String symbol, Component tooltip, Tab target) {
+            super(x, y, size, size, Component.empty());
+            this.symbol = symbol == null ? "?" : symbol;
+            this.tooltip = tooltip == null ? Component.empty() : tooltip;
+            this.target = target == null ? Tab.MERCHANT : target;
+        }
+
+        public Component getTooltipComponent() {
+            return tooltip;
+        }
+
+        @Override
+        protected void renderWidget(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
+            try {
+                boolean selected = (VillagerInfoScreen.this.currentTab == target);
+                boolean hover = this.isHoveredOrFocused();
+
+                int x = getX();
+                int y = getY();
+                int s = this.width;
+
+                int bg = selected ? 0xFF2E2E2E : (hover ? 0xFF242424 : 0xFF1A1A1A);
+                int border = selected ? 0xFFFFFFFF : (hover ? 0xFFBFBFBF : 0xFF6A6A6A);
+                int txt = selected ? 0xFFFFFFFF : 0xFFEAEAEA;
+
+                gg.fill(x, y, x + s, y + s, bg);
+                gg.fill(x, y, x + s, y + 1, border);
+                gg.fill(x, y + s - 1, x + s, y + s, border);
+                gg.fill(x, y, x + 1, y + s, border);
+                gg.fill(x + s - 1, y, x + s, y + s, border);
+
+                Font f = Minecraft.getInstance().font;
+                int tw = f.width(symbol);
+                int tx = x + (s - tw) / 2;
+                int ty = y + (s - f.lineHeight) / 2;
+                gg.drawString(f, symbol, tx, ty, txt, false);
+            } catch (Throwable ignored) {}
+        }
+
+        @Override
+        public void onClick(double mouseX, double mouseY) {
+            try {
+                if (VillagerInfoScreen.this.currentTab != target) {
+                    VillagerInfoScreen.this.currentTab = target;
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen switched tab -> {}", target.name());
+                }
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] IconTabButton.onClick failed (soft): {}", t.toString());
+            }
+        }
+
+        @Override
+        protected void updateWidgetNarration(NarrationElementOutput narrationElementOutput) {
+            try {
+                narrationElementOutput.add(net.minecraft.client.gui.narration.NarratedElementType.TITLE, tooltip);
+            } catch (Throwable ignored) {}
+        }
+    }
 }

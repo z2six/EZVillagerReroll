@@ -1,3 +1,5 @@
+// RecruitVillagerScreen.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/RecruitVillagerScreen.java
 package org.z2six.villageroverhaul.client;
 
 import net.minecraft.ChatFormatting;
@@ -21,6 +23,9 @@ import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public final class RecruitVillagerScreen extends Screen {
 
     // Room for 2 columns of text
@@ -35,7 +40,7 @@ public final class RecruitVillagerScreen extends Screen {
     private static final int C_INTELLECT  = 0xFFB26BFF; // purple
     private static final int C_HOARDER    = 0xFFFFB347; // orange
 
-    // Combat colors (new)
+    // Combat colors
     private static final int C_VITALITY = 0xFFFF5A5A; // red-ish
     private static final int C_AGILITY  = 0xFF4DD6FF; // light blue
     private static final int C_STRENGTH = 0xFFFF7A2F; // orange-red
@@ -65,6 +70,27 @@ public final class RecruitVillagerScreen extends Screen {
     private boolean sentCostQuery = false;
 
     private static final int TIP_ICON = 9;
+
+    private enum StatKind {
+        // Merchant
+        GENEROSITY("Generosity"),
+        TIMELINESS("Timeliness"),
+        INTELLECT("Intellect"),
+        HOARDER("Hoarder"),
+
+        // Combat
+        VITALITY("Vitality"),
+        AGILITY("Agility"),
+        STRENGTH("Strength"),
+        ARMOR("Armor");
+
+        final String label;
+        StatKind(String label) { this.label = label; }
+
+        boolean isMerchant() {
+            return this == GENEROSITY || this == TIMELINESS || this == INTELLECT || this == HOARDER;
+        }
+    }
 
     public RecruitVillagerScreen(int villagerEntityId, int cost, boolean eligible, boolean alreadyRecruited, String serverMessage) {
         super(Component.literal("Recruit villager"));
@@ -266,17 +292,17 @@ public final class RecruitVillagerScreen extends Screen {
             gg.drawString(this.font, s, col1X, lineY, c);
             gg.drawString(this.font, s, col2X, lineY, c);
         } else {
-            // Merchant column
-            drawStatLine(gg, col1X, lineY + lh * 0, "Generosity", generosity, C_GENEROSITY, merchantTooltip("generosity", generosity), mouseX, mouseY);
-            drawStatLine(gg, col1X, lineY + lh * 1, "Timeliness", timeliness, C_TIMELINESS, merchantTooltip("timeliness", timeliness), mouseX, mouseY);
-            drawStatLine(gg, col1X, lineY + lh * 2, "Intellect", intellect, C_INTELLECT, merchantTooltip("intellect", intellect), mouseX, mouseY);
-            drawStatLine(gg, col1X, lineY + lh * 3, "Hoarder", hoarder, C_HOARDER, hoarderTooltip(hoarder), mouseX, mouseY);
+            // Merchant column (tooltips EXACTLY like VillagerInfoScreen)
+            drawStatLine(gg, col1X, lineY + lh * 0, StatKind.GENEROSITY, generosity, C_GENEROSITY, mouseX, mouseY);
+            drawStatLine(gg, col1X, lineY + lh * 1, StatKind.TIMELINESS, timeliness, C_TIMELINESS, mouseX, mouseY);
+            drawStatLine(gg, col1X, lineY + lh * 2, StatKind.INTELLECT, intellect, C_INTELLECT, mouseX, mouseY);
+            drawStatLine(gg, col1X, lineY + lh * 3, StatKind.HOARDER, hoarder, C_HOARDER, mouseX, mouseY);
 
             // Combat column
-            drawStatLine(gg, col2X, lineY + lh * 0, "Vitality", vitality, C_VITALITY, vitalityTooltip(vitality), mouseX, mouseY);
-            drawStatLine(gg, col2X, lineY + lh * 1, "Agility", agility, C_AGILITY, agilityTooltip(agility), mouseX, mouseY);
-            drawStatLine(gg, col2X, lineY + lh * 2, "Strength", strength, C_STRENGTH, strengthTooltip(strength), mouseX, mouseY);
-            drawStatLine(gg, col2X, lineY + lh * 3, "Armor", armor, C_ARMOR, armorTooltip(armor), mouseX, mouseY);
+            drawStatLine(gg, col2X, lineY + lh * 0, StatKind.VITALITY, vitality, C_VITALITY, mouseX, mouseY);
+            drawStatLine(gg, col2X, lineY + lh * 1, StatKind.AGILITY, agility, C_AGILITY, mouseX, mouseY);
+            drawStatLine(gg, col2X, lineY + lh * 2, StatKind.STRENGTH, strength, C_STRENGTH, mouseX, mouseY);
+            drawStatLine(gg, col2X, lineY + lh * 3, StatKind.ARMOR, armor, C_ARMOR, mouseX, mouseY);
         }
 
         // Render widgets manually (buttons), WITHOUT re-drawing background.
@@ -291,7 +317,7 @@ public final class RecruitVillagerScreen extends Screen {
         }
     }
 
-    private void drawStatLine(GuiGraphics gg, int x, int y, String label, int points, int argbLabel, String tooltipSentence, int mouseX, int mouseY) {
+    private void drawStatLine(GuiGraphics gg, int x, int y, StatKind kind, int points, int argbLabel, int mouseX, int mouseY) {
         try {
             int p = Mth.clamp(points, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
 
@@ -300,37 +326,33 @@ public final class RecruitVillagerScreen extends Screen {
                             p < 0 ? ChatFormatting.RED :
                                     ChatFormatting.GRAY;
 
-            // Base line: "Label: +12"
-            Component base = Component.literal(label + ": ")
+            Component base = Component.literal(kind.label + ": ")
                     .withStyle(s -> s.withColor(TextColor.fromRgb(argbLabel & 0x00FFFFFF)))
                     .append(Component.literal(formatSignedPoints(p)).withStyle(pv));
 
             gg.drawString(this.font, base, x, y, 0xFFFFFFFF, false);
 
-            // If we have a tooltip, draw the ? icon and show tooltip on hover
-            if (tooltipSentence != null && !tooltipSentence.isBlank()) {
-                int baseW = this.font.width(base);
-                int ix = x + baseW + 6;
-                int iy = y + 1;
+            int baseW = this.font.width(base);
+            int ix = x + baseW + 6;
+            int iy = y + 1;
 
-                // little box
-                int bg = 0xFF2A2A2A;
-                int border = 0xFF6A6A6A;
-                gg.fill(ix, iy, ix + TIP_ICON, iy + TIP_ICON, bg);
+            // little box
+            int bg = 0xFF2A2A2A;
+            int border = 0xFF6A6A6A;
+            gg.fill(ix, iy, ix + TIP_ICON, iy + TIP_ICON, bg);
 
-                // border (1px)
-                gg.fill(ix, iy, ix + TIP_ICON, iy + 1, border);
-                gg.fill(ix, iy + TIP_ICON - 1, ix + TIP_ICON, iy + TIP_ICON, border);
-                gg.fill(ix, iy, ix + 1, iy + TIP_ICON, border);
-                gg.fill(ix + TIP_ICON - 1, iy, ix + TIP_ICON, iy + TIP_ICON, border);
+            // border (1px)
+            gg.fill(ix, iy, ix + TIP_ICON, iy + 1, border);
+            gg.fill(ix, iy + TIP_ICON - 1, ix + TIP_ICON, iy + TIP_ICON, border);
+            gg.fill(ix, iy, ix + 1, iy + TIP_ICON, border);
+            gg.fill(ix + TIP_ICON - 1, iy, ix + TIP_ICON, iy + TIP_ICON, border);
 
-                // "?"
-                gg.drawString(this.font, "?", ix + 3, iy + 1, 0xFFEAEAEA, false);
+            // "?"
+            gg.drawString(this.font, "?", ix + 3, iy + 1, 0xFFEAEAEA, false);
 
-                boolean hover = mouseX >= ix && mouseX < (ix + TIP_ICON) && mouseY >= iy && mouseY < (iy + TIP_ICON);
-                if (hover) {
-                    gg.renderTooltip(this.font, Component.literal(tooltipSentence).withStyle(ChatFormatting.GRAY), mouseX, mouseY);
-                }
+            boolean hover = mouseX >= ix && mouseX < (ix + TIP_ICON) && mouseY >= iy && mouseY < (iy + TIP_ICON);
+            if (hover) {
+                gg.renderComponentTooltip(this.font, buildStatTooltip(kind, p), mouseX, mouseY);
             }
         } catch (Throwable ignored) {}
     }
@@ -340,148 +362,352 @@ public final class RecruitVillagerScreen extends Screen {
         return String.valueOf(p);
     }
 
-    // -----------------------------
-    // Effect text helpers (uses ClientSyncedConfig)
-    // -----------------------------
+    // -----------------------------------------------------------------------------------------
+    // Tooltips (copied 1:1 in behavior from VillagerInfoScreen)
+    // -----------------------------------------------------------------------------------------
 
-    private static String merchantTooltip(String kind, int points) {
+    private static List<Component> buildStatTooltip(StatKind kind, Integer valueOrNull) {
+        List<Component> lines = new ArrayList<>(12);
+
+        lines.add(Component.literal(kind.label).withStyle(s ->
+                s.withColor(TextColor.fromRgb(statColorRgb(kind)))
+        ));
+
+        if (valueOrNull == null) {
+            lines.add(Component.literal("Value: (syncing…)").withStyle(ChatFormatting.DARK_GRAY));
+            return lines;
+        }
+
+        int points = Mth.clamp(valueOrNull, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
+
+        ChatFormatting valueColor =
+                points > 0 ? ChatFormatting.GREEN :
+                        points < 0 ? ChatFormatting.RED :
+                                ChatFormatting.GRAY;
+
+        if (kind == StatKind.HOARDER) {
+            String effectShort = shortEffectParen(kind, 0.0, points);
+            lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
+
+            String clampLine = hoarderClampLine();
+            if (clampLine != null) lines.add(Component.literal(clampLine).withStyle(ChatFormatting.DARK_GRAY));
+
+            lines.add(Component.literal(""));
+            for (Component c : flavorLines(kind)) lines.add(c);
+            return lines;
+        }
+
+        if (kind.isMerchant()) {
+            Double pct = pointsToPercentFromServerConfig(kind, points);
+
+            if (pct == null) {
+                lines.add(Component.literal("Value: " + points).withStyle(valueColor));
+            } else {
+                String effectShort = shortEffectParen(kind, pct, points);
+                lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
+
+                String multLine = multiplierLine(kind, pct);
+                if (multLine != null) lines.add(Component.literal(multLine).withStyle(ChatFormatting.DARK_GRAY));
+            }
+
+            lines.add(Component.literal(""));
+            for (Component c : flavorLines(kind)) lines.add(c);
+            return lines;
+        }
+
+        // Combat stats
+        String effectShort = shortEffectParen(kind, 0.0, points);
+        lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
+
+        if (kind == StatKind.VITALITY) {
+            lines.add(Component.literal("Unit: HP (2.0 HP = 1 ❤)").withStyle(ChatFormatting.DARK_GRAY));
+        }
+
+        String clampLine = combatClampLine(kind);
+        if (clampLine != null) lines.add(Component.literal(clampLine).withStyle(ChatFormatting.DARK_GRAY));
+
+        lines.add(Component.literal(""));
+        for (Component c : flavorLines(kind)) lines.add(c);
+
+        return lines;
+    }
+
+    private static String shortEffectParen(StatKind kind, double traitPctOrUnused, Integer pointsOrNull) {
+        if (pointsOrNull == null) return "";
+
+        int points = Mth.clamp(pointsOrNull, VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
+
+        return switch (kind) {
+            case GENEROSITY -> "Emerald costs " + formatSignedPercent1(-safeFinite(traitPctOrUnused));
+            case TIMELINESS -> "Cooldown " + formatSignedPercent1(-safeFinite(traitPctOrUnused));
+            case INTELLECT  -> "XP " + formatSignedPercent1(safeFinite(traitPctOrUnused));
+            case HOARDER    -> {
+                Integer delta = pointsToHoarderDeltaFromServerConfig(points);
+                if (delta == null) yield "Offers (syncing…)";
+                yield "Offers " + formatSignedInt(delta);
+            }
+
+            case VITALITY -> {
+                Double hp = pointsToVitalityHpDeltaFromServerConfig(points);
+                if (hp == null) yield "Max health (syncing…)";
+                double hearts = hp / 2.0;
+                yield "Max health " + formatSigned1(hp) + " HP (" + formatSigned1(hearts) + "❤)";
+            }
+            case AGILITY -> {
+                Double delta = pointsToAgilityDeltaFromServerConfig(points);
+                if (delta == null) yield "Speed (syncing…)";
+                yield "Speed " + formatSigned3(delta);
+            }
+            case STRENGTH -> {
+                Double dmg = pointsToStrengthDeltaFromServerConfig(points);
+                if (dmg == null) yield "Damage (syncing…)";
+                yield "Damage " + formatSigned1(dmg);
+            }
+            case ARMOR -> {
+                Double arm = pointsToArmorDeltaFromServerConfig(points);
+                if (arm == null) yield "Armor (syncing…)";
+                yield "Armor " + formatSigned1(arm);
+            }
+        };
+    }
+
+    private static String formatSignedInt(int v) {
+        if (v > 0) return "+" + v;
+        if (v < 0) return String.valueOf(v);
+        return "0";
+    }
+
+    private static String multiplierLine(StatKind kind, double traitPct) {
+        double p = safeFinite(traitPct);
+
+        return switch (kind) {
+            case GENEROSITY -> {
+                double m = 1.0 - (p / 100.0);
+                if (m < 0.0) m = 0.0;
+                yield "Multiplier: x" + formatMultiplier(m) + " (cost)";
+            }
+            case TIMELINESS -> {
+                double m = 1.0 - (p / 100.0);
+                if (m < 0.0) m = 0.0;
+                yield "Multiplier: x" + formatMultiplier(m) + " (cooldown)";
+            }
+            case INTELLECT -> {
+                double m = 1.0 + (p / 100.0);
+                if (m < 0.0) m = 0.0;
+                yield "Multiplier: x" + formatMultiplier(m) + " (XP)";
+            }
+            default -> null;
+        };
+    }
+
+    private static String formatSignedPercent1(double pct) {
+        double v = safeFinite(pct);
+        double r = Math.round(v * 10.0) / 10.0;
+        if (Math.abs(r) < 0.05) r = 0.0;
+        if (r > 0.0) return "+" + r + "%";
+        if (r < 0.0) return r + "%";
+        return "0%";
+    }
+
+    private static String formatSigned1(double v) {
+        double x = safeFinite(v);
+        double r = Math.round(x * 10.0) / 10.0;
+        if (Math.abs(r) < 0.05) r = 0.0;
+        if (r > 0.0) return "+" + r;
+        if (r < 0.0) return String.valueOf(r);
+        return "0";
+    }
+
+    private static String formatSigned3(double v) {
+        double x = safeFinite(v);
+        double r = Math.round(x * 1000.0) / 1000.0;
+        if (Math.abs(r) < 0.0005) r = 0.0;
+        if (r > 0.0) return "+" + r;
+        if (r < 0.0) return String.valueOf(r);
+        return "0";
+    }
+
+    private static String formatMultiplier(double m) {
+        double v = safeFinite(m);
+        if (v < 0.0) v = 0.0;
+        double r = Math.round(v * 1000.0) / 1000.0;
+        if (Math.abs(r - 1.0) < 0.0005) return "1.000";
+        return String.valueOf(r);
+    }
+
+    private static double safeFinite(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return 0.0;
+        return v;
+    }
+
+    private static List<Component> flavorLines(StatKind kind) {
+        List<String> raw = switch (kind) {
+            case GENEROSITY -> List.of("Affects the price of rerolling & trades.", "Higher = cheaper, lower = pricier.");
+            case TIMELINESS -> List.of("Affects how quickly rerolls recharge.", "Higher = faster cooldown, lower = slower.");
+            case INTELLECT  -> List.of("Affects experience gained from rerolls.", "Higher = more experience, lower = less.");
+            case HOARDER    -> List.of("Affects how many trade offers are available.", "Higher = more offers, lower = fewer.");
+
+            case VITALITY -> List.of("Affects maximum health.", "Higher = tougher, lower = frailer.");
+            case AGILITY  -> List.of("Affects movement speed.", "Higher = faster, lower = slower.");
+            case STRENGTH -> List.of("Affects attack damage.", "Higher = stronger, lower = weaker.");
+            case ARMOR    -> List.of("Affects armor value.", "Higher = tankier, lower = squishier.");
+        };
+
+        List<Component> out = new ArrayList<>(raw.size());
+        for (String s : raw) out.add(Component.literal(s).withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC));
+        return out;
+    }
+
+    private static int statColorRgb(StatKind kind) {
+        int argb = switch (kind) {
+            case GENEROSITY -> C_GENEROSITY;
+            case TIMELINESS -> C_TIMELINESS;
+            case INTELLECT  -> C_INTELLECT;
+            case HOARDER    -> C_HOARDER;
+            case VITALITY   -> C_VITALITY;
+            case AGILITY    -> C_AGILITY;
+            case STRENGTH   -> C_STRENGTH;
+            case ARMOR      -> C_ARMOR;
+        };
+        return argb & 0x00FFFFFF;
+    }
+
+    private static Double pointsToPercentFromServerConfig(StatKind kind, int points) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
 
-            double min, max;
+            double min;
+            double max;
+
             switch (kind) {
-                case "generosity" -> { min = cfg.generosityMinPct; max = cfg.generosityMaxPct; }
-                case "timeliness" -> { min = cfg.timelinessMinPct; max = cfg.timelinessMaxPct; }
-                case "intellect"  -> { min = cfg.intellectMinPct;  max = cfg.intellectMaxPct;  }
+                case GENEROSITY -> { min = cfg.generosityMinPct; max = cfg.generosityMaxPct; }
+                case TIMELINESS -> { min = cfg.timelinessMinPct; max = cfg.timelinessMaxPct; }
+                case INTELLECT  -> { min = cfg.intellectMinPct; max = cfg.intellectMaxPct; }
                 default -> { return null; }
             }
 
-            double pct = lerpFromPoints(points, min, max);
-            long r = Math.round(Math.abs(pct));
-            if (r == 0) {
-                return switch (kind) {
-                    case "generosity" -> "Prices will be unchanged.";
-                    case "timeliness" -> "Reroll cooldown will be unchanged.";
-                    case "intellect"  -> "XP gains will be unchanged.";
-                    default -> null;
-                };
-            }
-
-            if ("generosity".equals(kind)) {
-                return (pct >= 0.0)
-                        ? ("Prices will be " + r + "% cheaper.")
-                        : ("Prices will be " + r + "% more expensive.");
-            }
-
-            if ("timeliness".equals(kind)) {
-                return (pct >= 0.0)
-                        ? ("Reroll cooldown will be " + r + "% faster.")
-                        : ("Reroll cooldown will be " + r + "% slower.");
-            }
-
-            // intellect
-            return (pct >= 0.0)
-                    ? ("Villager XP gains will be " + r + "% higher.")
-                    : ("Villager XP gains will be " + r + "% lower.");
+            return lerpFromPoints(points, min, max);
 
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static String hoarderTooltip(int points) {
+    private static Integer pointsToHoarderDeltaFromServerConfig(int points) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
 
+            int minDelta = cfg.hoarderExtraOffersMin;
+            int maxDelta = cfg.hoarderExtraOffersMax;
+            if (minDelta > maxDelta) { int tmp = minDelta; minDelta = maxDelta; maxDelta = tmp; }
+
+            double d = lerpFromPoints(points, minDelta, maxDelta);
+            int delta = (int) Math.round(d);
+
+            if (delta < minDelta) delta = minDelta;
+            if (delta > maxDelta) delta = maxDelta;
+
+            return delta;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String hoarderClampLine() {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
             int min = cfg.hoarderExtraOffersMin;
             int max = cfg.hoarderExtraOffersMax;
             if (min > max) { int tmp = min; min = max; max = tmp; }
-
-            double d = lerpFromPoints(points, min, max);
-            int delta = (int) Math.round(d);
-
-            if (delta > 0) return "This villager will tend to have " + delta + " extra trade offer(s).";
-            if (delta < 0) return "This villager will tend to have " + Math.abs(delta) + " fewer trade offer(s).";
-            return "Trade offer count will be unchanged.";
+            return "Clamp: [" + min + ", " + max + "] offers";
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private static String vitalityTooltip(int points) {
+    private static Double pointsToVitalityHpDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            return lerpFromPoints(points, cfg.vitalityMinHealth, cfg.vitalityMaxHealth);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Double pointsToAgilityDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            return lerpFromPoints(points, cfg.agilityMinSpeed, cfg.agilityMaxSpeed);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Double pointsToStrengthDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            return lerpFromPoints(points, cfg.strengthMinDamage, cfg.strengthMaxDamage);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Double pointsToArmorDeltaFromServerConfig(int points) {
+        try {
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) return null;
+            return lerpFromPoints(points, cfg.armorMin, cfg.armorMax);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String combatClampLine(StatKind kind) {
         try {
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg == null) return null;
 
-            double hp = lerpFromPoints(points, cfg.vitalityMinHealth, cfg.vitalityMaxHealth);
-            double hearts = hp / 2.0;
+            return switch (kind) {
+                case VITALITY -> {
+                    double minHp = safeFinite(cfg.vitalityMinHealth);
+                    double maxHp = safeFinite(cfg.vitalityMaxHealth);
+                    if (minHp > maxHp) { double t = minHp; minHp = maxHp; maxHp = t; }
 
-            if (Math.abs(hearts) < 0.05) return "Maximum health will be unchanged.";
-            return (hearts > 0)
-                    ? ("Maximum health will increase by " + formatAbs1(hearts) + " heart(s).")
-                    : ("Maximum health will decrease by " + formatAbs1(hearts) + " heart(s).");
+                    double minHearts = minHp / 2.0;
+                    double maxHearts = maxHp / 2.0;
+
+                    yield "Clamp: [" + formatSigned1(minHp) + ", " + formatSigned1(maxHp) + "] HP"
+                            + " (" + formatSigned1(minHearts) + " to " + formatSigned1(maxHearts) + "❤)";
+                }
+                case AGILITY -> {
+                    double min = safeFinite(cfg.agilityMinSpeed);
+                    double max = safeFinite(cfg.agilityMaxSpeed);
+                    if (min > max) { double t = min; min = max; max = t; }
+                    yield "Clamp: [" + formatSigned3(min) + ", " + formatSigned3(max) + "] speed";
+                }
+                case STRENGTH -> {
+                    double min = safeFinite(cfg.strengthMinDamage);
+                    double max = safeFinite(cfg.strengthMaxDamage);
+                    if (min > max) { double t = min; min = max; max = t; }
+                    yield "Clamp: [" + formatSigned1(min) + ", " + formatSigned1(max) + "] damage";
+                }
+                case ARMOR -> {
+                    double min = safeFinite(cfg.armorMin);
+                    double max = safeFinite(cfg.armorMax);
+                    if (min > max) { double t = min; min = max; max = t; }
+                    yield "Clamp: [" + formatSigned1(min) + ", " + formatSigned1(max) + "] armor";
+                }
+                default -> null;
+            };
         } catch (Throwable ignored) {
             return null;
         }
-    }
-
-    private static String agilityTooltip(int points) {
-        try {
-            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
-            if (cfg == null) return null;
-
-            double delta = lerpFromPoints(points, cfg.agilityMinSpeed, cfg.agilityMaxSpeed);
-            if (Math.abs(delta) < 0.0005) return "Movement speed will be unchanged.";
-            return (delta > 0)
-                    ? ("Movement speed will increase by " + formatAbs3(delta) + ".")
-                    : ("Movement speed will decrease by " + formatAbs3(delta) + ".");
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static String strengthTooltip(int points) {
-        try {
-            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
-            if (cfg == null) return null;
-
-            double dmg = lerpFromPoints(points, cfg.strengthMinDamage, cfg.strengthMaxDamage);
-            if (Math.abs(dmg) < 0.05) return "Attack damage will be unchanged.";
-            return (dmg > 0)
-                    ? ("Attack damage will increase by " + formatAbs1(dmg) + ".")
-                    : ("Attack damage will decrease by " + formatAbs1(dmg) + ".");
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static String armorTooltip(int points) {
-        try {
-            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
-            if (cfg == null) return null;
-
-            double arm = lerpFromPoints(points, cfg.armorMin, cfg.armorMax);
-            if (Math.abs(arm) < 0.05) return "Armor will be unchanged.";
-            return (arm > 0)
-                    ? ("Armor will increase by " + formatAbs1(arm) + ".")
-                    : ("Armor will decrease by " + formatAbs1(arm) + ".");
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static String formatAbs1(double v) {
-        double r = Math.round(Math.abs(v) * 10.0) / 10.0;
-        if (Math.abs(r) < 0.05) r = 0.0;
-        return String.valueOf(r);
-    }
-
-    private static String formatAbs3(double v) {
-        double r = Math.round(Math.abs(v) * 1000.0) / 1000.0;
-        if (Math.abs(r) < 0.0005) r = 0.0;
-        return String.valueOf(r);
     }
 
     private static double lerpFromPoints(int points, double min, double max) {
@@ -489,23 +715,6 @@ public final class RecruitVillagerScreen extends Screen {
         double t = (p + 100.0) / 200.0;
         t = Mth.clamp((float) t, 0.0f, 1.0f);
         return min + (max - min) * t;
-    }
-
-    private static String formatSigned1(double v) {
-        double r = Math.round(v * 10.0) / 10.0;
-        if (Math.abs(r) < 0.05) r = 0.0;
-        if (r > 0.0) return "+" + r;
-        return String.valueOf(r);
-    }
-
-    private static String formatSigned3(double v) {
-        double r = Math.round(v * 1000.0) / 1000.0;
-
-        // avoid "-0.000"
-        if (Math.abs(r) < 0.0005) r = 0.0;
-
-        if (r > 0.0) return "+" + r;
-        return String.valueOf(r);
     }
 
     @Override
