@@ -1,3 +1,4 @@
+// neoforge/src/main/java/org/z2six/villageroverhaul/server/ai/VillagerBrain.java
 package org.z2six.villageroverhaul.server.ai;
 
 import net.minecraft.nbt.CompoundTag;
@@ -52,6 +53,8 @@ public final class VillagerBrain {
 
         ensureAttached(vill);
         setMode(vill, Mode.IDLE);
+
+        try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
         return true;
     }
 
@@ -130,6 +133,21 @@ public final class VillagerBrain {
         }
     }
 
+    public static boolean shouldTickVanillaBrain(Villager vill) {
+        try {
+            if (vill == null) return true;
+
+            // Non-recruited villagers should always run vanilla.
+            // (We only want to control recruited villagers.)
+            if (!RecruitService.isRecruited(vill)) return true;
+
+            // Recruited villagers: only allow vanilla brain in NATURAL mode.
+            return getMode(vill) == Mode.NATURAL;
+        } catch (Throwable t) {
+            return true; // fail-open to avoid breaking villagers
+        }
+    }
+
     // ============================================================
     // Internals
     // ============================================================
@@ -167,4 +185,6 @@ public final class VillagerBrain {
             return null;
         }
     }
+
+
 }

@@ -7,7 +7,8 @@
     "AbstractVillagerAccessor",
     "MerchantMenuAccessor",
     "VillagerAccessor",
-    "VillagerDisableVanillaAutoTradeRefreshMixin"
+    "VillagerDisableVanillaAutoTradeRefreshMixin",
+    "VillagerBrainGateMixin"
   ],
   "client": [
     "MerchantScreenTradeLockRightClickMixin",
