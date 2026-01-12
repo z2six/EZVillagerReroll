@@ -34,6 +34,8 @@ import org.z2six.villageroverhaul.network.PacketTradeLocksQuery;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -656,25 +658,26 @@ public final class ClientUI {
 
             plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
 
-            // Optional: show generosity pct explicitly
+            // --- Generosity line: custom label color 0xFF42D16C, value stays green/red ---
             String sign = (generosityPct > 0.0) ? "-" : "+";
             double shown = Math.abs(generosityPct);
             ChatFormatting pctColor = (generosityPct > 0.0) ? ChatFormatting.GREEN : ChatFormatting.RED;
 
             plan.lines.add(Component.empty()
-                    .append(Component.literal(" Generosity: ").withStyle(ChatFormatting.AQUA))
+                    .append(Component.literal(" Generosity: ")
+                            .setStyle(Style.EMPTY.withColor(TextColor.fromRgb(0x42D16C))))
                     .append(Component.literal(sign + trimPct(shown) + "%").withStyle(pctColor)));
         }
 
         // ------------------------------
-        // Daily cap line(s) (NEW): remaining + reset timer
+        // Daily cap line(s)
         // ------------------------------
         plan.lines.add(buildDailyCapLine(d));
         Component resetLine = buildDailyResetLine(d);
         if (resetLine != null) plan.lines.add(resetLine);
 
         // ------------------------------
-        // Breakdown (unchanged)
+        // Breakdown (NOW: grey + light grey only, like "Resets in")
         // ------------------------------
         int totalOffers = safeIntField(d.cost, "totalOffers");
         int lockedOffers = safeIntField(d.cost, "lockedOffers");
@@ -684,31 +687,33 @@ public final class ClientUI {
         int costPerOffer = safeIntField(d.cost, "costPerOffer");
 
         plan.lines.add(Component.empty()
-                .append(Component.literal(" Offers: ").withStyle(ChatFormatting.AQUA))
-                .append(Component.literal(String.valueOf(Math.max(0, totalOffers))).withStyle(ChatFormatting.WHITE))
+                .append(Component.literal(" Offers: ").withStyle(ChatFormatting.DARK_GRAY))
+                .append(Component.literal(String.valueOf(Math.max(0, totalOffers))).withStyle(ChatFormatting.GRAY))
                 .append(Component.literal("   "))
-                .append(Component.literal("Locked: ").withStyle(ChatFormatting.RED))
-                .append(Component.literal(String.valueOf(Math.max(0, lockedOffers))).withStyle(ChatFormatting.WHITE))
+                .append(Component.literal("Locked: ").withStyle(ChatFormatting.DARK_GRAY))
+                .append(Component.literal(String.valueOf(Math.max(0, lockedOffers))).withStyle(ChatFormatting.GRAY))
                 .append(Component.literal("   "))
-                .append(Component.literal("Deducted: ").withStyle(ChatFormatting.YELLOW))
-                .append(Component.literal(String.valueOf(Math.max(0, deductedLocks))).withStyle(ChatFormatting.WHITE))
+                .append(Component.literal("Deducted: ").withStyle(ChatFormatting.DARK_GRAY))
+                .append(Component.literal(String.valueOf(Math.max(0, deductedLocks))).withStyle(ChatFormatting.GRAY))
         );
 
         int lineIdxFreePaid = plan.lines.size();
         plan.lines.add(Component.empty()
-                .append(Component.literal(" Free: ").withStyle(ChatFormatting.GREEN))
-                .append(Component.literal(String.valueOf(Math.max(0, freeOffers))).withStyle(ChatFormatting.GREEN))
+                .append(Component.literal(" Free: ").withStyle(ChatFormatting.DARK_GRAY))
+                .append(Component.literal(String.valueOf(Math.max(0, freeOffers))).withStyle(ChatFormatting.GRAY))
                 .append(Component.literal("   "))
-                .append(Component.literal("Paid: ").withStyle(ChatFormatting.RED))
-                .append(Component.literal(String.valueOf(Math.max(0, paidOffers))).withStyle(ChatFormatting.RED))
+                .append(Component.literal("Paid: ").withStyle(ChatFormatting.DARK_GRAY))
+                .append(Component.literal(String.valueOf(Math.max(0, paidOffers))).withStyle(ChatFormatting.GRAY))
                 .append(Component.literal("   "))
-                .append(Component.literal("x" + Math.max(0, costPerOffer)).withStyle(ChatFormatting.WHITE))
+                .append(Component.literal("x" + Math.max(0, costPerOffer)).withStyle(ChatFormatting.GRAY))
         );
+
+        // keep emerald icon if it is meaningful
         if (paidOffers > 0 && costPerOffer > 0) {
             plan.icons.add(new TooltipIcon(lineIdxFreePaid, new ItemStack(Items.EMERALD)));
         }
 
-        // Affordability (note: server currently reports affordability; keep it)
+        // Affordability (unchanged)
         if (d.afford != null && finalCost > 0) {
             boolean can = d.afford.canAfford;
             String src = d.afford.source == null ? "none" : d.afford.source;

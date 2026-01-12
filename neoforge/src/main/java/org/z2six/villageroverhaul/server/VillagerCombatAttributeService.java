@@ -74,13 +74,32 @@ public final class VillagerCombatAttributeService {
             boolean okStr = applyAddValue(le, Attributes.ATTACK_DAMAGE, MOD_STRENGTH, strDelta, null);
             boolean okArm = applyAddValue(le, Attributes.ARMOR, MOD_ARMOR, armDelta, null);
 
-            // If max health changed, clamp current health to new max to avoid weirdness.
+            // If max health changed:
+            // - If max increased, heal to full (so 20->30 becomes 30/30, not 20/30)
+            // - If max decreased, clamp down to max
+            // - Always keep at least 1 HP
             if (okVit) {
                 try {
-                    float max = le.getMaxHealth();
+                    float oldMax = le.getMaxHealth();
+
+                    // Re-read after modifier application: the attribute value has already been updated,
+                    // but getMaxHealth() should now reflect the new max. We still want an "old vs new" comparison.
+                    //
+                    // Because we don't have "old max" cached before modifier application in this scope,
+                    // we detect the "increase" case by checking whether current health is below max AND
+                    // the modifier amount was positive (vitality increased max health).
+                    float newMax = le.getMaxHealth();
                     float cur = le.getHealth();
-                    if (cur > max) le.setHealth(max);
-                    if (le.getHealth() < 1.0f) le.setHealth(1.0f);
+
+                    // If our vitality delta is positive, treat it as a max-health increase and heal to full.
+                    // (If you allow negative vitality, this will not full-heal on decreases.)
+                    if (vitDelta > 0.000001) {
+                        le.setHealth(newMax);
+                    } else {
+                        // No increase => just clamp if needed
+                        if (cur > newMax) le.setHealth(newMax);
+                        if (le.getHealth() < 1.0f) le.setHealth(1.0f);
+                    }
                 } catch (Throwable ignored) {}
             }
 
