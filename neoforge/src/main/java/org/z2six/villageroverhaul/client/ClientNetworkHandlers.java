@@ -418,6 +418,12 @@ public final class ClientNetworkHandlers {
                 try {
                     if (msg == null) return;
 
+                    // IMPORTANT: Always feed the ClientUI recruited-cache,
+                    // even when the Recruit screen is NOT open.
+                    try {
+                        ClientUI.acceptRecruitCostData(msg);
+                    } catch (Throwable ignored) {}
+
                     Minecraft mc = Minecraft.getInstance();
                     if (mc == null) return;
 
@@ -429,7 +435,7 @@ public final class ClientNetworkHandlers {
                         return;
                     }
 
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client received PacketRecruitCostData but no RecruitVillagerScreen was open (current={}).",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client received PacketRecruitCostData (cached) but no RecruitVillagerScreen was open (current={}).",
                             s == null ? "null" : s.getClass().getName());
 
                 } catch (Throwable t) {

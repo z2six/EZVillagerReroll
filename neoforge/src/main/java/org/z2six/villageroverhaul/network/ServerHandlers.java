@@ -28,6 +28,7 @@ import org.z2six.villageroverhaul.server.CatalogBuilder;
 import org.z2six.villageroverhaul.server.SearchService;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
+import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -51,6 +52,18 @@ public final class ServerHandlers {
     public static void handleReroll(PacketRequestReroll msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            // HARD GATE: If this is a villager trader and NOT recruited, reroll is not allowed.
+            try {
+                if (sp.containerMenu instanceof MerchantMenu menu) {
+                    var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+                    if (trader instanceof Villager vill) {
+                        if (!RecruitService.isRecruited(vill)) {
+                            return;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
 
             RerollExecutor.tryReroll(sp);
 

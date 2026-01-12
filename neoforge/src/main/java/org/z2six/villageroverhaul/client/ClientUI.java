@@ -36,6 +36,9 @@ import org.z2six.villageroverhaul.network.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
+import org.z2six.villageroverhaul.network.PacketRecruitCostQuery;
+import org.z2six.villageroverhaul.network.PacketRecruitCostData;
+import net.minecraft.world.entity.npc.Villager;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -70,6 +73,136 @@ public final class ClientUI {
     private static final int TIP_Z = 400;
 
     private static final int COLOR_WHITE_OPAQUE = 0xFFFFFFFF;
+
+    private static final Map<Screen, Button> INVENTORY_BUTTONS = new WeakHashMap<>();
+    private static final Map<Screen, Button> COMMANDS_BUTTONS = new WeakHashMap<>();
+
+    private static final long RECRUIT_STATE_STALE_MS = 3000;
+
+    private static final class RecruitStateSnap {
+        final boolean recruited;
+        final long atMs;
+        RecruitStateSnap(boolean recruited, long atMs) {
+            this.recruited = recruited;
+            this.atMs = atMs;
+        }
+    }
+
+    private static final Map<Integer, RecruitStateSnap> RECRUIT_STATE = new WeakHashMap<>();
+
+    public static void openVillagerInventoryPlaceholder(MerchantScreen parent, int villagerEntityId) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.player == null) return;
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Inventory UI placeholder clicked (villagerEntityId={})", villagerEntityId);
+            mc.player.displayClientMessage(Component.literal("Inventory UI (coming soon)").withStyle(ChatFormatting.YELLOW), true);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void openVillagerCommandsPlaceholder(MerchantScreen parent, int villagerEntityId) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.player == null) return;
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Commands UI placeholder clicked (villagerEntityId={})", villagerEntityId);
+            mc.player.displayClientMessage(Component.literal("Commands UI (coming soon)").withStyle(ChatFormatting.YELLOW), true);
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isVillagerTrader(MerchantScreen screen) {
+        try {
+            int id = resolveTraderEntityId(screen);
+            if (id <= 0) return false;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.level == null) return false;
+
+            return mc.level.getEntity(id) instanceof Villager;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * For non-villagers: always enabled (unchanged behavior).
+     * For villagers: enabled only if we *know* recruited == true.
+     */
+    private static boolean isRecruitUiEnabled(MerchantScreen screen) {
+        try {
+            if (!isVillagerTrader(screen)) return true;
+
+            int id = resolveTraderEntityId(screen);
+            if (id <= 0) return false;
+
+            RecruitStateSnap snap = RECRUIT_STATE.get(id);
+            return snap != null && snap.recruited;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static boolean shouldRefreshRecruitState(int traderEntityId) {
+        try {
+            if (traderEntityId <= 0) return false;
+            RecruitStateSnap snap = RECRUIT_STATE.get(traderEntityId);
+            if (snap == null) return true;
+            return (System.currentTimeMillis() - snap.atMs) > RECRUIT_STATE_STALE_MS;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static void trySendRecruitStateQueryIfNeeded(MerchantScreen screen) {
+        try {
+            if (screen == null) return;
+            if (!isVillagerTrader(screen)) return;
+
+            int id = resolveTraderEntityId(screen);
+            if (id <= 0) return;
+
+            if (!shouldRefreshRecruitState(id)) return;
+
+            ClientNetwork.sendToServer(new PacketRecruitCostQuery(id));
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Called from ClientNetworkHandlers when PacketRecruitCostData arrives.
+     */
+    public static void acceptRecruitCostData(PacketRecruitCostData p) {
+        try {
+            if (p == null) return;
+            int id = p.villagerEntityId();
+            if (id <= 0) return;
+
+            RECRUIT_STATE.put(id, new RecruitStateSnap(p.alreadyRecruited(), System.currentTimeMillis()));
+        } catch (Throwable ignored) {}
+    }
+
+    private static void setUiButtonsVisible(Screen screen, boolean visibleAndEnabled) {
+        try {
+            Button b;
+
+            b = REROLL_BUTTONS.get(screen);
+            if (b != null) { b.visible = visibleAndEnabled; b.active = visibleAndEnabled; }
+
+            b = INVENTORY_BUTTONS.get(screen);
+            if (b != null) { b.visible = visibleAndEnabled; b.active = visibleAndEnabled; }
+
+            b = COMMANDS_BUTTONS.get(screen);
+            if (b != null) { b.visible = visibleAndEnabled; b.active = visibleAndEnabled; }
+
+            b = STATS_BUTTONS.get(screen);
+            if (b != null) { b.visible = visibleAndEnabled; b.active = visibleAndEnabled; }
+
+            CooldownOverlayWidget ov = COOLDOWN_OVERLAYS.get(screen);
+            if (ov != null) {
+                ov.visible = visibleAndEnabled;
+                if (!visibleAndEnabled) ov.active = false;
+            }
+        } catch (Throwable ignored) {}
+    }
 
     public static void registerRuntimeClientEvents() {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenInitPost);
@@ -143,6 +276,12 @@ public final class ClientUI {
 
             int w = 18, h = 18;
 
+            // Ask server for recruited state (villager-only) so UI can decide visibility.
+            trySendRecruitStateQueryIfNeeded(screen);
+
+            // --------------------------------
+            // 1) REROLL (top)
+            // --------------------------------
             Button reroll = Button.builder(Component.empty(), btn -> {
                         try {
                             int cid = resolveContainerId(screen);
@@ -151,11 +290,6 @@ public final class ClientUI {
                                 return;
                             }
 
-                            // ------------------------------
-                            // FIX: optimistic cooldown should prefer the last-known total cooldown ticks
-                            // (which should be villager-adjusted once we've received a server snapshot),
-                            // and only fall back to global config cooldown ticks if unknown.
-                            // ------------------------------
                             int optimisticTicks = 0;
 
                             try {
@@ -194,18 +328,22 @@ public final class ClientUI {
             e.addListener(reroll);
             REROLL_BUTTONS.put(screen, reroll);
 
-            int statsBaseX = x;
-            int statsBaseY = y + h + 2;
+            // --------------------------------
+            // 2) INVENTORY, 3) COMMANDS, 4) INFO (stack below)
+            // --------------------------------
+            int stackBaseX = x;
+            int stackBaseY = y + h + 2;
 
-            int sx = statsBaseX + ClientConfig.statsButtonOffsetX;
-            int sy = statsBaseY + ClientConfig.statsButtonOffsetY;
+            int sx = stackBaseX + ClientConfig.statsButtonOffsetX;
+            int sy = stackBaseY + ClientConfig.statsButtonOffsetY;
 
-            Button statsBtn = Button.builder(Component.literal("ⓘ"), btn -> {
+            // INVENTORY
+            Button invBtn = Button.builder(Component.literal("⛨"), btn -> {
                         try {
                             int villagerEntityId = resolveTraderEntityId(screen);
-                            openVillagerStatsPlaceholder(screen, villagerEntityId);
+                            openVillagerInventoryPlaceholder(screen, villagerEntityId);
                         } catch (Throwable t) {
-                            VillagerOverhaul.LOG().error("[VillagerOverhaul] Stats button click failed", t);
+                            VillagerOverhaul.LOG().error("[VillagerOverhaul] Inventory button click failed", t);
                         }
 
                         try {
@@ -215,29 +353,70 @@ public final class ClientUI {
                         } catch (Throwable ignored) {}
                     })
                     .pos(sx, sy).size(w, h)
-                    .createNarration(s -> Component.literal("Villager stats"))
+                    .createNarration(s -> Component.literal("Inventory"))
                     .build();
 
-            e.addListener(statsBtn);
-            STATS_BUTTONS.put(screen, statsBtn);
+            e.addListener(invBtn);
+            INVENTORY_BUTTONS.put(screen, invBtn);
 
-            VillagerOverhaul.LOG().info(
-                    "[VillagerOverhaul] Stats button added to MerchantScreen at ({},{}), base=({},{}), offset=({},{}).",
-                    sx, sy, statsBaseX, statsBaseY, ClientConfig.statsButtonOffsetX, ClientConfig.statsButtonOffsetY
-            );
+            // COMMANDS
+            Button cmdBtn = Button.builder(Component.literal("⚐"), btn -> {
+                        try {
+                            int villagerEntityId = resolveTraderEntityId(screen);
+                            openVillagerCommandsPlaceholder(screen, villagerEntityId);
+                        } catch (Throwable t) {
+                            VillagerOverhaul.LOG().error("[VillagerOverhaul] Commands button click failed", t);
+                        }
 
+                        try {
+                            btn.setFocused(false);
+                            Screen scr = Minecraft.getInstance().screen;
+                            if (scr != null && scr.getFocused() == btn) scr.setFocused(null);
+                        } catch (Throwable ignored) {}
+                    })
+                    .pos(sx, sy + (h + 2)).size(w, h)
+                    .createNarration(s -> Component.literal("Commands"))
+                    .build();
+
+            e.addListener(cmdBtn);
+            COMMANDS_BUTTONS.put(screen, cmdBtn);
+
+            // INFO (was your stats button)
+            Button infoBtn = Button.builder(Component.literal("ⓘ"), btn -> {
+                        try {
+                            int villagerEntityId = resolveTraderEntityId(screen);
+                            openVillagerStatsPlaceholder(screen, villagerEntityId);
+                        } catch (Throwable t) {
+                            VillagerOverhaul.LOG().error("[VillagerOverhaul] Info button click failed", t);
+                        }
+
+                        try {
+                            btn.setFocused(false);
+                            Screen scr = Minecraft.getInstance().screen;
+                            if (scr != null && scr.getFocused() == btn) scr.setFocused(null);
+                        } catch (Throwable ignored) {}
+                    })
+                    .pos(sx, sy + 2 * (h + 2)).size(w, h)
+                    .createNarration(s -> Component.literal("Info"))
+                    .build();
+
+            e.addListener(infoBtn);
+            STATS_BUTTONS.put(screen, infoBtn);
+
+            // Cooldown overlay (covers reroll button area)
             CooldownOverlayWidget overlay = new CooldownOverlayWidget(x, y, w, h);
             overlay.active = false;
             overlay.visible = true;
             e.addListener(overlay);
             COOLDOWN_OVERLAYS.put(screen, overlay);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Reroll button added to MerchantScreen at ({},{}), base=({},{}), offset=({},{}).",
-                    x, y, baseX, baseY, ClientConfig.buttonOffsetX, ClientConfig.buttonOffsetY
-            );
-
+            // Queries (existing behavior)
             trySendTradeLocksQuery();
             trySendCooldownQuery();
+
+            // Apply initial gating visibility (if villager + not recruited => hide/disable ALL 4 buttons)
+            boolean uiEnabled = isRecruitUiEnabled(screen);
+            setUiButtonsVisible(screen, uiEnabled);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] onScreenInitPost exception", t);
@@ -248,7 +427,19 @@ public final class ClientUI {
         try {
             if (!(e.getScreen() instanceof MerchantScreen screen)) return;
 
+            // Keep trade-lock indicators as-is.
             renderTradeLockIndicators(e, screen);
+
+            // Refresh recruit state occasionally (villager-only) and enforce visibility/active.
+            trySendRecruitStateQueryIfNeeded(screen);
+
+            boolean uiEnabled = isRecruitUiEnabled(screen);
+            setUiButtonsVisible(screen, uiEnabled);
+
+            // If not recruited, do not draw reroll glyph, tooltip, or enable cooldown overlay.
+            if (!uiEnabled) {
+                return;
+            }
 
             Button btn = REROLL_BUTTONS.get(screen);
             CooldownOverlayWidget overlay = COOLDOWN_OVERLAYS.get(screen);
@@ -333,6 +524,8 @@ public final class ClientUI {
             REROLL_BUTTONS.remove(e.getScreen());
             COOLDOWN_OVERLAYS.remove(e.getScreen());
             STATS_BUTTONS.remove(e.getScreen());
+            INVENTORY_BUTTONS.remove(e.getScreen());
+            COMMANDS_BUTTONS.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
                 int cid = resolveContainerId(ms);
