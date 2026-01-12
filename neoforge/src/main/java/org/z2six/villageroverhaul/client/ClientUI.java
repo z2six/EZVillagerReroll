@@ -39,6 +39,7 @@ import net.minecraft.network.chat.TextColor;
 import org.z2six.villageroverhaul.network.PacketRecruitCostQuery;
 import org.z2six.villageroverhaul.network.PacketRecruitCostData;
 import net.minecraft.world.entity.npc.Villager;
+import org.z2six.villageroverhaul.network.PacketVillagerCommand;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -363,7 +364,22 @@ public final class ClientUI {
             Button cmdBtn = Button.builder(Component.literal("⚐"), btn -> {
                         try {
                             int villagerEntityId = resolveTraderEntityId(screen);
-                            openVillagerCommandsPlaceholder(screen, villagerEntityId);
+
+                            // TEMP TEST: Commands button => IDLE
+                            ClientNetwork.sendToServer(new PacketVillagerCommand(
+                                    villagerEntityId,
+                                    PacketVillagerCommand.Command.IDLE
+                            ));
+
+                            Minecraft mc = Minecraft.getInstance();
+                            if (mc != null && mc.player != null) {
+                                mc.player.displayClientMessage(
+                                        Component.literal("Command sent: IDLE").withStyle(ChatFormatting.YELLOW),
+                                        true
+                                );
+                            }
+
+                            VillagerOverhaul.LOG().info("[VillagerOverhaul] Commands button sent IDLE (villagerEntityId={})", villagerEntityId);
                         } catch (Throwable t) {
                             VillagerOverhaul.LOG().error("[VillagerOverhaul] Commands button click failed", t);
                         }

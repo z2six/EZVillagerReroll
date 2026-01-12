@@ -29,6 +29,8 @@ import org.z2six.villageroverhaul.server.SearchService;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.server.RecruitService;
+import org.z2six.villageroverhaul.network.PacketVillagerCommand;
+import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -542,4 +544,30 @@ public final class ServerHandlers {
             return 0;
         }
     }
+
+    public static void handleVillagerCommand(PacketVillagerCommand msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            // Hard gate: only recruited villagers accept commands
+            if (!RecruitService.isRecruited(vill)) return;
+
+            switch (msg.command()) {
+                case IDLE -> VillagerBrain.idle(vill);
+                case NATURAL -> VillagerBrain.natural(vill);
+            }
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCommand: player={} villager={} cmd={}",
+                    sp.getGameProfile().getName(), vill.getUUID(), msg.command());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerCommand failed", t);
+        }
+    }
+
 }

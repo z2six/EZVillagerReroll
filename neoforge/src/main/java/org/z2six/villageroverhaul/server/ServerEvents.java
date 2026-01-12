@@ -23,6 +23,7 @@ import org.z2six.villageroverhaul.network.PacketOpenRecruitScreen;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.ServerSync;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
+import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 public final class ServerEvents {
 
@@ -59,6 +60,9 @@ public final class ServerEvents {
 
             // villager/merchant stat initialization
             VillagerStatsEvents.register(bus);
+
+            // Villager brain/module attach (AI goals)
+            bus.addListener(VillagerBrain::onEntityJoinLevel);
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] ServerEvents registered on gameplay bus.");
         } catch (Throwable t) {

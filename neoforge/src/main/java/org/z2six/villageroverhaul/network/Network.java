@@ -15,6 +15,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
+import org.z2six.villageroverhaul.network.PacketVillagerCommand;
 
 public final class Network {
 
@@ -110,6 +111,10 @@ public final class Network {
             r.playToClient(PacketRecruitResult.TYPE, PacketRecruitResult.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onRecruitResult", msg, ctx));
 
+            // Villager AI
+            r.playToServer(PacketVillagerCommand.TYPE, PacketVillagerCommand.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerCommandServer(msg, ctx));
+
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Network payload registration failed.", t);
@@ -173,6 +178,16 @@ public final class Network {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Network.sendToServer failed for {}", payload == null ? "null" : payload.getClass().getName(), t);
         }
+    }
+
+    private static void handleVillagerCommandServer(PacketVillagerCommand msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handleVillagerCommand(msg, ctx);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerCommand handler error", t);
+            }
+        });
     }
 
     public static void sendToServer(PacketRequestReroll msg) { sendToServer((CustomPacketPayload) msg); }
