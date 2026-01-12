@@ -59,8 +59,9 @@ public final class ClientUI {
     private static final Map<Screen, CooldownOverlayWidget> COOLDOWN_OVERLAYS = new WeakHashMap<>();
     private static final Map<Screen, Button> STATS_BUTTONS = new WeakHashMap<>();
 
-    private static final ResourceLocation CHAIN_TEX =
-            ResourceLocation.fromNamespaceAndPath("minecraft", "textures/block/chain.png");
+    // Commands palette state
+    private static final Map<Screen, Boolean> COMMANDS_EXPANDED = new WeakHashMap<>();
+    private static final Map<Screen, List<Button>> COMMANDS_SUB_BUTTONS = new WeakHashMap<>();
 
     private static final String VillagerOverhaul_TRADE_BUTTON_CLASS =
             "net.minecraft.client.gui.screens.inventory.MerchantScreen$TradeOfferButton";
@@ -79,6 +80,11 @@ public final class ClientUI {
     private static final Map<Screen, Button> COMMANDS_BUTTONS = new WeakHashMap<>();
 
     private static final long RECRUIT_STATE_STALE_MS = 3000;
+
+    // Commands palette visuals
+    private static final Map<Screen, CommandsBackdropWidget> COMMANDS_BACKDROPS = new WeakHashMap<>();
+    private static final Map<Screen, List<RowHeaderIconWidget>> COMMANDS_HEADER_ICONS = new WeakHashMap<>();
+
 
     private static final class RecruitStateSnap {
         final boolean recruited;
@@ -101,15 +107,6 @@ public final class ClientUI {
         } catch (Throwable ignored) {}
     }
 
-    public static void openVillagerCommandsPlaceholder(MerchantScreen parent, int villagerEntityId) {
-        try {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc == null || mc.player == null) return;
-
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Commands UI placeholder clicked (villagerEntityId={})", villagerEntityId);
-            mc.player.displayClientMessage(Component.literal("Commands UI (coming soon)").withStyle(ChatFormatting.YELLOW), true);
-        } catch (Throwable ignored) {}
-    }
 
     private static boolean isVillagerTrader(MerchantScreen screen) {
         try {
@@ -202,6 +199,12 @@ public final class ClientUI {
                 ov.visible = visibleAndEnabled;
                 if (!visibleAndEnabled) ov.active = false;
             }
+
+            // If UI is gated off, always collapse + hide palette and reset visuals.
+            if (!visibleAndEnabled) {
+                collapseCommands(screen);
+            }
+
         } catch (Throwable ignored) {}
     }
 
@@ -357,29 +360,47 @@ public final class ClientUI {
                     .createNarration(s -> Component.literal("Inventory"))
                     .build();
 
+            setSimpleTooltip(invBtn, "Villager Inventory");
+
             e.addListener(invBtn);
             INVENTORY_BUTTONS.put(screen, invBtn);
 
-            // COMMANDS
+            // COMMANDS (toggle palette)
             Button cmdBtn = Button.builder(Component.literal("⚐"), btn -> {
                         try {
-                            int villagerEntityId = resolveTraderEntityId(screen);
-
-                            // TEMP TEST: Commands button => IDLE
-                            ClientNetwork.sendToServer(new PacketVillagerCommand(
-                                    villagerEntityId,
-                                    PacketVillagerCommand.Command.IDLE
-                            ));
-
-                            Minecraft mc = Minecraft.getInstance();
-                            if (mc != null && mc.player != null) {
-                                mc.player.displayClientMessage(
-                                        Component.literal("Command sent: IDLE").withStyle(ChatFormatting.YELLOW),
-                                        true
-                                );
+                            boolean uiEnabled = isRecruitUiEnabled(screen);
+                            if (!uiEnabled) {
+                                collapseCommands(screen);
+                                return;
                             }
 
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] Commands button sent IDLE (villagerEntityId={})", villagerEntityId);
+                            boolean next = !isCommandsExpanded(screen);
+                            setCommandsExpanded(screen, next);
+
+                            // show/hide visuals
+                            CommandsBackdropWidget backdrop = COMMANDS_BACKDROPS.get(screen);
+                            if (backdrop != null) {
+                                backdrop.visible = next;
+                                backdrop.active = false;
+                            }
+
+                            List<Button> subs = COMMANDS_SUB_BUTTONS.get(screen);
+                            setButtonsVisible(subs, next);
+
+                            List<RowHeaderIconWidget> icons = COMMANDS_HEADER_ICONS.get(screen);
+                            if (icons != null) {
+                                for (RowHeaderIconWidget iw : icons) {
+                                    if (iw == null) continue;
+                                    iw.visible = next;
+                                    iw.active = false;
+                                }
+                            }
+
+                            updateCommandsMainButtonVisual(screen);
+
+                            VillagerOverhaul.LOG().info("[VillagerOverhaul] Commands palette toggled expanded={} (villagerEntityId={})",
+                                    next, resolveTraderEntityId(screen));
+
                         } catch (Throwable t) {
                             VillagerOverhaul.LOG().error("[VillagerOverhaul] Commands button click failed", t);
                         }
@@ -393,6 +414,8 @@ public final class ClientUI {
                     .pos(sx, sy + (h + 2)).size(w, h)
                     .createNarration(s -> Component.literal("Commands"))
                     .build();
+
+            setSimpleTooltip(cmdBtn, "Commands");
 
             e.addListener(cmdBtn);
             COMMANDS_BUTTONS.put(screen, cmdBtn);
@@ -416,6 +439,8 @@ public final class ClientUI {
                     .createNarration(s -> Component.literal("Info"))
                     .build();
 
+            setSimpleTooltip(infoBtn, "Villager Info");
+
             e.addListener(infoBtn);
             STATS_BUTTONS.put(screen, infoBtn);
 
@@ -426,6 +451,181 @@ public final class ClientUI {
             e.addListener(overlay);
             COOLDOWN_OVERLAYS.put(screen, overlay);
 
+            // -------------------------------------------------
+            // Commands palette (collapsed by default)
+            // Two columns: Movement + Combat, vertically centered on cmdBtn
+            // With header icons + shared dark backdrop + border.
+            // -------------------------------------------------
+            try {
+                setCommandsExpanded(screen, false);
+                updateCommandsMainButtonVisual(screen);
+
+                int cmdX = cmdBtn.getX();
+                int cmdY = cmdBtn.getY();
+                int cmdCenterY = cmdY + (h / 2);
+
+                final int gap = 2;
+                final int headerGap = 2;
+
+                // Backdrop style (match VillagerInfoScreen vibe)
+                final int panelPad = 3;
+                final int panelBorder = 1;
+
+                // Backdrop origin is just to the right of the commands button,
+                // then we place columns inside it with padding.
+                int panelX = cmdX + w + gap;
+
+                String[] movement = new String[] { "Natural", "Idle", "Follow", "Patrol" };
+                String[] combat   = new String[] { "Flee", "Defend", "Aggressive" };
+
+                int movementBlockH = movement.length * h + (movement.length - 1) * gap;
+                int combatBlockH   = combat.length   * h + (combat.length   - 1) * gap;
+
+                int movementStartY = cmdCenterY - (movementBlockH / 2);
+                int combatStartY   = cmdCenterY - (combatBlockH / 2);
+
+                int headerAY = movementStartY - (h + headerGap);
+                int headerBY = combatStartY   - (h + headerGap);
+
+                int topY = Math.min(headerAY, headerBY);
+                int bottomY = Math.max(movementStartY + movementBlockH, combatStartY + combatBlockH);
+
+                int contentW = (2 * w) + gap;          // two columns
+                int panelW = (panelPad * 2) + contentW + (panelBorder * 2);
+                int panelH = (panelPad * 2) + (bottomY - topY) + (panelBorder * 2);
+
+                int panelY = topY - panelPad - panelBorder;
+
+                // Content positions inside panel
+                int contentX = panelX + panelBorder + panelPad;
+                int colAX = contentX;
+                int colBX = contentX + w + gap;
+
+                // Backdrop widget (must be added before icons/buttons so it renders behind them)
+                CommandsBackdropWidget backdrop = new CommandsBackdropWidget(panelX, panelY, panelW, panelH);
+                backdrop.visible = false;
+                backdrop.active = false;
+                e.addListener(backdrop);
+                COMMANDS_BACKDROPS.put(screen, backdrop);
+
+                // Header icon widgets (non-buttons)
+                List<RowHeaderIconWidget> headerIcons = new ArrayList<>(2);
+
+                RowHeaderIconWidget movementIcon = new RowHeaderIconWidget(colAX, headerAY, w, h, new ItemStack(Items.LEATHER_BOOTS));
+                movementIcon.visible = false;
+                movementIcon.active = false;
+                setSimpleTooltip(movementIcon, "Movement commands");
+                e.addListener(movementIcon);
+                headerIcons.add(movementIcon);
+
+                RowHeaderIconWidget combatIcon = new RowHeaderIconWidget(colBX, headerBY, w, h, new ItemStack(Items.IRON_SWORD));
+                combatIcon.visible = false;
+                combatIcon.active = false;
+                setSimpleTooltip(combatIcon, "Combat commands");
+                e.addListener(combatIcon);
+                headerIcons.add(combatIcon);
+
+                COMMANDS_HEADER_ICONS.put(screen, headerIcons);
+
+                // Sub buttons
+                List<Button> subs = new ArrayList<>(movement.length + combat.length);
+
+                // Movement column
+                for (int i = 0; i < movement.length; i++) {
+                    final String label = movement[i];
+                    int by = movementStartY + i * (h + gap);
+
+                    Button b = Button.builder(Component.literal(label.substring(0, 1)), bbtn -> {
+                                try {
+                                    int villagerEntityId = resolveTraderEntityId(screen);
+
+                                    if ("Idle".equalsIgnoreCase(label)) {
+                                        ClientNetwork.sendToServer(new PacketVillagerCommand(
+                                                villagerEntityId,
+                                                PacketVillagerCommand.Command.IDLE
+                                        ));
+
+                                        Minecraft mc = Minecraft.getInstance();
+                                        if (mc != null && mc.player != null) {
+                                            mc.player.displayClientMessage(
+                                                    Component.literal("Command sent: Idle").withStyle(ChatFormatting.YELLOW),
+                                                    true
+                                            );
+                                        }
+
+                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: IDLE (villagerEntityId={})", villagerEntityId);
+                                    } else {
+                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command clicked: {} (villagerEntityId={})",
+                                                label, villagerEntityId);
+                                    }
+                                } catch (Throwable t) {
+                                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Movement command click failed: " + label, t);
+                                }
+
+                                try {
+                                    collapseCommands(screen);
+                                } catch (Throwable ignored) {}
+
+                                try {
+                                    bbtn.setFocused(false);
+                                    Screen scr = Minecraft.getInstance().screen;
+                                    if (scr != null && scr.getFocused() == bbtn) scr.setFocused(null);
+                                } catch (Throwable ignored) {}
+                            })
+                            .pos(colAX, by).size(w, h)
+                            .createNarration(s -> Component.literal(label))
+                            .build();
+
+                    setSimpleTooltip(b, label);
+                    b.visible = false;
+                    b.active = false;
+
+                    e.addListener(b);
+                    subs.add(b);
+                }
+
+                // Combat column
+                for (int i = 0; i < combat.length; i++) {
+                    final String label = combat[i];
+                    int by = combatStartY + i * (h + gap);
+
+                    Button b = Button.builder(Component.literal(label.substring(0, 1)), bbtn -> {
+                                try {
+                                    int villagerEntityId = resolveTraderEntityId(screen);
+                                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat command clicked: {} (villagerEntityId={})",
+                                            label, villagerEntityId);
+                                } catch (Throwable t) {
+                                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Combat command click failed: " + label, t);
+                                }
+
+                                try {
+                                    collapseCommands(screen);
+                                } catch (Throwable ignored) {}
+
+                                try {
+                                    bbtn.setFocused(false);
+                                    Screen scr = Minecraft.getInstance().screen;
+                                    if (scr != null && scr.getFocused() == bbtn) scr.setFocused(null);
+                                } catch (Throwable ignored) {}
+                            })
+                            .pos(colBX, by).size(w, h)
+                            .createNarration(s -> Component.literal(label))
+                            .build();
+
+                    setSimpleTooltip(b, label);
+                    b.visible = false;
+                    b.active = false;
+
+                    e.addListener(b);
+                    subs.add(b);
+                }
+
+                COMMANDS_SUB_BUTTONS.put(screen, subs);
+
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] Failed building commands palette", t);
+            }
+
             // Queries (existing behavior)
             trySendTradeLocksQuery();
             trySendCooldownQuery();
@@ -433,6 +633,9 @@ public final class ClientUI {
             // Apply initial gating visibility (if villager + not recruited => hide/disable ALL 4 buttons)
             boolean uiEnabled = isRecruitUiEnabled(screen);
             setUiButtonsVisible(screen, uiEnabled);
+
+            // Ensure palette starts collapsed and visuals are correct
+            collapseCommands(screen);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] onScreenInitPost exception", t);
@@ -451,6 +654,32 @@ public final class ClientUI {
 
             boolean uiEnabled = isRecruitUiEnabled(screen);
             setUiButtonsVisible(screen, uiEnabled);
+
+            boolean expanded = uiEnabled && isCommandsExpanded(screen);
+
+            // Sync palette visibility (subs + header icons + backdrop)
+            try {
+                List<Button> subs = COMMANDS_SUB_BUTTONS.get(screen);
+                setButtonsVisible(subs, expanded);
+
+                List<RowHeaderIconWidget> icons = COMMANDS_HEADER_ICONS.get(screen);
+                if (icons != null) {
+                    for (RowHeaderIconWidget iw : icons) {
+                        if (iw == null) continue;
+                        iw.visible = expanded;
+                        iw.active = false;
+                    }
+                }
+
+                CommandsBackdropWidget backdrop = COMMANDS_BACKDROPS.get(screen);
+                if (backdrop != null) {
+                    backdrop.visible = expanded;
+                    backdrop.active = false;
+                }
+            } catch (Throwable ignored) {}
+
+            // Update main Commands button color (green only while expanded)
+            updateCommandsMainButtonVisual(screen);
 
             // If not recruited, do not draw reroll glyph, tooltip, or enable cooldown overlay.
             if (!uiEnabled) {
@@ -542,6 +771,11 @@ public final class ClientUI {
             STATS_BUTTONS.remove(e.getScreen());
             INVENTORY_BUTTONS.remove(e.getScreen());
             COMMANDS_BUTTONS.remove(e.getScreen());
+
+            COMMANDS_SUB_BUTTONS.remove(e.getScreen());
+            COMMANDS_EXPANDED.remove(e.getScreen());
+            COMMANDS_BACKDROPS.remove(e.getScreen());
+            COMMANDS_HEADER_ICONS.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
                 int cid = resolveContainerId(ms);
@@ -1347,6 +1581,226 @@ public final class ClientUI {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] CooldownOverlayWidget.mouseClicked failed (soft): {}", t.toString());
                 return false;
             }
+        }
+    }
+
+    // =====================================================================
+    // NEW helper methods (paste anywhere inside ClientUI class)
+    // =====================================================================
+
+    private static boolean isCommandsExpanded(Screen screen) {
+        try {
+            if (screen == null) return false;
+            Boolean b = COMMANDS_EXPANDED.get(screen);
+            return b != null && b;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static void setCommandsExpanded(Screen screen, boolean expanded) {
+        try {
+            if (screen == null) return;
+            COMMANDS_EXPANDED.put(screen, expanded);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void setButtonsVisible(List<Button> buttons, boolean visible) {
+        try {
+            if (buttons == null) return;
+            for (Button b : buttons) {
+                if (b == null) continue;
+                b.visible = visible;
+                b.active = visible;
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void collapseCommands(Screen screen) {
+        try {
+            setCommandsExpanded(screen, false);
+
+            List<Button> subs = COMMANDS_SUB_BUTTONS.get(screen);
+            setButtonsVisible(subs, false);
+
+            List<RowHeaderIconWidget> icons = COMMANDS_HEADER_ICONS.get(screen);
+            if (icons != null) {
+                for (RowHeaderIconWidget iw : icons) {
+                    if (iw == null) continue;
+                    iw.visible = false;
+                    iw.active = false;
+                }
+            }
+
+            CommandsBackdropWidget backdrop = COMMANDS_BACKDROPS.get(screen);
+            if (backdrop != null) {
+                backdrop.visible = false;
+                backdrop.active = false;
+            }
+
+            updateCommandsMainButtonVisual(screen);
+
+        } catch (Throwable ignored) {}
+    }
+
+    private static void updateCommandsMainButtonVisual(Screen screen) {
+        try {
+            Button cmd = COMMANDS_BUTTONS.get(screen);
+            if (cmd == null) return;
+
+            boolean expanded = isCommandsExpanded(screen);
+
+            // #58e766
+            int greenRgb = 0x58E766;
+
+            Component msg;
+            if (expanded) {
+                msg = Component.literal("⚐").setStyle(Style.EMPTY.withColor(TextColor.fromRgb(greenRgb)));
+            } else {
+                msg = Component.literal("⚐"); // default/white
+            }
+
+            // Only update if changed (avoid churn)
+            try {
+                Component cur = cmd.getMessage();
+                if (cur != null && cur.getString().equals(msg.getString())) {
+                    // Still update style when toggling (string same always), so don't early return.
+                }
+            } catch (Throwable ignored) {}
+
+            cmd.setMessage(msg);
+
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Simple tooltip for normal buttons.
+     * (Reroll tooltip remains custom-rendered and should NOT use this.)
+     */
+    private static void setSimpleTooltip(AbstractWidget w, String text) {
+        try {
+            if (w == null || text == null) return;
+
+            // net.minecraft.client.gui.components.Tooltip#create(Component)
+            Class<?> tooltipClz = Class.forName("net.minecraft.client.gui.components.Tooltip");
+            Method create = null;
+
+            for (Method m : tooltipClz.getDeclaredMethods()) {
+                if (!"create".equals(m.getName())) continue;
+                Class<?>[] p = m.getParameterTypes();
+                if (p.length == 1 && p[0] == Component.class) {
+                    create = m;
+                    break;
+                }
+            }
+            if (create == null) return;
+
+            Object tooltip = create.invoke(null, Component.literal(text));
+
+            // AbstractWidget#setTooltip(Tooltip)
+            Method setTooltip = null;
+            Class<?> c = w.getClass();
+            while (c != null && c != Object.class && setTooltip == null) {
+                for (Method m : c.getDeclaredMethods()) {
+                    if (!"setTooltip".equals(m.getName())) continue;
+                    Class<?>[] p = m.getParameterTypes();
+                    if (p.length == 1 && "net.minecraft.client.gui.components.Tooltip".equals(p[0].getName())) {
+                        setTooltip = m;
+                        break;
+                    }
+                }
+                c = c.getSuperclass();
+            }
+            if (setTooltip == null) return;
+
+            setTooltip.setAccessible(true);
+            setTooltip.invoke(w, tooltip);
+
+        } catch (Throwable ignored) {}
+    }
+
+    // ===================================
+    // SHARED WIDGETS
+    // ===================================
+
+    private static final class CommandsBackdropWidget extends AbstractWidget {
+
+        // Match VillagerInfoScreen style
+        private static final int PANEL_BG = 0xCC0B0B0B;
+        private static final int PANEL_BORDER = 0xFF3A3A3A;
+
+        CommandsBackdropWidget(int x, int y, int w, int h) {
+            super(x, y, w, h, Component.empty());
+        }
+
+        @Override
+        protected void renderWidget(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
+            try {
+                if (!this.visible) return;
+
+                int x = getX();
+                int y = getY();
+                int w = this.width;
+                int h = this.height;
+
+                gg.fill(x, y, x + w, y + h, PANEL_BG);
+
+                gg.fill(x, y, x + w, y + 1, PANEL_BORDER);
+                gg.fill(x, y + h - 1, x + w, y + h, PANEL_BORDER);
+                gg.fill(x, y, x + 1, y + h, PANEL_BORDER);
+                gg.fill(x + w - 1, y, x + w, y + h, PANEL_BORDER);
+
+            } catch (Throwable ignored) {}
+        }
+
+        @Override
+        public void updateWidgetNarration(NarrationElementOutput out) {
+            // no narration
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            return false;
+        }
+    }
+
+    private static final class RowHeaderIconWidget extends AbstractWidget {
+
+        private final ItemStack stack;
+
+        RowHeaderIconWidget(int x, int y, int w, int h, ItemStack stack) {
+            super(x, y, w, h, Component.empty());
+            this.stack = stack == null ? ItemStack.EMPTY : stack;
+        }
+
+        @Override
+        protected void renderWidget(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
+            try {
+                if (!this.visible) return;
+                if (stack.isEmpty()) return;
+
+                int x = getX();
+                int y = getY();
+
+                // Keep it visually within the 18x18 button footprint:
+                // renderItem is effectively 16x16, so we center it.
+                int ix = x + Math.max(0, (this.width - 16) / 2);
+                int iy = y + Math.max(0, (this.height - 16) / 2);
+
+                gg.renderItem(stack, ix, iy);
+                gg.renderItemDecorations(Minecraft.getInstance().font, stack, ix, iy);
+
+            } catch (Throwable ignored) {}
+        }
+
+        @Override
+        public void updateWidgetNarration(NarrationElementOutput out) {
+            // no narration
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            return false;
         }
     }
 
