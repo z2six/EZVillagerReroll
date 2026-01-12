@@ -540,7 +540,6 @@ public final class ClientUI {
                                     int villagerEntityId = resolveTraderEntityId(screen);
 
                                     if ("Natural".equalsIgnoreCase(label)) {
-                                        // NEW: Natural -> let vanilla brain tick again
                                         ClientNetwork.sendToServer(new PacketVillagerCommand(
                                                 villagerEntityId,
                                                 PacketVillagerCommand.Command.NATURAL
@@ -572,8 +571,24 @@ public final class ClientUI {
 
                                         VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: IDLE (villagerEntityId={})", villagerEntityId);
 
+                                    } else if ("Follow".equalsIgnoreCase(label)) {
+                                        ClientNetwork.sendToServer(new PacketVillagerCommand(
+                                                villagerEntityId,
+                                                PacketVillagerCommand.Command.FOLLOW
+                                        ));
+
+                                        Minecraft mc = Minecraft.getInstance();
+                                        if (mc != null && mc.player != null) {
+                                            mc.player.displayClientMessage(
+                                                    Component.literal("Command sent: Follow").withStyle(ChatFormatting.YELLOW),
+                                                    true
+                                            );
+                                        }
+
+                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: FOLLOW (villagerEntityId={})", villagerEntityId);
+
                                     } else {
-                                        // Follow / Patrol for now: log only
+                                        // Patrol (or anything else not implemented yet)
                                         VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command clicked: {} (villagerEntityId={})",
                                                 label, villagerEntityId);
                                     }

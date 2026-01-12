@@ -560,6 +560,7 @@ public final class ServerHandlers {
             switch (msg.command()) {
                 case IDLE -> VillagerBrain.idle(vill);
                 case NATURAL -> VillagerBrain.natural(vill);
+                case FOLLOW -> org.z2six.villageroverhaul.server.ai.VillagerBrain.follow(vill, sp);
             }
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCommand: player={} villager={} cmd={}",

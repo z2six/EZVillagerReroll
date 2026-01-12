@@ -4,6 +4,7 @@ package org.z2six.villageroverhaul.server.ai;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
@@ -29,9 +30,13 @@ public final class VillagerBrain {
     private static final String K_MODE = "mode";
     private static final String K_ATTACHED = "attached";
 
+    // Follow target
+    private static final String K_FOLLOW_PLAYER = "follow_player";
+
     public enum Mode {
         NATURAL("natural"),
-        IDLE("idle");
+        IDLE("idle"),
+        FOLLOW("follow");
 
         public final String id;
         Mode(String id) { this.id = id; }
@@ -60,17 +65,29 @@ public final class VillagerBrain {
 
     public static boolean natural(Villager vill) {
         if (vill == null) return false;
-        if (!isControllable(vill)) return false;
 
+        // Natural is safe to allow even if not recruited; but your vanilla tick gate
+        // already fail-opens for non-recruited anyway.
         ensureAttached(vill);
         setMode(vill, Mode.NATURAL);
 
-        // Let vanilla resume cleanly next tick.
-        try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+        // Clear follow target so we don't resume follow if someone flips modes back/forth.
+        clearFollowPlayer(vill);
 
-        // Optional: clear any “stale” forced movement values from IDLE tick
-        try { vill.zza = 0.0f; } catch (Throwable ignored) {}
-        try { vill.xxa = 0.0f; } catch (Throwable ignored) {}
+        return true;
+    }
+
+    /**
+     * FOLLOW: follow the given player until another movement command is issued.
+     */
+    public static boolean follow(Villager vill, ServerPlayer player) {
+        if (vill == null || player == null) return false;
+        if (!isControllable(vill)) return false;
+
+        ensureAttached(vill);
+
+        setFollowPlayer(vill, player.getUUID());
+        setMode(vill, Mode.FOLLOW);
 
         return true;
     }
@@ -109,6 +126,37 @@ public final class VillagerBrain {
     }
 
     // ============================================================
+    // Follow target getters (used by follow goal)
+    // ============================================================
+
+    public static UUID getFollowPlayer(Villager vill) {
+        try {
+            if (vill == null) return null;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.hasUUID(K_FOLLOW_PLAYER)) return null;
+            return root.getUUID(K_FOLLOW_PLAYER);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void setFollowPlayer(Villager vill, UUID playerUuid) {
+        try {
+            if (vill == null || playerUuid == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.putUUID(K_FOLLOW_PLAYER, playerUuid);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void clearFollowPlayer(Villager vill) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.remove(K_FOLLOW_PLAYER);
+        } catch (Throwable ignored) {}
+    }
+
+    // ============================================================
     // Attach modules (goals) once
     // ============================================================
 
@@ -132,8 +180,9 @@ public final class VillagerBrain {
             if (root.getBoolean(K_ATTACHED)) return;
 
             // Attach modules (Goals)
-            // Priority 0 = very strong override for movement.
+            // Priority 0 = strongest movement override
             vill.goalSelector.addGoal(0, new VillagerIdleGoal(vill));
+            vill.goalSelector.addGoal(1, new VillagerFollowGoal(vill));
 
             root.putBoolean(K_ATTACHED, true);
 
@@ -148,7 +197,6 @@ public final class VillagerBrain {
             if (vill == null) return true;
 
             // Non-recruited villagers should always run vanilla.
-            // (We only want to control recruited villagers.)
             if (!RecruitService.isRecruited(vill)) return true;
 
             // Recruited villagers: only allow vanilla brain in NATURAL mode.
