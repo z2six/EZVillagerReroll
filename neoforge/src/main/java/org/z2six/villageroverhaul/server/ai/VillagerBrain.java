@@ -60,8 +60,18 @@ public final class VillagerBrain {
 
     public static boolean natural(Villager vill) {
         if (vill == null) return false;
-        ensureAttached(vill); // safe even if not controllable; but we can keep it consistent
+        if (!isControllable(vill)) return false;
+
+        ensureAttached(vill);
         setMode(vill, Mode.NATURAL);
+
+        // Let vanilla resume cleanly next tick.
+        try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+
+        // Optional: clear any “stale” forced movement values from IDLE tick
+        try { vill.zza = 0.0f; } catch (Throwable ignored) {}
+        try { vill.xxa = 0.0f; } catch (Throwable ignored) {}
+
         return true;
     }
 
@@ -185,6 +195,4 @@ public final class VillagerBrain {
             return null;
         }
     }
-
-
 }

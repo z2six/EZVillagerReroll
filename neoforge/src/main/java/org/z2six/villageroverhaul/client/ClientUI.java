@@ -539,7 +539,24 @@ public final class ClientUI {
                                 try {
                                     int villagerEntityId = resolveTraderEntityId(screen);
 
-                                    if ("Idle".equalsIgnoreCase(label)) {
+                                    if ("Natural".equalsIgnoreCase(label)) {
+                                        // NEW: Natural -> let vanilla brain tick again
+                                        ClientNetwork.sendToServer(new PacketVillagerCommand(
+                                                villagerEntityId,
+                                                PacketVillagerCommand.Command.NATURAL
+                                        ));
+
+                                        Minecraft mc = Minecraft.getInstance();
+                                        if (mc != null && mc.player != null) {
+                                            mc.player.displayClientMessage(
+                                                    Component.literal("Command sent: Natural").withStyle(ChatFormatting.YELLOW),
+                                                    true
+                                            );
+                                        }
+
+                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: NATURAL (villagerEntityId={})", villagerEntityId);
+
+                                    } else if ("Idle".equalsIgnoreCase(label)) {
                                         ClientNetwork.sendToServer(new PacketVillagerCommand(
                                                 villagerEntityId,
                                                 PacketVillagerCommand.Command.IDLE
@@ -554,14 +571,18 @@ public final class ClientUI {
                                         }
 
                                         VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: IDLE (villagerEntityId={})", villagerEntityId);
+
                                     } else {
+                                        // Follow / Patrol for now: log only
                                         VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command clicked: {} (villagerEntityId={})",
                                                 label, villagerEntityId);
                                     }
+
                                 } catch (Throwable t) {
                                     VillagerOverhaul.LOG().error("[VillagerOverhaul] Movement command click failed: " + label, t);
                                 }
 
+                                // Requirement #4: any subcommand click collapses the palette
                                 try {
                                     collapseCommands(screen);
                                 } catch (Throwable ignored) {}
