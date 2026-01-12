@@ -53,6 +53,10 @@ public final class ServerHandlers {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
             RerollExecutor.tryReroll(sp);
+
+            // refresh tooltip snapshot immediately (cost breakdown + daily remaining)
+            ctx.reply(org.z2six.villageroverhaul.server.TooltipService.computeSnapshot(sp, -1));
+
             sendCooldownStateSnapshot(sp, ctx);
             sendCurrentTradeLocksSnapshot(sp, ctx);
 
@@ -85,6 +89,8 @@ public final class ServerHandlers {
             TradeLockState.setMask(vill, sanitized);
 
             ctx.reply(new PacketTradeLocks(menu.containerId, sanitized));
+
+            ctx.reply(org.z2six.villageroverhaul.server.TooltipService.computeSnapshot(sp, vill.getId()));
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleToggleTradeLock failed", t);

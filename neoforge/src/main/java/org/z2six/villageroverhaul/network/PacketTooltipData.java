@@ -45,6 +45,10 @@ public final class PacketTooltipData implements CustomPacketPayload {
         public boolean enabled;
         public int remaining;
         public int cap;
+
+        // NEW: ticks until the next reset at Minecraft midnight
+        // (20 ticks = 1 second real time)
+        public int ticksUntilReset;
     }
 
     public static final class Cfg {
@@ -93,7 +97,7 @@ public final class PacketTooltipData implements CustomPacketPayload {
             pkt.cost.nextCostIfUsed = readNullableInt(buf);
             pkt.cost.maxCostPossible = readNullableInt(buf);
 
-            // NEW fields (breakdown)
+            // breakdown
             pkt.cost.totalOffers = buf.readVarInt();
             pkt.cost.lockedOffers = buf.readVarInt();
             pkt.cost.deductibleLockedOffers = buf.readVarInt();
@@ -110,6 +114,9 @@ public final class PacketTooltipData implements CustomPacketPayload {
             pkt.cap.enabled = buf.readBoolean();
             pkt.cap.remaining = buf.readVarInt();
             pkt.cap.cap = buf.readVarInt();
+
+            // NEW
+            pkt.cap.ticksUntilReset = buf.readVarInt();
 
             pkt.cfg.version = buf.readVarInt();
             pkt.cfg.hash = buf.readVarInt();
@@ -129,7 +136,7 @@ public final class PacketTooltipData implements CustomPacketPayload {
             writeNullableInt(buf, pkt.cost.nextCostIfUsed);
             writeNullableInt(buf, pkt.cost.maxCostPossible);
 
-            // NEW fields (breakdown)
+            // breakdown
             buf.writeVarInt(Math.max(0, pkt.cost.totalOffers));
             buf.writeVarInt(Math.max(0, pkt.cost.lockedOffers));
             buf.writeVarInt(Math.max(0, pkt.cost.deductibleLockedOffers));
@@ -146,6 +153,9 @@ public final class PacketTooltipData implements CustomPacketPayload {
             buf.writeBoolean(pkt.cap.enabled);
             buf.writeVarInt(pkt.cap.remaining);
             buf.writeVarInt(pkt.cap.cap);
+
+            // NEW
+            buf.writeVarInt(pkt.cap.ticksUntilReset);
 
             buf.writeVarInt(pkt.cfg.version);
             buf.writeVarInt(pkt.cfg.hash);

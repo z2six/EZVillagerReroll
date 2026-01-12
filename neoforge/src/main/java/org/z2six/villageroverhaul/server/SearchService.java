@@ -24,6 +24,7 @@ import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import net.minecraft.nbt.Tag;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
 import org.z2six.villageroverhaul.server.VillagerGenerosityOfferService;
+import org.z2six.villageroverhaul.logic.RerollState;
 
 import java.lang.reflect.Method;
 import java.util.*;
@@ -686,11 +687,18 @@ public final class SearchService {
                     TradeUtil.rebuildOffersInternal(vill, null, false);
                     task.rerollCount = Math.max(0, task.rerollCount + 1);
 
-                    // ✅ CRITICAL FIX:
-                    // After a rebuild, reset baseline/applied then normalize.
+                    // auto-reroll hook:
+                    // - updates cooldown tracking (RerollState.lastTick)
+                    // - does NOT consume the daily cap
                     try {
-                        HoarderOffers.normalizeAfterOfferRebuild(vill, null);
+                        if (vill.level() instanceof ServerLevel sl) {
+                            RerollState.markRerolled(sl, vill, false);
+                        }
                     } catch (Throwable ignored) {}
+
+                    // After a rebuild, reset baseline/applied then normalize.
+                    try { HoarderOffers.normalizeAfterOfferRebuild(vill, null); } catch (Throwable ignored) {}
+                    try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
 
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search reroll success: villager={} entityId={} rerollCount={} baseCd={} timelinessPct={} effectiveCd={}",
                             vill.getUUID(), vill.getId(), task.rerollCount, baseCd, tPct, cooldown);

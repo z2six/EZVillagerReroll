@@ -583,7 +583,7 @@ public final class ClientUI {
             double sec = remainingTicks / 20.0;
             cooldownLine = Component.empty()
                     .append(Component.literal("Cooldown: ").withStyle(ChatFormatting.GOLD))
-                    .append(Component.literal(String.format("%.1fs", sec)));
+                    .append(Component.literal(String.format(java.util.Locale.ROOT, "%.1fs", sec)));
         } else {
             int cfgTicks = 0;
 
@@ -600,7 +600,7 @@ public final class ClientUI {
                 double sec = cfgTicks / 20.0;
                 cooldownLine = Component.empty()
                         .append(Component.literal("Cooldown: ").withStyle(ChatFormatting.GOLD))
-                        .append(Component.literal(String.format("%.1fs", sec)))
+                        .append(Component.literal(String.format(java.util.Locale.ROOT, "%.1fs", sec)))
                         .append(Component.literal(" (" + cfgTicks + "t)").withStyle(ChatFormatting.DARK_GRAY));
             } else {
                 cooldownLine = Component.empty()
@@ -667,9 +667,11 @@ public final class ClientUI {
         }
 
         // ------------------------------
-        // Daily cap line (NEW): show remaining rerolls today
+        // Daily cap line(s) (NEW): remaining + reset timer
         // ------------------------------
         plan.lines.add(buildDailyCapLine(d));
+        Component resetLine = buildDailyResetLine(d);
+        if (resetLine != null) plan.lines.add(resetLine);
 
         // ------------------------------
         // Breakdown (unchanged)
@@ -717,27 +719,36 @@ public final class ClientUI {
             plan.lines.add(Component.literal("Affordable").withStyle(ChatFormatting.GREEN));
         }
 
-        // NOTE: Villager level line REMOVED per request.
-
         return plan;
     }
 
     private static Component buildDailyCapLine(PacketTooltipData d) {
         try {
             if (d == null) {
-                return Component.literal("Daily cap: ?").withStyle(ChatFormatting.DARK_GRAY);
+                return Component.empty()
+                        .append(Component.literal("Daily rerolls left: ").withStyle(ChatFormatting.GOLD))
+                        .append(Component.literal("?").withStyle(ChatFormatting.DARK_GRAY));
             }
 
-            // If server cap is disabled (perVillagerDaily = 0), show disabled
             if (d.cap == null || !d.cap.enabled || d.cap.cap <= 0) {
-                // If cfg says capEnabled but cap isn't enabled, it's usually a transient/mismatch; still show disabled.
                 return Component.empty()
                         .append(Component.literal("Daily cap: ").withStyle(ChatFormatting.GOLD))
                         .append(Component.literal("Disabled").withStyle(ChatFormatting.DARK_GRAY));
             }
 
             int cap = Math.max(0, d.cap.cap);
-            int remaining = Math.max(0, d.cap.remaining);
+
+            // IMPORTANT: remaining may be -1 if server couldn't resolve villager
+            int remainingRaw = d.cap.remaining;
+            if (remainingRaw < 0) {
+                return Component.empty()
+                        .append(Component.literal("Daily rerolls left: ").withStyle(ChatFormatting.GOLD))
+                        .append(Component.literal("?").withStyle(ChatFormatting.DARK_GRAY))
+                        .append(Component.literal(" / ").withStyle(ChatFormatting.DARK_GRAY))
+                        .append(Component.literal(String.valueOf(cap)).withStyle(ChatFormatting.DARK_GRAY));
+            }
+
+            int remaining = Math.max(0, remainingRaw);
 
             ChatFormatting color;
             if (remaining <= 0) color = ChatFormatting.RED;
@@ -751,7 +762,45 @@ public final class ClientUI {
                     .append(Component.literal(String.valueOf(cap)).withStyle(ChatFormatting.DARK_GRAY));
 
         } catch (Throwable t) {
-            return Component.literal("Daily cap: ?").withStyle(ChatFormatting.DARK_GRAY);
+            return Component.empty()
+                    .append(Component.literal("Daily rerolls left: ").withStyle(ChatFormatting.GOLD))
+                    .append(Component.literal("?").withStyle(ChatFormatting.DARK_GRAY));
+        }
+    }
+
+    private static Component buildDailyResetLine(PacketTooltipData d) {
+        try {
+            if (d == null || d.cap == null) return null;
+            if (!d.cap.enabled || d.cap.cap <= 0) return null;
+
+            int ticks = d.cap.ticksUntilReset;
+
+            // If server didn't supply it for some reason
+            if (ticks < 0) return null;
+
+            // 20 ticks = 1 real second
+            String mmss = formatTicksToMinSec(ticks);
+
+            return Component.empty()
+                    .append(Component.literal("Resets in: ").withStyle(ChatFormatting.DARK_GRAY))
+                    .append(Component.literal(mmss).withStyle(ChatFormatting.GRAY));
+
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static String formatTicksToMinSec(int ticks) {
+        try {
+            int t = Math.max(0, ticks);
+            int totalSec = t / 20;
+
+            int min = totalSec / 60;
+            int sec = totalSec % 60;
+
+            return String.format(java.util.Locale.ROOT, "%d:%02d", min, sec);
+        } catch (Throwable ignored) {
+            return "?";
         }
     }
 

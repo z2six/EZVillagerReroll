@@ -16,6 +16,7 @@ import org.z2six.villageroverhaul.logic.MoneyBridge;
 import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.PacketTooltipData;
+import org.z2six.villageroverhaul.logic.RerollState;
 
 public final class TooltipService {
 
@@ -159,10 +160,29 @@ public final class TooltipService {
                 out.afford.source = can ? (walletOK && invOK ? "both" : (walletOK ? "wallet" : "inventory")) : "none";
             }
 
-            boolean capEnabled = ServerConfig.perVillagerDaily > 0;
+            // ----------------------------------------------------------
+            // Daily cap + time-until-reset (NEW: ticksUntilReset)
+            // ----------------------------------------------------------
+            int cap = Math.max(0, ServerConfig.perVillagerDaily);
+            boolean capEnabled = cap > 0;
+
             out.cap.enabled = capEnabled;
-            out.cap.cap = ServerConfig.perVillagerDaily;
-            out.cap.remaining = -1;
+            out.cap.cap = cap;
+
+            if (capEnabled) {
+                // time until the NEXT reset at Minecraft midnight (18,000)
+                out.cap.ticksUntilReset = ticksUntilNextMidnightReset(player);
+
+                // remaining only if villager resolved
+                if (vill != null) {
+                    out.cap.remaining = RerollState.getDailyRemaining(player.serverLevel(), vill);
+                } else {
+                    out.cap.remaining = -1; // unknown (villager not resolved)
+                }
+            } else {
+                out.cap.remaining = -1;
+                out.cap.ticksUntilReset = -1;
+            }
 
             out.cfg.version = ServerConfig.cfgVersion();
             out.cfg.hash = ServerConfig.cfgHash();
@@ -174,6 +194,43 @@ public final class TooltipService {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] TooltipService.computeSnapshot failed", t);
         }
         return out;
+    }
+
+    /**
+     * Compute ticks until the next reset at Minecraft midnight.
+     *
+     * Vanilla time:
+     * - 0     = 06:00
+     * - 6000  = 12:00
+     * - 12000 = 18:00
+     * - 18000 = 00:00 (midnight)  <-- reset moment
+     *
+     * Return value is in game ticks (20 ticks = 1 real second).
+     * At the exact reset tick (mod==18000), returns 0.
+     */
+    private static int ticksUntilNextMidnightReset(ServerPlayer player) {
+        try {
+            if (player == null || player.serverLevel() == null) return -1;
+
+            long dayTime = player.serverLevel().getDayTime();
+            long mod = Math.floorMod(dayTime, 24000L);
+
+            if (mod == 18000L) return 0;
+
+            long until;
+            if (mod < 18000L) {
+                until = 18000L - mod;
+            } else {
+                until = (24000L - mod) + 18000L;
+            }
+
+            if (until < 0L) until = 0L;
+            if (until > Integer.MAX_VALUE) until = Integer.MAX_VALUE;
+            return (int) until;
+
+        } catch (Throwable t) {
+            return -1;
+        }
     }
 
     private static int countInInventory(ServerPlayer player, Item item) {

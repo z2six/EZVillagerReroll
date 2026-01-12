@@ -609,7 +609,7 @@ public final class VillagerInfoScreen extends Screen {
     private static List<Component> flavorLines(StatKind kind) {
         List<String> raw = switch (kind) {
             case GENEROSITY -> List.of(
-                    "Affects the price of rerolling.",
+                    "Affects the price of rerolling & trades.",
                     "Higher = cheaper, lower = pricier."
             );
             case TIMELINESS -> List.of(
