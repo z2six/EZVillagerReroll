@@ -259,7 +259,10 @@ public final class VillagerQuickActionsScreen extends Screen {
 
     private void onInventory() {
         try {
-            ClientUI.openVillagerInventoryPlaceholder(null, villagerEntityId);
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketOpenVillagerInventory(villagerEntityId));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions inventory failed", t);
         }

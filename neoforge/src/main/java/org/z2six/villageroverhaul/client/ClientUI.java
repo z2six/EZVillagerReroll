@@ -13,7 +13,6 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -36,7 +35,6 @@ import org.z2six.villageroverhaul.network.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
-import org.z2six.villageroverhaul.network.PacketRecruitCostQuery;
 import org.z2six.villageroverhaul.network.PacketRecruitCostData;
 import net.minecraft.world.entity.npc.Villager;
 import org.z2six.villageroverhaul.network.PacketVillagerCommand;
@@ -45,11 +43,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import org.z2six.villageroverhaul.network.PacketPatrolInteractRequest;
 import org.z2six.villageroverhaul.network.PacketPatrolOpenGui;
-import org.z2six.villageroverhaul.client.PatrolBeginPromptScreen;
-import org.z2six.villageroverhaul.client.PatrolSetupScreen;
-import org.z2six.villageroverhaul.network.PacketPatrolBegin;
-import org.z2six.villageroverhaul.network.PacketPatrolAction;
-import org.z2six.villageroverhaul.network.PacketPatrolSetRouteType;
+import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -121,14 +115,28 @@ public final class ClientUI {
     private static final long QUICK_OPEN_DELAY_MS = 120;
     private static final long QUICK_OPEN_TIMEOUT_MS = 800;
 
-    public static void openVillagerInventoryPlaceholder(MerchantScreen parent, int villagerEntityId) {
+    public static void openVillagerInventory(MerchantScreen parent, int villagerEntityId) {
         try {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc == null || mc.player == null) return;
+            if (villagerEntityId <= 0) return;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Inventory UI placeholder clicked (villagerEntityId={})", villagerEntityId);
-            mc.player.displayClientMessage(Component.literal("Inventory UI (coming soon)").withStyle(ChatFormatting.YELLOW), true);
-        } catch (Throwable ignored) {}
+            // IMPORTANT:
+            // Do NOT instantiate VillagerInventoryScreen directly.
+            // This is a server-opened menu screen. We request it from the server and the client
+            // will automatically open the registered screen when the menu arrives.
+            ClientNetwork.sendToServer(new PacketOpenVillagerInventory(villagerEntityId));
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] openVillagerInventory failed", t);
+            try {
+                Minecraft mc = Minecraft.getInstance();
+                if (mc != null && mc.player != null) {
+                    mc.player.displayClientMessage(
+                            Component.literal("Failed to open Villager Inventory (see log).").withStyle(ChatFormatting.RED),
+                            true
+                    );
+                }
+            } catch (Throwable ignored) {}
+        }
     }
 
     public static void acceptVillagerModeData(org.z2six.villageroverhaul.network.PacketVillagerModeData p) {
@@ -426,7 +434,7 @@ public final class ClientUI {
             Button invBtn = Button.builder(Component.literal("⛨"), btn -> {
                         try {
                             int villagerEntityId = resolveTraderEntityId(screen);
-                            openVillagerInventoryPlaceholder(screen, villagerEntityId);
+                            openVillagerInventory(screen, villagerEntityId);
                         } catch (Throwable t) {
                             VillagerOverhaul.LOG().error("[VillagerOverhaul] Inventory button click failed", t);
                         }

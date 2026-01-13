@@ -16,6 +16,7 @@ import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.network.PacketVillagerCommand;
+import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 
 public final class Network {
 
@@ -149,6 +150,10 @@ public final class Network {
 
             r.playToClient(PacketRecruitGateData.TYPE, PacketRecruitGateData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onRecruitGateData", msg, ctx));
+
+            // open villager inventory menu
+            r.playToServer(PacketOpenVillagerInventory.TYPE, PacketOpenVillagerInventory.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleOpenVillagerInventory(msg, ctx)));
 
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Network payloads registered (handshake-safe). distClient={}", isClientDist());

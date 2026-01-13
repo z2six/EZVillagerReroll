@@ -1,4 +1,3 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/VillagerOverhaul.java
 package org.z2six.villageroverhaul;
 
 import com.mojang.logging.LogUtils;
@@ -8,11 +7,14 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import org.z2six.villageroverhaul.client.ClientUI;
+import org.z2six.villageroverhaul.client.VillagerInventoryScreen;
 import org.z2six.villageroverhaul.config.ClientConfig;
 import org.z2six.villageroverhaul.config.ServerConfig;
+import org.z2six.villageroverhaul.menu.ModMenus;
 import org.z2six.villageroverhaul.network.Network;
 import org.z2six.villageroverhaul.server.BusyVillagerBlocker;
 import org.z2six.villageroverhaul.server.ServerEvents;
@@ -41,6 +43,15 @@ public final class VillagerOverhaul {
             LOG.error("[VillagerOverhaul] Failed to register CLIENT config spec (continuing).", t);
         }
 
+        // --- Menu Types ---
+        try {
+            ModMenus.MENUS.register(modBus);
+            LOG.info("[VillagerOverhaul] Registered menu types.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to register menu types (continuing).", t);
+        }
+
+        // --- Network payload registration ---
         try {
             modBus.addListener(Network::onRegisterPayloadHandlers);
             LOG.info("[VillagerOverhaul] Registered Network payload handler registration on MOD bus.");
@@ -71,10 +82,16 @@ public final class VillagerOverhaul {
             LOG.error("[VillagerOverhaul] Failed to register setup listeners.", t);
         }
 
-        // --- GAMEPLAY BUS listeners (NeoForge bus) ---
-        // IMPORTANT: gameplay/runtime events => NeoForge.EVENT_BUS
+        // ✅ IMPORTANT: register Menu->Screen mapping via the proper event (MenuScreens.register is private now)
         try {
-            // Tick + server start/stop (persistence)
+            modBus.addListener(this::onRegisterMenuScreens);
+            LOG.info("[VillagerOverhaul] Registered onRegisterMenuScreens listener on MOD bus.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to register onRegisterMenuScreens listener (continuing).", t);
+        }
+
+        // --- GAMEPLAY BUS listeners (NeoForge bus) ---
+        try {
             ServerEvents.register(NeoForge.EVENT_BUS);
             LOG.info("[VillagerOverhaul] Registered ServerEvents on NeoForge EVENT bus.");
         } catch (Throwable t) {
@@ -82,7 +99,6 @@ public final class VillagerOverhaul {
         }
 
         try {
-            // RMB interception for busy villagers (this is the logic you said got "destroyed" because it wasn't wired)
             BusyVillagerBlocker.register(NeoForge.EVENT_BUS);
             LOG.info("[VillagerOverhaul] Registered BusyVillagerBlocker on NeoForge EVENT bus.");
         } catch (Throwable t) {
@@ -92,17 +108,26 @@ public final class VillagerOverhaul {
 
     private void commonSetup(final FMLCommonSetupEvent e) {
         LOG.info("[VillagerOverhaul] Common setup.");
-        // Nothing required here for payload registration anymore (that happens in RegisterPayloadHandlersEvent).
-        // Keep this method for future safe-init work.
     }
 
     private void clientSetup(final FMLClientSetupEvent e) {
         LOG.info("[VillagerOverhaul] Client setup.");
+
         try {
             ClientUI.registerRuntimeClientEvents();
             LOG.info("[VillagerOverhaul] ClientUI runtime events registered.");
         } catch (Throwable t) {
             LOG.error("[VillagerOverhaul] ClientUI registration failed (client features may be limited).", t);
+        }
+    }
+
+    // correct screen registration hook
+    private void onRegisterMenuScreens(final RegisterMenuScreensEvent e) {
+        try {
+            e.register(ModMenus.VILLAGER_INVENTORY.get(), VillagerInventoryScreen::new);
+            LOG.info("[VillagerOverhaul] Registered VillagerInventoryScreen via RegisterMenuScreensEvent.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] RegisterMenuScreensEvent registration failed.", t);
         }
     }
 

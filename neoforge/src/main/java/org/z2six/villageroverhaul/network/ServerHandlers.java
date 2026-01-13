@@ -31,6 +31,7 @@ import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.network.PacketVillagerCommand;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
+import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 
 // patrol packets
 import org.z2six.villageroverhaul.network.PacketPatrolAction;
@@ -771,6 +772,33 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerCommand failed", t);
+        }
+    }
+
+    public static void handleOpenVillagerInventory(PacketOpenVillagerInventory msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            // HARD GATE: inventory is a controls feature
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleOpenVillagerInventory denied (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+                return;
+            }
+
+            // Open menu; write villager id to buf so client menu knows which entity to render
+            sp.openMenu(
+                    org.z2six.villageroverhaul.menu.VillagerInventoryMenu.providerFor(sp, vill),
+                    buf -> buf.writeVarInt(vill.getId())
+            );
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleOpenVillagerInventory failed", t);
         }
     }
 
