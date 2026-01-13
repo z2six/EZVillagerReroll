@@ -469,15 +469,15 @@ public final class ServerHandlers {
                 return;
             }
 
-            // "hasPatrolData" should mean: has a usable, finalized patrol route
             boolean hasFinalizedRoute = VillagerBrain.hasFinalizedPatrol(vill);
             int waypointCount = VillagerBrain.getPatrolWaypointCount(vill);
 
             boolean canOpen = false;
 
-            // Setup screen opens only if we're currently in PATROL_SETUP and the requester is the owner.
+            // Setup screen opens ONLY in PATROL_SETUP and ONLY for the owner.
             if (RecruitService.isRecruited(vill)
                     && VillagerBrain.getMode(vill) == VillagerBrain.Mode.PATROL_SETUP) {
+
                 UUID owner = VillagerBrain.getPatrolSetupOwner(vill);
                 if (owner != null && owner.equals(sp.getUUID())) {
                     canOpen = true;
@@ -495,8 +495,25 @@ public final class ServerHandlers {
     }
 
     // =========================================================================================
-    // HELPERS (UNCHANGED)
+    // HELPERS
     // =========================================================================================
+
+    public static void handleVillagerModeQuery(PacketVillagerModeQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) {
+                ctx.reply(new PacketVillagerModeData(msg.villagerEntityId(), "neutral"));
+                return;
+            }
+
+            var mode = VillagerBrain.getMode(vill);
+            ctx.reply(new PacketVillagerModeData(vill.getId(), mode == null ? "neutral" : mode.id));
+
+        } catch (Throwable ignored) {}
+    }
 
     private static boolean tryChargePlayer(ServerPlayer sp, int cost) {
         try {

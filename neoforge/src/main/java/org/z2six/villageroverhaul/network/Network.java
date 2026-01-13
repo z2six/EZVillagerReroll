@@ -95,26 +95,26 @@ public final class Network {
             r.playToClient(PacketOpenBusyScreen.TYPE, PacketOpenBusyScreen.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onOpenBusyScreen", msg, ctx));
 
-            // NEW: auto-search completion notification
+            // auto-search completion notification
             r.playToClient(PacketAutoSearchDone.TYPE, PacketAutoSearchDone.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onAutoSearchDone", msg, ctx));
 
-            // NEW: cooldown state update
+            // cooldown state update
             r.playToClient(PacketRerollCooldownState.TYPE, PacketRerollCooldownState.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onRerollCooldownState", msg, ctx));
 
-            // NEW: settlement/payment UI packets
+            // settlement/payment UI packets
             r.playToClient(PacketOpenAutoSearchPaymentScreen.TYPE, PacketOpenAutoSearchPaymentScreen.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onOpenAutoSearchPaymentScreen", msg, ctx));
             r.playToClient(PacketAutoSearchSettlementCleared.TYPE, PacketAutoSearchSettlementCleared.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onAutoSearchSettlementCleared", msg, ctx));
 
-            // NEW: villager stats data (we update cache directly; no client-only class refs)
+            // villager stats data (we update cache directly; no client-only class refs)
             r.playToClient(PacketVillagerStatsData.TYPE, PacketVillagerStatsData.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerStatsDataClient(msg, ctx));
 
             // ============================
-            // NEW: Recruit clientbound
+            // Recruit clientbound
             // ============================
             r.playToClient(PacketOpenRecruitScreen.TYPE, PacketOpenRecruitScreen.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onOpenRecruitScreen", msg, ctx));
@@ -124,7 +124,7 @@ public final class Network {
                     (msg, ctx) -> dispatchToClientHandler("onRecruitResult", msg, ctx));
 
             // ============================
-            // NEW: Patrol clientbound
+            // Patrol clientbound
             // ============================
             // We do NOT require a ClientNetworkHandlers method; we route directly to ClientUI via reflection.
             r.playToClient(PacketPatrolOpenGui.TYPE, PacketPatrolOpenGui.STREAM_CODEC,
@@ -133,6 +133,15 @@ public final class Network {
             // Villager AI
             r.playToServer(PacketVillagerCommand.TYPE, PacketVillagerCommand.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerCommandServer(msg, ctx));
+
+            // ============================
+            // Patrol serverbound
+            // ============================
+            r.playToServer(PacketVillagerModeQuery.TYPE, PacketVillagerModeQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerModeQuery(msg, ctx)));
+
+            r.playToClient(PacketVillagerModeData.TYPE, PacketVillagerModeData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onVillagerModeData", msg, ctx));
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {

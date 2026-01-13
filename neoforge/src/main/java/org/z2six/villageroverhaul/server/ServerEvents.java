@@ -138,6 +138,16 @@ public final class ServerEvents {
 
             if (!(merchant instanceof Villager vill)) return;
 
+            // ============================================================
+            // NEW: Pause patrol movement while trading GUI is open
+            // ============================================================
+            try {
+                if (org.z2six.villageroverhaul.server.ai.VillagerBrain.getMode(vill)
+                        == org.z2six.villageroverhaul.server.ai.VillagerBrain.Mode.PATROL) {
+                    org.z2six.villageroverhaul.server.ai.VillagerBrain.setPatrolPaused(vill, true);
+                }
+            } catch (Throwable ignored) {}
+
             // If busy (task OR settlement), do NOT touch offers.
             // Auto-search must be reversible back to snapshot without other systems mutating trades.
             if (SearchService.isBusy(vill)) {
@@ -300,10 +310,27 @@ public final class ServerEvents {
     private static void onContainerClose(PlayerContainerEvent.Close e) {
         try {
             if (e == null) return;
-            if (!(e.getEntity() instanceof ServerPlayer sp)) return;
-            if (!(e.getContainer() instanceof MerchantMenu)) return;
 
-            HoarderOfferService.onMerchantMenuClose(sp);
+            if (!(e.getEntity() instanceof ServerPlayer sp)) return;
+            if (!(e.getContainer() instanceof MerchantMenu menu)) return;
+
+            try {
+                HoarderOfferService.onMerchantMenuClose(sp);
+            } catch (Throwable ignored) {}
+
+            // ============================================================
+            // NEW: Resume patrol movement when trade menu closes
+            // ============================================================
+            try {
+                var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+                if (trader instanceof Villager vill) {
+                    if (org.z2six.villageroverhaul.server.ai.VillagerBrain.getMode(vill)
+                            == org.z2six.villageroverhaul.server.ai.VillagerBrain.Mode.PATROL) {
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.setPatrolPaused(vill, false);
+                    }
+                }
+            } catch (Throwable ignored) {}
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] onContainerClose failed (soft): {}", t.toString());
         }

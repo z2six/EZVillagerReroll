@@ -51,8 +51,6 @@ import org.z2six.villageroverhaul.network.PacketPatrolBegin;
 import org.z2six.villageroverhaul.network.PacketPatrolAction;
 import org.z2six.villageroverhaul.network.PacketPatrolSetRouteType;
 
-
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -97,6 +95,12 @@ public final class ClientUI {
     private static final Map<Screen, CommandsBackdropWidget> COMMANDS_BACKDROPS = new WeakHashMap<>();
     private static final Map<Screen, List<RowHeaderIconWidget>> COMMANDS_HEADER_ICONS = new WeakHashMap<>();
 
+    // Patrol
+    private static final long MODE_STALE_MS = 1000;
+    private static final Map<Integer, Long> MODE_AT = new WeakHashMap<>();
+    private static final Map<Integer, String> MODE_ID = new WeakHashMap<>();
+    // Movement buttons per screen: key is "neutral"/"idle"/"follow"/"patrol"
+    private static final Map<Screen, Map<String, Button>> MOVEMENT_BTNS = new WeakHashMap<>();
 
     private static final class RecruitStateSnap {
         final boolean recruited;
@@ -119,6 +123,13 @@ public final class ClientUI {
         } catch (Throwable ignored) {}
     }
 
+    public static void acceptVillagerModeData(org.z2six.villageroverhaul.network.PacketVillagerModeData p) {
+        try {
+            if (p == null) return;
+            MODE_ID.put(p.villagerEntityId(), p.modeId() == null ? "neutral" : p.modeId());
+            MODE_AT.put(p.villagerEntityId(), System.currentTimeMillis());
+        } catch (Throwable ignored) {}
+    }
 
     private static boolean isVillagerTrader(MerchantScreen screen) {
         try {
@@ -336,6 +347,9 @@ public final class ClientUI {
 
             // Ask server for recruited state (villager-only) so UI can decide visibility.
             trySendRecruitStateQueryIfNeeded(screen);
+
+            // NEW: ask server for current villager mode (for highlight)
+            trySendModeQueryIfNeeded(screen);
 
             // --------------------------------
             // 1) REROLL (top)
@@ -642,9 +656,6 @@ public final class ClientUI {
                                         VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: FOLLOW (villagerEntityId={})", villagerEntityId);
 
                                     } else if ("Patrol".equalsIgnoreCase(label)) {
-                                        // NEW FLOW:
-                                        // If patrol data exists: user can choose existing or create new.
-                                        // If none exists: "Use existing" will just fail-soft server-side and setup new if needed.
                                         Minecraft mc = Minecraft.getInstance();
                                         if (mc != null) {
                                             mc.setScreen(new PatrolBeginPromptScreen(screen, villagerEntityId));
@@ -682,6 +693,15 @@ public final class ClientUI {
 
                     e.addListener(b);
                     subs.add(b);
+
+                    // ============================================================
+                    // NEW: store movement buttons for green highlight updates
+                    // ============================================================
+                    try {
+                        MOVEMENT_BTNS
+                                .computeIfAbsent(screen, s -> new java.util.HashMap<>())
+                                .put(label.toLowerCase(java.util.Locale.ROOT), b);
+                    } catch (Throwable ignored) {}
                 }
 
                 // Combat column
@@ -737,6 +757,11 @@ public final class ClientUI {
             // Ensure palette starts collapsed and visuals are correct
             collapseCommands(screen);
 
+            // NEW: apply movement highlight once at init (will update again during render)
+            try {
+                updateMovementButtonsVisual(screen);
+            } catch (Throwable ignored) {}
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] onScreenInitPost exception", t);
         }
@@ -754,6 +779,12 @@ public final class ClientUI {
 
             boolean uiEnabled = isRecruitUiEnabled(screen);
             setUiButtonsVisible(screen, uiEnabled);
+
+            // ============================================================
+            // NEW: keep movement highlight in sync with server
+            // ============================================================
+            trySendModeQueryIfNeeded(screen);
+            updateMovementButtonsVisual(screen);
 
             boolean expanded = uiEnabled && isCommandsExpanded(screen);
 
@@ -876,6 +907,9 @@ public final class ClientUI {
             COMMANDS_EXPANDED.remove(e.getScreen());
             COMMANDS_BACKDROPS.remove(e.getScreen());
             COMMANDS_HEADER_ICONS.remove(e.getScreen());
+
+            // NEW: movement highlight buttons cache
+            MOVEMENT_BTNS.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
                 int cid = resolveContainerId(ms);
@@ -1902,6 +1936,65 @@ public final class ClientUI {
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             return false;
         }
+    }
+
+    private static void trySendModeQueryIfNeeded(MerchantScreen screen) {
+        try {
+            if (screen == null) return;
+
+            int id = resolveTraderEntityId(screen);
+            if (id <= 0) return;
+
+            Long at = MODE_AT.get(id);
+            long age = (at == null) ? Long.MAX_VALUE : (System.currentTimeMillis() - at);
+            if (age < MODE_STALE_MS) return;
+
+            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketVillagerModeQuery(id));
+        } catch (Throwable ignored) {}
+    }
+
+    private static void updateMovementButtonsVisual(MerchantScreen screen) {
+        try {
+            if (screen == null) return;
+
+            int villId = resolveTraderEntityId(screen);
+            if (villId <= 0) return;
+
+            String mode = MODE_ID.get(villId);
+            if (mode == null) mode = "neutral";
+
+            // treat patrol_setup as patrol for highlight
+            String activeKey = switch (mode) {
+                case "idle" -> "idle";
+                case "follow" -> "follow";
+                case "patrol", "patrol_setup" -> "patrol";
+                default -> "neutral";
+            };
+
+            Map<String, Button> m = MOVEMENT_BTNS.get(screen);
+            if (m == null || m.isEmpty()) return;
+
+            int greenRgb = 0x58E766;
+
+            for (Map.Entry<String, Button> ent : m.entrySet()) {
+                String key = ent.getKey();
+                Button b = ent.getValue();
+                if (b == null) continue;
+
+                String glyph;
+                try {
+                    glyph = (b.getMessage() == null) ? "" : b.getMessage().getString();
+                } catch (Throwable ignored) {
+                    glyph = "";
+                }
+
+                if (key != null && key.equals(activeKey)) {
+                    b.setMessage(Component.literal(glyph).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(greenRgb))));
+                } else {
+                    b.setMessage(Component.literal(glyph)); // default
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 
     private ClientUI() {}

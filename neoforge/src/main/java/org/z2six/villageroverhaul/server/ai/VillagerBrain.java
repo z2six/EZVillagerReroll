@@ -46,6 +46,8 @@ public final class VillagerBrain {
     private static final String K_PATROL_INDEX = "idx";
     private static final String K_PATROL_DIR = "dir"; // +1 / -1
 
+    private static final String K_PATROL_PAUSED = "paused";
+
     // waypoint tag keys
     private static final String K_WP_X = "x";
     private static final String K_WP_Y = "y";
@@ -131,6 +133,36 @@ public final class VillagerBrain {
     // PATROL API
     // ============================================================
 
+    public static boolean isPatrolPaused(Villager vill) {
+        try {
+            if (vill == null) return false;
+
+            // Hard pause while trading/merchant screen is open (vanilla sets tradingPlayer)
+            try {
+                if (vill.getTradingPlayer() != null) return true;
+            } catch (Throwable ignored) {}
+
+            // Also respect explicit pause flag if you use it elsewhere.
+            CompoundTag patrol = getOrCreatePatrol(vill);
+            return patrol.getBoolean(K_PATROL_PAUSED);
+
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setPatrolPaused(Villager vill, boolean paused) {
+        try {
+            if (vill == null) return;
+            CompoundTag patrol = getOrCreatePatrol(vill);
+            patrol.putBoolean(K_PATROL_PAUSED, paused);
+
+            if (paused) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+    }
+
     /**
      * Starts PATROL_SETUP:
      * - stores owner
@@ -156,9 +188,6 @@ public final class VillagerBrain {
             }
 
             patrol.putUUID(K_PATROL_OWNER, owner.getUUID());
-
-            // Capture exact current position and store as waypoint 0.
-            addWaypointInternal(vill, vill.position());
 
             patrol.putBoolean(K_PATROL_FINALIZED, false);
 
@@ -380,6 +409,12 @@ public final class VillagerBrain {
         try {
             if (vill == null || pos == null) return;
 
+            // Snap to block center for reliable pathing:
+            // x,z -> floor + 0.5, y -> floor (feet level)
+            double sx = Math.floor(pos.x) + 0.5;
+            double sy = Math.floor(pos.y);
+            double sz = Math.floor(pos.z) + 0.5;
+
             CompoundTag patrol = getOrCreatePatrol(vill);
 
             ListTag list;
@@ -391,9 +426,9 @@ public final class VillagerBrain {
             }
 
             CompoundTag wp = new CompoundTag();
-            wp.putDouble(K_WP_X, pos.x);
-            wp.putDouble(K_WP_Y, pos.y);
-            wp.putDouble(K_WP_Z, pos.z);
+            wp.putDouble(K_WP_X, sx);
+            wp.putDouble(K_WP_Y, sy);
+            wp.putDouble(K_WP_Z, sz);
 
             list.add(wp);
 

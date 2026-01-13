@@ -20,6 +20,7 @@ import org.z2six.villageroverhaul.network.PacketSearchCatalogData;
 import org.z2six.villageroverhaul.network.PacketSyncConfig;
 import org.z2six.villageroverhaul.network.PacketTooltipData;
 import org.z2six.villageroverhaul.network.PacketTradeLocks;
+import org.z2six.villageroverhaul.network.PacketVillagerModeData;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -493,6 +494,14 @@ public final class ClientNetworkHandlers {
     // -----------------------------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------------------------
+
+    public static void onVillagerModeData(PacketVillagerModeData msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                org.z2six.villageroverhaul.client.ClientUI.acceptVillagerModeData(msg);
+            } catch (Throwable ignored) {}
+        });
+    }
 
     private static Screen tryCreateBusyVillagerScreen(PacketOpenBusyScreen msg) {
         try {
