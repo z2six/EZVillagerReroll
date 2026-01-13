@@ -143,6 +143,14 @@ public final class Network {
             r.playToClient(PacketVillagerModeData.TYPE, PacketVillagerModeData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onVillagerModeData", msg, ctx));
 
+            // === Recruit gate (NEW) ===
+            r.playToServer(PacketRecruitGateQuery.TYPE, PacketRecruitGateQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRecruitGateQuery(msg, ctx)));
+
+            r.playToClient(PacketRecruitGateData.TYPE, PacketRecruitGateData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onRecruitGateData", msg, ctx));
+
+
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Network payload registration failed.", t);
@@ -627,4 +635,7 @@ public final class Network {
             return false;
         }
     }
+
+    public static void sendToServer(PacketRecruitGateQuery msg) { sendToServer((CustomPacketPayload) msg); }
+
 }

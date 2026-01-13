@@ -1,3 +1,5 @@
+// RecruitService.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/RecruitService.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.nbt.CompoundTag;
@@ -6,6 +8,8 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
+
+import java.util.UUID;
 
 public final class RecruitService {
 
@@ -34,6 +38,18 @@ public final class RecruitService {
             return pd != null && pd.getBoolean(TAG_RECRUITED);
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    public static UUID getRecruiterUuid(Villager vill) {
+        try {
+            if (vill == null) return null;
+            CompoundTag pd = vill.getPersistentData();
+            if (pd == null) return null;
+            if (!pd.hasUUID(TAG_RECRUITED_BY)) return null;
+            return pd.getUUID(TAG_RECRUITED_BY);
+        } catch (Throwable t) {
+            return null;
         }
     }
 

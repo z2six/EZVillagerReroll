@@ -601,4 +601,38 @@ public final class ClientNetworkHandlers {
             return false;
         }
     }
+
+    // ====================
+    // Feature GATE
+    // ====================
+
+    public static void onRecruitGateData(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof org.z2six.villageroverhaul.network.PacketRecruitGateData p) {
+                onRecruitGateData(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onRecruitGateData(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitGateData(Object) failed", t);
+        }
+    }
+
+    public static void onRecruitGateData(org.z2six.villageroverhaul.network.PacketRecruitGateData msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    org.z2six.villageroverhaul.client.ClientUI.acceptRecruitGateData(msg);
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitGateData failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitGateData enqueue failed", t);
+        }
+    }
+
 }

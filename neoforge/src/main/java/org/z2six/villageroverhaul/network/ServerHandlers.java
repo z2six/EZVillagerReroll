@@ -48,20 +48,18 @@ public final class ServerHandlers {
 
     private ServerHandlers() {}
 
-    // =========================================================================================
-    // EXISTING HANDLERS (UNCHANGED)
-    // =========================================================================================
-
     public static void handleReroll(PacketRequestReroll msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
-            // HARD GATE: If this is a villager trader and NOT recruited, reroll is not allowed.
+            // HARD GATE: villager trader must be recruited AND owned by this player.
             try {
                 if (sp.containerMenu instanceof MerchantMenu menu) {
                     var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
                     if (trader instanceof Villager vill) {
-                        if (!RecruitService.isRecruited(vill)) {
+                        if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleReroll denied (player={} villager={})",
+                                    sp.getGameProfile().getName(), vill.getUUID());
                             return;
                         }
                     }
@@ -84,6 +82,19 @@ public final class ServerHandlers {
     public static void handleRerollCooldownQuery(PacketRerollCooldownQuery msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            // If current trader is a villager and not owner, do not leak cooldown.
+            try {
+                if (sp.containerMenu instanceof MerchantMenu menu) {
+                    var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+                    if (trader instanceof Villager vill) {
+                        if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                            return;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+
             sendCooldownStateSnapshot(sp, ctx);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRerollCooldownQuery failed", t);
@@ -100,12 +111,17 @@ public final class ServerHandlers {
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
             if (!(trader instanceof Villager vill)) return;
 
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleToggleTradeLock denied (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+                return;
+            }
+
             long next = TradeLockState.toggle(vill, idx);
             long sanitized = TradeLockState.sanitizeMaskForSize(next, vill.getOffers().size());
             TradeLockState.setMask(vill, sanitized);
 
             ctx.reply(new PacketTradeLocks(menu.containerId, sanitized));
-
             ctx.reply(org.z2six.villageroverhaul.server.TooltipService.computeSnapshot(sp, vill.getId()));
 
         } catch (Throwable t) {
@@ -121,6 +137,12 @@ public final class ServerHandlers {
             if (vill == null) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery: villager not resolved for entityId={} (player={})",
                         msg.villagerEntityId(), sp.getGameProfile().getName());
+                ctx.reply(PacketSearchCatalogData.minimal(msg.villagerEntityId(), List.of()));
+                return;
+            }
+
+            // HARD GATE: catalog is a control feature
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
                 ctx.reply(PacketSearchCatalogData.minimal(msg.villagerEntityId(), List.of()));
                 return;
             }
@@ -228,10 +250,17 @@ public final class ServerHandlers {
     public static void handleStartAutoSearch(PacketStartAutoSearch msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
-            if (vill != null) {
-                SearchService.start(sp, vill, msg.targets());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleStartAutoSearch denied (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+                return;
             }
+
+            SearchService.start(sp, vill, msg.targets());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleStartAutoSearch failed", t);
         }
@@ -240,6 +269,16 @@ public final class ServerHandlers {
     public static void handleCancelAutoSearch(PacketCancelAutoSearch msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleCancelAutoSearch denied (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+                return;
+            }
+
             SearchService.cancelByEntityId(sp, msg.villagerEntityId());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleCancelAutoSearch failed", t);
@@ -256,6 +295,8 @@ public final class ServerHandlers {
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
 
             SearchService.Settlement settlement = SearchService.getSettlement(vill);
             if (settlement == null) {
@@ -310,6 +351,8 @@ public final class ServerHandlers {
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
 
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
             SearchService.Settlement settlement = SearchService.getSettlement(vill);
             if (settlement == null) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleDeclineAutoSearchSettlement: no settlement (villagerId={} uuid={})",
@@ -346,6 +389,8 @@ public final class ServerHandlers {
             int id = msg.villagerEntityId();
             Villager vill = resolveVillagerFor(sp, id);
             if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
 
             if (!RecruitService.isRecruited(vill)) return;
 
@@ -388,6 +433,8 @@ public final class ServerHandlers {
             int id = msg.villagerEntityId();
             Villager vill = resolveVillagerFor(sp, id);
             if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
 
             if (!RecruitService.isRecruited(vill)) return;
 
@@ -438,6 +485,8 @@ public final class ServerHandlers {
             Villager vill = resolveVillagerFor(sp, id);
             if (vill == null) return;
 
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
             if (!RecruitService.isRecruited(vill)) return;
 
             UUID owner = VillagerBrain.getPatrolSetupOwner(vill);
@@ -468,6 +517,8 @@ public final class ServerHandlers {
                 ctx.reply(new PacketPatrolOpenGui(id, false, 0, false));
                 return;
             }
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
 
             boolean hasFinalizedRoute = VillagerBrain.hasFinalizedPatrol(vill);
             int waypointCount = VillagerBrain.getPatrolWaypointCount(vill);
@@ -703,7 +754,11 @@ public final class ServerHandlers {
             Villager vill = resolveVillagerFor(sp, id);
             if (vill == null) return;
 
-            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCommand denied (player={} villager={} cmd={})",
+                        sp.getGameProfile().getName(), vill.getUUID(), msg.command());
+                return;
+            }
 
             switch (msg.command()) {
                 case IDLE -> VillagerBrain.idle(vill);
@@ -718,4 +773,35 @@ public final class ServerHandlers {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerCommand failed", t);
         }
     }
+
+    // =====================
+    // PERMISSION GATE
+    // =====================
+
+    public static void handleRecruitGateQuery(PacketRecruitGateQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+
+            if (vill == null) {
+                ctx.reply(new PacketRecruitGateData(id, false, false, false));
+                return;
+            }
+
+            boolean recruited = RecruitService.isRecruited(vill);
+            boolean canUse = recruited && org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp);
+
+            ctx.reply(new PacketRecruitGateData(id, true, recruited, canUse));
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRecruitGateQuery failed", t);
+            try {
+                ctx.reply(new PacketRecruitGateData(msg == null ? 0 : msg.villagerEntityId(), false, false, false));
+            } catch (Throwable ignored) {}
+        }
+    }
+
 }

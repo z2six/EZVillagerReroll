@@ -104,14 +104,22 @@ public final class ClientUI {
 
     private static final class RecruitStateSnap {
         final boolean recruited;
+        final boolean canUseControls; // owner == this player
         final long atMs;
-        RecruitStateSnap(boolean recruited, long atMs) {
+        RecruitStateSnap(boolean recruited, boolean canUseControls, long atMs) {
             this.recruited = recruited;
+            this.canUseControls = canUseControls;
             this.atMs = atMs;
         }
     }
 
     private static final Map<Integer, RecruitStateSnap> RECRUIT_STATE = new WeakHashMap<>();
+
+    // Quick-actions open debounce
+    private static int PENDING_QUICK_VILLAGER_ID = -1;
+    private static long PENDING_QUICK_AT_MS = 0L;
+    private static final long QUICK_OPEN_DELAY_MS = 120;
+    private static final long QUICK_OPEN_TIMEOUT_MS = 800;
 
     public static void openVillagerInventoryPlaceholder(MerchantScreen parent, int villagerEntityId) {
         try {
@@ -145,24 +153,6 @@ public final class ClientUI {
         }
     }
 
-    /**
-     * For non-villagers: always enabled (unchanged behavior).
-     * For villagers: enabled only if we *know* recruited == true.
-     */
-    private static boolean isRecruitUiEnabled(MerchantScreen screen) {
-        try {
-            if (!isVillagerTrader(screen)) return true;
-
-            int id = resolveTraderEntityId(screen);
-            if (id <= 0) return false;
-
-            RecruitStateSnap snap = RECRUIT_STATE.get(id);
-            return snap != null && snap.recruited;
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
     private static boolean shouldRefreshRecruitState(int traderEntityId) {
         try {
             if (traderEntityId <= 0) return false;
@@ -184,7 +174,7 @@ public final class ClientUI {
 
             if (!shouldRefreshRecruitState(id)) return;
 
-            ClientNetwork.sendToServer(new PacketRecruitCostQuery(id));
+            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketRecruitGateQuery(id));
         } catch (Throwable ignored) {}
     }
 
@@ -197,34 +187,38 @@ public final class ClientUI {
             int id = p.villagerEntityId();
             if (id <= 0) return;
 
-            RECRUIT_STATE.put(id, new RecruitStateSnap(p.alreadyRecruited(), System.currentTimeMillis()));
+            // RecruitCostData does NOT contain "canUseControls".
+            // Cache recruited state only; ownership defaults to false until we get RecruitGateData.
+            RECRUIT_STATE.put(id, new RecruitStateSnap(p.alreadyRecruited(), false, System.currentTimeMillis()));
         } catch (Throwable ignored) {}
     }
 
-    private static void setUiButtonsVisible(Screen screen, boolean visibleAndEnabled) {
+    private static void setUiButtonsVisible(Screen screen, boolean controlsVisibleAndEnabled) {
         try {
             Button b;
 
+            // Controls gated
             b = REROLL_BUTTONS.get(screen);
-            if (b != null) { b.visible = visibleAndEnabled; b.active = visibleAndEnabled; }
+            if (b != null) { b.visible = controlsVisibleAndEnabled; b.active = controlsVisibleAndEnabled; }
 
             b = INVENTORY_BUTTONS.get(screen);
-            if (b != null) { b.visible = visibleAndEnabled; b.active = visibleAndEnabled; }
+            if (b != null) { b.visible = controlsVisibleAndEnabled; b.active = controlsVisibleAndEnabled; }
 
             b = COMMANDS_BUTTONS.get(screen);
-            if (b != null) { b.visible = visibleAndEnabled; b.active = visibleAndEnabled; }
-
-            b = STATS_BUTTONS.get(screen);
-            if (b != null) { b.visible = visibleAndEnabled; b.active = visibleAndEnabled; }
+            if (b != null) { b.visible = controlsVisibleAndEnabled; b.active = controlsVisibleAndEnabled; }
 
             CooldownOverlayWidget ov = COOLDOWN_OVERLAYS.get(screen);
             if (ov != null) {
-                ov.visible = visibleAndEnabled;
-                if (!visibleAndEnabled) ov.active = false;
+                ov.visible = controlsVisibleAndEnabled;
+                if (!controlsVisibleAndEnabled) ov.active = false;
             }
 
-            // If UI is gated off, always collapse + hide palette and reset visuals.
-            if (!visibleAndEnabled) {
+            // Info is ALWAYS available
+            b = STATS_BUTTONS.get(screen);
+            if (b != null) { b.visible = true; b.active = true; }
+
+            // If controls are gated off, always collapse palette
+            if (!controlsVisibleAndEnabled) {
                 collapseCommands(screen);
             }
 
@@ -236,8 +230,10 @@ public final class ClientUI {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenRenderPost);
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenClosed);
 
-        // NEW: RMB on villager during PATROL_SETUP -> server decides if GUI should open
+        // RMB on villager during PATROL_SETUP -> server decides if GUI should open
         NeoForge.EVENT_BUS.addListener(ClientUI::onPlayerInteractEntity);
+
+        NeoForge.EVENT_BUS.addListener(ClientUI::onClientTickPost);
 
         VillagerOverhaul.LOG().info("[VillagerOverhaul] ClientUI.registerRuntimeClientEvents(): handlers added");
     }
@@ -248,11 +244,28 @@ public final class ClientUI {
             if (e.getLevel() == null || !e.getLevel().isClientSide()) return;
             if (e.getHand() != InteractionHand.MAIN_HAND) return;
 
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
             Entity target = e.getTarget();
             if (!(target instanceof Villager)) return;
 
-            // Ask server if we are allowed to open patrol setup GUI.
-            ClientNetwork.sendToServer(new PacketPatrolInteractRequest(target.getId()));
+            int id = target.getId();
+
+            // Always ask server about patrol setup GUI eligibility (existing behavior)
+            ClientNetwork.sendToServer(new PacketPatrolInteractRequest(id));
+
+            // Also query our gate state so UI can show/hide controls
+            try {
+                ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketRecruitGateQuery(id));
+            } catch (Throwable ignored) {}
+
+            // If no screen is currently open, schedule quick-actions overlay
+            if (mc.screen == null) {
+                PENDING_QUICK_VILLAGER_ID = id;
+                PENDING_QUICK_AT_MS = System.currentTimeMillis();
+            }
+
         } catch (Throwable ignored) {}
     }
 
@@ -436,8 +449,9 @@ public final class ClientUI {
             // COMMANDS (toggle palette)
             Button cmdBtn = Button.builder(Component.literal("⚐"), btn -> {
                         try {
-                            boolean uiEnabled = isRecruitUiEnabled(screen);
-                            if (!uiEnabled) {
+
+                            boolean controlsEnabled = isControlsUiEnabled(screen);
+                            if (!controlsEnabled) {
                                 collapseCommands(screen);
                                 return;
                             }
@@ -751,8 +765,8 @@ public final class ClientUI {
             trySendCooldownQuery();
 
             // Apply initial gating visibility (if villager + not recruited => hide/disable ALL 4 buttons)
-            boolean uiEnabled = isRecruitUiEnabled(screen);
-            setUiButtonsVisible(screen, uiEnabled);
+            boolean controlsEnabled = isControlsUiEnabled(screen);
+            setUiButtonsVisible(screen, controlsEnabled);
 
             // Ensure palette starts collapsed and visuals are correct
             collapseCommands(screen);
@@ -777,8 +791,8 @@ public final class ClientUI {
             // Refresh recruit state occasionally (villager-only) and enforce visibility/active.
             trySendRecruitStateQueryIfNeeded(screen);
 
-            boolean uiEnabled = isRecruitUiEnabled(screen);
-            setUiButtonsVisible(screen, uiEnabled);
+            boolean controlsEnabled = isControlsUiEnabled(screen);
+            setUiButtonsVisible(screen, controlsEnabled);
 
             // ============================================================
             // NEW: keep movement highlight in sync with server
@@ -786,7 +800,7 @@ public final class ClientUI {
             trySendModeQueryIfNeeded(screen);
             updateMovementButtonsVisual(screen);
 
-            boolean expanded = uiEnabled && isCommandsExpanded(screen);
+            boolean expanded = controlsEnabled && isCommandsExpanded(screen);
 
             // Sync palette visibility (subs + header icons + backdrop)
             try {
@@ -813,7 +827,8 @@ public final class ClientUI {
             updateCommandsMainButtonVisual(screen);
 
             // If not recruited, do not draw reroll glyph, tooltip, or enable cooldown overlay.
-            if (!uiEnabled) {
+            if (!controlsEnabled) {
+                // Info stays usable; we only skip reroll tooltip/cooldown drawing when controls are gated.
                 return;
             }
 
@@ -929,6 +944,8 @@ public final class ClientUI {
 
     private static void renderTradeLockIndicators(ScreenEvent.Render.Post e, MerchantScreen screen) {
         try {
+            if (!isControlsUiEnabled(screen)) return;
+
             int cid = resolveContainerId(screen);
             if (cid < 0) return;
 
@@ -1995,6 +2012,127 @@ public final class ClientUI {
                 }
             }
         } catch (Throwable ignored) {}
+    }
+
+    // ====================
+    // FEATURE GATING
+    // ====================
+
+    // accept gate data from server
+    public static void acceptRecruitGateData(org.z2six.villageroverhaul.network.PacketRecruitGateData p) {
+        try {
+            if (p == null) return;
+            int id = p.villagerEntityId();
+            if (id <= 0) return;
+
+            RECRUIT_STATE.put(id, new RecruitStateSnap(p.recruited(), p.canUseControls(), System.currentTimeMillis()));
+        } catch (Throwable ignored) {}
+    }
+
+    private static void onClientTickPost(final net.neoforged.neoforge.client.event.ClientTickEvent.Post e) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            if (PENDING_QUICK_VILLAGER_ID <= 0) return;
+
+            long age = System.currentTimeMillis() - PENDING_QUICK_AT_MS;
+            if (age < QUICK_OPEN_DELAY_MS) return;
+
+            // If a MerchantScreen opened, don't open quick actions.
+            if (mc.screen instanceof MerchantScreen) {
+                PENDING_QUICK_VILLAGER_ID = -1;
+                return;
+            }
+
+            // If any other screen opened, also abort.
+            if (mc.screen != null) {
+                PENDING_QUICK_VILLAGER_ID = -1;
+                return;
+            }
+
+            if (age > QUICK_OPEN_TIMEOUT_MS) {
+                PENDING_QUICK_VILLAGER_ID = -1;
+                return;
+            }
+
+            int id = PENDING_QUICK_VILLAGER_ID;
+            PENDING_QUICK_VILLAGER_ID = -1;
+
+            mc.setScreen(new VillagerQuickActionsScreen(id));
+
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean canUseControlsForVillager(int villagerEntityId) {
+        try {
+            RecruitStateSnap snap = RECRUIT_STATE.get(villagerEntityId);
+            return snap != null && snap.recruited && snap.canUseControls;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void openVillagerInfoFromAnyParent(Screen parent, int villagerEntityId) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            // Try to construct VillagerInfoScreen with flexible constructors to avoid signature issues.
+            Class<?> clz = Class.forName("org.z2six.villageroverhaul.client.VillagerInfoScreen");
+
+            // (Screen,int)
+            try {
+                var c = clz.getConstructor(Screen.class, int.class);
+                Object inst = c.newInstance(parent, villagerEntityId);
+                if (inst instanceof Screen sc) {
+                    mc.setScreen(sc);
+                    return;
+                }
+            } catch (Throwable ignored) {}
+
+            // (MerchantScreen,int) if parent is MerchantScreen
+            try {
+                if (parent instanceof net.minecraft.client.gui.screens.inventory.MerchantScreen ms) {
+                    var c = clz.getConstructor(net.minecraft.client.gui.screens.inventory.MerchantScreen.class, int.class);
+                    Object inst = c.newInstance(ms, villagerEntityId);
+                    if (inst instanceof Screen sc) {
+                        mc.setScreen(sc);
+                        return;
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            // (int) fallback
+            try {
+                var c = clz.getConstructor(int.class);
+                Object inst = c.newInstance(villagerEntityId);
+                if (inst instanceof Screen sc) {
+                    mc.setScreen(sc);
+                }
+            } catch (Throwable ignored) {}
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] openVillagerInfoFromAnyParent failed", t);
+        }
+    }
+
+    /**
+     * For non-villagers: always enabled (unchanged behavior).
+     * For villagers: controls enabled only if recruited AND this client canUseControls (owner).
+     */
+    private static boolean isControlsUiEnabled(MerchantScreen screen) {
+        try {
+            if (!isVillagerTrader(screen)) return true; // non-villager traders unchanged
+
+            int id = resolveTraderEntityId(screen);
+            if (id <= 0) return false;
+
+            RecruitStateSnap snap = RECRUIT_STATE.get(id);
+            return snap != null && snap.recruited && snap.canUseControls;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private ClientUI() {}
