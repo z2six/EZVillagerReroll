@@ -24,7 +24,7 @@ public final class VillagerStatsService {
     public static final String K_INTELLECT  = "intellect";
     public static final String K_HOARDER    = "hoarder";
 
-    // NEW: Combat stat keys (stored as int points)
+    // Combat stat keys (stored as int points)
     public static final String K_VITALITY = "vitality";
     public static final String K_AGILITY  = "agility";
     public static final String K_STRENGTH = "strength";

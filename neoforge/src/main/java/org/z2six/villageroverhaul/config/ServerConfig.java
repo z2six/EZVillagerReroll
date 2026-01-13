@@ -38,7 +38,7 @@ public final class ServerConfig {
     public static final ModConfigSpec.ConfigValue<List<? extends Number>> LEVEL_COSTS;
 
     // ---------------------------------------------------------------------
-    // RECRUIT (NEW)
+    // RECRUIT ()
     // ---------------------------------------------------------------------
 
     public static final ModConfigSpec.IntValue RECRUIT_COST_MIN;
@@ -84,7 +84,7 @@ public final class ServerConfig {
     public static final ModConfigSpec.DoubleValue INTELLECT_MAX_PCT;
 
     // ---------------------------------------------------------------------
-    // COMBAT STATS (NEW)
+    // COMBAT STATS ()
     // ---------------------------------------------------------------------
     // These are the real-value ranges that points (-100..100) map into.
     // We keep them intentionally generic: they are *deltas* we apply as attribute modifiers later.
@@ -315,7 +315,7 @@ public final class ServerConfig {
                         .defineInRange("intellectMaxPct", 20.0, -1000.0, 1000.0);
 
         // ----------------------------
-        // NEW: Combat stat bounds
+        // Combat stat bounds
         // ----------------------------
 
         VITALITY_MIN_HEALTH =
@@ -434,7 +434,7 @@ public final class ServerConfig {
     public static double intellectMinPct = -20.0;
     public static double intellectMaxPct = 20.0;
 
-    // NEW: combat bounds
+    // combat bounds
     public static double vitalityMinHealth = -6.0;
     public static double vitalityMaxHealth = 10.0;
 
@@ -504,7 +504,7 @@ public final class ServerConfig {
             intellectMinPct = ii[0];
             intellectMaxPct = ii[1];
 
-            // NEW: combat bounds (normalize each pair)
+            // combat bounds (normalize each pair)
             double[] vh = normalizeMinMax(VITALITY_MIN_HEALTH.get(), VITALITY_MAX_HEALTH.get());
             vitalityMinHealth = vh[0];
             vitalityMaxHealth = vh[1];
@@ -632,7 +632,7 @@ public final class ServerConfig {
         h = 31 * h + hashD(intellectMinPct);
         h = 31 * h + hashD(intellectMaxPct);
 
-        // NEW: combat bounds
+        // combat bounds
         h = 31 * h + hashD(vitalityMinHealth);
         h = 31 * h + hashD(vitalityMaxHealth);
 

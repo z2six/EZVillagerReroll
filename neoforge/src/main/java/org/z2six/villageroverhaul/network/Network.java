@@ -48,22 +48,22 @@ public final class Network {
             r.playToServer(PacketContinueAutoSearch.TYPE, PacketContinueAutoSearch.STREAM_CODEC,
                     (msg, ctx) -> handleContinueAutoSearchServer(msg, ctx));
 
-            // NEW: cooldown state query
+            // cooldown state query
             r.playToServer(PacketRerollCooldownQuery.TYPE, PacketRerollCooldownQuery.STREAM_CODEC,
                     (msg, ctx) -> handleRerollCooldownQueryServer(msg, ctx));
 
-            // NEW: settlement payment actions
+            // settlement payment actions
             r.playToServer(PacketPayAutoSearchSettlement.TYPE, PacketPayAutoSearchSettlement.STREAM_CODEC,
                     (msg, ctx) -> handlePayAutoSearchSettlementServer(msg, ctx));
             r.playToServer(PacketDeclineAutoSearchSettlement.TYPE, PacketDeclineAutoSearchSettlement.STREAM_CODEC,
                     (msg, ctx) -> handleDeclineAutoSearchSettlementServer(msg, ctx));
 
-            // NEW: villager stats query
+            // villager stats query
             r.playToServer(PacketVillagerStatsQuery.TYPE, PacketVillagerStatsQuery.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerStatsQueryServer(msg, ctx));
 
             // ============================
-            // NEW: Recruit serverbound
+            // Recruit serverbound
             // ============================
             r.playToServer(PacketRecruitCostQuery.TYPE, PacketRecruitCostQuery.STREAM_CODEC,
                     (msg, ctx) -> handleRecruitCostQueryServer(msg, ctx));
@@ -71,7 +71,7 @@ public final class Network {
                     (msg, ctx) -> handleRecruitVillagerServer(msg, ctx));
 
             // ============================
-            // NEW: Patrol serverbound
+            // Patrol serverbound
             // ============================
             r.playToServer(PacketPatrolBegin.TYPE, PacketPatrolBegin.STREAM_CODEC,
                     (msg, ctx) -> handlePatrolBeginServer(msg, ctx));
@@ -143,7 +143,7 @@ public final class Network {
             r.playToClient(PacketVillagerModeData.TYPE, PacketVillagerModeData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onVillagerModeData", msg, ctx));
 
-            // === Recruit gate (NEW) ===
+            // === Recruit gate () ===
             r.playToServer(PacketRecruitGateQuery.TYPE, PacketRecruitGateQuery.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRecruitGateQuery(msg, ctx)));
 
@@ -190,7 +190,7 @@ public final class Network {
     }
 
     // ============================
-    // NEW: Patrol clientbound handler
+    // Patrol clientbound handler
     // ============================
     private static void handlePatrolOpenGuiClient(PacketPatrolOpenGui msg, IPayloadContext ctx) {
         try {
@@ -251,7 +251,7 @@ public final class Network {
     }
 
     // ============================
-    // NEW: Patrol serverbound forwarding
+    // Patrol serverbound forwarding
     // ============================
     private static void handlePatrolBeginServer(PacketPatrolBegin msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
@@ -308,11 +308,11 @@ public final class Network {
     public static void sendToServer(PacketPayAutoSearchSettlement msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketDeclineAutoSearchSettlement msg) { sendToServer((CustomPacketPayload) msg); }
 
-    // NEW: recruit convenience
+    // recruit convenience
     public static void sendToServer(PacketRecruitCostQuery msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketRecruitVillager msg) { sendToServer((CustomPacketPayload) msg); }
 
-    // NEW: patrol convenience (optional but nice)
+    // patrol convenience (optional but nice)
     public static void sendToServer(PacketPatrolBegin msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketPatrolAction msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketPatrolSetRouteType msg) { sendToServer((CustomPacketPayload) msg); }

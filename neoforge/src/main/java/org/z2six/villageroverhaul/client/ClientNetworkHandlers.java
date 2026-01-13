@@ -342,7 +342,7 @@ public final class ClientNetworkHandlers {
     }
 
     // -----------------------------------------------------------------------------------------
-    // NEW: Recruit screens + packets
+    // Recruit screens + packets
     // -----------------------------------------------------------------------------------------
 
     public static void onOpenRecruitScreen(Object msg, IPayloadContext ctx) {

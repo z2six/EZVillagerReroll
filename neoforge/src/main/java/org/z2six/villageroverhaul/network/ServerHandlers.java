@@ -32,7 +32,7 @@ import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.network.PacketVillagerCommand;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
-// NEW: patrol packets
+// patrol packets
 import org.z2six.villageroverhaul.network.PacketPatrolAction;
 import org.z2six.villageroverhaul.network.PacketPatrolBegin;
 import org.z2six.villageroverhaul.network.PacketPatrolInteractRequest;

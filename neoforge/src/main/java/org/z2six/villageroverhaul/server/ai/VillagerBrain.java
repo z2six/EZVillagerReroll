@@ -58,7 +58,7 @@ public final class VillagerBrain {
         IDLE("idle"),
         FOLLOW("follow"),
 
-        // NEW
+        // 
         PATROL_SETUP("patrol_setup"),
         PATROL("patrol");
 
@@ -537,7 +537,7 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
             }
 
-            // NEW: patrol setup follow goal (separate responsibility from FOLLOW)
+            // patrol setup follow goal (separate responsibility from FOLLOW)
             if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
                 vill.goalSelector.addGoal(1, new VillagerPatrolSetupFollowGoal(vill));
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
@@ -548,7 +548,7 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerFollowGoal (villager={})", vill.getUUID());
             }
 
-            // NEW: patrol execution goal
+            // patrol execution goal
             if (!hasGoal(vill, VillagerPatrolGoal.class)) {
                 vill.goalSelector.addGoal(3, new VillagerPatrolGoal(vill));
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolGoal (villager={})", vill.getUUID());

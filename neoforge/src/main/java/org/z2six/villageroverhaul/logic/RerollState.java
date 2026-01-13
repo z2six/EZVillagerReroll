@@ -17,7 +17,7 @@ public final class RerollState {
 
     private static final Map<UUID, Long> lastTick = new HashMap<>();
 
-    // --- NEW persistent daily cap keys ---
+    // ---  persistent daily cap keys ---
     private static final String TAG_ROOT = "ezvr";
     private static final String TAG_DAILY = "dailyReroll";
     private static final String TAG_DAY_IDX = "midnightDayIdx";
@@ -39,7 +39,7 @@ public final class RerollState {
             if (last != Long.MIN_VALUE && now - last < cooldown) return false;
         }
 
-        // daily cap (NEW, persistent, midnight reset)
+        // daily cap (, persistent, midnight reset)
         int cap = Math.max(0, ServerConfig.perVillagerDaily);
         if (cap > 0) {
             int remaining = getDailyRemaining(lvl, vill);

@@ -33,7 +33,7 @@ public final class ClientSyncedConfig {
 
         public int recruitCostMin, recruitCostMax;
 
-        // NEW: combat bounds
+        // combat bounds
         public double vitalityMinHealth, vitalityMaxHealth;
         public double agilityMinSpeed, agilityMaxSpeed;
         public double strengthMinDamage, strengthMaxDamage;
@@ -118,7 +118,7 @@ public final class ClientSyncedConfig {
             s.recruitCostMin = rMin;
             s.recruitCostMax = rMax;
 
-            // NEW: combat bounds (normalize each pair)
+            // combat bounds (normalize each pair)
             double vMin = msg.vitalityMinHealth, vMax = msg.vitalityMaxHealth;
             if (Double.isNaN(vMin)) vMin = 0.0;
             if (Double.isNaN(vMax)) vMax = 0.0;

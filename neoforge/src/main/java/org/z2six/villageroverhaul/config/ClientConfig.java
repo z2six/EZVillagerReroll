@@ -25,7 +25,7 @@ public final class ClientConfig {
                     """).defineInRange("ui.buttonOffsetY", -5, -5000, 5000);
 
     // ----------------------------
-    // NEW: Stats/info button offsets
+    // Stats/info button offsets
     // ----------------------------
 
     public static final ModConfigSpec.IntValue STATS_BUTTON_OFFSET_X =

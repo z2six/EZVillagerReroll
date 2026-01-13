@@ -256,7 +256,7 @@ public final class AutoSearchPaymentScreen extends Screen {
             int yTitle = y0;
             int yTime = yTitle + 18;
 
-            // NEW line
+            //  line
             int yRerolls = yTime + 14;
 
             int yHourly = yRerolls + 14;
@@ -593,7 +593,7 @@ public final class AutoSearchPaymentScreen extends Screen {
             int seconds = elapsedTicks / 20;
             drawCenteredKeyValueLine(gg, cx, y, "Time:", seconds + "s");
 
-            // NEW: rerolls line
+            // rerolls line
             y += 14;
             drawCenteredKeyValueLine(gg, cx, y, "Rerolls:", String.valueOf(Math.max(0, rerollCount)));
 

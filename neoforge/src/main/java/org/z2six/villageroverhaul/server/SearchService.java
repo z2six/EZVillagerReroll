@@ -52,7 +52,7 @@ public final class SearchService {
         final int lockedAtStart;
         final int offersRerolledPerRerollAtStart;
 
-        // NEW: number of successful rerolls performed during this task
+        // number of successful rerolls performed during this task
         int rerollCount = 0;
 
         long startedAtGameTime;

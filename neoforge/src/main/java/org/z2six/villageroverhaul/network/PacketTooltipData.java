@@ -22,7 +22,7 @@ public final class PacketTooltipData implements CustomPacketPayload {
         public Integer nextCostIfUsed;
         public Integer maxCostPossible;
 
-        // NEW: breakdown for offer-based pricing (purely informational)
+        // breakdown for offer-based pricing (purely informational)
         public int totalOffers;
         public int lockedOffers;
         public int deductibleLockedOffers;
@@ -46,7 +46,7 @@ public final class PacketTooltipData implements CustomPacketPayload {
         public int remaining;
         public int cap;
 
-        // NEW: ticks until the next reset at Minecraft midnight
+        // ticks until the next reset at Minecraft midnight
         // (20 ticks = 1 second real time)
         public int ticksUntilReset;
     }
@@ -115,7 +115,7 @@ public final class PacketTooltipData implements CustomPacketPayload {
             pkt.cap.remaining = buf.readVarInt();
             pkt.cap.cap = buf.readVarInt();
 
-            // NEW
+            // 
             pkt.cap.ticksUntilReset = buf.readVarInt();
 
             pkt.cfg.version = buf.readVarInt();
@@ -154,7 +154,7 @@ public final class PacketTooltipData implements CustomPacketPayload {
             buf.writeVarInt(pkt.cap.remaining);
             buf.writeVarInt(pkt.cap.cap);
 
-            // NEW
+            // 
             buf.writeVarInt(pkt.cap.ticksUntilReset);
 
             buf.writeVarInt(pkt.cfg.version);

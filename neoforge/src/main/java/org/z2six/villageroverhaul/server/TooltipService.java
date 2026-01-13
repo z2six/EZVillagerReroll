@@ -161,7 +161,7 @@ public final class TooltipService {
             }
 
             // ----------------------------------------------------------
-            // Daily cap + time-until-reset (NEW: ticksUntilReset)
+            // Daily cap + time-until-reset (ticksUntilReset)
             // ----------------------------------------------------------
             int cap = Math.max(0, ServerConfig.perVillagerDaily);
             boolean capEnabled = cap > 0;

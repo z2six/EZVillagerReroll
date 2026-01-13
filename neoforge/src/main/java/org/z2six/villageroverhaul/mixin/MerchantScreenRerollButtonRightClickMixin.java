@@ -44,7 +44,7 @@ public abstract class MerchantScreenRerollButtonRightClickMixin {
             if (!reroll.visible) return;
             if (!reroll.isMouseOver(mouseX, mouseY)) return;
 
-            // NEW: cooldown gate
+            // cooldown gate
             int containerId = -1;
             try {
                 if (ms.getMenu() instanceof MerchantMenu menu) containerId = menu.containerId;

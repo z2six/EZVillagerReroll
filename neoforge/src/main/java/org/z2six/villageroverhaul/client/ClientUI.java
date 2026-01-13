@@ -361,7 +361,7 @@ public final class ClientUI {
             // Ask server for recruited state (villager-only) so UI can decide visibility.
             trySendRecruitStateQueryIfNeeded(screen);
 
-            // NEW: ask server for current villager mode (for highlight)
+            // ask server for current villager mode (for highlight)
             trySendModeQueryIfNeeded(screen);
 
             // --------------------------------
@@ -709,7 +709,7 @@ public final class ClientUI {
                     subs.add(b);
 
                     // ============================================================
-                    // NEW: store movement buttons for green highlight updates
+                    // store movement buttons for green highlight updates
                     // ============================================================
                     try {
                         MOVEMENT_BTNS
@@ -771,7 +771,7 @@ public final class ClientUI {
             // Ensure palette starts collapsed and visuals are correct
             collapseCommands(screen);
 
-            // NEW: apply movement highlight once at init (will update again during render)
+            // apply movement highlight once at init (will update again during render)
             try {
                 updateMovementButtonsVisual(screen);
             } catch (Throwable ignored) {}
@@ -795,7 +795,7 @@ public final class ClientUI {
             setUiButtonsVisible(screen, controlsEnabled);
 
             // ============================================================
-            // NEW: keep movement highlight in sync with server
+            // keep movement highlight in sync with server
             // ============================================================
             trySendModeQueryIfNeeded(screen);
             updateMovementButtonsVisual(screen);
@@ -923,7 +923,7 @@ public final class ClientUI {
             COMMANDS_BACKDROPS.remove(e.getScreen());
             COMMANDS_HEADER_ICONS.remove(e.getScreen());
 
-            // NEW: movement highlight buttons cache
+            // movement highlight buttons cache
             MOVEMENT_BTNS.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
@@ -1099,7 +1099,7 @@ public final class ClientUI {
             int traderId = resolveTraderEntityId(screen);
             ClientNetwork.sendToServer(new PacketTooltipQuery(traderId));
 
-            // NEW: also request villager stats so we can compute Generosity-adjusted manual cost.
+            // also request villager stats so we can compute Generosity-adjusted manual cost.
             tryRequestVillagerStatsSnapshot(traderId);
 
         } catch (Throwable t) {
@@ -1736,7 +1736,7 @@ public final class ClientUI {
     }
 
     // =====================================================================
-    // NEW helper methods (paste anywhere inside ClientUI class)
+    //  helper methods (paste anywhere inside ClientUI class)
     // =====================================================================
 
     private static boolean isCommandsExpanded(Screen screen) {

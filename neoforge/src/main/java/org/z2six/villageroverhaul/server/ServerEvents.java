@@ -55,7 +55,7 @@ public final class ServerEvents {
             // sync server config to players when they log in (fixes client tooltip mapping)
             bus.addListener(ServerEvents::onPlayerLoggedIn);
 
-            // NEW: recruit RMB handler
+            // recruit RMB handler
             bus.addListener(ServerEvents::onEntityInteract);
 
             // villager/merchant stat initialization
@@ -63,6 +63,9 @@ public final class ServerEvents {
 
             // Villager brain/module attach (AI goals)
             bus.addListener(VillagerBrain::onEntityJoinLevel);
+            
+            // Villager's on spawn event for CombatInventory
+            VillagerCombatInventoryProbeEvents.register(bus);
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] ServerEvents registered on gameplay bus.");
         } catch (Throwable t) {
@@ -83,7 +86,7 @@ public final class ServerEvents {
         }
     }
 
-    // NEW: RMB unemployed villager -> open recruit screen
+    // RMB unemployed villager -> open recruit screen
     private static void onEntityInteract(PlayerInteractEvent.EntityInteract e) {
         try {
             if (e == null) return;
@@ -139,7 +142,7 @@ public final class ServerEvents {
             if (!(merchant instanceof Villager vill)) return;
 
             // ============================================================
-            // NEW: Pause patrol movement while trading GUI is open
+            // Pause patrol movement while trading GUI is open
             // ============================================================
             try {
                 if (org.z2six.villageroverhaul.server.ai.VillagerBrain.getMode(vill)
@@ -319,7 +322,7 @@ public final class ServerEvents {
             } catch (Throwable ignored) {}
 
             // ============================================================
-            // NEW: Resume patrol movement when trade menu closes
+            // Resume patrol movement when trade menu closes
             // ============================================================
             try {
                 var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();

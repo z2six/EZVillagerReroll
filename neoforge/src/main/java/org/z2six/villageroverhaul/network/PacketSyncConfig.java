@@ -44,7 +44,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public int recruitCostMin;
     public int recruitCostMax;
 
-    // NEW: combat bounds
+    // combat bounds
     public double vitalityMinHealth;
     public double vitalityMaxHealth;
 
@@ -113,7 +113,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.recruitCostMin = 8;
             p.recruitCostMax = 64;
 
-            // NEW: combat defaults
+            // combat defaults
             p.vitalityMinHealth = -6.0;
             p.vitalityMaxHealth = 10.0;
 
@@ -144,7 +144,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.recruitCostMin = Math.max(0, buf.readVarInt()); } catch (Throwable ignored) {}
             try { p.recruitCostMax = Math.max(0, buf.readVarInt()); } catch (Throwable ignored) {}
 
-            // NEW: combat bounds (append-only, safe to be missing)
+            // combat bounds (append-only, safe to be missing)
             try { p.vitalityMinHealth = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.vitalityMaxHealth = buf.readDouble(); } catch (Throwable ignored) {}
 
@@ -201,7 +201,7 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeVarInt(Math.max(0, p.recruitCostMin));
             buf.writeVarInt(Math.max(0, p.recruitCostMax));
 
-            // NEW: combat bounds (append-only)
+            // combat bounds (append-only)
             buf.writeDouble(p.vitalityMinHealth);
             buf.writeDouble(p.vitalityMaxHealth);
 
