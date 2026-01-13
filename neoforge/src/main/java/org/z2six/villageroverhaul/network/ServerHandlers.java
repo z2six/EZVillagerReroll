@@ -23,26 +23,27 @@ import org.z2six.villageroverhaul.logic.RerollExecutor;
 import org.z2six.villageroverhaul.logic.RerollState;
 import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.logic.WalletBridge;
+import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.server.CatalogBuilder;
 import org.z2six.villageroverhaul.server.SearchService;
-import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.network.PacketVillagerCommand;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
+// NEW: patrol packets
+import org.z2six.villageroverhaul.network.PacketPatrolAction;
+import org.z2six.villageroverhaul.network.PacketPatrolBegin;
+import org.z2six.villageroverhaul.network.PacketPatrolInteractRequest;
+import org.z2six.villageroverhaul.network.PacketPatrolOpenGui;
+import org.z2six.villageroverhaul.network.PacketPatrolSetRouteType;
+
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-/**
- * Server-side packet handlers.
- *
- * NOTE:
- * This file is a MERGE of the original ServerHandlers +
- * the new auto-search settlement payment logic.
- */
 public final class ServerHandlers {
 
     private ServerHandlers() {}
@@ -124,7 +125,6 @@ public final class ServerHandlers {
                 return;
             }
 
-            // Build catalog entries (server side)
             List<net.minecraft.world.item.ItemStack> items;
             try {
                 items = CatalogBuilder.buildCatalog(vill);
@@ -134,7 +134,6 @@ public final class ServerHandlers {
                 items = List.of();
             }
 
-            // ---- Cost preview computation (must match your config semantics) ----
             int offerCount = 0;
             try {
                 offerCount = (vill.getOffers() == null) ? 0 : Math.max(0, vill.getOffers().size());
@@ -251,10 +250,6 @@ public final class ServerHandlers {
         // no-op by design
     }
 
-    // =========================================================================================
-    // NEW: AUTO-SEARCH SETTLEMENT HANDLERS
-    // =========================================================================================
-
     public static void handlePayAutoSearchSettlement(PacketPayAutoSearchSettlement msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
@@ -269,7 +264,6 @@ public final class ServerHandlers {
                 return;
             }
 
-            // Read this while settlement is still present in SearchService map
             int settlementXp = 0;
             try {
                 settlementXp = Math.max(0, SearchService.getSettlementTotalVillagerXp(vill));
@@ -284,9 +278,6 @@ public final class ServerHandlers {
                 return;
             }
 
-            // ---------------------------------------------------------------------------------
-            // Award villager XP ONLY after payment succeeds.
-            // ---------------------------------------------------------------------------------
             int awardedXp = 0;
             try {
                 awardedXp = SearchService.awardSettlementVillagerXpIfAny(vill, settlement);
@@ -295,7 +286,6 @@ public final class ServerHandlers {
                 awardedXp = 0;
             }
 
-            // Remove settlement after successful payment + XP award attempt
             SearchService.popSettlement(vill.getUUID());
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] handlePayAutoSearchSettlement: success (player={} villager={} cost={} awardedXp={} settlementXp={})",
@@ -345,7 +335,149 @@ public final class ServerHandlers {
     }
 
     // =========================================================================================
-    // HELPERS
+    // NEW: PATROL HANDLERS
+    // =========================================================================================
+
+    public static void handlePatrolBegin(PacketPatrolBegin msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            if (!RecruitService.isRecruited(vill)) return;
+
+            boolean createNew = msg.createNew();
+
+            if (!createNew && VillagerBrain.hasFinalizedPatrol(vill)) {
+                VillagerBrain.startPatrolExisting(vill);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: start existing patrol (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+            } else {
+                // If user chose "existing" but none exists yet, we fail-soft into new setup.
+                VillagerBrain.beginPatrolSetup(vill, sp, true);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: begin new setup (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+            }
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolBegin failed", t);
+        }
+    }
+
+    public static void handlePatrolAction(PacketPatrolAction msg, IPayloadContext ctx) {
+        try {
+            if (msg == null || msg.action() == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            if (!RecruitService.isRecruited(vill)) return;
+
+            // Only setup owner can edit patrol during setup
+            UUID owner = VillagerBrain.getPatrolSetupOwner(vill);
+            if (owner == null || !owner.equals(sp.getUUID())) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolAction denied: not owner (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+                return;
+            }
+
+            switch (msg.action()) {
+                case ADD_WAYPOINT -> {
+                    VillagerBrain.addPatrolWaypointAtCurrentPos(vill);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolAction: add waypoint (count={} player={} villager={})",
+                            VillagerBrain.getPatrolWaypointCount(vill),
+                            sp.getGameProfile().getName(),
+                            vill.getUUID());
+                }
+                case FINALIZE -> {
+                    // Mark finalized; route type still needed to actually start
+                    VillagerBrain.markPatrolFinalized(vill);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolAction: finalized (awaiting route type) (player={} villager={})",
+                            sp.getGameProfile().getName(), vill.getUUID());
+                }
+                case CANCEL -> {
+                    VillagerBrain.cancelAndClearPatrol(vill);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolAction: canceled + cleared (player={} villager={})",
+                            sp.getGameProfile().getName(), vill.getUUID());
+                }
+            }
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolAction failed", t);
+        }
+    }
+
+    public static void handlePatrolRouteType(PacketPatrolSetRouteType msg, IPayloadContext ctx) {
+        try {
+            if (msg == null || msg.routeType() == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            if (!RecruitService.isRecruited(vill)) return;
+
+            UUID owner = VillagerBrain.getPatrolSetupOwner(vill);
+            if (owner == null || !owner.equals(sp.getUUID())) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolRouteType denied: not owner (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+                return;
+            }
+
+            VillagerBrain.setPatrolRouteTypeAndStart(vill, msg.routeType());
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolRouteType: start patrol (type={} player={} villager={})",
+                    msg.routeType(), sp.getGameProfile().getName(), vill.getUUID());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolRouteType failed", t);
+        }
+    }
+
+    public static void handlePatrolInteractRequest(PacketPatrolInteractRequest msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) {
+                ctx.reply(new PacketPatrolOpenGui(id, false, 0, false));
+                return;
+            }
+
+            boolean hasData = VillagerBrain.hasAnyPatrolData(vill);
+
+            boolean canOpen = false;
+            int count = 0;
+
+            if (RecruitService.isRecruited(vill)
+                    && VillagerBrain.getMode(vill) == VillagerBrain.Mode.PATROL_SETUP) {
+                UUID owner = VillagerBrain.getPatrolSetupOwner(vill);
+                if (owner != null && owner.equals(sp.getUUID())) {
+                    canOpen = true;
+                    count = VillagerBrain.getPatrolWaypointCount(vill);
+                }
+            }
+
+            ctx.reply(new PacketPatrolOpenGui(id, canOpen, count, hasData));
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolInteractRequest failed", t);
+            try {
+                ctx.reply(new PacketPatrolOpenGui(msg == null ? 0 : msg.villagerEntityId(), false, 0, false));
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    // =========================================================================================
+    // HELPERS (UNCHANGED)
     // =========================================================================================
 
     private static boolean tryChargePlayer(ServerPlayer sp, int cost) {
@@ -392,10 +524,8 @@ public final class ServerHandlers {
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
             if (!(trader instanceof Villager vill)) return;
 
-            // Remaining cooldown (already uses the effective cooldown via RerollState)
             int remaining = RerollState.cooldownRemainingTicks(sp.serverLevel(), vill);
 
-            // Configured cooldown shown to client SHOULD match what the server uses (Timeliness-adjusted)
             int configured = 0;
             try {
                 int base = ServerConfig.cooldownTicks;
@@ -407,10 +537,9 @@ public final class ServerHandlers {
 
                     configured = VillagerTraitEffects.applyCooldownPercent(base, pct);
 
-                    // cooldown enabled => never allow it to become "0" from modifiers
                     if (configured <= 0) configured = 1;
                 } else {
-                    configured = 0; // disabled at config level
+                    configured = 0;
                 }
             } catch (Throwable ignored) {
                 configured = Math.max(0, ServerConfig.cooldownTicks);
@@ -431,13 +560,6 @@ public final class ServerHandlers {
         } catch (Throwable ignored) {}
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Settlement snapshot decoding (NBT -> MerchantOffer list)
-    // We intentionally keep this logic local so we do NOT depend on your TradeUtil internals.
-    // It only requires that offersIfDecline/offersIfPay were saved as a ListTag of offer objects
-    // encoded via MerchantOffer.CODEC (which is how 1.21.x expects it).
-    // -----------------------------------------------------------------------------------------
-
     private static boolean applyOffersFromOfferTagList(Villager vill, ListTag offerList, String reason) {
         try {
             if (vill == null) return false;
@@ -452,7 +574,6 @@ public final class ServerHandlers {
             for (int i = 0; i < n; i++) {
                 final int idx = i;
 
-                // offerList elements are CompoundTag wrappers { "v": <offerTag> }
                 net.minecraft.nbt.CompoundTag wrap;
                 try {
                     wrap = offerList.getCompound(i);
@@ -489,8 +610,6 @@ public final class ServerHandlers {
         try {
             if (vill == null || offers == null) return false;
 
-            // Try common field names across mappings/versions.
-            // We do not crash if this fails; we just log and return false.
             String[] fieldNames = new String[]{"offers", "merchantOffers", "tradeOffers"};
             for (String name : fieldNames) {
                 try {
@@ -502,12 +621,9 @@ public final class ServerHandlers {
                         current.addAll(offers);
                         return true;
                     }
-                } catch (NoSuchFieldException ignored) {
-                    // try next
-                }
+                } catch (NoSuchFieldException ignored) {}
             }
 
-            // Walk superclasses in case field is on AbstractVillager
             Class<?> c = vill.getClass().getSuperclass();
             while (c != null && c != Object.class) {
                 for (String name : fieldNames) {
@@ -520,9 +636,7 @@ public final class ServerHandlers {
                             current.addAll(offers);
                             return true;
                         }
-                    } catch (NoSuchFieldException ignored) {
-                        // try next
-                    }
+                    } catch (NoSuchFieldException ignored) {}
                 }
                 c = c.getSuperclass();
             }
@@ -554,7 +668,6 @@ public final class ServerHandlers {
             Villager vill = resolveVillagerFor(sp, id);
             if (vill == null) return;
 
-            // Hard gate: only recruited villagers accept commands
             if (!RecruitService.isRecruited(vill)) return;
 
             switch (msg.command()) {
@@ -570,5 +683,4 @@ public final class ServerHandlers {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerCommand failed", t);
         }
     }
-
 }

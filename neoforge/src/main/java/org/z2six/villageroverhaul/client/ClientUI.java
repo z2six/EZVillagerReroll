@@ -40,6 +40,18 @@ import org.z2six.villageroverhaul.network.PacketRecruitCostQuery;
 import org.z2six.villageroverhaul.network.PacketRecruitCostData;
 import net.minecraft.world.entity.npc.Villager;
 import org.z2six.villageroverhaul.network.PacketVillagerCommand;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import org.z2six.villageroverhaul.network.PacketPatrolInteractRequest;
+import org.z2six.villageroverhaul.network.PacketPatrolOpenGui;
+import org.z2six.villageroverhaul.client.PatrolBeginPromptScreen;
+import org.z2six.villageroverhaul.client.PatrolSetupScreen;
+import org.z2six.villageroverhaul.network.PacketPatrolBegin;
+import org.z2six.villageroverhaul.network.PacketPatrolAction;
+import org.z2six.villageroverhaul.network.PacketPatrolSetRouteType;
+
+
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -213,7 +225,38 @@ public final class ClientUI {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenRenderPost);
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenClosed);
 
+        // NEW: RMB on villager during PATROL_SETUP -> server decides if GUI should open
+        NeoForge.EVENT_BUS.addListener(ClientUI::onPlayerInteractEntity);
+
         VillagerOverhaul.LOG().info("[VillagerOverhaul] ClientUI.registerRuntimeClientEvents(): handlers added");
+    }
+
+    private static void onPlayerInteractEntity(final PlayerInteractEvent.EntityInteract e) {
+        try {
+            if (e == null) return;
+            if (e.getLevel() == null || !e.getLevel().isClientSide()) return;
+            if (e.getHand() != InteractionHand.MAIN_HAND) return;
+
+            Entity target = e.getTarget();
+            if (!(target instanceof Villager)) return;
+
+            // Ask server if we are allowed to open patrol setup GUI.
+            ClientNetwork.sendToServer(new PacketPatrolInteractRequest(target.getId()));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void acceptPatrolOpenGui(PacketPatrolOpenGui p) {
+        try {
+            if (p == null) return;
+            if (!p.canOpen()) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            mc.setScreen(new PatrolSetupScreen(p.villagerEntityId(), p.waypointCount()));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] acceptPatrolOpenGui failed", t);
+        }
     }
 
     public static Button getRerollButtonFor(Screen screen) {
@@ -587,8 +630,18 @@ public final class ClientUI {
 
                                         VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: FOLLOW (villagerEntityId={})", villagerEntityId);
 
+                                    } else if ("Patrol".equalsIgnoreCase(label)) {
+                                        // NEW FLOW:
+                                        // If patrol data exists: user can choose existing or create new.
+                                        // If none exists: "Use existing" will just fail-soft server-side and setup new if needed.
+                                        Minecraft mc = Minecraft.getInstance();
+                                        if (mc != null) {
+                                            mc.setScreen(new PatrolBeginPromptScreen(screen, villagerEntityId));
+                                        }
+
+                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: PATROL prompt opened (villagerEntityId={})", villagerEntityId);
+
                                     } else {
-                                        // Patrol (or anything else not implemented yet)
                                         VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command clicked: {} (villagerEntityId={})",
                                                 label, villagerEntityId);
                                     }

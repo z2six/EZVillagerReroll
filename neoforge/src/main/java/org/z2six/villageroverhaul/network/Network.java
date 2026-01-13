@@ -70,6 +70,18 @@ public final class Network {
             r.playToServer(PacketRecruitVillager.TYPE, PacketRecruitVillager.STREAM_CODEC,
                     (msg, ctx) -> handleRecruitVillagerServer(msg, ctx));
 
+            // ============================
+            // NEW: Patrol serverbound
+            // ============================
+            r.playToServer(PacketPatrolBegin.TYPE, PacketPatrolBegin.STREAM_CODEC,
+                    (msg, ctx) -> handlePatrolBeginServer(msg, ctx));
+            r.playToServer(PacketPatrolAction.TYPE, PacketPatrolAction.STREAM_CODEC,
+                    (msg, ctx) -> handlePatrolActionServer(msg, ctx));
+            r.playToServer(PacketPatrolSetRouteType.TYPE, PacketPatrolSetRouteType.STREAM_CODEC,
+                    (msg, ctx) -> handlePatrolRouteTypeServer(msg, ctx));
+            r.playToServer(PacketPatrolInteractRequest.TYPE, PacketPatrolInteractRequest.STREAM_CODEC,
+                    (msg, ctx) -> handlePatrolInteractRequestServer(msg, ctx));
+
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTooltipData", msg, ctx));
@@ -110,6 +122,13 @@ public final class Network {
                     (msg, ctx) -> dispatchToClientHandler("onRecruitCostData", msg, ctx));
             r.playToClient(PacketRecruitResult.TYPE, PacketRecruitResult.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onRecruitResult", msg, ctx));
+
+            // ============================
+            // NEW: Patrol clientbound
+            // ============================
+            // We do NOT require a ClientNetworkHandlers method; we route directly to ClientUI via reflection.
+            r.playToClient(PacketPatrolOpenGui.TYPE, PacketPatrolOpenGui.STREAM_CODEC,
+                    (msg, ctx) -> handlePatrolOpenGuiClient(msg, ctx));
 
             // Villager AI
             r.playToServer(PacketVillagerCommand.TYPE, PacketVillagerCommand.STREAM_CODEC,
@@ -153,6 +172,30 @@ public final class Network {
         } catch (Throwable ignored) {}
     }
 
+    // ============================
+    // NEW: Patrol clientbound handler
+    // ============================
+    private static void handlePatrolOpenGuiClient(PacketPatrolOpenGui msg, IPayloadContext ctx) {
+        try {
+            ctx.enqueueWork(() -> {
+                try {
+                    if (!isClientDist()) return;
+                    if (msg == null) return;
+
+                    // Call ClientUI.acceptPatrolOpenGui(PacketPatrolOpenGui) via reflection to avoid hard client refs.
+                    Class<?> ui = Class.forName("org.z2six.villageroverhaul.client.ClientUI");
+                    try {
+                        ui.getMethod("acceptPatrolOpenGui", msg.getClass()).invoke(null, msg);
+                    } catch (NoSuchMethodException ex) {
+                        ui.getMethod("acceptPatrolOpenGui", Object.class).invoke(null, msg);
+                    }
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolOpenGuiClient failed", t);
+                }
+            });
+        } catch (Throwable ignored) {}
+    }
+
     private static boolean isClientDist() {
         try {
             Class<?> env = Class.forName("net.neoforged.fml.loading.FMLEnvironment");
@@ -190,6 +233,50 @@ public final class Network {
         });
     }
 
+    // ============================
+    // NEW: Patrol serverbound forwarding
+    // ============================
+    private static void handlePatrolBeginServer(PacketPatrolBegin msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handlePatrolBegin(msg, ctx);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] PatrolBegin handler error", t);
+            }
+        });
+    }
+
+    private static void handlePatrolActionServer(PacketPatrolAction msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handlePatrolAction(msg, ctx);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] PatrolAction handler error", t);
+            }
+        });
+    }
+
+    private static void handlePatrolRouteTypeServer(PacketPatrolSetRouteType msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handlePatrolRouteType(msg, ctx);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] PatrolRouteType handler error", t);
+            }
+        });
+    }
+
+    private static void handlePatrolInteractRequestServer(PacketPatrolInteractRequest msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handlePatrolInteractRequest(msg, ctx);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] PatrolInteractRequest handler error", t);
+            }
+        });
+    }
+
+    // existing convenience overloads
     public static void sendToServer(PacketRequestReroll msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketTooltipQuery msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketTradeLocksQuery msg) { sendToServer((CustomPacketPayload) msg); }
@@ -207,6 +294,12 @@ public final class Network {
     // NEW: recruit convenience
     public static void sendToServer(PacketRecruitCostQuery msg) { sendToServer((CustomPacketPayload) msg); }
     public static void sendToServer(PacketRecruitVillager msg) { sendToServer((CustomPacketPayload) msg); }
+
+    // NEW: patrol convenience (optional but nice)
+    public static void sendToServer(PacketPatrolBegin msg) { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketPatrolAction msg) { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketPatrolSetRouteType msg) { sendToServer((CustomPacketPayload) msg); }
+    public static void sendToServer(PacketPatrolInteractRequest msg) { sendToServer((CustomPacketPayload) msg); }
 
     private static void handleTooltipQueryServer(PacketTooltipQuery msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
@@ -447,7 +540,6 @@ public final class Network {
 
                 boolean marked = RecruitService.markRecruited(sp, vill);
                 if (!marked) {
-                    // Best-effort refund if we charged
                     if (cost > 0) {
                         try {
                             ItemStack refund = new ItemStack(Items.EMERALD, cost);
