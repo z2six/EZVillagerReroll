@@ -335,7 +335,7 @@ public final class ServerHandlers {
     }
 
     // =========================================================================================
-    // NEW: PATROL HANDLERS
+    // PATROL HANDLERS
     // =========================================================================================
 
     public static void handlePatrolBegin(PacketPatrolBegin msg, IPayloadContext ctx) {
@@ -351,16 +351,29 @@ public final class ServerHandlers {
 
             boolean createNew = msg.createNew();
 
-            if (!createNew && VillagerBrain.hasFinalizedPatrol(vill)) {
-                VillagerBrain.startPatrolExisting(vill);
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: start existing patrol (player={} villager={})",
-                        sp.getGameProfile().getName(), vill.getUUID());
-            } else {
-                // If user chose "existing" but none exists yet, we fail-soft into new setup.
-                VillagerBrain.beginPatrolSetup(vill, sp, true);
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: begin new setup (player={} villager={})",
-                        sp.getGameProfile().getName(), vill.getUUID());
+            if (!createNew) {
+                // Existing-only: do NOT fall back into setup.
+                if (VillagerBrain.hasFinalizedPatrol(vill)) {
+                    VillagerBrain.startPatrolExisting(vill);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: start existing patrol (player={} villager={})",
+                            sp.getGameProfile().getName(), vill.getUUID());
+                } else {
+                    // Tell player and keep state unchanged (soft).
+                    try {
+                        sp.sendSystemMessage(net.minecraft.network.chat.Component.literal("No existing patrol route recorded for this villager.")
+                                .withStyle(net.minecraft.ChatFormatting.RED));
+                    } catch (Throwable ignored) {}
+
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: no existing patrol route (player={} villager={})",
+                            sp.getGameProfile().getName(), vill.getUUID());
+                }
+                return;
             }
+
+            // createNew == true
+            VillagerBrain.beginPatrolSetup(vill, sp, true);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: begin new setup (player={} villager={})",
+                    sp.getGameProfile().getName(), vill.getUUID());
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolBegin failed", t);
@@ -388,14 +401,18 @@ public final class ServerHandlers {
 
             switch (msg.action()) {
                 case ADD_WAYPOINT -> {
-                    VillagerBrain.addPatrolWaypointAtCurrentPos(vill);
+                    if (msg.hasPos()) {
+                        VillagerBrain.addPatrolWaypointFromClientPos(vill, new net.minecraft.world.phys.Vec3(msg.x(), msg.y(), msg.z()));
+                    } else {
+                        VillagerBrain.addPatrolWaypointAtCurrentPos(vill);
+                    }
+
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolAction: add waypoint (count={} player={} villager={})",
                             VillagerBrain.getPatrolWaypointCount(vill),
                             sp.getGameProfile().getName(),
                             vill.getUUID());
                 }
                 case FINALIZE -> {
-                    // Mark finalized; route type still needed to actually start
                     VillagerBrain.markPatrolFinalized(vill);
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolAction: finalized (awaiting route type) (player={} villager={})",
                             sp.getGameProfile().getName(), vill.getUUID());
@@ -452,21 +469,22 @@ public final class ServerHandlers {
                 return;
             }
 
-            boolean hasData = VillagerBrain.hasAnyPatrolData(vill);
+            // "hasPatrolData" should mean: has a usable, finalized patrol route
+            boolean hasFinalizedRoute = VillagerBrain.hasFinalizedPatrol(vill);
+            int waypointCount = VillagerBrain.getPatrolWaypointCount(vill);
 
             boolean canOpen = false;
-            int count = 0;
 
+            // Setup screen opens only if we're currently in PATROL_SETUP and the requester is the owner.
             if (RecruitService.isRecruited(vill)
                     && VillagerBrain.getMode(vill) == VillagerBrain.Mode.PATROL_SETUP) {
                 UUID owner = VillagerBrain.getPatrolSetupOwner(vill);
                 if (owner != null && owner.equals(sp.getUUID())) {
                     canOpen = true;
-                    count = VillagerBrain.getPatrolWaypointCount(vill);
                 }
             }
 
-            ctx.reply(new PacketPatrolOpenGui(id, canOpen, count, hasData));
+            ctx.reply(new PacketPatrolOpenGui(id, canOpen, waypointCount, hasFinalizedRoute));
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolInteractRequest failed", t);

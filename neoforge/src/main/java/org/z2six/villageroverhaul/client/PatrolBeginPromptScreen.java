@@ -9,11 +9,15 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.PacketPatrolBegin;
+import org.z2six.villageroverhaul.network.PacketPatrolInteractRequest;
 
 public final class PatrolBeginPromptScreen extends Screen {
 
     private final Screen parent;
     private final int villagerEntityId;
+
+    private Button useExistingBtn;
+    private boolean serverStateReceived = false;
 
     public PatrolBeginPromptScreen(Screen parent, int villagerEntityId) {
         super(Component.literal("Patrol"));
@@ -29,8 +33,8 @@ public final class PatrolBeginPromptScreen extends Screen {
         int w = 220;
         int h = 20;
 
-        // Use existing route
-        this.addRenderableWidget(Button.builder(Component.literal("Use existing patrol"), b -> {
+        // Use existing route (disabled until server confirms a finalized route exists)
+        useExistingBtn = this.addRenderableWidget(Button.builder(Component.literal("Use existing patrol"), b -> {
                     try {
                         ClientNetwork.sendToServer(new PacketPatrolBegin(villagerEntityId, false));
                         notifyStarted(false);
@@ -41,6 +45,9 @@ public final class PatrolBeginPromptScreen extends Screen {
                 })
                 .bounds(cx - w / 2, cy - 30, w, h)
                 .build());
+
+        // Start disabled; will be enabled if server says route exists
+        useExistingBtn.active = false;
 
         // Create new
         this.addRenderableWidget(Button.builder(Component.literal("Create new patrol"), b -> {
@@ -59,6 +66,31 @@ public final class PatrolBeginPromptScreen extends Screen {
         this.addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> closeToParent())
                 .bounds(cx - w / 2, cy + 20, w, h)
                 .build());
+
+        // Ask server whether a finalized patrol route exists for this villager.
+        // Server replies with PacketPatrolOpenGui (we reuse hasPatrolData as "has finalized route").
+        try {
+            ClientNetwork.sendToServer(new PacketPatrolInteractRequest(villagerEntityId));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] PatrolBeginPromptScreen query failed (soft): {}", t.toString());
+        }
+    }
+
+    /**
+     * Called by ClientUI when PacketPatrolOpenGui arrives while this prompt is open.
+     * hasPatrolData is interpreted as: "has finalized patrol route".
+     */
+    public void acceptServerState(boolean hasFinalizedRoute) {
+        try {
+            serverStateReceived = true;
+            if (useExistingBtn != null) {
+                useExistingBtn.active = hasFinalizedRoute;
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public int getVillagerEntityId() {
+        return villagerEntityId;
     }
 
     private void notifyStarted(boolean isNew) {

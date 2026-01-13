@@ -7,6 +7,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.PacketPatrolAction;
 
@@ -31,7 +33,30 @@ public final class PatrolSetupScreen extends Screen {
 
         this.addRenderableWidget(Button.builder(Component.literal("Add waypoint (" + waypointCount + ")"), b -> {
                     try {
-                        ClientNetwork.sendToServer(new PacketPatrolAction(villagerEntityId, PacketPatrolAction.Action.ADD_WAYPOINT));
+                        // Capture the client-observed villager position at click time.
+                        Minecraft mc = Minecraft.getInstance();
+                        Vec3 pos = null;
+
+                        if (mc != null && mc.level != null) {
+                            Entity ent = mc.level.getEntity(villagerEntityId);
+                            if (ent != null) pos = ent.position();
+                        }
+
+                        if (pos != null) {
+                            ClientNetwork.sendToServer(new PacketPatrolAction(
+                                    villagerEntityId,
+                                    PacketPatrolAction.Action.ADD_WAYPOINT,
+                                    true,
+                                    pos.x, pos.y, pos.z
+                            ));
+                        } else {
+                            // Fallback: no client entity found, send without pos (server will use server position).
+                            ClientNetwork.sendToServer(new PacketPatrolAction(
+                                    villagerEntityId,
+                                    PacketPatrolAction.Action.ADD_WAYPOINT
+                            ));
+                        }
+
                         toast("Waypoint added.", ChatFormatting.YELLOW);
                     } catch (Throwable t) {
                         VillagerOverhaul.LOG().error("[VillagerOverhaul] Add waypoint failed", t);

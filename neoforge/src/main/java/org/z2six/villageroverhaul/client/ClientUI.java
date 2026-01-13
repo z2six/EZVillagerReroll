@@ -248,12 +248,23 @@ public final class ClientUI {
     public static void acceptPatrolOpenGui(PacketPatrolOpenGui p) {
         try {
             if (p == null) return;
-            if (!p.canOpen()) return;
 
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
 
-            mc.setScreen(new PatrolSetupScreen(p.villagerEntityId(), p.waypointCount()));
+            // Case A: server says open the setup GUI (only happens in PATROL_SETUP for owner)
+            if (p.canOpen()) {
+                mc.setScreen(new PatrolSetupScreen(p.villagerEntityId(), p.waypointCount()));
+                return;
+            }
+
+            // Case B: we are on the PatrolBeginPromptScreen and we just needed the "has existing route" bit.
+            if (mc.screen instanceof PatrolBeginPromptScreen prompt) {
+                if (prompt.getVillagerEntityId() == p.villagerEntityId()) {
+                    prompt.acceptServerState(p.hasPatrolData());
+                }
+            }
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] acceptPatrolOpenGui failed", t);
         }

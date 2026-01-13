@@ -401,6 +401,31 @@ public final class VillagerBrain {
     }
 
     // ============================================================
+    // Patrol stuff
+    // ============================================================
+
+    public static void addPatrolWaypointFromClientPos(Villager vill, Vec3 clientPos) {
+        try {
+            if (vill == null || clientPos == null) return;
+            if (getMode(vill) != Mode.PATROL_SETUP) return;
+
+            // Sanitize: accept client position only if it's close to server position
+            // (prevents spoofing / desync issues).
+            Vec3 serverPos = vill.position();
+            double dx = clientPos.x - serverPos.x;
+            double dy = clientPos.y - serverPos.y;
+            double dz = clientPos.z - serverPos.z;
+
+            double dist2 = dx * dx + dy * dy + dz * dz;
+
+            // Within 4 blocks (squared = 16) => accept; else fallback to server pos
+            Vec3 finalPos = (dist2 <= 16.0) ? clientPos : serverPos;
+
+            addWaypointInternal(vill, finalPos);
+        } catch (Throwable ignored) {}
+    }
+
+    // ============================================================
     // Mode getters (used by goals/modules)
     // ============================================================
 
@@ -579,6 +604,10 @@ public final class VillagerBrain {
             Brain<?> brain = vill.getBrain();
             if (brain == null) return;
 
+            // We must NOT remove memory module KEYS from the brain's internal map.
+            // Doing so causes "Unregistered memory fetched" crashes when sensors access expected keys.
+            // Instead: eraseMemory(...) which clears the VALUE while preserving registration.
+
             Map<MemoryModuleType<?>, ?> memories = null;
 
             for (var f : brain.getClass().getDeclaredFields()) {
@@ -597,7 +626,19 @@ public final class VillagerBrain {
 
             if (memories == null || memories.isEmpty()) return;
 
-            memories.keySet().removeIf(k -> k != null && (keep == null || !keep.contains(k)));
+            // Snapshot keys to avoid concurrent modification.
+            List<MemoryModuleType<?>> keys = new ArrayList<>(memories.keySet());
+
+            for (MemoryModuleType<?> k : keys) {
+                if (k == null) continue;
+                if (keep != null && keep.contains(k)) continue;
+
+                try {
+                    brain.eraseMemory((MemoryModuleType<Object>) k);
+                } catch (Throwable ignoredErase) {
+                    // soft
+                }
+            }
 
         } catch (Throwable ignored) {}
     }
