@@ -1,3 +1,5 @@
+// VillagerInventoryMenu.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/menu/VillagerInventoryMenu.java
 package org.z2six.villageroverhaul.menu;
 
 import net.minecraft.network.FriendlyByteBuf;
@@ -6,11 +8,14 @@ import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ItemStack;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.server.VillagerAccessGate;
@@ -30,41 +35,80 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
     // (Must match VillagerInventoryScreen layout)
     // =========================
 
+    // Equipment slots (6) LEFT side
+    public static final int EQUIP_X = 10;
+    public static final int ARMOR_Y0 = 40;  // head, chest, legs, feet
+    public static final int HANDS_Y0 = 132; // mainhand, offhand
+
     // Villager pickup inventory (real slots): 4x2 BELOW the model
-    // (Centered under model box)
     public static final int VILL_INV_X0 = 46;
     public static final int VILL_INV_Y0 = 162;
 
     // Player inventory: RIGHT of model
-    // (3 rows + hotbar)
     public static final int PLAYER_SLOTS_X0 = 142;
     public static final int PLAYER_SLOTS_Y0 = 46;
 
-    // (These two are no longer used for labels, but kept for consistency/debug)
+    // (Kept for consistency/debug)
     public static final int PLAYER_INV_X = PLAYER_SLOTS_X0 - 8;
     public static final int PLAYER_INV_Y = PLAYER_SLOTS_Y0 - 8;
 
+    // =========================
+    // Slot ranges (indices)
+    // =========================
+    private static final int EQUIP_START = 0;
+    private static final int EQUIP_COUNT = 6;
+    private static final int EQUIP_END_EXCL = EQUIP_START + EQUIP_COUNT;
+
+    private static final int VILL_START = EQUIP_END_EXCL;      // 6
+    private static final int VILL_COUNT = 8;
+    private static final int VILL_END_EXCL = VILL_START + VILL_COUNT; // 14
+
+    private static final int PLAYER_INV_START = VILL_END_EXCL; // 14
+    private static final int PLAYER_INV_COUNT = 27;
+    private static final int PLAYER_INV_END_EXCL = PLAYER_INV_START + PLAYER_INV_COUNT; // 41
+
+    private static final int HOTBAR_START = PLAYER_INV_END_EXCL; // 41
+    private static final int HOTBAR_COUNT = 9;
+    private static final int HOTBAR_END_EXCL = HOTBAR_START + HOTBAR_COUNT; // 50
+
     private final int villagerEntityId;
     private final Container villagerInv; // size 8
+    private final Container villagerEquip; // size 6 (proxy to EquipmentSlot)
+    private final LivingEntity serverVillagerRefOrNull;
 
     public VillagerInventoryMenu(int containerId, Inventory playerInv, int villagerEntityId, Container villagerInv) {
+        this(containerId, playerInv, villagerEntityId, villagerInv, null);
+    }
+
+    /**
+     * Server-side convenience: pass the actual villager entity so equipment slots are direct & fast.
+     */
+    public VillagerInventoryMenu(int containerId, Inventory playerInv, int villagerEntityId, Container villagerInv, LivingEntity serverVillagerRefOrNull) {
         super(ModMenus.VILLAGER_INVENTORY.get(), containerId);
         this.villagerEntityId = villagerEntityId;
         this.villagerInv = (villagerInv == null) ? new SimpleContainer(8) : villagerInv;
+        this.serverVillagerRefOrNull = serverVillagerRefOrNull;
 
-        // REAL slots: villager pickup inv (8)
+        // Real equipment proxy (works on BOTH sides; client resolves entity via reflection)
+        this.villagerEquip = new EntityEquipmentContainer(villagerEntityId, serverVillagerRefOrNull);
+
+        // REAL slots: equipment first (indices 0..5)
+        addEquipmentSlots(this.villagerEquip);
+
+        // REAL slots: villager pickup inv (indices 6..13)
         addVillagerInventorySlots(this.villagerInv);
 
-        // REAL slots: player inventory + hotbar
+        // REAL slots: player inventory + hotbar (indices 14..49)
         addPlayerInventory(playerInv);
     }
 
     /**
      * NeoForge menu factory constructor: (int, Inventory, FriendlyByteBuf)
-     * Client-side instance uses a SimpleContainer(8); server will sync contents.
+     * Client-side instance uses a SimpleContainer(8); server will sync contents for villager pickup inventory.
+     * Equipment slots read from entity on client, via reflection lookup by entityId.
      */
     public VillagerInventoryMenu(int containerId, Inventory playerInv, FriendlyByteBuf buf) {
-        this(containerId, playerInv, safeReadVillagerId(buf), new SimpleContainer(8));
+        this(containerId, playerInv, safeReadVillagerId(buf), new SimpleContainer(8), null);
     }
 
     public int getVillagerEntityId() {
@@ -108,30 +152,23 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
             ItemStack stackInSlot = slot.getItem();
             ItemStack copy = stackInSlot.copy();
 
-            // Layout:
-            // 0..7    = villager pickup inv (8)
-            // 8..34   = player main (27)
-            // 35..43  = hotbar (9)
-            final int VILL_START = 0;
-            final int VILL_END_EXCL = 8;
+            // Ranges are defined above.
 
-            final int PLAYER_INV_START = 8;
-            final int PLAYER_INV_END_EXCL = 8 + 27;
-
-            final int HOTBAR_START = PLAYER_INV_END_EXCL;
-            final int HOTBAR_END_EXCL = HOTBAR_START + 9;
-
-            if (index >= VILL_START && index < VILL_END_EXCL) {
-                // villager -> player (inv + hotbar)
+            if (index >= EQUIP_START && index < EQUIP_END_EXCL) {
+                // equipment -> player
+                if (!this.moveItemStackTo(stackInSlot, PLAYER_INV_START, HOTBAR_END_EXCL, true)) return empty;
+            } else if (index >= VILL_START && index < VILL_END_EXCL) {
+                // villager pickup -> player
                 if (!this.moveItemStackTo(stackInSlot, PLAYER_INV_START, HOTBAR_END_EXCL, true)) return empty;
             } else if (index >= PLAYER_INV_START && index < HOTBAR_END_EXCL) {
-                // player -> villager
-                if (!this.moveItemStackTo(stackInSlot, VILL_START, VILL_END_EXCL, false)) {
-                    // if can't go to villager, do normal inv<->hotbar swap
-                    if (index < HOTBAR_START) {
-                        if (!this.moveItemStackTo(stackInSlot, HOTBAR_START, HOTBAR_END_EXCL, false)) return empty;
-                    } else {
-                        if (!this.moveItemStackTo(stackInSlot, PLAYER_INV_START, HOTBAR_START, false)) return empty;
+                // player -> try equipment first, then villager pickup, then inv<->hotbar swap
+                if (!this.moveItemStackTo(stackInSlot, EQUIP_START, EQUIP_END_EXCL, false)) {
+                    if (!this.moveItemStackTo(stackInSlot, VILL_START, VILL_END_EXCL, false)) {
+                        if (index < HOTBAR_START) {
+                            if (!this.moveItemStackTo(stackInSlot, HOTBAR_START, HOTBAR_END_EXCL, false)) return empty;
+                        } else {
+                            if (!this.moveItemStackTo(stackInSlot, PLAYER_INV_START, HOTBAR_START, false)) return empty;
+                        }
                     }
                 }
             } else {
@@ -147,6 +184,22 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInventoryMenu.quickMoveStack failed (soft): {}", t.toString());
             return ItemStack.EMPTY;
         }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Add slots
+    // -----------------------------------------------------------------------------------------
+
+    private void addEquipmentSlots(Container equip) {
+        // Armor: head, chest, legs, feet
+        this.addSlot(new EquipmentProxySlot(equip, 0, EQUIP_X, ARMOR_Y0 + 0 * 22, EquipmentSlot.HEAD,  "Helmet"));
+        this.addSlot(new EquipmentProxySlot(equip, 1, EQUIP_X, ARMOR_Y0 + 1 * 22, EquipmentSlot.CHEST, "Chestplate"));
+        this.addSlot(new EquipmentProxySlot(equip, 2, EQUIP_X, ARMOR_Y0 + 2 * 22, EquipmentSlot.LEGS,  "Leggings"));
+        this.addSlot(new EquipmentProxySlot(equip, 3, EQUIP_X, ARMOR_Y0 + 3 * 22, EquipmentSlot.FEET,  "Boots"));
+
+        // Hands: main, off
+        this.addSlot(new EquipmentProxySlot(equip, 4, EQUIP_X, HANDS_Y0 + 0 * 22, EquipmentSlot.MAINHAND, "Main Hand"));
+        this.addSlot(new EquipmentProxySlot(equip, 5, EQUIP_X, HANDS_Y0 + 1 * 22, EquipmentSlot.OFFHAND,  "Offhand"));
     }
 
     private void addVillagerInventorySlots(Container inv) {
@@ -191,6 +244,237 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
         }
     }
 
+    // -----------------------------------------------------------------------------------------
+    // Equipment proxy container + slot
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * Container(6) that maps indices to villager equipment slots.
+     * Works on server with direct reference; on client resolves entity via reflection (Minecraft.getInstance()).
+     */
+    public static final class EntityEquipmentContainer implements Container {
+        private final int entityId;
+        private final LivingEntity serverRefOrNull;
+
+        public EntityEquipmentContainer(int entityId, LivingEntity serverRefOrNull) {
+            this.entityId = entityId;
+            this.serverRefOrNull = serverRefOrNull;
+        }
+
+        @Override
+        public int getContainerSize() {
+            return 6;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            for (int i = 0; i < 6; i++) {
+                if (!getItem(i).isEmpty()) return false;
+            }
+            return true;
+        }
+
+        @Override
+        public ItemStack getItem(int index) {
+            try {
+                LivingEntity le = resolve();
+                if (le == null) return ItemStack.EMPTY;
+
+                EquipmentSlot slot = mapIndex(index);
+                if (slot == null) return ItemStack.EMPTY;
+
+                // FIX: use hand APIs for hands
+                if (slot == EquipmentSlot.MAINHAND) {
+                    ItemStack st = le.getItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND);
+                    return st == null ? ItemStack.EMPTY : st;
+                }
+                if (slot == EquipmentSlot.OFFHAND) {
+                    ItemStack st = le.getItemInHand(net.minecraft.world.InteractionHand.OFF_HAND);
+                    return st == null ? ItemStack.EMPTY : st;
+                }
+
+                ItemStack st = le.getItemBySlot(slot);
+                return st == null ? ItemStack.EMPTY : st;
+
+            } catch (Throwable ignored) {
+                return ItemStack.EMPTY;
+            }
+        }
+
+        @Override
+        public ItemStack removeItem(int index, int count) {
+            try {
+                if (count <= 0) return ItemStack.EMPTY;
+
+                LivingEntity le = resolve();
+                if (le == null) return ItemStack.EMPTY;
+
+                EquipmentSlot slot = mapIndex(index);
+                if (slot == null) return ItemStack.EMPTY;
+
+                ItemStack cur = getItem(index);
+                if (cur.isEmpty()) return ItemStack.EMPTY;
+
+                ItemStack out = cur.copy();
+
+                // FIX: use hand APIs for hands
+                if (slot == EquipmentSlot.MAINHAND) {
+                    le.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+                    setChanged();
+                    return out;
+                }
+                if (slot == EquipmentSlot.OFFHAND) {
+                    le.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);
+                    setChanged();
+                    return out;
+                }
+
+                le.setItemSlot(slot, ItemStack.EMPTY);
+                setChanged();
+                return out;
+
+            } catch (Throwable ignored) {
+                return ItemStack.EMPTY;
+            }
+        }
+
+        @Override
+        public ItemStack removeItemNoUpdate(int index) {
+            return removeItem(index, 64);
+        }
+
+        @Override
+        public void setItem(int index, ItemStack stack) {
+            try {
+                LivingEntity le = resolve();
+                if (le == null) return;
+
+                EquipmentSlot slot = mapIndex(index);
+                if (slot == null) return;
+
+                ItemStack toSet = (stack == null) ? ItemStack.EMPTY : stack;
+
+                // FIX: use hand APIs for hands
+                if (slot == EquipmentSlot.MAINHAND) {
+                    le.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, toSet);
+                    setChanged();
+                    return;
+                }
+                if (slot == EquipmentSlot.OFFHAND) {
+                    le.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, toSet);
+                    setChanged();
+                    return;
+                }
+
+                le.setItemSlot(slot, toSet);
+                setChanged();
+
+            } catch (Throwable ignored) {}
+        }
+
+        @Override
+        public void setChanged() {
+            // no-op; entity tracking should sync
+        }
+
+        @Override
+        public boolean stillValid(Player player) {
+            return true;
+        }
+
+        @Override
+        public void clearContent() {
+            for (int i = 0; i < 6; i++) setItem(i, ItemStack.EMPTY);
+        }
+
+        private static EquipmentSlot mapIndex(int i) {
+            return switch (i) {
+                case 0 -> EquipmentSlot.HEAD;
+                case 1 -> EquipmentSlot.CHEST;
+                case 2 -> EquipmentSlot.LEGS;
+                case 3 -> EquipmentSlot.FEET;
+                case 4 -> EquipmentSlot.MAINHAND;
+                case 5 -> EquipmentSlot.OFFHAND;
+                default -> null;
+            };
+        }
+
+        private LivingEntity resolve() {
+            try {
+                if (serverRefOrNull != null) return serverRefOrNull;
+
+                Class<?> mcClz = Class.forName("net.minecraft.client.Minecraft");
+                Object mc = mcClz.getMethod("getInstance").invoke(null);
+                if (mc == null) return null;
+
+                Object level = mcClz.getField("level").get(mc);
+                if (level == null) return null;
+
+                Method getEntity = level.getClass().getMethod("getEntity", int.class);
+                Object e = getEntity.invoke(level, this.entityId);
+                if (e instanceof LivingEntity le) return le;
+
+                return null;
+
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+    }
+
+    public static final class EquipmentProxySlot extends Slot {
+        private final EquipmentSlot equipSlot;
+        private final String emptyLabel;
+
+        public EquipmentProxySlot(Container container, int index, int x, int y, EquipmentSlot equipSlot, String emptyLabel) {
+            super(container, index, x, y);
+            this.equipSlot = equipSlot;
+            this.emptyLabel = emptyLabel == null ? "" : emptyLabel;
+        }
+
+        public EquipmentSlot getEquipSlot() { return equipSlot; }
+        public String getEmptyLabel() { return emptyLabel; }
+
+        @Override
+        public int getMaxStackSize() {
+            return 1;
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            try {
+                if (stack == null || stack.isEmpty()) return false;
+                if (equipSlot == null) return false;
+
+                // Hands: allow anything (we can tighten later if desired)
+                if (equipSlot == EquipmentSlot.MAINHAND || equipSlot == EquipmentSlot.OFFHAND) {
+                    return true;
+                }
+
+                // ARMOR: STRICT. Only allow items that belong in THIS slot.
+                // 1) Vanilla armor
+                if (stack.getItem() instanceof ArmorItem ai) {
+                    return ai.getEquipmentSlot() == equipSlot;
+                }
+
+                // 2) Version-safe: LivingEntity.getEquipmentSlotForItem(stack)
+                try {
+                    Method m = LivingEntity.class.getMethod("getEquipmentSlotForItem", ItemStack.class);
+                    Object out = m.invoke(null, stack);
+                    if (out instanceof EquipmentSlot es) {
+                        return es == equipSlot;
+                    }
+                } catch (Throwable ignored) {}
+
+                // If we can't prove it belongs in this armor slot, reject.
+                return false;
+
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+    }
+
     // ---------------------------
     // Server helper for MenuProvider (uses reflection to get villager pickup inv)
     // ---------------------------
@@ -231,7 +515,9 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
                 (containerId, playerInv, player) -> {
                     Container pickup = tryGetVillagerPickupInventory(vill);
                     if (pickup == null) pickup = new SimpleContainer(8);
-                    return new VillagerInventoryMenu(containerId, playerInv, id, pickup);
+
+                    // IMPORTANT: pass villager ref so equipment proxy is direct on server
+                    return new VillagerInventoryMenu(containerId, playerInv, id, pickup, vill);
                 },
                 net.minecraft.network.chat.Component.literal("Villager Inventory")
         );
