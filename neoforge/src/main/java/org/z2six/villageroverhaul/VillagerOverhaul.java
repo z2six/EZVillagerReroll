@@ -1,3 +1,5 @@
+// VillagerOverhaul.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/VillagerOverhaul.java
 package org.z2six.villageroverhaul;
 
 import com.mojang.logging.LogUtils;
@@ -12,6 +14,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import org.z2six.villageroverhaul.client.ClientUI;
 import org.z2six.villageroverhaul.client.VillagerInventoryScreen;
+import org.z2six.villageroverhaul.client.ClientRenderEvents;
 import org.z2six.villageroverhaul.config.ClientConfig;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.menu.ModMenus;
@@ -28,7 +31,7 @@ public final class VillagerOverhaul {
     public VillagerOverhaul(final IEventBus modBus, final ModContainer modContainer) {
         LOG.info("[VillagerOverhaul] Initializing VillagerOverhaul (modid={})", Constants.MOD_ID);
 
-        // --- Register configs (these are MOD lifecycle, not gameplay) ---
+        // --- Register configs (MOD lifecycle) ---
         try {
             modContainer.registerConfig(ModConfig.Type.SERVER, ServerConfig.SPEC);
             LOG.info("[VillagerOverhaul] Registered SERVER config spec.");
@@ -82,12 +85,28 @@ public final class VillagerOverhaul {
             LOG.error("[VillagerOverhaul] Failed to register setup listeners.", t);
         }
 
-        // ✅ IMPORTANT: register Menu->Screen mapping via the proper event (MenuScreens.register is private now)
+        // Menu->Screen mapping
         try {
             modBus.addListener(this::onRegisterMenuScreens);
             LOG.info("[VillagerOverhaul] Registered onRegisterMenuScreens listener on MOD bus.");
         } catch (Throwable t) {
             LOG.error("[VillagerOverhaul] Failed to register onRegisterMenuScreens listener (continuing).", t);
+        }
+
+        // --- RENDER LAYERS + LAYER DEFINITIONS (MOD bus, client-only event types) ---
+        try {
+            // NEW: required so e.getEntityModels().bakeLayer(VillagerCombatArmsModel.LAYER_LOCATION) works
+            modBus.addListener(ClientRenderEvents::onRegisterLayerDefinitions);
+            LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onRegisterLayerDefinitions on MOD bus.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to register ClientRenderEvents::onRegisterLayerDefinitions on MOD bus.", t);
+        }
+
+        try {
+            modBus.addListener(ClientRenderEvents::onAddLayers);
+            LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onAddLayers on MOD bus.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to register ClientRenderEvents::onAddLayers on MOD bus.", t);
         }
 
         // --- GAMEPLAY BUS listeners (NeoForge bus) ---
@@ -121,7 +140,6 @@ public final class VillagerOverhaul {
         }
     }
 
-    // correct screen registration hook
     private void onRegisterMenuScreens(final RegisterMenuScreensEvent e) {
         try {
             e.register(ModMenus.VILLAGER_INVENTORY.get(), VillagerInventoryScreen::new);

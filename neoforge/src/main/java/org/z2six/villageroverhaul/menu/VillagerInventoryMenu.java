@@ -81,7 +81,7 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
     }
 
     /**
-     * Server-side convenience: pass the actual villager entity so equipment slots are direct & fast.
+     * Server-side convenience: pass the actual villager entity so equipment slots are direct and fast.
      */
     public VillagerInventoryMenu(int containerId, Inventory playerInv, int villagerEntityId, Container villagerInv, LivingEntity serverVillagerRefOrNull) {
         super(ModMenus.VILLAGER_INVENTORY.get(), containerId);

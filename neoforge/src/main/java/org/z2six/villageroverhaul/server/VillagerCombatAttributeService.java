@@ -17,7 +17,7 @@ import org.z2six.villageroverhaul.config.ServerConfig;
  * Applies server-side attribute modifiers derived from villager combat stat "points".
  *
  * Notes for this mappings/version:
- * - Attributes.* are Holder<Attribute>
+ * - Attributes.* are Holder [Attribute]
  * - AttributeModifier is keyed by ResourceLocation (NOT UUID)
  * - AttributeInstance.removeModifier takes ResourceLocation or AttributeModifier
  */

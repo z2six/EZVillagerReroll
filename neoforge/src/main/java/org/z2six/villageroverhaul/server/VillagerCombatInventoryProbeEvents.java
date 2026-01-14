@@ -25,7 +25,7 @@ public final class VillagerCombatInventoryProbeEvents {
         registered = true;
 
         bus.addListener(VillagerCombatInventoryProbeEvents::onEntityJoinLevel);
-        VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatInventoryProbeEvents registered.");
+        VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatInventoryProbeEvents registered.");
     }
 
     private static void onEntityJoinLevel(EntityJoinLevelEvent e) {

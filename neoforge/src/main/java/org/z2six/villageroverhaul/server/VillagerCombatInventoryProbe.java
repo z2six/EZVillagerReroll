@@ -49,7 +49,7 @@ public final class VillagerCombatInventoryProbe {
 
             HolderLookup.Provider lookup = safeLookup(vill);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] ===== VillagerCombatInventoryProbe BEGIN entityId={} uuid={} =====",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] ===== VillagerCombatInventoryProbe BEGIN entityId={} uuid={} =====",
                     vill.getId(), vill.getUUID());
 
             // 1) Check the "things we need" (equipment slots exist on LivingEntity)
@@ -64,7 +64,7 @@ public final class VillagerCombatInventoryProbe {
             // 4) Placeholder hook for “add things we need”
             ensureCombatInventoryPlaceholder(vill);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] ===== VillagerCombatInventoryProbe END entityId={} uuid={} =====",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] ===== VillagerCombatInventoryProbe END entityId={} uuid={} =====",
                     vill.getId(), vill.getUUID());
 
         } catch (Throwable t) {
@@ -91,7 +91,7 @@ public final class VillagerCombatInventoryProbe {
             boolean hasLegs     = supportsSlot(le, EquipmentSlot.LEGS);
             boolean hasFeet     = supportsSlot(le, EquipmentSlot.FEET);
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Combat slot support: mainhand={} offhand={} armor[head={},chest={},legs={},feet={}]",
                     hasMainhand, hasOffhand, hasHead, hasChest, hasLegs, hasFeet
             );
@@ -110,11 +110,11 @@ public final class VillagerCombatInventoryProbe {
                 if (slotName == null) slotName = String.valueOf(slot);
 
                 if (!ok) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Slot {}: <unreadable>", slotName);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Slot {}: <unreadable>", slotName);
                     continue;
                 }
 
-                VillagerOverhaul.LOG().info(
+                VillagerOverhaul.LOG().debug(
                         "[VillagerOverhaul] Slot {}: {}",
                         slotName.toLowerCase(Locale.ROOT),
                         stackToString(stack, lookup)
@@ -122,7 +122,7 @@ public final class VillagerCombatInventoryProbe {
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] logEquipmentSlotSupportAndContents failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] logEquipmentSlotSupportAndContents failed (soft): {}", t.toString());
         }
     }
 
@@ -142,22 +142,22 @@ public final class VillagerCombatInventoryProbe {
             if (inv == null) inv = tryFindContainerByReflection(vill);
 
             if (inv == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Villager pickup inventory: <not found>");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Villager pickup inventory: <not found>");
                 return;
             }
 
             int size = safeContainerSize(inv);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Villager pickup inventory found: class={} size={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Villager pickup inventory found: class={} size={}",
                     inv.getClass().getName(), size);
 
             for (int i = 0; i < size; i++) {
                 ItemStack st = ItemStack.EMPTY;
                 try { st = inv.getItem(i); } catch (Throwable ignored) { st = ItemStack.EMPTY; }
-                VillagerOverhaul.LOG().info("[VillagerOverhaul]  inv[{}] = {}", i, stackToString(st, lookup));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul]  inv[{}] = {}", i, stackToString(st, lookup));
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] logVillagerPickupInventory failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] logVillagerPickupInventory failed (soft): {}", t.toString());
         }
     }
 
@@ -240,7 +240,7 @@ public final class VillagerCombatInventoryProbe {
             boolean baby = false;
             try { baby = vill.isBaby(); } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Villager misc: profession={} type={} level={} isBaby={} canPickUpLoot={}",
                     prof, type, level, baby, canPickup
             );
@@ -248,14 +248,14 @@ public final class VillagerCombatInventoryProbe {
             try {
                 int i = 0;
                 for (ItemStack st : vill.getHandSlots()) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] HandSlots[{}] = {}", i++, stackToString(st, lookup));
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] HandSlots[{}] = {}", i++, stackToString(st, lookup));
                 }
             } catch (Throwable ignored) {}
 
             try {
                 int i = 0;
                 for (ItemStack st : vill.getArmorSlots()) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] ArmorSlots[{}] = {}", i++, stackToString(st, lookup));
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] ArmorSlots[{}] = {}", i++, stackToString(st, lookup));
                 }
             } catch (Throwable ignored) {}
 
@@ -269,7 +269,7 @@ public final class VillagerCombatInventoryProbe {
             if (vill == null) return;
 
             if (!ENABLE_MUTATIONS) {
-                VillagerOverhaul.LOG().info(
+                VillagerOverhaul.LOG().debug(
                         "[VillagerOverhaul] Combat inventory ensure: placeholder (mutations disabled). " +
                                 "Later this will initialize custom equipment storage + syncing + GUI."
                 );
