@@ -8,11 +8,13 @@
     "MerchantMenuAccessor",
     "VillagerAccessor",
     "VillagerDisableVanillaAutoTradeRefreshMixin",
-    "VillagerBrainGateMixin"
+    "VillagerBrainGateMixin",
+    "VillagerRenderStateMixin"
   ],
   "client": [
     "MerchantScreenTradeLockRightClickMixin",
-    "MerchantScreenRerollButtonRightClickMixin"
+    "MerchantScreenRerollButtonRightClickMixin",
+    "VillagerModelVisibilityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

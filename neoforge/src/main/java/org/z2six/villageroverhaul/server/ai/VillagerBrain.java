@@ -1,4 +1,3 @@
-// VillagerBrain.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/ai/VillagerBrain.java
 package org.z2six.villageroverhaul.server.ai;
 
@@ -15,6 +14,8 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.util.ArrayList;
@@ -58,7 +59,7 @@ public final class VillagerBrain {
         IDLE("idle"),
         FOLLOW("follow"),
 
-        // 
+        //
         PATROL_SETUP("patrol_setup"),
         PATROL("patrol");
 
@@ -110,8 +111,6 @@ public final class VillagerBrain {
         setMode(vill, Mode.NEUTRAL);
 
         clearFollowPlayer(vill);
-        // Patrol data remains by design (requirement #5)
-
         return true;
     }
 
@@ -120,7 +119,6 @@ public final class VillagerBrain {
         if (!isControllable(vill)) return false;
 
         ensureAttached(vill);
-
         prepareForManualControl(vill);
 
         setFollowPlayer(vill, player.getUUID());
@@ -130,19 +128,53 @@ public final class VillagerBrain {
     }
 
     // ============================================================
-    // PATROL API
+    // RENDER DECISIONS (SERVER AUTHORITY)
+    // ============================================================
+
+    /**
+     * Tick-based, server-authoritative render decisions.
+     * Called once per villager per server tick via VillagerRenderStateMixin.
+     */
+    public static void tickRenderDecisions(Villager vill) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+
+            byte flags = VillagerRenderFlags.computeFromEquipment(vill);
+
+            if (vill instanceof VillagerOverhaulRenderAccess acc) {
+                byte prev = acc.ezvr$getRenderFlags();
+                if (prev != flags) {
+                    acc.ezvr$setRenderFlags(flags);
+
+                    // INFO so you actually see it without changing logger config
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] RenderFlags updated (villager={}, {} -> {})",
+                            vill.getUUID(), (int) prev, (int) flags);
+                }
+            } else {
+                // This should not happen if mixin applied; log once-ish via tick modulo to avoid spam
+                if ((vill.tickCount % 200) == 0) {
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] WARN: Villager missing VillagerOverhaulRenderAccess mixin (villager={})", vill.getUUID());
+                }
+            }
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerBrain.tickRenderDecisions failed (soft): {}", t.toString());
+        }
+    }
+
+    // ============================================================
+    // PATROL API (unchanged)
     // ============================================================
 
     public static boolean isPatrolPaused(Villager vill) {
         try {
             if (vill == null) return false;
 
-            // Hard pause while trading/merchant screen is open (vanilla sets tradingPlayer)
             try {
                 if (vill.getTradingPlayer() != null) return true;
             } catch (Throwable ignored) {}
 
-            // Also respect explicit pause flag if you use it elsewhere.
             CompoundTag patrol = getOrCreatePatrol(vill);
             return patrol.getBoolean(K_PATROL_PAUSED);
 
@@ -163,13 +195,6 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
-    /**
-     * Starts PATROL_SETUP:
-     * - stores owner
-     * - clears/creates patrol list (if reset == true)
-     * - stores villager current position immediately as first waypoint
-     * - sets mode PATROL_SETUP (villager follows owner via VillagerPatrolSetupFollowGoal)
-     */
     public static boolean beginPatrolSetup(Villager vill, ServerPlayer owner, boolean reset) {
         try {
             if (vill == null || owner == null) return false;
@@ -188,10 +213,8 @@ public final class VillagerBrain {
             }
 
             patrol.putUUID(K_PATROL_OWNER, owner.getUUID());
-
             patrol.putBoolean(K_PATROL_FINALIZED, false);
 
-            // Enter setup follow state
             setMode(vill, Mode.PATROL_SETUP);
 
             return true;
@@ -201,7 +224,6 @@ public final class VillagerBrain {
         }
     }
 
-    /** If finalized patrol data exists, start patrolling (Mode.PATROL). Otherwise start a fresh setup. */
     public static boolean startPatrolExisting(Villager vill) {
         try {
             if (vill == null) return false;
@@ -211,12 +233,10 @@ public final class VillagerBrain {
             prepareForManualControl(vill);
 
             if (!hasFinalizedPatrol(vill) || getPatrolWaypointCount(vill) < 2) {
-                // No usable route => fail soft into NEUTRAL.
                 setMode(vill, Mode.NEUTRAL);
                 return false;
             }
 
-            // Reset progress each time you start it from command palette
             setPatrolIndex(vill, 0);
             setPatrolDir(vill, 1);
 
@@ -238,7 +258,6 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
-    /** Marks finalized but does not start until route type arrives. */
     public static void markPatrolFinalized(Villager vill) {
         try {
             if (vill == null) return;
@@ -260,13 +279,11 @@ public final class VillagerBrain {
             patrol.putString(K_PATROL_ROUTE, rt.id);
             patrol.putBoolean(K_PATROL_FINALIZED, true);
 
-            // Ensure we have at least 2 waypoints; otherwise don't start.
             if (getPatrolWaypointCount(vill) < 2) {
                 setMode(vill, Mode.NEUTRAL);
                 return;
             }
 
-            // Reset progress for clean start
             patrol.putInt(K_PATROL_INDEX, 0);
             patrol.putInt(K_PATROL_DIR, 1);
 
@@ -283,7 +300,6 @@ public final class VillagerBrain {
             CompoundTag root = getOrCreateRoot(vill);
             root.remove(K_PATROL);
 
-            // Return to NEUTRAL
             setMode(vill, Mode.NEUTRAL);
             clearFollowPlayer(vill);
 
@@ -409,8 +425,6 @@ public final class VillagerBrain {
         try {
             if (vill == null || pos == null) return;
 
-            // Snap to block center for reliable pathing:
-            // x,z -> floor + 0.5, y -> floor (feet level)
             double sx = Math.floor(pos.x) + 0.5;
             double sy = Math.floor(pos.y);
             double sz = Math.floor(pos.z) + 0.5;
@@ -435,17 +449,11 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
-    // ============================================================
-    // Patrol stuff
-    // ============================================================
-
     public static void addPatrolWaypointFromClientPos(Villager vill, Vec3 clientPos) {
         try {
             if (vill == null || clientPos == null) return;
             if (getMode(vill) != Mode.PATROL_SETUP) return;
 
-            // Sanitize: accept client position only if it's close to server position
-            // (prevents spoofing / desync issues).
             Vec3 serverPos = vill.position();
             double dx = clientPos.x - serverPos.x;
             double dy = clientPos.y - serverPos.y;
@@ -453,7 +461,6 @@ public final class VillagerBrain {
 
             double dist2 = dx * dx + dy * dy + dz * dz;
 
-            // Within 4 blocks (squared = 16) => accept; else fallback to server pos
             Vec3 finalPos = (dist2 <= 16.0) ? clientPos : serverPos;
 
             addWaypointInternal(vill, finalPos);
@@ -537,7 +544,6 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
             }
 
-            // patrol setup follow goal (separate responsibility from FOLLOW)
             if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
                 vill.goalSelector.addGoal(1, new VillagerPatrolSetupFollowGoal(vill));
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
@@ -548,7 +554,6 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerFollowGoal (villager={})", vill.getUUID());
             }
 
-            // patrol execution goal
             if (!hasGoal(vill, VillagerPatrolGoal.class)) {
                 vill.goalSelector.addGoal(3, new VillagerPatrolGoal(vill));
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolGoal (villager={})", vill.getUUID());
@@ -594,8 +599,6 @@ public final class VillagerBrain {
 
             if (!RecruitService.isRecruited(vill)) return true;
 
-            // Recruited villagers: only allow vanilla brain in NEUTRAL mode.
-            // (IDLE/FOLLOW/PATROL_SETUP/PATROL are all manual)
             return getMode(vill) == Mode.NEUTRAL;
         } catch (Throwable t) {
             return true;
@@ -603,7 +606,7 @@ public final class VillagerBrain {
     }
 
     // ------------------------------------------------------------
-    // Manual-control prep: stop panic/flee/etc and release trade lock
+    // Manual-control prep
     // ------------------------------------------------------------
 
     private static final Set<MemoryModuleType<?>> KEEP_MEMORIES = buildKeepMemories();
@@ -639,10 +642,6 @@ public final class VillagerBrain {
             Brain<?> brain = vill.getBrain();
             if (brain == null) return;
 
-            // We must NOT remove memory module KEYS from the brain's internal map.
-            // Doing so causes "Unregistered memory fetched" crashes when sensors access expected keys.
-            // Instead: eraseMemory(...) which clears the VALUE while preserving registration.
-
             Map<MemoryModuleType<?>, ?> memories = null;
 
             for (var f : brain.getClass().getDeclaredFields()) {
@@ -661,7 +660,6 @@ public final class VillagerBrain {
 
             if (memories == null || memories.isEmpty()) return;
 
-            // Snapshot keys to avoid concurrent modification.
             List<MemoryModuleType<?>> keys = new ArrayList<>(memories.keySet());
 
             for (MemoryModuleType<?> k : keys) {
@@ -670,9 +668,7 @@ public final class VillagerBrain {
 
                 try {
                     brain.eraseMemory((MemoryModuleType<Object>) k);
-                } catch (Throwable ignoredErase) {
-                    // soft
-                }
+                } catch (Throwable ignoredErase) {}
             }
 
         } catch (Throwable ignored) {}

@@ -1,10 +1,10 @@
-// VillagerHumanoidArmsLayer.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/render/VillagerHumanoidArmsLayer.java
 package org.z2six.villageroverhaul.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.VillagerModel;
+import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
@@ -15,31 +15,30 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.UseAnim;
 import org.z2six.villageroverhaul.Constants;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.client.model.VillagerCombatArmsModel;
+import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+
+import java.lang.reflect.Method;
 
 /**
- * Renders "normal" left/right arms on a villager and animates them using vanilla HumanoidModel animation code.
+ * Renders custom player-like left/right arms on a villager and animates them using vanilla HumanoidModel code.
  *
- * Notes:
- * - This layer ONLY draws the extra arms. It does NOT hide vanilla crossed arms.
- * - If you want to verify rendering quickly, set ONLY_RENDER_WHEN_COMBATISH = false.
- * - The arms use a custom texture (ARMS_TEXTURE). Put it under:
- *   resources/assets/<modid>/textures/entity/villager_arms.png
+ * IMPORTANT CHANGE:
+ * - This layer no longer decides WHEN arms should render.
+ * - VillagerBrain is the sole authority: it writes synced flags to the villager each tick.
+ * - This layer only renders when those flags say "render custom arms".
  */
 public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, VillagerModel<Villager>> {
 
     // =========================================================================================
-    // CONFIG / TWEAKS
+    // TWEAKS
     // =========================================================================================
-
-    /** If true, arms only render when villager is swinging/using item/holding "weaponish" items. */
-    private static final boolean ONLY_RENDER_WHEN_COMBATISH = false;
 
     /** Easy alignment knobs (start tiny: 0.001..0.02). */
     private static final boolean ENABLE_ARMS_TRANSFORM = true;
@@ -82,14 +81,15 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
         try {
             if (villager == null || armsModel == null || driverHumanoid == null) return;
 
-            if (ONLY_RENDER_WHEN_COMBATISH && !isCombatish(villager, partialTick)) {
+            // Brain-authoritative gate: default is "do not render custom arms".
+            if (!shouldRenderCustomArms(villager)) {
                 return;
             }
 
             // 1) Drive the vanilla humanoid animation state from villager
             setupDriverState(villager, partialTick);
 
-            // 2) Run vanilla humanoid animation code (this sets rightArm/leftArm rotations)
+            // 2) Run vanilla humanoid animation code (sets rightArm/leftArm rotations)
             driverHumanoid.setupAnim(villager, limbSwing, limbSwingAmount, ageInTicks, netHeadYaw, headPitch);
 
             // 3) Copy rotations into our custom arms model parts
@@ -97,7 +97,17 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
             // 4) Render arms with custom texture
             poseStack.pushPose();
+
+            // Redundant safety: hide vanilla crossed-arms part while we draw (brain also handles via model mixin)
+            ModelPart vanillaArms = null;
+            boolean prevVisible = true;
             try {
+                vanillaArms = tryResolveVanillaArmsPart(getParentModel());
+                if (vanillaArms != null) {
+                    prevVisible = vanillaArms.visible;
+                    vanillaArms.visible = false;
+                }
+
                 if (ENABLE_ARMS_TRANSFORM) {
                     poseStack.translate(ARMS_TX, ARMS_TY, ARMS_TZ);
                     poseStack.scale(ARMS_SCALE, ARMS_SCALE, ARMS_SCALE);
@@ -107,6 +117,9 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
                 armsModel.renderArms(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, PACKED_COLOR);
 
             } finally {
+                if (vanillaArms != null) {
+                    try { vanillaArms.visible = prevVisible; } catch (Throwable ignored) {}
+                }
                 poseStack.popPose();
             }
 
@@ -116,37 +129,16 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
     }
 
     // =========================================================================================
-    // Combat-ish detection
+    // Brain-synced decision
     // =========================================================================================
 
-    private static boolean isCombatish(Villager v, float partialTick) {
+    private static boolean shouldRenderCustomArms(Villager v) {
         try {
-            if (v.getAttackAnim(partialTick) > 0.0f) return true;
-            if (v.isUsingItem()) return true;
-
-            ItemStack main = v.getMainHandItem();
-            ItemStack off = v.getOffhandItem();
-
-            return isWeaponish(main) || isWeaponish(off);
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private static boolean isWeaponish(ItemStack s) {
-        try {
-            if (s == null || s.isEmpty()) return false;
-
-            // crude but effective for visuals
-            return s.is(Items.SHIELD)
-                    || s.getItem() instanceof net.minecraft.world.item.SwordItem
-                    || s.getItem() instanceof net.minecraft.world.item.AxeItem
-                    || s.getItem() instanceof net.minecraft.world.item.BowItem
-                    || s.getItem() instanceof CrossbowItem
-                    || s.getItem() instanceof net.minecraft.world.item.TridentItem;
-        } catch (Throwable ignored) {
-            return false;
-        }
+            if (v instanceof VillagerOverhaulRenderAccess acc) {
+                return VillagerRenderFlags.renderCustomArms(acc.ezvr$getRenderFlags());
+            }
+        } catch (Throwable ignored) {}
+        return false; // default: do not render custom arms
     }
 
     // =========================================================================================
@@ -155,12 +147,10 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
     private void setupDriverState(Villager v, float partialTick) {
         try {
-            // These fields are used by HumanoidModel#setupAnim
             driverHumanoid.attackTime = v.getAttackAnim(partialTick);
             driverHumanoid.riding = v.isPassenger();
             driverHumanoid.young = v.isBaby();
 
-            // Reset poses each frame
             driverHumanoid.leftArmPose = HumanoidModel.ArmPose.EMPTY;
             driverHumanoid.rightArmPose = HumanoidModel.ArmPose.EMPTY;
 
@@ -171,7 +161,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
                 HumanoidArm mainArm = v.getMainArm();
                 boolean usingMainHand = (hand == InteractionHand.MAIN_HAND);
 
-                // Determine which side is "active" for using item
                 boolean activeIsRight = usingMainHand
                         ? (mainArm == HumanoidArm.RIGHT)
                         : (mainArm != HumanoidArm.RIGHT);
@@ -191,7 +180,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
         try {
             if (stack == null || stack.isEmpty()) return HumanoidModel.ArmPose.EMPTY;
 
-            // Shield / blocking
             if (stack.is(Items.SHIELD)) return HumanoidModel.ArmPose.BLOCK;
 
             UseAnim anim = stack.getUseAnimation();
@@ -199,11 +187,49 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             if (anim == UseAnim.BOW) return HumanoidModel.ArmPose.BOW_AND_ARROW;
             if (anim == UseAnim.SPYGLASS) return HumanoidModel.ArmPose.SPYGLASS;
 
-            // Reasonable default for EAT/DRINK/TOOT_HORN/etc.
             return HumanoidModel.ArmPose.ITEM;
 
         } catch (Throwable ignored) {
             return HumanoidModel.ArmPose.ITEM;
+        }
+    }
+
+    // =========================================================================================
+    // Redundant safety: resolve vanilla crossed-arms bone on VillagerModel
+    // =========================================================================================
+
+    private static ModelPart tryResolveVanillaArmsPart(VillagerModel<?> model) {
+        try {
+            if (model == null) return null;
+
+            ModelPart root = tryCallRoot(model);
+            if (root != null) {
+                ModelPart p = tryChild(root, "arms");
+                if (p != null) return p;
+                p = tryChild(root, "crossed_arms");
+                if (p != null) return p;
+                p = tryChild(root, "crossedArms");
+                if (p != null) return p;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static ModelPart tryCallRoot(Object model) {
+        try {
+            Method m = model.getClass().getMethod("root");
+            Object out = m.invoke(model);
+            if (out instanceof ModelPart mp) return mp;
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static ModelPart tryChild(ModelPart root, String name) {
+        try {
+            if (root == null || name == null) return null;
+            return root.getChild(name);
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 }
