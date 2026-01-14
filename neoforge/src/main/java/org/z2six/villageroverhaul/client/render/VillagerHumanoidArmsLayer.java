@@ -24,40 +24,38 @@ import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.client.model.VillagerCombatArmsModel;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.IdentityHashMap;
+import java.util.Map;
 
-/**
- * Renders custom player-like left/right arms on a villager and animates them using vanilla HumanoidModel code.
- *
- * IMPORTANT CHANGE:
- * - This layer no longer decides WHEN arms should render.
- * - VillagerBrain is the sole authority: it writes synced flags to the villager each tick.
- * - This layer only renders when those flags say "render custom arms".
- */
 public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, VillagerModel<Villager>> {
 
     // =========================================================================================
     // TWEAKS
     // =========================================================================================
 
-    /** Easy alignment knobs (start tiny: 0.001..0.02). */
     private static final boolean ENABLE_ARMS_TRANSFORM = true;
     private static final float ARMS_TX = 0.0f;
     private static final float ARMS_TY = 0.0f;
     private static final float ARMS_TZ = 0.0f;
     private static final float ARMS_SCALE = 1.0f;
 
-    /** Custom texture for the added arms. */
     private static final ResourceLocation ARMS_TEXTURE =
             ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "textures/entity/villager/villager_arms.png");
 
-    /** Color tint for the arms texture (ARGB). */
     private static final int PACKED_COLOR = 0xFFFFFFFF;
 
     // =========================================================================================
 
     private final VillagerCombatArmsModel armsModel;
     private final HumanoidModel<LivingEntity> driverHumanoid;
+
+    private boolean ezvr$initLogged = false;
+
+    // Only used for diagnostics (not for hiding anymore)
+    private boolean ezvr$resolvedVanillaCrossed = false;
+    private String ezvr$vanillaCrossedPath = null;
 
     public VillagerHumanoidArmsLayer(RenderLayerParent<Villager, VillagerModel<Villager>> parent,
                                      VillagerCombatArmsModel armsModel,
@@ -78,36 +76,34 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
                        float ageInTicks,
                        float netHeadYaw,
                        float headPitch) {
+
         try {
             if (villager == null || armsModel == null || driverHumanoid == null) return;
 
-            // Brain-authoritative gate: default is "do not render custom arms".
+            if (!ezvr$initLogged) {
+                ezvr$initLogged = true;
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VillagerHumanoidArmsLayer ACTIVE");
+            }
+
             if (!shouldRenderCustomArms(villager)) {
                 return;
             }
 
-            // 1) Drive the vanilla humanoid animation state from villager
+            // Diagnostic resolution once: tells us what the base model calls crossed arms in the baked tree
+            ezvr$resolveVanillaCrossedOnce();
+
+            // 1) Drive humanoid animation state
             setupDriverState(villager, partialTick);
 
-            // 2) Run vanilla humanoid animation code (sets rightArm/leftArm rotations)
+            // 2) Run vanilla humanoid anim
             driverHumanoid.setupAnim(villager, limbSwing, limbSwingAmount, ageInTicks, netHeadYaw, headPitch);
 
-            // 3) Copy rotations into our custom arms model parts
+            // 3) Copy rotations to our arms
             armsModel.setArmRotationsFromHumanoid(driverHumanoid.rightArm, driverHumanoid.leftArm);
 
-            // 4) Render arms with custom texture
+            // 4) Render custom arms
             poseStack.pushPose();
-
-            // Redundant safety: hide vanilla crossed-arms part while we draw (brain also handles via model mixin)
-            ModelPart vanillaArms = null;
-            boolean prevVisible = true;
             try {
-                vanillaArms = tryResolveVanillaArmsPart(getParentModel());
-                if (vanillaArms != null) {
-                    prevVisible = vanillaArms.visible;
-                    vanillaArms.visible = false;
-                }
-
                 if (ENABLE_ARMS_TRANSFORM) {
                     poseStack.translate(ARMS_TX, ARMS_TY, ARMS_TZ);
                     poseStack.scale(ARMS_SCALE, ARMS_SCALE, ARMS_SCALE);
@@ -115,22 +111,14 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
                 var vc = buffer.getBuffer(RenderType.entityCutoutNoCull(ARMS_TEXTURE));
                 armsModel.renderArms(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, PACKED_COLOR);
-
             } finally {
-                if (vanillaArms != null) {
-                    try { vanillaArms.visible = prevVisible; } catch (Throwable ignored) {}
-                }
                 poseStack.popPose();
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerHumanoidArmsLayer.render failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VillagerHumanoidArmsLayer.render failed (soft): {}", t.toString());
         }
     }
-
-    // =========================================================================================
-    // Brain-synced decision
-    // =========================================================================================
 
     private static boolean shouldRenderCustomArms(Villager v) {
         try {
@@ -138,12 +126,8 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
                 return VillagerRenderFlags.renderCustomArms(acc.ezvr$getRenderFlags());
             }
         } catch (Throwable ignored) {}
-        return false; // default: do not render custom arms
+        return false;
     }
-
-    // =========================================================================================
-    // Vanilla humanoid pose driving (ArmPose + attackTime etc)
-    // =========================================================================================
 
     private void setupDriverState(Villager v, float partialTick) {
         try {
@@ -172,7 +156,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] setupDriverState failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] setupDriverState failed (soft): {}", t.toString());
         }
     }
 
@@ -194,42 +178,120 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
         }
     }
 
-    // =========================================================================================
-    // Redundant safety: resolve vanilla crossed-arms bone on VillagerModel
-    // =========================================================================================
+    // -------------------------------------------------------------------------
+    // Diagnostic: resolve crossed arms name/path in baked runtime tree
+    // -------------------------------------------------------------------------
 
-    private static ModelPart tryResolveVanillaArmsPart(VillagerModel<?> model) {
+    private void ezvr$resolveVanillaCrossedOnce() {
+        if (ezvr$resolvedVanillaCrossed) return;
+        ezvr$resolvedVanillaCrossed = true;
+
         try {
-            if (model == null) return null;
-
+            VillagerModel<?> model = getParentModel();
             ModelPart root = tryCallRoot(model);
-            if (root != null) {
-                ModelPart p = tryChild(root, "arms");
-                if (p != null) return p;
-                p = tryChild(root, "crossed_arms");
-                if (p != null) return p;
-                p = tryChild(root, "crossedArms");
-                if (p != null) return p;
+
+            if (root == null) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] ArmsLayer: failed to get parentModel.root()");
+                return;
             }
-        } catch (Throwable ignored) {}
-        return null;
+
+            String[] armsPathOut = new String[1];
+            ModelPart arms = findFirstByName(root, "arms", armsPathOut);
+
+            if (arms != null) {
+                ezvr$vanillaCrossedPath = armsPathOut[0];
+            } else {
+                String[] bonePathOut = new String[1];
+                ModelPart bone = findFirstByName(root, "bone", bonePathOut);
+                ezvr$vanillaCrossedPath = bonePathOut[0];
+            }
+
+            VillagerOverhaul.LOG().info(
+                    "[VillagerOverhaul] [client] ArmsLayer resolved vanilla crossed path='{}'",
+                    String.valueOf(ezvr$vanillaCrossedPath)
+            );
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] ArmsLayer resolveVanillaCrossedOnce failed (soft): {}", t.toString());
+        }
     }
 
     private static ModelPart tryCallRoot(Object model) {
         try {
+            if (model == null) return null;
             Method m = model.getClass().getMethod("root");
             Object out = m.invoke(model);
-            if (out instanceof ModelPart mp) return mp;
+            return (out instanceof ModelPart mp) ? mp : null;
         } catch (Throwable ignored) {}
         return null;
     }
 
-    private static ModelPart tryChild(ModelPart root, String name) {
+    private static ModelPart findFirstByName(ModelPart root, String wanted, String[] outPath) {
         try {
-            if (root == null || name == null) return null;
-            return root.getChild(name);
+            if (outPath != null && outPath.length > 0) outPath[0] = null;
+            if (root == null || wanted == null || wanted.isBlank()) return null;
+
+            IdentityHashMap<ModelPart, Boolean> visited = new IdentityHashMap<>();
+            return findRec(root, wanted, "root", visited, 0, outPath);
+
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    private static ModelPart findRec(ModelPart node,
+                                     String wanted,
+                                     String path,
+                                     IdentityHashMap<ModelPart, Boolean> visited,
+                                     int depth,
+                                     String[] outPath) {
+        try {
+            if (node == null) return null;
+            if (visited.put(node, Boolean.TRUE) != null) return null;
+            if (depth > 64) return null;
+
+            Map<String, ModelPart> children = getChildrenMap(node);
+            if (children == null || children.isEmpty()) return null;
+
+            ModelPart direct = children.get(wanted);
+            if (direct != null) {
+                if (outPath != null && outPath.length > 0) outPath[0] = path + "." + wanted;
+                return direct;
+            }
+
+            for (Map.Entry<String, ModelPart> e : children.entrySet()) {
+                String k = e.getKey();
+                ModelPart v = e.getValue();
+                if (k == null || v == null) continue;
+
+                ModelPart found = findRec(v, wanted, path + "." + k, visited, depth + 1, outPath);
+                if (found != null) return found;
+            }
+        } catch (Throwable ignored) {}
+
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, ModelPart> getChildrenMap(ModelPart part) {
+        try {
+            for (Field f : ModelPart.class.getDeclaredFields()) {
+                if (!Map.class.isAssignableFrom(f.getType())) continue;
+                f.setAccessible(true);
+                Object v = f.get(part);
+                if (!(v instanceof Map<?, ?> m)) continue;
+
+                if (!m.isEmpty()) {
+                    Object anyKey = m.keySet().iterator().next();
+                    Object anyVal = m.values().iterator().next();
+                    if (anyKey instanceof String && anyVal instanceof ModelPart) {
+                        return (Map<String, ModelPart>) m;
+                    }
+                } else {
+                    return (Map<String, ModelPart>) m;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
     }
 }

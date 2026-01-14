@@ -58,8 +58,6 @@ public final class VillagerBrain {
         NEUTRAL("neutral"),
         IDLE("idle"),
         FOLLOW("follow"),
-
-        //
         PATROL_SETUP("patrol_setup"),
         PATROL("patrol");
 
@@ -132,7 +130,6 @@ public final class VillagerBrain {
     // ============================================================
 
     /**
-     * Tick-based, server-authoritative render decisions.
      * Called once per villager per server tick via VillagerRenderStateMixin.
      */
     public static void tickRenderDecisions(Villager vill) {
@@ -147,17 +144,11 @@ public final class VillagerBrain {
                 if (prev != flags) {
                     acc.ezvr$setRenderFlags(flags);
 
-                    // INFO so you actually see it without changing logger config
+                    // INFO so you see it by default
                     VillagerOverhaul.LOG().info("[VillagerOverhaul] RenderFlags updated (villager={}, {} -> {})",
                             vill.getUUID(), (int) prev, (int) flags);
                 }
-            } else {
-                // This should not happen if mixin applied; log once-ish via tick modulo to avoid spam
-                if ((vill.tickCount % 200) == 0) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] WARN: Villager missing VillagerOverhaulRenderAccess mixin (villager={})", vill.getUUID());
-                }
             }
-
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerBrain.tickRenderDecisions failed (soft): {}", t.toString());
         }
@@ -468,7 +459,7 @@ public final class VillagerBrain {
     }
 
     // ============================================================
-    // Mode getters (used by goals/modules)
+    // Mode getters
     // ============================================================
 
     public static Mode getMode(Villager vill) {
@@ -490,7 +481,7 @@ public final class VillagerBrain {
     }
 
     // ============================================================
-    // Follow target getters (used by follow goal)
+    // Follow target getters
     // ============================================================
 
     public static UUID getFollowPlayer(Villager vill) {
@@ -596,9 +587,7 @@ public final class VillagerBrain {
     public static boolean shouldTickVanillaBrain(Villager vill) {
         try {
             if (vill == null) return true;
-
             if (!RecruitService.isRecruited(vill)) return true;
-
             return getMode(vill) == Mode.NEUTRAL;
         } catch (Throwable t) {
             return true;

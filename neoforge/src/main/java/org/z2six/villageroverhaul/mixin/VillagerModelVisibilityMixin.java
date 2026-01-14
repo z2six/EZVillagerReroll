@@ -3,8 +3,8 @@ package org.z2six.villageroverhaul.mixin;
 
 import net.minecraft.client.model.VillagerModel;
 import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.AbstractVillager;
-import net.minecraft.world.entity.npc.Villager;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -16,253 +16,251 @@ import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * Applies VillagerBrain decisions to vanilla villager model part visibility:
- * - "arms" (crossed arms bone): visible when NOT rendering custom humanoid arms
- * - "bodywear" (robe): visible only when villager has NO chest AND NO legs item equipped
+ * Client-side villager model visibility control.
  *
- * IMPORTANT:
- * - VillagerModel parts are usually nested. We must search recursively.
- * - root() is not guaranteed to be public; use getDeclaredMethod + accessible.
+ * Correct approach:
+ * - Apply visibility AFTER vanilla setupAnim runs (TAIL), because vanilla may reset .visible during setupAnim.
+ * - No @Shadow (no refmap).
+ * - Find ModelPart children via reflection.
+ *
+ * IMPORTANT: In 1.21.1 EntityModel#setupAnim uses Entity as the first param.
+ * DO NOT use Object here: mixin validates descriptors strictly.
  */
 @Mixin(VillagerModel.class)
 public abstract class VillagerModelVisibilityMixin {
 
-    @Unique private boolean ezvr$resolvedParts = false;
-    @Unique private boolean ezvr$loggedResolve = false;
+    @Unique private boolean ezvr$initLogged = false;
+
+    @Unique private boolean ezvr$resolved = false;
 
     @Unique private ModelPart ezvr$armsPart = null;
+    @Unique private String ezvr$armsPath = null;
+
     @Unique private ModelPart ezvr$bodywearPart = null;
+    @Unique private String ezvr$bodywearPath = null;
 
-    // Cached reflection access for ModelPart children map
-    @Unique private static Field EZVR_MODEL_PART_CHILDREN_FIELD = null;
-    @Unique private static boolean EZVR_CHILDREN_FIELD_LOOKED_UP = false;
+    // model instance renders multiple villagers; keep minimal log state
+    @Unique private UUID ezvr$lastUuid = null;
+    @Unique private byte ezvr$lastFlags = (byte) 0x7F;
 
-    // --- Signature variant 1: AbstractVillager (most common) ---
+    /**
+     * Primary hook: matches the actual runtime signature in 1.21.1.
+     * We then filter to AbstractVillager inside.
+     */
     @Inject(
-            method = "setupAnim(Lnet/minecraft/world/entity/npc/AbstractVillager;FFFFF)V",
-            at = @At("HEAD"),
+            method = "setupAnim(Lnet/minecraft/world/entity/Entity;FFFFF)V",
+            at = @At("TAIL"),
             require = 0
     )
-    private void ezvr$setupAnimAbstract(AbstractVillager villager,
-                                        float limbSwing,
-                                        float limbSwingAmount,
-                                        float ageInTicks,
-                                        float netHeadYaw,
-                                        float headPitch,
-                                        CallbackInfo ci) {
-        ezvr$applyVisibility(villager);
+    private void ezvr$setupAnimEntity(Entity entity,
+                                      float limbSwing,
+                                      float limbSwingAmount,
+                                      float ageInTicks,
+                                      float netHeadYaw,
+                                      float headPitch,
+                                      CallbackInfo ci) {
+        ezvr$apply(entity);
     }
 
-    // --- Signature variant 2: Villager (fallback if mappings/environment differ) ---
-    @Inject(
-            method = "setupAnim(Lnet/minecraft/world/entity/npc/Villager;FFFFF)V",
-            at = @At("HEAD"),
-            require = 0
-    )
-    private void ezvr$setupAnimVillager(Villager villager,
-                                        float limbSwing,
-                                        float limbSwingAmount,
-                                        float ageInTicks,
-                                        float netHeadYaw,
-                                        float headPitch,
-                                        CallbackInfo ci) {
-        ezvr$applyVisibility(villager);
-    }
+    // -------------------------------------------------------------------------
+    // Apply visibility based on synced flags
+    // -------------------------------------------------------------------------
 
     @Unique
-    private void ezvr$applyVisibility(Object villagerObj) {
+    private void ezvr$apply(Entity entity) {
         try {
-            if (!(villagerObj instanceof AbstractVillager av)) return;
+            if (!(entity instanceof AbstractVillager villager)) return;
 
-            byte flags;
-            if (av instanceof VillagerOverhaulRenderAccess acc) flags = acc.ezvr$getRenderFlags();
-            else flags = VillagerRenderFlags.defaultFlags();
+            if (!ezvr$initLogged) {
+                ezvr$initLogged = true;
+                VillagerOverhaul.LOG().info(
+                        "[VillagerOverhaul] [client] VillagerModelVisibilityMixin ACTIVE (modelInstance={})",
+                        System.identityHashCode(this)
+                );
+            }
+
+            // Resolve parts once per model instance
+            if (!ezvr$resolved) {
+                ezvr$resolved = true;
+
+                ModelPart root = ezvr$tryCallRoot(this);
+                if (root == null) {
+                    VillagerOverhaul.LOG().info(
+                            "[VillagerOverhaul] [client] VisibilityMixin: FAILED to call root() (modelInstance={})",
+                            System.identityHashCode(this)
+                    );
+                    return;
+                }
+
+                // Crossed arms: "arms" preferred, fallback "bone"
+                String[] armsPathOut = new String[1];
+                ModelPart arms = ezvr$findFirstByName(root, "arms", armsPathOut);
+                if (arms != null) {
+                    ezvr$armsPart = arms;
+                    ezvr$armsPath = armsPathOut[0];
+                } else {
+                    String[] bonePathOut = new String[1];
+                    ModelPart bone = ezvr$findFirstByName(root, "bone", bonePathOut);
+                    ezvr$armsPart = bone;
+                    ezvr$armsPath = bonePathOut[0];
+                }
+
+                // Robe quad
+                String[] bwPathOut = new String[1];
+                ezvr$bodywearPart = ezvr$findFirstByName(root, "bodywear", bwPathOut);
+                ezvr$bodywearPath = bwPathOut[0];
+
+                VillagerOverhaul.LOG().info(
+                        "[VillagerOverhaul] [client] VisibilityMixin resolved: armsFound={}, armsPath='{}', bodywearFound={}, bodywearPath='{}'",
+                        (ezvr$armsPart != null), String.valueOf(ezvr$armsPath),
+                        (ezvr$bodywearPart != null), String.valueOf(ezvr$bodywearPath)
+                );
+            }
+
+            // Read flags (server authoritative via SynchedEntityData)
+            byte flags = VillagerRenderFlags.defaultFlags();
+            if (villager instanceof VillagerOverhaulRenderAccess acc) {
+                flags = acc.ezvr$getRenderFlags();
+            }
 
             boolean showBodywear = VillagerRenderFlags.renderBodywear(flags);
             boolean showCrossedArms = !VillagerRenderFlags.renderCustomArms(flags);
 
-            if (!ezvr$resolvedParts) {
-                ezvr$resolvedParts = true;
+            boolean prevArmsVis = (ezvr$armsPart != null) && ezvr$armsPart.visible;
+            boolean prevBodywearVis = (ezvr$bodywearPart != null) && ezvr$bodywearPart.visible;
 
-                ModelPart root = ezvr$tryGetRootPart();
-                if (root != null) {
-                    // More candidate names, and we search recursively now.
-                    ezvr$armsPart = ezvr$findPartByNameRecursive(root,
-                            "arms", "crossed_arms", "crossedArms", "villager_arms");
-                    ezvr$bodywearPart = ezvr$findPartByNameRecursive(root,
-                            "bodywear", "body_wear", "robe", "clothes", "jacket", "coat");
-                }
+            // TAIL of setupAnim -> overrides vanilla final values for this frame
+            if (ezvr$armsPart != null) ezvr$armsPart.visible = showCrossedArms;
+            if (ezvr$bodywearPart != null) ezvr$bodywearPart.visible = showBodywear;
 
-                if (!ezvr$loggedResolve) {
-                    ezvr$loggedResolve = true;
-                    String who = (av instanceof Villager v) ? v.getUUID().toString() : av.getStringUUID();
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerModelVisibilityMixin resolved parts (villager={}): armsPart={}, bodywearPart={}",
-                            who,
-                            (ezvr$armsPart != null),
-                            (ezvr$bodywearPart != null));
-                    if (ezvr$armsPart == null || ezvr$bodywearPart == null) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] NOTE: If parts are null, their bone names may differ in this version/model.");
-                    }
-                }
+            // Log changes per villager+flags
+            UUID id = villager.getUUID();
+            if (id != null && (!id.equals(ezvr$lastUuid) || ezvr$lastFlags != flags)) {
+                ezvr$lastUuid = id;
+                ezvr$lastFlags = flags;
+
+                VillagerOverhaul.LOG().info(
+                        "[VillagerOverhaul] [client] Visibility applied entity={}, flags={}, showBodywear={}, showCrossedArms={}, armsVis:{}->{} bodywearVis:{}->{}",
+                        id,
+                        (int) flags,
+                        showBodywear,
+                        showCrossedArms,
+                        prevArmsVis,
+                        (ezvr$armsPart != null && ezvr$armsPart.visible),
+                        prevBodywearVis,
+                        (ezvr$bodywearPart != null && ezvr$bodywearPart.visible)
+                );
             }
 
-            ezvr$setVisibleSafe(ezvr$armsPart, showCrossedArms);
-            ezvr$setVisibleSafe(ezvr$bodywearPart, showBodywear);
+            // Low-noise heartbeat so you can confirm it keeps running even if flags don't change
+            int t = villager.tickCount;
+            if ((t % 80) == 0) { // ~4 seconds
+                VillagerOverhaul.LOG().info(
+                        "[VillagerOverhaul] [client] Visibility heartbeat entity={}, flags={}, armsVisible={}, bodywearVisible={}",
+                        id,
+                        (int) flags,
+                        (ezvr$armsPart != null && ezvr$armsPart.visible),
+                        (ezvr$bodywearPart != null && ezvr$bodywearPart.visible)
+                );
+            }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerModelVisibilityMixin applyVisibility failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VisibilityMixin apply failed (soft): {}", t.toString());
         }
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Root resolving
-    // -----------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // root() lookup (no @Shadow)
+    // -------------------------------------------------------------------------
 
     @Unique
-    private ModelPart ezvr$tryGetRootPart() {
-        // 1) Prefer a "root()" method (often present but not necessarily public)
+    private static ModelPart ezvr$tryCallRoot(Object model) {
         try {
-            Method m;
-            try {
-                m = this.getClass().getDeclaredMethod("root");
-            } catch (NoSuchMethodException ignored) {
-                m = this.getClass().getMethod("root"); // fallback
-            }
-            m.setAccessible(true);
-            Object out = m.invoke(this);
+            Method m = model.getClass().getMethod("root");
+            Object out = m.invoke(model);
             if (out instanceof ModelPart mp) return mp;
         } catch (Throwable ignored) {}
+        return null;
+    }
 
-        // 2) Fallback: find first ModelPart field in class hierarchy
+    // -------------------------------------------------------------------------
+    // Recursive name search
+    // -------------------------------------------------------------------------
+
+    @Unique
+    private static ModelPart ezvr$findFirstByName(ModelPart root, String wanted, String[] outPath) {
         try {
-            Class<?> c = this.getClass();
-            while (c != null && c != Object.class) {
-                for (Field f : c.getDeclaredFields()) {
-                    if (f == null) continue;
-                    if (!ModelPart.class.isAssignableFrom(f.getType())) continue;
-                    f.setAccessible(true);
-                    Object v = f.get(this);
-                    if (v instanceof ModelPart mp) return mp;
-                }
-                c = c.getSuperclass();
+            if (outPath != null && outPath.length > 0) outPath[0] = null;
+            if (root == null || wanted == null || wanted.isBlank()) return null;
+
+            IdentityHashMap<ModelPart, Boolean> visited = new IdentityHashMap<>();
+            return ezvr$findRec(root, wanted, "root", visited, 0, outPath);
+
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    @Unique
+    private static ModelPart ezvr$findRec(ModelPart node,
+                                          String wanted,
+                                          String path,
+                                          IdentityHashMap<ModelPart, Boolean> visited,
+                                          int depth,
+                                          String[] outPath) {
+        try {
+            if (node == null) return null;
+            if (visited.put(node, Boolean.TRUE) != null) return null;
+            if (depth > 64) return null;
+
+            Map<String, ModelPart> children = ezvr$getChildrenMap(node);
+            if (children == null || children.isEmpty()) return null;
+
+            ModelPart direct = children.get(wanted);
+            if (direct != null) {
+                if (outPath != null && outPath.length > 0) outPath[0] = path + "." + wanted;
+                return direct;
+            }
+
+            for (Map.Entry<String, ModelPart> e : children.entrySet()) {
+                String k = e.getKey();
+                ModelPart v = e.getValue();
+                if (k == null || v == null) continue;
+
+                ModelPart found = ezvr$findRec(v, wanted, path + "." + k, visited, depth + 1, outPath);
+                if (found != null) return found;
             }
         } catch (Throwable ignored) {}
 
         return null;
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Recursive part search (reflection on ModelPart children map)
-    // -----------------------------------------------------------------------------------------
-
-    @Unique
-    private static ModelPart ezvr$findPartByNameRecursive(ModelPart root, String... targetNames) {
-        try {
-            if (root == null || targetNames == null || targetNames.length == 0) return null;
-
-            // Direct check: root itself might match in odd setups
-            for (String n : targetNames) {
-                if (n != null && !n.isBlank() && ezvr$partNameEquals(root, n)) return root;
-            }
-
-            return ezvr$dfsFind(root, targetNames, 0);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    @Unique
-    private static ModelPart ezvr$dfsFind(ModelPart node, String[] names, int depth) {
-        try {
-            if (node == null) return null;
-            if (depth > 64) return null; // sanity cap
-
-            // Try getChild by name fast-path (works if direct children)
-            for (String n : names) {
-                if (n == null || n.isBlank()) continue;
-                try {
-                    ModelPart child = node.getChild(n);
-                    if (child != null) return child;
-                } catch (Throwable ignored) {}
-            }
-
-            // Reflect children map and DFS
-            Map<String, ModelPart> children = ezvr$getChildrenMap(node);
-            if (children == null || children.isEmpty()) return null;
-
-            for (ModelPart child : children.values()) {
-                if (child == null) continue;
-
-                for (String n : names) {
-                    if (n == null || n.isBlank()) continue;
-                    if (ezvr$partNameEquals(child, n)) return child;
-                }
-
-                ModelPart deeper = ezvr$dfsFind(child, names, depth + 1);
-                if (deeper != null) return deeper;
-            }
-
-            return null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    @Unique
     @SuppressWarnings("unchecked")
+    @Unique
     private static Map<String, ModelPart> ezvr$getChildrenMap(ModelPart part) {
         try {
-            if (part == null) return null;
+            for (Field f : ModelPart.class.getDeclaredFields()) {
+                if (!Map.class.isAssignableFrom(f.getType())) continue;
+                f.setAccessible(true);
+                Object v = f.get(part);
+                if (!(v instanceof Map<?, ?> m)) continue;
 
-            if (!EZVR_CHILDREN_FIELD_LOOKED_UP) {
-                EZVR_CHILDREN_FIELD_LOOKED_UP = true;
-
-                // In Mojang mappings, ModelPart typically has a Map<String, ModelPart> children field.
-                // Name can vary; we search for the first Map-typed field that looks like it.
-                for (Field f : ModelPart.class.getDeclaredFields()) {
-                    if (f == null) continue;
-                    if (!Map.class.isAssignableFrom(f.getType())) continue;
-                    f.setAccessible(true);
-
-                    // Heuristic: attempt to read; if it's a Map with ModelPart values, accept.
-                    Object v = f.get(part);
-                    if (v instanceof Map<?, ?> m) {
-                        Object anyVal = m.values().stream().findFirst().orElse(null);
-                        if (anyVal == null || anyVal instanceof ModelPart) {
-                            EZVR_MODEL_PART_CHILDREN_FIELD = f;
-                            break;
-                        }
+                if (!m.isEmpty()) {
+                    Object anyKey = m.keySet().iterator().next();
+                    Object anyVal = m.values().iterator().next();
+                    if (anyKey instanceof String && anyVal instanceof ModelPart) {
+                        return (Map<String, ModelPart>) m;
                     }
+                } else {
+                    return (Map<String, ModelPart>) m;
                 }
             }
-
-            if (EZVR_MODEL_PART_CHILDREN_FIELD == null) return null;
-
-            Object out = EZVR_MODEL_PART_CHILDREN_FIELD.get(part);
-            if (out instanceof Map<?, ?> m) return (Map<String, ModelPart>) m;
-
-            return null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    @Unique
-    private static boolean ezvr$partNameEquals(ModelPart part, String name) {
-        // ModelPart doesn't expose its name; this is only useful if we later store names.
-        // For now this always returns false; kept for future improvements.
-        // We primarily find by getChild(name) and recursive traversal.
-        return false;
-    }
-
-    @Unique
-    private static void ezvr$setVisibleSafe(ModelPart part, boolean visible) {
-        try {
-            if (part == null) return;
-            part.visible = visible;
         } catch (Throwable ignored) {}
+        return null;
     }
 }
