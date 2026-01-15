@@ -1,4 +1,3 @@
-// VillagerInventoryMenu.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/menu/VillagerInventoryMenu.java
 package org.z2six.villageroverhaul.menu;
 
@@ -19,6 +18,7 @@ import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ItemStack;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.server.VillagerAccessGate;
+import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 import java.lang.reflect.Method;
 
@@ -321,11 +321,17 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
                 if (slot == EquipmentSlot.MAINHAND) {
                     le.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
                     setChanged();
+
+                    // IMPORTANT: tell VillagerBrain this was intentional
+                    VillagerBrain.notifyManualHandSet(le, EquipmentSlot.MAINHAND, ItemStack.EMPTY, "menu_remove");
                     return out;
                 }
                 if (slot == EquipmentSlot.OFFHAND) {
                     le.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);
                     setChanged();
+
+                    // IMPORTANT: tell VillagerBrain this was intentional
+                    VillagerBrain.notifyManualHandSet(le, EquipmentSlot.OFFHAND, ItemStack.EMPTY, "menu_remove");
                     return out;
                 }
 
@@ -358,11 +364,17 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
                 if (slot == EquipmentSlot.MAINHAND) {
                     le.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, toSet);
                     setChanged();
+
+                    // IMPORTANT: tell VillagerBrain this was intentional
+                    VillagerBrain.notifyManualHandSet(le, EquipmentSlot.MAINHAND, toSet, "menu_set");
                     return;
                 }
                 if (slot == EquipmentSlot.OFFHAND) {
                     le.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, toSet);
                     setChanged();
+
+                    // IMPORTANT: tell VillagerBrain this was intentional
+                    VillagerBrain.notifyManualHandSet(le, EquipmentSlot.OFFHAND, toSet, "menu_set");
                     return;
                 }
 

@@ -9,7 +9,9 @@
     "VillagerAccessor",
     "VillagerDisableVanillaAutoTradeRefreshMixin",
     "VillagerBrainGateMixin",
-    "VillagerRenderStateMixin"
+    "VillagerRenderStateMixin",
+    "LivingEntityPreventVillagerHandClearMixin",
+    "MobPreventVillagerHandClearMixin"
   ],
   "client": [
     "MerchantScreenTradeLockRightClickMixin",
