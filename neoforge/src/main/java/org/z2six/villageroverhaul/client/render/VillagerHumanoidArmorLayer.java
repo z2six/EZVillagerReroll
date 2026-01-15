@@ -57,7 +57,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
      * - Legs bigger: LEGS.scaleXYZ = 1.02 .. 1.08
      * - Push outward to reduce robe clipping: z += 0.01 .. 0.03
      */
-    private static final Transform TX_HEAD  = Transform.of(0.0f, -0.065f, 0.000f, 1.000f, 1.000f, 1.000f);
+    private static final Transform TX_HEAD  = Transform.of(0.0f, -0.070f, 0.000f, 1.000f, 1.000f, 1.000f);
     private static final Transform TX_CHEST = Transform.of(0.0f, 0.000f, 0.012f, 1.020f, 1.020f, 1.020f);
     private static final Transform TX_LEGS  = Transform.of(0.0f, 0.000f, 0.010f, 1.020f, 1.020f, 1.020f);
     private static final Transform TX_FEET  = Transform.of(0.0f, 0.000f, 0.006f, 1.020f, 1.020f, 1.020f);

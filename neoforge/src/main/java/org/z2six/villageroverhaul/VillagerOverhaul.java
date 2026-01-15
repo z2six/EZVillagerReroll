@@ -1,4 +1,3 @@
-// VillagerOverhaul.java
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/VillagerOverhaul.java
 package org.z2six.villageroverhaul;
 
@@ -12,6 +11,7 @@ import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
+import org.z2six.villageroverhaul.client.ClientCommands;
 import org.z2six.villageroverhaul.client.ClientUI;
 import org.z2six.villageroverhaul.client.VillagerInventoryScreen;
 import org.z2six.villageroverhaul.client.ClientRenderEvents;
@@ -95,7 +95,6 @@ public final class VillagerOverhaul {
 
         // --- RENDER LAYERS + LAYER DEFINITIONS (MOD bus, client-only event types) ---
         try {
-            // NEW: required so e.getEntityModels().bakeLayer(VillagerCombatArmsModel.LAYER_LOCATION) works
             modBus.addListener(ClientRenderEvents::onRegisterLayerDefinitions);
             LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onRegisterLayerDefinitions on MOD bus.");
         } catch (Throwable t) {
@@ -137,6 +136,14 @@ public final class VillagerOverhaul {
             LOG.info("[VillagerOverhaul] ClientUI runtime events registered.");
         } catch (Throwable t) {
             LOG.error("[VillagerOverhaul] ClientUI registration failed (client features may be limited).", t);
+        }
+
+        // Client debug commands for dumping model parts and toggling visibility at runtime.
+        try {
+            ClientCommands.register(NeoForge.EVENT_BUS);
+            LOG.info("[VillagerOverhaul] [client] ClientCommands registered (vo_modeldump, vo_partvis).");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] [client] ClientCommands registration failed (continuing).", t);
         }
     }
 

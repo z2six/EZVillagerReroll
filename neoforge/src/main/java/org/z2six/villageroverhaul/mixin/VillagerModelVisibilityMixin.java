@@ -16,6 +16,7 @@ import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -23,58 +24,153 @@ import java.util.UUID;
 /**
  * Client-side villager model visibility control.
  *
- * Correct approach:
- * - Apply visibility AFTER vanilla setupAnim runs (TAIL), because vanilla may reset .visible during setupAnim.
- * - No @Shadow (no refmap).
- * - Find ModelPart children via reflection.
+ * Enforced at:
+ *  - setupAnim(TAIL) for whichever signature matches
+ *  - renderToBuffer(HEAD) for multiple signatures
  *
- * IMPORTANT: In 1.21.1 EntityModel#setupAnim uses Entity as the first param.
- * DO NOT use Object here: mixin validates descriptors strictly.
+ * IMPORTANT PERFORMANCE NOTE:
+ * - This model instance is reused across many villagers, so do NOT log per-render.
+ * - Any logging is DEBUG-only and throttled + per-UUID cached.
  */
 @Mixin(VillagerModel.class)
 public abstract class VillagerModelVisibilityMixin {
 
     @Unique private boolean ezvr$initLogged = false;
-
     @Unique private boolean ezvr$resolved = false;
 
-    @Unique private ModelPart ezvr$armsPart = null;
-    @Unique private String ezvr$armsPath = null;
+    @Unique private ModelPart ezvr$crossedArmsPart = null;
+    @Unique private String ezvr$crossedArmsPath = null;
 
-    @Unique private ModelPart ezvr$bodywearPart = null;
-    @Unique private String ezvr$bodywearPath = null;
+    @Unique private ModelPart ezvr$robePart = null;
+    @Unique private String ezvr$robePath = null;
+    @Unique private String ezvr$robeKey = null;
 
-    // model instance renders multiple villagers; keep minimal log state
-    @Unique private UUID ezvr$lastUuid = null;
-    @Unique private byte ezvr$lastFlags = (byte) 0x7F;
+    // Current entity context when renderToBuffer is called (no entity param).
+    @Unique private AbstractVillager ezvr$ctxVillager = null;
 
-    /**
-     * Primary hook: matches the actual runtime signature in 1.21.1.
-     * We then filter to AbstractVillager inside.
-     */
+    // Per-villager state to prevent spam (model instance is shared).
+    @Unique private final Map<UUID, Byte> ezvr$lastFlagsByUuid = new HashMap<>();
+    @Unique private final Map<UUID, Integer> ezvr$lastLogTickByUuid = new HashMap<>();
+
+    // Debug throttling: log at most once per villager every N ticks when flags change.
+    @Unique private static final int EZVR_DEBUG_LOG_INTERVAL_TICKS = 40; // ~2s
+
+    // -------------------------------------------------------------------------
+    // setupAnim hooks (multiple signatures, require=0)
+    // -------------------------------------------------------------------------
+
     @Inject(
             method = "setupAnim(Lnet/minecraft/world/entity/Entity;FFFFF)V",
             at = @At("TAIL"),
             require = 0
     )
-    private void ezvr$setupAnimEntity(Entity entity,
-                                      float limbSwing,
-                                      float limbSwingAmount,
-                                      float ageInTicks,
-                                      float netHeadYaw,
-                                      float headPitch,
-                                      CallbackInfo ci) {
-        ezvr$apply(entity);
+    private void ezvr$setupAnimEntityTail(Entity entity,
+                                          float limbSwing,
+                                          float limbSwingAmount,
+                                          float ageInTicks,
+                                          float netHeadYaw,
+                                          float headPitch,
+                                          CallbackInfo ci) {
+        ezvr$applyFromEntity(entity, "setupAnim(Entity,TAIL)");
+    }
+
+    @Inject(
+            method = "setupAnim(Lnet/minecraft/world/entity/npc/AbstractVillager;FFFFF)V",
+            at = @At("TAIL"),
+            require = 0
+    )
+    private void ezvr$setupAnimAbstractTail(AbstractVillager entity,
+                                            float limbSwing,
+                                            float limbSwingAmount,
+                                            float ageInTicks,
+                                            float netHeadYaw,
+                                            float headPitch,
+                                            CallbackInfo ci) {
+        ezvr$applyFromEntity(entity, "setupAnim(AbstractVillager,TAIL)");
     }
 
     // -------------------------------------------------------------------------
-    // Apply visibility based on synced flags
+    // renderToBuffer hooks (multiple signatures, require=0)
+    // -------------------------------------------------------------------------
+
+    @Inject(
+            method = "renderToBuffer(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;II)V",
+            at = @At("HEAD"),
+            require = 0
+    )
+    private void ezvr$renderToBufferHead4(Object poseStack,
+                                          Object vertexConsumer,
+                                          int packedLight,
+                                          int packedOverlay,
+                                          CallbackInfo ci) {
+        ezvr$applyFromContext("renderToBuffer(4,HEAD)");
+    }
+
+    @Inject(
+            method = "renderToBuffer(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;III)V",
+            at = @At("HEAD"),
+            require = 0
+    )
+    private void ezvr$renderToBufferHead5(Object poseStack,
+                                          Object vertexConsumer,
+                                          int packedLight,
+                                          int packedOverlay,
+                                          int packedColor,
+                                          CallbackInfo ci) {
+        ezvr$applyFromContext("renderToBuffer(5,HEAD)");
+    }
+
+    @Inject(
+            method = "renderToBuffer(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;IIFFFF)V",
+            at = @At("HEAD"),
+            require = 0
+    )
+    private void ezvr$renderToBufferHeadLegacy(Object poseStack,
+                                               Object vertexConsumer,
+                                               int packedLight,
+                                               int packedOverlay,
+                                               float red,
+                                               float green,
+                                               float blue,
+                                               float alpha,
+                                               CallbackInfo ci) {
+        ezvr$applyFromContext("renderToBuffer(legacy,HEAD)");
+    }
+
+    // -------------------------------------------------------------------------
+    // Core apply logic
     // -------------------------------------------------------------------------
 
     @Unique
-    private void ezvr$apply(Entity entity) {
+    private void ezvr$applyFromEntity(Object entity, String phase) {
         try {
             if (!(entity instanceof AbstractVillager villager)) return;
+            ezvr$ctxVillager = villager;
+            ezvr$apply(villager, phase);
+        } catch (Throwable t) {
+            // keep soft; avoid INFO spam
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VisibilityMixin applyFromEntity failed (soft): {}", t.toString());
+            }
+        }
+    }
+
+    @Unique
+    private void ezvr$applyFromContext(String phase) {
+        try {
+            if (ezvr$ctxVillager == null) return;
+            ezvr$apply(ezvr$ctxVillager, phase);
+        } catch (Throwable t) {
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VisibilityMixin applyFromContext failed (soft): {}", t.toString());
+            }
+        }
+    }
+
+    @Unique
+    private void ezvr$apply(AbstractVillager villager, String phase) {
+        try {
+            if (villager == null) return;
 
             if (!ezvr$initLogged) {
                 ezvr$initLogged = true;
@@ -90,7 +186,7 @@ public abstract class VillagerModelVisibilityMixin {
 
                 ModelPart root = ezvr$tryCallRoot(this);
                 if (root == null) {
-                    VillagerOverhaul.LOG().info(
+                    VillagerOverhaul.LOG().warn(
                             "[VillagerOverhaul] [client] VisibilityMixin: FAILED to call root() (modelInstance={})",
                             System.identityHashCode(this)
                     );
@@ -101,24 +197,22 @@ public abstract class VillagerModelVisibilityMixin {
                 String[] armsPathOut = new String[1];
                 ModelPart arms = ezvr$findFirstByName(root, "arms", armsPathOut);
                 if (arms != null) {
-                    ezvr$armsPart = arms;
-                    ezvr$armsPath = armsPathOut[0];
+                    ezvr$crossedArmsPart = arms;
+                    ezvr$crossedArmsPath = armsPathOut[0];
                 } else {
                     String[] bonePathOut = new String[1];
                     ModelPart bone = ezvr$findFirstByName(root, "bone", bonePathOut);
-                    ezvr$armsPart = bone;
-                    ezvr$armsPath = bonePathOut[0];
+                    ezvr$crossedArmsPart = bone;
+                    ezvr$crossedArmsPath = bonePathOut[0];
                 }
 
-                // Robe quad
-                String[] bwPathOut = new String[1];
-                ezvr$bodywearPart = ezvr$findFirstByName(root, "bodywear", bwPathOut);
-                ezvr$bodywearPath = bwPathOut[0];
+                // Robe/outer layer: prefer "jacket" (confirmed), fallback "bodywear"
+                ezvr$resolveRobe(root);
 
                 VillagerOverhaul.LOG().info(
-                        "[VillagerOverhaul] [client] VisibilityMixin resolved: armsFound={}, armsPath='{}', bodywearFound={}, bodywearPath='{}'",
-                        (ezvr$armsPart != null), String.valueOf(ezvr$armsPath),
-                        (ezvr$bodywearPart != null), String.valueOf(ezvr$bodywearPath)
+                        "[VillagerOverhaul] [client] VisibilityMixin resolved: crossedArmsFound={}, crossedArmsPath='{}', robeFound={}, robeKey='{}', robePath='{}'",
+                        (ezvr$crossedArmsPart != null), String.valueOf(ezvr$crossedArmsPath),
+                        (ezvr$robePart != null), String.valueOf(ezvr$robeKey), String.valueOf(ezvr$robePath)
                 );
             }
 
@@ -128,49 +222,96 @@ public abstract class VillagerModelVisibilityMixin {
                 flags = acc.ezvr$getRenderFlags();
             }
 
-            boolean showBodywear = VillagerRenderFlags.renderBodywear(flags);
+            boolean showRobe = VillagerRenderFlags.renderBodywear(flags);
             boolean showCrossedArms = !VillagerRenderFlags.renderCustomArms(flags);
 
-            boolean prevArmsVis = (ezvr$armsPart != null) && ezvr$armsPart.visible;
-            boolean prevBodywearVis = (ezvr$bodywearPart != null) && ezvr$bodywearPart.visible;
+            // Enforce
+            if (ezvr$crossedArmsPart != null) ezvr$crossedArmsPart.visible = showCrossedArms;
+            if (ezvr$robePart != null) ezvr$robePart.visible = showRobe;
 
-            // TAIL of setupAnim -> overrides vanilla final values for this frame
-            if (ezvr$armsPart != null) ezvr$armsPart.visible = showCrossedArms;
-            if (ezvr$bodywearPart != null) ezvr$bodywearPart.visible = showBodywear;
+            // DEBUG-only, throttled, per-UUID (NO INFO SPAM)
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                UUID id = villager.getUUID();
+                if (id != null) {
+                    Byte last = ezvr$lastFlagsByUuid.get(id);
+                    int tick = villager.tickCount;
+                    Integer lastTick = ezvr$lastLogTickByUuid.get(id);
 
-            // Log changes per villager+flags
-            UUID id = villager.getUUID();
-            if (id != null && (!id.equals(ezvr$lastUuid) || ezvr$lastFlags != flags)) {
-                ezvr$lastUuid = id;
-                ezvr$lastFlags = flags;
+                    boolean changed = (last == null) || (last.byteValue() != flags);
+                    boolean allow = (lastTick == null) || (tick - lastTick) >= EZVR_DEBUG_LOG_INTERVAL_TICKS;
 
-                VillagerOverhaul.LOG().info(
-                        "[VillagerOverhaul] [client] Visibility applied entity={}, flags={}, showBodywear={}, showCrossedArms={}, armsVis:{}->{} bodywearVis:{}->{}",
-                        id,
-                        (int) flags,
-                        showBodywear,
-                        showCrossedArms,
-                        prevArmsVis,
-                        (ezvr$armsPart != null && ezvr$armsPart.visible),
-                        prevBodywearVis,
-                        (ezvr$bodywearPart != null && ezvr$bodywearPart.visible)
-                );
-            }
+                    if (changed && allow) {
+                        ezvr$lastFlagsByUuid.put(id, flags);
+                        ezvr$lastLogTickByUuid.put(id, tick);
 
-            // Low-noise heartbeat so you can confirm it keeps running even if flags don't change
-            int t = villager.tickCount;
-            if ((t % 80) == 0) { // ~4 seconds
-                VillagerOverhaul.LOG().info(
-                        "[VillagerOverhaul] [client] Visibility heartbeat entity={}, flags={}, armsVisible={}, bodywearVisible={}",
-                        id,
-                        (int) flags,
-                        (ezvr$armsPart != null && ezvr$armsPart.visible),
-                        (ezvr$bodywearPart != null && ezvr$bodywearPart.visible)
-                );
+                        VillagerOverhaul.LOG().debug(
+                                "[VillagerOverhaul] [client] Visibility ({}): entity={}, flags={}, showRobe={}, showCrossedArms={}, armsVis={}, robeVis={}, robeKey='{}'",
+                                phase,
+                                id,
+                                (int) flags,
+                                showRobe,
+                                showCrossedArms,
+                                (ezvr$crossedArmsPart != null && ezvr$crossedArmsPart.visible),
+                                (ezvr$robePart != null && ezvr$robePart.visible),
+                                String.valueOf(ezvr$robeKey)
+                        );
+                    }
+                }
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VisibilityMixin apply failed (soft): {}", t.toString());
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VisibilityMixin apply failed (soft): {}", t.toString());
+            }
+        }
+    }
+
+    @Unique
+    private void ezvr$resolveRobe(ModelPart root) {
+        try {
+            String[] out = new String[1];
+
+            // Priority: jacket (confirmed), then bodywear, then robe/clothes.
+            ModelPart p = ezvr$findFirstByName(root, "jacket", out);
+            if (p != null) {
+                ezvr$robePart = p;
+                ezvr$robePath = out[0];
+                ezvr$robeKey = "jacket";
+                return;
+            }
+
+            p = ezvr$findFirstByName(root, "bodywear", out);
+            if (p != null) {
+                ezvr$robePart = p;
+                ezvr$robePath = out[0];
+                ezvr$robeKey = "bodywear";
+                return;
+            }
+
+            p = ezvr$findFirstByName(root, "robe", out);
+            if (p != null) {
+                ezvr$robePart = p;
+                ezvr$robePath = out[0];
+                ezvr$robeKey = "robe";
+                return;
+            }
+
+            p = ezvr$findFirstByName(root, "clothes", out);
+            if (p != null) {
+                ezvr$robePart = p;
+                ezvr$robePath = out[0];
+                ezvr$robeKey = "clothes";
+                return;
+            }
+
+            ezvr$robePart = null;
+            ezvr$robePath = null;
+            ezvr$robeKey = null;
+
+        } catch (Throwable t) {
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VisibilityMixin resolveRobe failed (soft): {}", t.toString());
+            }
         }
     }
 
@@ -189,7 +330,7 @@ public abstract class VillagerModelVisibilityMixin {
     }
 
     // -------------------------------------------------------------------------
-    // Recursive name search
+    // Recursive name search (reflection children map)
     // -------------------------------------------------------------------------
 
     @Unique

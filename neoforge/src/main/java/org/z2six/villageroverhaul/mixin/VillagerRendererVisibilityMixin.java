@@ -14,28 +14,43 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * Primarily diagnostic: confirms we can inject into the actual inherited render signature in 1.21.1.
- * (Your previous Villager-typed descriptor often won't match, so it never ran.)
+ * Authoritative enforcement at the actual render entrypoint used in 1.21.1:
+ *   render(LivingEntity;FF;PoseStack;MultiBufferSource;I)
  *
- * We DON'T rely on this to hide parts; VillagerModelVisibilityMixin is the authoritative one (TAIL of setupAnim).
+ * PERFORMANCE NOTE:
+ * - Absolutely no per-render INFO logging.
+ * - Optional DEBUG logging is per-UUID + throttled.
  */
 @Mixin(VillagerRenderer.class)
 public abstract class VillagerRendererVisibilityMixin {
 
     @Unique private boolean ezvr$initLogged = false;
-    @Unique private boolean ezvr$resolved = false;
 
+    @Unique private boolean ezvr$resolved = false;
     @Unique private VillagerModel<?> ezvr$model = null;
 
-    @Unique private String ezvr$armsPath = null;
-    @Unique private String ezvr$bodywearPath = null;
+    @Unique private ModelPart ezvr$crossedArmsPart = null;
+    @Unique private String ezvr$crossedArmsPath = null;
+
+    @Unique private ModelPart ezvr$robePart = null;
+    @Unique private String ezvr$robePath = null;
+    @Unique private String ezvr$robeKey = null;
+
+    // Per-villager state to prevent spam.
+    @Unique private final Map<UUID, Byte> ezvr$lastFlagsByUuid = new HashMap<>();
+    @Unique private final Map<UUID, Integer> ezvr$lastLogTickByUuid = new HashMap<>();
+    @Unique private static final int EZVR_DEBUG_LOG_INTERVAL_TICKS = 40; // ~2s
 
     // This is the inherited signature you actually get at runtime (LivingEntity param).
     @Inject(
@@ -43,13 +58,13 @@ public abstract class VillagerRendererVisibilityMixin {
             at = @At("HEAD"),
             require = 0
     )
-    private void ezvr$renderLiving(LivingEntity entity,
-                                   float entityYaw,
-                                   float partialTick,
-                                   PoseStack poseStack,
-                                   MultiBufferSource buffer,
-                                   int packedLight,
-                                   CallbackInfo ci) {
+    private void ezvr$renderLivingHead(LivingEntity entity,
+                                       float entityYaw,
+                                       float partialTick,
+                                       PoseStack poseStack,
+                                       MultiBufferSource buffer,
+                                       int packedLight,
+                                       CallbackInfo ci) {
         try {
             if (!ezvr$initLogged) {
                 ezvr$initLogged = true;
@@ -59,45 +74,147 @@ public abstract class VillagerRendererVisibilityMixin {
                 );
             }
 
-            if (!(entity instanceof Villager)) return;
+            if (!(entity instanceof Villager villager)) return;
 
+            // Resolve model/parts once per renderer instance
             if (!ezvr$resolved) {
                 ezvr$resolved = true;
 
                 ezvr$model = ezvr$findVillagerModelFromRenderer(this);
                 if (ezvr$model == null) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] RendererVisibilityMixin: FAILED to find VillagerModel field on renderer");
+                    VillagerOverhaul.LOG().warn("[VillagerOverhaul] [client] RendererVisibilityMixin: FAILED to find VillagerModel field on renderer");
                     return;
                 }
 
                 ModelPart root = ezvr$tryCallRoot(ezvr$model);
                 if (root == null) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] RendererVisibilityMixin: FAILED to call model.root()");
+                    VillagerOverhaul.LOG().warn("[VillagerOverhaul] [client] RendererVisibilityMixin: FAILED to call model.root()");
                     return;
                 }
 
+                // Crossed arms: "arms" preferred, fallback "bone"
                 String[] armsPathOut = new String[1];
                 ModelPart arms = ezvr$findFirstByName(root, "arms", armsPathOut);
-                if (arms != null) ezvr$armsPath = armsPathOut[0];
+                if (arms != null) {
+                    ezvr$crossedArmsPart = arms;
+                    ezvr$crossedArmsPath = armsPathOut[0];
+                } else {
+                    String[] bonePathOut = new String[1];
+                    ModelPart bone = ezvr$findFirstByName(root, "bone", bonePathOut);
+                    ezvr$crossedArmsPart = bone;
+                    ezvr$crossedArmsPath = bonePathOut[0];
+                }
 
-                String[] bwPathOut = new String[1];
-                ModelPart bw = ezvr$findFirstByName(root, "bodywear", bwPathOut);
-                if (bw != null) ezvr$bodywearPath = bwPathOut[0];
+                // Robe: jacket confirmed by dump
+                ezvr$resolveRobe(root);
 
                 VillagerOverhaul.LOG().info(
-                        "[VillagerOverhaul] [client] RendererVisibilityMixin resolved paths: armsPath='{}', bodywearPath='{}'",
-                        String.valueOf(ezvr$armsPath),
-                        String.valueOf(ezvr$bodywearPath)
+                        "[VillagerOverhaul] [client] RendererVisibilityMixin resolved: crossedArmsFound={}, crossedArmsPath='{}', robeFound={}, robeKey='{}', robePath='{}'",
+                        (ezvr$crossedArmsPart != null), String.valueOf(ezvr$crossedArmsPath),
+                        (ezvr$robePart != null), String.valueOf(ezvr$robeKey), String.valueOf(ezvr$robePath)
                 );
             }
 
+            // Read flags
+            byte flags = VillagerRenderFlags.defaultFlags();
+            if (villager instanceof VillagerOverhaulRenderAccess acc) {
+                flags = acc.ezvr$getRenderFlags();
+            }
+
+            boolean showRobe = VillagerRenderFlags.renderBodywear(flags);
+            boolean showCrossedArms = !VillagerRenderFlags.renderCustomArms(flags);
+
+            // Enforce right before draw (this is the magic)
+            if (ezvr$crossedArmsPart != null) ezvr$crossedArmsPart.visible = showCrossedArms;
+            if (ezvr$robePart != null) ezvr$robePart.visible = showRobe;
+
+            // DEBUG-only, throttled, per-UUID (NO INFO SPAM)
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                UUID id = villager.getUUID();
+                if (id != null) {
+                    Byte last = ezvr$lastFlagsByUuid.get(id);
+                    int tick = villager.tickCount;
+                    Integer lastTick = ezvr$lastLogTickByUuid.get(id);
+
+                    boolean changed = (last == null) || (last.byteValue() != flags);
+                    boolean allow = (lastTick == null) || (tick - lastTick) >= EZVR_DEBUG_LOG_INTERVAL_TICKS;
+
+                    if (changed && allow) {
+                        ezvr$lastFlagsByUuid.put(id, flags);
+                        ezvr$lastLogTickByUuid.put(id, tick);
+
+                        VillagerOverhaul.LOG().debug(
+                                "[VillagerOverhaul] [client] RendererVisibility: entity={}, flags={}, showRobe={}, showCrossedArms={}, crossedArmsVis={}, robeVis={}, robeKey='{}'",
+                                id,
+                                (int) flags,
+                                showRobe,
+                                showCrossedArms,
+                                (ezvr$crossedArmsPart != null && ezvr$crossedArmsPart.visible),
+                                (ezvr$robePart != null && ezvr$robePart.visible),
+                                String.valueOf(ezvr$robeKey)
+                        );
+                    }
+                }
+            }
+
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] RendererVisibilityMixin failed (soft): {}", t.toString());
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] RendererVisibilityMixin failed (soft): {}", t.toString());
+            }
+        }
+    }
+
+    @Unique
+    private void ezvr$resolveRobe(ModelPart root) {
+        try {
+            String[] out = new String[1];
+
+            // Priority: jacket (confirmed), then bodywear, then robe/clothes.
+            ModelPart p = ezvr$findFirstByName(root, "jacket", out);
+            if (p != null) {
+                ezvr$robePart = p;
+                ezvr$robePath = out[0];
+                ezvr$robeKey = "jacket";
+                return;
+            }
+
+            p = ezvr$findFirstByName(root, "bodywear", out);
+            if (p != null) {
+                ezvr$robePart = p;
+                ezvr$robePath = out[0];
+                ezvr$robeKey = "bodywear";
+                return;
+            }
+
+            p = ezvr$findFirstByName(root, "robe", out);
+            if (p != null) {
+                ezvr$robePart = p;
+                ezvr$robePath = out[0];
+                ezvr$robeKey = "robe";
+                return;
+            }
+
+            p = ezvr$findFirstByName(root, "clothes", out);
+            if (p != null) {
+                ezvr$robePart = p;
+                ezvr$robePath = out[0];
+                ezvr$robeKey = "clothes";
+                return;
+            }
+
+            ezvr$robePart = null;
+            ezvr$robePath = null;
+            ezvr$robeKey = null;
+
+        } catch (Throwable t) {
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] RendererVisibilityMixin resolveRobe failed (soft): {}", t.toString());
+            }
         }
     }
 
     // -------------------------------------------------------------------------
-    // Reflection helpers (no @Shadow, no nested classes)
+    // Reflection helpers (no @Shadow, no inner classes)
     // -------------------------------------------------------------------------
 
     @Unique

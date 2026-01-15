@@ -21,7 +21,6 @@ import net.minecraft.world.item.UseAnim;
 import org.z2six.villageroverhaul.Constants;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
-import org.z2six.villageroverhaul.client.model.VillagerCombatArmsModel;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
 import java.lang.reflect.Field;

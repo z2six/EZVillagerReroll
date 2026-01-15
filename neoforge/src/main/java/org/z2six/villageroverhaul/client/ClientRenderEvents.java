@@ -12,7 +12,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.client.model.VillagerCombatArmsModel;
+import org.z2six.villageroverhaul.client.render.VillagerCombatArmsModel;
 import org.z2six.villageroverhaul.client.render.VillagerHumanoidArmorLayer;
 import org.z2six.villageroverhaul.client.render.VillagerHumanoidArmsLayer;
 
