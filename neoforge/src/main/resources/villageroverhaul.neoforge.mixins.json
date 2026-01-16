@@ -9,15 +9,15 @@
     "VillagerAccessor",
     "VillagerDisableVanillaAutoTradeRefreshMixin",
     "VillagerBrainGateMixin",
-    "VillagerRenderStateMixin",
-    "LivingEntityPreventVillagerHandClearMixin",
-    "MobPreventVillagerHandClearMixin"
+    "villagerRendering.VillagerRenderStateMixin",
+    "villagerRendering.LivingEntityPreventVillagerHandClearMixin",
+    "villagerRendering.MobPreventVillagerHandClearMixin"
   ],
   "client": [
     "MerchantScreenTradeLockRightClickMixin",
     "MerchantScreenRerollButtonRightClickMixin",
-    "VillagerModelVisibilityMixin",
-    "VillagerRendererVisibilityMixin"
+    "villagerRendering.VillagerModelVisibilityMixin",
+    "villagerRendering.VillagerRendererVisibilityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

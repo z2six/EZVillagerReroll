@@ -19,9 +19,9 @@ import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.Network;
-import org.z2six.villageroverhaul.network.PacketDeclineAutoSearchSettlement;
-import org.z2six.villageroverhaul.network.PacketOpenAutoSearchPaymentScreen;
-import org.z2six.villageroverhaul.network.PacketPayAutoSearchSettlement;
+import org.z2six.villageroverhaul.network.autoReroll.PacketDeclineAutoSearchSettlement;
+import org.z2six.villageroverhaul.network.autoReroll.PacketOpenAutoSearchPaymentScreen;
+import org.z2six.villageroverhaul.network.autoReroll.PacketPayAutoSearchSettlement;
 
 import java.lang.reflect.Method;
 import java.util.*;

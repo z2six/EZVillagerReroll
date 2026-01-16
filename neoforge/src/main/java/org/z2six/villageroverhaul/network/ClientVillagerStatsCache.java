@@ -1,6 +1,7 @@
 package org.z2six.villageroverhaul.network;
 
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

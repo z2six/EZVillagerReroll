@@ -18,6 +18,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 import org.z2six.villageroverhaul.server.RecruitService;
 import net.minecraft.world.InteractionHand;
@@ -724,13 +725,13 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
-    public static void setPatrolRouteTypeAndStart(Villager vill, org.z2six.villageroverhaul.network.PacketPatrolSetRouteType.RouteType type) {
+    public static void setPatrolRouteTypeAndStart(Villager vill, PacketPatrolSetRouteType.RouteType type) {
         try {
             if (vill == null || type == null) return;
 
             CompoundTag patrol = getOrCreatePatrol(vill);
 
-            PatrolRouteType rt = (type == org.z2six.villageroverhaul.network.PacketPatrolSetRouteType.RouteType.LINEAR)
+            PatrolRouteType rt = (type == PacketPatrolSetRouteType.RouteType.LINEAR)
                     ? PatrolRouteType.LINEAR
                     : PatrolRouteType.CIRCULAR;
 

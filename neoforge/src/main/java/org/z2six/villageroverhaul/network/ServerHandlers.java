@@ -1,7 +1,6 @@
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/ServerHandlers.java
 package org.z2six.villageroverhaul.network;
 
-import com.mojang.serialization.DataResult;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
@@ -25,24 +24,24 @@ import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.logic.WalletBridge;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
+import org.z2six.villageroverhaul.network.autoReroll.*;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.patrol.*;
+import org.z2six.villageroverhaul.network.recruit.*;
+import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
+import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.server.CatalogBuilder;
 import org.z2six.villageroverhaul.server.SearchService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.server.RecruitService;
-import org.z2six.villageroverhaul.network.PacketVillagerCommand;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
-import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 
 // patrol packets
-import org.z2six.villageroverhaul.network.PacketPatrolAction;
-import org.z2six.villageroverhaul.network.PacketPatrolBegin;
-import org.z2six.villageroverhaul.network.PacketPatrolInteractRequest;
-import org.z2six.villageroverhaul.network.PacketPatrolOpenGui;
-import org.z2six.villageroverhaul.network.PacketPatrolSetRouteType;
 
 import java.lang.reflect.Field;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 public final class ServerHandlers {

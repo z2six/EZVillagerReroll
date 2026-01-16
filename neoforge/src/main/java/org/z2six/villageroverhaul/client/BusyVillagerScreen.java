@@ -7,8 +7,8 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.network.PacketCancelAutoSearch;
-import org.z2six.villageroverhaul.network.PacketContinueAutoSearch;
+import org.z2six.villageroverhaul.network.autoReroll.PacketCancelAutoSearch;
+import org.z2six.villageroverhaul.network.autoReroll.PacketContinueAutoSearch;
 
 import java.util.ArrayList;
 import java.util.List;

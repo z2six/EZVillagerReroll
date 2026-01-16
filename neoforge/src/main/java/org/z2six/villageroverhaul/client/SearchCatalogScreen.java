@@ -15,9 +15,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.network.PacketSearchCatalogData;
-import org.z2six.villageroverhaul.network.PacketSearchCatalogQuery;
-import org.z2six.villageroverhaul.network.PacketStartAutoSearch;
+import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
+import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogQuery;
+import org.z2six.villageroverhaul.network.autoReroll.PacketStartAutoSearch;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;

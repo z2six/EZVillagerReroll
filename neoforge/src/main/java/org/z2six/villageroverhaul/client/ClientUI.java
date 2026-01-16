@@ -23,27 +23,32 @@ import org.z2six.villageroverhaul.config.ClientConfig;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.mixin.MerchantScreenAccessor;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
-import org.z2six.villageroverhaul.network.ClientTooltipCache;
+import org.z2six.villageroverhaul.network.tooltip.ClientTooltipCache;
 import org.z2six.villageroverhaul.network.ClientTradeLockCache;
-import org.z2six.villageroverhaul.network.PacketRequestReroll;
-import org.z2six.villageroverhaul.network.PacketRerollCooldownQuery;
-import org.z2six.villageroverhaul.network.PacketTooltipData;
-import org.z2six.villageroverhaul.network.PacketTooltipQuery;
-import org.z2six.villageroverhaul.network.PacketTradeLocksQuery;
+import org.z2six.villageroverhaul.network.autoReroll.PacketRequestReroll;
+import org.z2six.villageroverhaul.network.autoReroll.PacketRerollCooldownQuery;
+import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
+import org.z2six.villageroverhaul.network.tooltip.PacketTooltipQuery;
+import org.z2six.villageroverhaul.network.trades.PacketTradeLocksQuery;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
-import org.z2six.villageroverhaul.network.PacketVillagerStatsQuery;
-import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
+import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
-import org.z2six.villageroverhaul.network.PacketRecruitCostData;
+import org.z2six.villageroverhaul.network.recruit.PacketRecruitCostData;
 import net.minecraft.world.entity.npc.Villager;
-import org.z2six.villageroverhaul.network.PacketVillagerCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
-import org.z2six.villageroverhaul.network.PacketPatrolInteractRequest;
-import org.z2six.villageroverhaul.network.PacketPatrolOpenGui;
+import org.z2six.villageroverhaul.network.patrol.PacketPatrolInteractRequest;
+import org.z2six.villageroverhaul.network.patrol.PacketPatrolOpenGui;
 import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
+import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogQuery;
+import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
+import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -139,7 +144,7 @@ public final class ClientUI {
         }
     }
 
-    public static void acceptVillagerModeData(org.z2six.villageroverhaul.network.PacketVillagerModeData p) {
+    public static void acceptVillagerModeData(PacketVillagerModeData p) {
         try {
             if (p == null) return;
             MODE_ID.put(p.villagerEntityId(), p.modeId() == null ? "neutral" : p.modeId());
@@ -182,7 +187,7 @@ public final class ClientUI {
 
             if (!shouldRefreshRecruitState(id)) return;
 
-            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketRecruitGateQuery(id));
+            ClientNetwork.sendToServer(new PacketRecruitGateQuery(id));
         } catch (Throwable ignored) {}
     }
 
@@ -265,7 +270,7 @@ public final class ClientUI {
 
             // Also query our gate state so UI can show/hide controls
             try {
-                ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketRecruitGateQuery(id));
+                ClientNetwork.sendToServer(new PacketRecruitGateQuery(id));
             } catch (Throwable ignored) {}
 
             // If no screen is currently open, schedule quick-actions overlay
@@ -329,7 +334,7 @@ public final class ClientUI {
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Opening search catalog UI (villagerEntityId={})", villagerEntityId);
 
-            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketSearchCatalogQuery(villagerEntityId));
+            ClientNetwork.sendToServer(new PacketSearchCatalogQuery(villagerEntityId));
             mc.setScreen(new SearchCatalogScreen(parent));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] openSearchCatalogScreen failed", t);
@@ -1974,7 +1979,7 @@ public final class ClientUI {
             long age = (at == null) ? Long.MAX_VALUE : (System.currentTimeMillis() - at);
             if (age < MODE_STALE_MS) return;
 
-            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketVillagerModeQuery(id));
+            ClientNetwork.sendToServer(new PacketVillagerModeQuery(id));
         } catch (Throwable ignored) {}
     }
 
@@ -2027,7 +2032,7 @@ public final class ClientUI {
     // ====================
 
     // accept gate data from server
-    public static void acceptRecruitGateData(org.z2six.villageroverhaul.network.PacketRecruitGateData p) {
+    public static void acceptRecruitGateData(PacketRecruitGateData p) {
         try {
             if (p == null) return;
             int id = p.villagerEntityId();

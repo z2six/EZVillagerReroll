@@ -17,13 +17,12 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.logic.TradeUtil;
-import org.z2six.villageroverhaul.network.PacketAutoSearchDone;
-import org.z2six.villageroverhaul.network.PacketOpenAutoSearchPaymentScreen;
-import org.z2six.villageroverhaul.network.PacketOpenBusyScreen;
+import org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchDone;
+import org.z2six.villageroverhaul.network.autoReroll.PacketOpenAutoSearchPaymentScreen;
+import org.z2six.villageroverhaul.network.autoReroll.PacketOpenBusyScreen;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import net.minecraft.nbt.Tag;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
-import org.z2six.villageroverhaul.server.VillagerGenerosityOfferService;
 import org.z2six.villageroverhaul.logic.RerollState;
 
 import java.lang.reflect.Method;

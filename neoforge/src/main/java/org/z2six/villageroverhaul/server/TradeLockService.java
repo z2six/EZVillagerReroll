@@ -7,7 +7,7 @@ import net.minecraft.server.level.ServerPlayer;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
-import org.z2six.villageroverhaul.network.PacketTradeLocks;
+import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 
 public final class TradeLockService {
 

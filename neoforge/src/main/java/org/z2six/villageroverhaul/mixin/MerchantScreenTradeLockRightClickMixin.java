@@ -16,8 +16,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientTradeLockCache;
 import org.z2six.villageroverhaul.network.Network;
-import org.z2six.villageroverhaul.network.PacketToggleTradeLock;
-import org.z2six.villageroverhaul.network.PacketTradeLocks;
+import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
+import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 
 import java.lang.reflect.Field;
 import java.util.List;

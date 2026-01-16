@@ -8,8 +8,8 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.network.PacketPatrolBegin;
-import org.z2six.villageroverhaul.network.PacketPatrolInteractRequest;
+import org.z2six.villageroverhaul.network.patrol.PacketPatrolBegin;
+import org.z2six.villageroverhaul.network.patrol.PacketPatrolInteractRequest;
 
 public final class PatrolBeginPromptScreen extends Screen {
 

@@ -14,7 +14,7 @@ import org.slf4j.Logger;
 import org.z2six.villageroverhaul.client.ClientCommands;
 import org.z2six.villageroverhaul.client.ClientUI;
 import org.z2six.villageroverhaul.client.VillagerInventoryScreen;
-import org.z2six.villageroverhaul.client.ClientRenderEvents;
+import org.z2six.villageroverhaul.client.render.ClientRenderEvents;
 import org.z2six.villageroverhaul.config.ClientConfig;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.menu.ModMenus;

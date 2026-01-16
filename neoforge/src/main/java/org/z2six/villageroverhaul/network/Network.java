@@ -12,11 +12,22 @@ import net.minecraft.world.item.Items;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.network.autoReroll.*;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.patrol.*;
+import org.z2six.villageroverhaul.network.recruit.*;
+import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
+import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
+import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
+import org.z2six.villageroverhaul.network.tooltip.PacketTooltipQuery;
+import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
+import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
+import org.z2six.villageroverhaul.network.trades.PacketTradeLocksQuery;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
-import org.z2six.villageroverhaul.network.PacketVillagerCommand;
-import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 
 public final class Network {
 

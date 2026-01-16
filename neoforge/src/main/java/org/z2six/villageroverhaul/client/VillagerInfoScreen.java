@@ -24,8 +24,8 @@ import net.minecraft.world.entity.npc.WanderingTrader;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
-import org.z2six.villageroverhaul.network.PacketVillagerStatsData;
-import org.z2six.villageroverhaul.network.PacketVillagerStatsQuery;
+import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
+import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 import java.util.ArrayList;

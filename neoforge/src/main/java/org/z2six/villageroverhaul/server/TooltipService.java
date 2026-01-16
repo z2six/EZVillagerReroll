@@ -15,7 +15,7 @@ import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.logic.MoneyBridge;
 import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
-import org.z2six.villageroverhaul.network.PacketTooltipData;
+import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.logic.RerollState;
 
 public final class TooltipService {

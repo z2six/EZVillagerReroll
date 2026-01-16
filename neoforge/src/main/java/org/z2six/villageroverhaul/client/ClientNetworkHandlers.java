@@ -6,21 +6,22 @@ import net.minecraft.client.gui.screens.Screen;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
-import org.z2six.villageroverhaul.network.ClientTooltipCache;
+import org.z2six.villageroverhaul.network.tooltip.ClientTooltipCache;
 import org.z2six.villageroverhaul.network.ClientTradeLockCache;
-import org.z2six.villageroverhaul.network.PacketAutoSearchDone;
-import org.z2six.villageroverhaul.network.PacketAutoSearchSettlementCleared;
-import org.z2six.villageroverhaul.network.PacketOpenAutoSearchPaymentScreen;
-import org.z2six.villageroverhaul.network.PacketOpenBusyScreen;
-import org.z2six.villageroverhaul.network.PacketOpenRecruitScreen;
-import org.z2six.villageroverhaul.network.PacketRecruitCostData;
-import org.z2six.villageroverhaul.network.PacketRecruitResult;
-import org.z2six.villageroverhaul.network.PacketRerollCooldownState;
-import org.z2six.villageroverhaul.network.PacketSearchCatalogData;
+import org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchDone;
+import org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchSettlementCleared;
+import org.z2six.villageroverhaul.network.autoReroll.PacketOpenAutoSearchPaymentScreen;
+import org.z2six.villageroverhaul.network.autoReroll.PacketOpenBusyScreen;
+import org.z2six.villageroverhaul.network.recruit.PacketOpenRecruitScreen;
+import org.z2six.villageroverhaul.network.recruit.PacketRecruitCostData;
+import org.z2six.villageroverhaul.network.recruit.PacketRecruitResult;
+import org.z2six.villageroverhaul.network.autoReroll.PacketRerollCooldownState;
+import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
 import org.z2six.villageroverhaul.network.PacketSyncConfig;
-import org.z2six.villageroverhaul.network.PacketTooltipData;
-import org.z2six.villageroverhaul.network.PacketTradeLocks;
-import org.z2six.villageroverhaul.network.PacketVillagerModeData;
+import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
+import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
+import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -608,7 +609,7 @@ public final class ClientNetworkHandlers {
 
     public static void onRecruitGateData(Object msg, IPayloadContext ctx) {
         try {
-            if (msg instanceof org.z2six.villageroverhaul.network.PacketRecruitGateData p) {
+            if (msg instanceof PacketRecruitGateData p) {
                 onRecruitGateData(p, ctx);
                 return;
             }
@@ -619,7 +620,7 @@ public final class ClientNetworkHandlers {
         }
     }
 
-    public static void onRecruitGateData(org.z2six.villageroverhaul.network.PacketRecruitGateData msg, IPayloadContext ctx) {
+    public static void onRecruitGateData(PacketRecruitGateData msg, IPayloadContext ctx) {
         try {
             if (ctx == null) return;
             ctx.enqueueWork(() -> {

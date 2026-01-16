@@ -2,7 +2,7 @@
 package org.z2six.villageroverhaul.client;
 
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.network.PacketRerollCooldownState;
+import org.z2six.villageroverhaul.network.autoReroll.PacketRerollCooldownState;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

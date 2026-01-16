@@ -10,7 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.network.PacketPatrolAction;
+import org.z2six.villageroverhaul.network.patrol.PacketPatrolAction;
 
 public final class PatrolSetupScreen extends Screen {
 

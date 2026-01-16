@@ -8,7 +8,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.network.PacketPatrolSetRouteType;
+import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;
 
 public final class PatrolRouteTypeScreen extends Screen {
 

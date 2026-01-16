@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/model/VillagerCombatArmsModel.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/render/VillagerCombatArmsModel.java
 package org.z2six.villageroverhaul.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -13,6 +13,7 @@ import net.minecraft.client.model.geom.builders.LayerDefinition;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.npc.Villager;
 import org.z2six.villageroverhaul.Constants;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -20,6 +21,8 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 /**
  * Geometry-only model containing the villager's "normal" left/right arms.
  * Animation is driven externally by VillagerHumanoidArmsLayer via a HumanoidModel driver.
+ *
+ * ALSO provides helper transforms so held items can be rendered anchored to these arms.
  */
 public final class VillagerCombatArmsModel extends EntityModel<Villager> {
 
@@ -28,6 +31,21 @@ public final class VillagerCombatArmsModel extends EntityModel<Villager> {
 
     private final ModelPart leftArm;
     private final ModelPart rightArm;
+
+    // =========================================================================================
+    // HELD-ITEM TWEAKS (model-space)
+    // These emulate vanilla "held item in hand" offsets.
+    // If items look slightly off, tweak these first.
+    // =========================================================================================
+
+    /** Small side offset so the item sits in the hand instead of centered. */
+    private static final float HAND_SIDE_NUDGE = 1.0f / 16.0f; // 0.0625
+
+    /** How far down the arm to the hand pivot. */
+    private static final float HAND_Y = 10.0f / 16.0f; // 0.625
+
+    /** Forward/back nudge for hand pivot. */
+    private static final float HAND_Z = 0.0f;
 
     public VillagerCombatArmsModel(ModelPart root) {
         this.leftArm = safeGetChild(root, "left_arm");
@@ -83,6 +101,29 @@ public final class VillagerCombatArmsModel extends EntityModel<Villager> {
             if (this.leftArm != null) this.leftArm.render(poseStack, consumer, packedLight, packedOverlay, packedColor);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatArmsModel.renderArms failed (soft): {}", t.toString());
+        }
+    }
+
+    /**
+     * Move the PoseStack to the hand pivot of the specified arm.
+     * This is used by held-item rendering layers.
+     */
+    public void translateToHand(HumanoidArm arm, PoseStack ps) {
+        try {
+            if (ps == null || arm == null) return;
+
+            ModelPart part = (arm == HumanoidArm.RIGHT) ? rightArm : leftArm;
+            if (part == null) return;
+
+            // Shoulder + arm rotation
+            part.translateAndRotate(ps);
+
+            // Down to hand + slight side nudge
+            float side = (arm == HumanoidArm.RIGHT) ? -HAND_SIDE_NUDGE : HAND_SIDE_NUDGE;
+            ps.translate(side, HAND_Y, HAND_Z);
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] translateToHand failed (soft): {}", t.toString());
         }
     }
 

@@ -14,7 +14,9 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.network.PacketVillagerCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
 
 import java.lang.reflect.Field;
 import java.util.HashMap;
@@ -62,7 +64,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     protected void init() {
         // Ask server gate state right away
         try {
-            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketRecruitGateQuery(villagerEntityId));
+            ClientNetwork.sendToServer(new PacketRecruitGateQuery(villagerEntityId));
         } catch (Throwable ignored) {}
 
         // Ask server mode right away (for highlight)
@@ -468,7 +470,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             if (!force && (now - lastModeQueryMs) < MODE_STALE_MS) return;
             lastModeQueryMs = now;
 
-            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.PacketVillagerModeQuery(villagerEntityId));
+            ClientNetwork.sendToServer(new PacketVillagerModeQuery(villagerEntityId));
         } catch (Throwable ignored) {}
     }
 

@@ -8,7 +8,7 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
-import org.z2six.villageroverhaul.network.PacketTradeLocks;
+import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 
 public final class TradeLockSyncService {
 
