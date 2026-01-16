@@ -1,4 +1,4 @@
-// neoforge/src/main/java/org/z2six/villageroverhaul/server/ai/VillagerFollowGoal.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\ai\VillagerFollowGoal.java
 package org.z2six.villageroverhaul.server.ai;
 
 import net.minecraft.server.level.ServerLevel;

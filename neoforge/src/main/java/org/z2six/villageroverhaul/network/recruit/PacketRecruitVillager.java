@@ -1,4 +1,4 @@
-// neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketRecruitVillager.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\recruit\PacketRecruitVillager.java
 package org.z2six.villageroverhaul.network.recruit;
 
 import net.minecraft.network.FriendlyByteBuf;

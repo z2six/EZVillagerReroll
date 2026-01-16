@@ -1,5 +1,4 @@
-// VillagerCombatInventoryProbe.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/VillagerCombatInventoryProbe.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\VillagerCombatInventoryProbe.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.core.HolderLookup;

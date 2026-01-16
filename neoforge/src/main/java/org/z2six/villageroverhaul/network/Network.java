@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/Network.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\Network.java
 package org.z2six.villageroverhaul.network;
 
 import net.minecraft.nbt.CompoundTag;

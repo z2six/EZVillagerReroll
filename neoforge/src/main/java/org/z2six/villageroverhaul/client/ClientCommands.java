@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/ClientCommands.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\ClientCommands.java
 package org.z2six.villageroverhaul.client;
 
 import com.mojang.brigadier.CommandDispatcher;

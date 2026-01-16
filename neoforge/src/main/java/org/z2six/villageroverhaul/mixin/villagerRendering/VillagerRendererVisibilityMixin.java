@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/VillagerRendererVisibilityMixin.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\villagerRendering\VillagerRendererVisibilityMixin.java
 package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import com.mojang.blaze3d.vertex.PoseStack;

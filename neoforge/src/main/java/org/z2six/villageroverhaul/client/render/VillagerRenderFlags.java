@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/render/VillagerRenderFlags.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\render\VillagerRenderFlags.java
 package org.z2six.villageroverhaul.render;
 
 import net.minecraft.world.entity.EquipmentSlot;

@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/render/VillagerHumanoidArmsLayer.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\render\VillagerHumanoidArmsLayer.java
 package org.z2six.villageroverhaul.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;

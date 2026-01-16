@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/LivingEntityPreventVillagerHandClearMixin.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\villagerRendering\LivingEntityPreventVillagerHandClearMixin.java
 package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import net.minecraft.world.InteractionHand;

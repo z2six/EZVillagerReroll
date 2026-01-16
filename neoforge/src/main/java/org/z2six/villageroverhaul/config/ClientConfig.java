@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/config/ClientConfig.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\config\ClientConfig.java
 package org.z2six.villageroverhaul.config;
 
 import net.neoforged.neoforge.common.ModConfigSpec;

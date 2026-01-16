@@ -1,5 +1,4 @@
-// PacketVillagerStatsQuery.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketVillagerStatsQuery.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\stats\PacketVillagerStatsQuery.java
 package org.z2six.villageroverhaul.network.stats;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;

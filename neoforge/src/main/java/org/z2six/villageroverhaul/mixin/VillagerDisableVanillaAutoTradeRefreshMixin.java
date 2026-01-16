@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/VillagerDisableVanillaAutoTradeRefreshMixin.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\VillagerDisableVanillaAutoTradeRefreshMixin.java
 package org.z2six.villageroverhaul.mixin;
 
 import com.mojang.logging.LogUtils;

@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/MerchantScreenAccessor.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\MerchantScreenAccessor.java
 package org.z2six.villageroverhaul.mixin;
 
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;

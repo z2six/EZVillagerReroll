@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/MerchantScreenRerollButtonRightClickMixin.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\MerchantScreenRerollButtonRightClickMixin.java
 package org.z2six.villageroverhaul.mixin;
 
 import net.minecraft.client.Minecraft;

@@ -1,5 +1,4 @@
-// VillagerInventoryScreen.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/VillagerInventoryScreen.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\VillagerInventoryScreen.java
 package org.z2six.villageroverhaul.client;
 
 import net.minecraft.ChatFormatting;

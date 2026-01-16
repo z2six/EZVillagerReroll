@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/MerchantScreenTradeLockRightClickMixin.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\MerchantScreenTradeLockRightClickMixin.java
 package org.z2six.villageroverhaul.mixin;
 
 import net.minecraft.client.Minecraft;

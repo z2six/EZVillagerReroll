@@ -1,5 +1,4 @@
-// VillagerAccessGate.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/VillagerAccessGate.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\VillagerAccessGate.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.server.level.ServerPlayer;

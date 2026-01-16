@@ -1,3 +1,4 @@
+// neoforge\src\main\java\org\z2six\villageroverhaul\config\ServerConfig.java
 package org.z2six.villageroverhaul.config;
 
 import net.minecraft.core.registries.BuiltInRegistries;

@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/TradeLockService.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\TradeLockService.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.world.entity.npc.Villager;

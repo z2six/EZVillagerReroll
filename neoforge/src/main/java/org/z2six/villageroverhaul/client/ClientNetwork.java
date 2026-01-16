@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/ClientNetwork.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\ClientNetwork.java
 package org.z2six.villageroverhaul.client;
 
 import net.minecraft.client.Minecraft;

@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketTradeLocks.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\trades\PacketTradeLocks.java
 package org.z2six.villageroverhaul.network.trades;
 
 import net.minecraft.network.FriendlyByteBuf;

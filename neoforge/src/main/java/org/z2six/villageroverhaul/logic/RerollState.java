@@ -1,4 +1,4 @@
-// RerollState.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\logic\RerollState.java
 package org.z2six.villageroverhaul.logic;
 
 import net.minecraft.nbt.CompoundTag;

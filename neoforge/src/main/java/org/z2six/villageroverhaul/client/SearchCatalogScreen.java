@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/SearchCatalogScreen.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\SearchCatalogScreen.java
 package org.z2six.villageroverhaul.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;

@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/BusyVillagerBlocker.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\BusyVillagerBlocker.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.server.level.ServerPlayer;

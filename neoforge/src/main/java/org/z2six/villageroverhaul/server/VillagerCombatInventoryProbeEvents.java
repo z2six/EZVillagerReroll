@@ -1,5 +1,4 @@
-// VillagerCombatInventoryProbeEvents.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/VillagerCombatInventoryProbeEvents.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\VillagerCombatInventoryProbeEvents.java
 package org.z2six.villageroverhaul.server;
 
 import net.neoforged.bus.api.IEventBus;

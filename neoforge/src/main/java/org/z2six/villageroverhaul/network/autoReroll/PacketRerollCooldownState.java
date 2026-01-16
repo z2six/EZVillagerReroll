@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketRerollCooldownState.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\autoReroll\PacketRerollCooldownState.java
 package org.z2six.villageroverhaul.network.autoReroll;
 
 import net.minecraft.network.FriendlyByteBuf;

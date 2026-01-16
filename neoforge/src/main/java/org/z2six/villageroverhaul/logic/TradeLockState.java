@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/logic/TradeLockState.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\logic\TradeLockState.java
 package org.z2six.villageroverhaul.logic;
 
 import net.minecraft.nbt.CompoundTag;

@@ -1,5 +1,4 @@
-// HoarderOffers.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/logic/HoarderOffers.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\logic\HoarderOffers.java
 package org.z2six.villageroverhaul.logic;
 
 import net.minecraft.nbt.CompoundTag;

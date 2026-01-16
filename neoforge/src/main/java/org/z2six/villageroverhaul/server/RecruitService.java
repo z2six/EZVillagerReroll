@@ -1,5 +1,4 @@
-// RecruitService.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/RecruitService.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\RecruitService.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.nbt.CompoundTag;

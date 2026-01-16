@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/VillagerRenderStateMixin.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\villagerRendering\VillagerRenderStateMixin.java
 package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import net.minecraft.network.syncher.EntityDataAccessor;

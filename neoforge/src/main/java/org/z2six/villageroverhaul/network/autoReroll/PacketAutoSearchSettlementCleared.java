@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketAutoSearchSettlementCleared.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\autoReroll\PacketAutoSearchSettlementCleared.java
 package org.z2six.villageroverhaul.network.autoReroll;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;

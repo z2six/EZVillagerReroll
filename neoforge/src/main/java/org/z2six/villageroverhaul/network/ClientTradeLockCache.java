@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/ClientTradeLockCache.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\ClientTradeLockCache.java
 package org.z2six.villageroverhaul.network;
 
 import org.z2six.villageroverhaul.VillagerOverhaul;

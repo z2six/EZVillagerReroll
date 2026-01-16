@@ -1,5 +1,4 @@
-// PacketRecruitGateData.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketRecruitGateData.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\recruit\PacketRecruitGateData.java
 package org.z2six.villageroverhaul.network.recruit;
 
 import net.minecraft.network.FriendlyByteBuf;

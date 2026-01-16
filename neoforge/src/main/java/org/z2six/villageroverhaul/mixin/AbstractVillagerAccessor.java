@@ -1,4 +1,4 @@
-// MainFile: src/main/java/org/z2six/villageroverhaul/mixin/AbstractVillagerAccessor.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\AbstractVillagerAccessor.java
 package org.z2six.villageroverhaul.mixin;
 
 import net.minecraft.world.entity.npc.AbstractVillager;

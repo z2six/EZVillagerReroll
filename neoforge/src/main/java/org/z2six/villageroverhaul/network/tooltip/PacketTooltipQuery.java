@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketTooltipQuery.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\tooltip\PacketTooltipQuery.java
 package org.z2six.villageroverhaul.network.tooltip;
 
 import net.minecraft.network.FriendlyByteBuf;

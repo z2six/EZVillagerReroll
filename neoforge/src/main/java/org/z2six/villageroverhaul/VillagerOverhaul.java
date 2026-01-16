@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/VillagerOverhaul.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\VillagerOverhaul.java
 package org.z2six.villageroverhaul;
 
 import com.mojang.logging.LogUtils;

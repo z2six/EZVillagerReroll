@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/TradeLockSyncService.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\TradeLockSyncService.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;

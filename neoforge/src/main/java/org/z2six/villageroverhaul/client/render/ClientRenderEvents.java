@@ -1,5 +1,4 @@
-// ClientRenderEvents.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/ClientRenderEvents.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\render\ClientRenderEvents.java
 package org.z2six.villageroverhaul.client.render;
 
 import net.minecraft.client.model.HumanoidModel;

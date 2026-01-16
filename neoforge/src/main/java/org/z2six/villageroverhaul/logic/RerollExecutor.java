@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/logic/RerollExecutor.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\logic\RerollExecutor.java
 package org.z2six.villageroverhaul.logic;
 
 import net.minecraft.network.chat.Component;

@@ -1,5 +1,4 @@
-// PatrolBeginPromptScreen.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/PatrolBeginPromptScreen.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\PatrolBeginPromptScreen.java
 package org.z2six.villageroverhaul.client;
 
 import net.minecraft.ChatFormatting;

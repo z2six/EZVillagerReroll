@@ -1,4 +1,4 @@
-// MainFile: src/main/java/org/z2six/villageroverhaul/logic/CostUtil.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\logic\CostUtil.java
 package org.z2six.villageroverhaul.logic;
 
 import net.minecraft.core.registries.BuiltInRegistries;

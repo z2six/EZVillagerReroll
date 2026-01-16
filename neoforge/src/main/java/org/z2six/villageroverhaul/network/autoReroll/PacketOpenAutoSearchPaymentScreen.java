@@ -1,3 +1,4 @@
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\autoReroll\PacketOpenAutoSearchPaymentScreen.java
 package org.z2six.villageroverhaul.network.autoReroll;
 
 import net.minecraft.nbt.CompoundTag;

@@ -1,5 +1,4 @@
-// PacketPatrolAction.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketPatrolAction.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\patrol\PacketPatrolAction.java
 package org.z2six.villageroverhaul.network.patrol;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;

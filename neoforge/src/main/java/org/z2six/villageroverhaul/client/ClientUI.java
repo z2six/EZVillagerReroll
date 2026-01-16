@@ -1,5 +1,4 @@
-// ClientUI.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/ClientUI.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\ClientUI.java
 package org.z2six.villageroverhaul.client;
 
 import net.minecraft.ChatFormatting;

@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/api/VillagerOverhaulRenderAccess.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\api\VillagerOverhaulRenderAccess.java
 package org.z2six.villageroverhaul.api;
 
 /**

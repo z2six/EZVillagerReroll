@@ -1,4 +1,4 @@
-// MainFile: src/main/java/org/z2six/villageroverhaul/server/TooltipService.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\TooltipService.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.core.registries.BuiltInRegistries;

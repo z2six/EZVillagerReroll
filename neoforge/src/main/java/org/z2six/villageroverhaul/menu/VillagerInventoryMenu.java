@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/menu/VillagerInventoryMenu.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\menu\VillagerInventoryMenu.java
 package org.z2six.villageroverhaul.menu;
 
 import net.minecraft.network.FriendlyByteBuf;

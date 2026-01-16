@@ -1,5 +1,4 @@
-// VillagerPatrolSetupFollowGoal.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/ai/VillagerPatrolSetupFollowGoal.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\server\ai\VillagerPatrolSetupFollowGoal.java
 package org.z2six.villageroverhaul.server.ai;
 
 import net.minecraft.server.level.ServerLevel;

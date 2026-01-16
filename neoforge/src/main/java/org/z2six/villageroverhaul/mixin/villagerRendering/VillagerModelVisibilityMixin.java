@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/VillagerModelVisibilityMixin.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\villagerRendering\VillagerModelVisibilityMixin.java
 package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import net.minecraft.client.model.VillagerModel;

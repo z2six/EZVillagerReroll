@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/VillagerUpdateTradesInvoker.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\VillagerUpdateTradesInvoker.java
 package org.z2six.villageroverhaul.mixin;
 
 import net.minecraft.world.entity.npc.Villager;

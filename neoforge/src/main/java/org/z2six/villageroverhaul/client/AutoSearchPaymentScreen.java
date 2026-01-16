@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/AutoSearchPaymentScreen.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\AutoSearchPaymentScreen.java
 package org.z2six.villageroverhaul.client;
 
 import net.minecraft.ChatFormatting;

@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/ServerHandlers.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\ServerHandlers.java
 package org.z2six.villageroverhaul.network;
 
 import net.minecraft.nbt.ListTag;

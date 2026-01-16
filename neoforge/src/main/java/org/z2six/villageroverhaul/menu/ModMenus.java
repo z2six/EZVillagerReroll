@@ -1,5 +1,4 @@
-// ModMenus.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/menu/ModMenus.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\menu\ModMenus.java
 package org.z2six.villageroverhaul.menu;
 
 import net.minecraft.core.registries.Registries;

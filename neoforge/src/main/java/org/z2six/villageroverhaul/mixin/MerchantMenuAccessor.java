@@ -1,4 +1,4 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/MerchantMenuAccessor.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\MerchantMenuAccessor.java
 package org.z2six.villageroverhaul.mixin;
 
 import net.minecraft.world.inventory.MerchantMenu;

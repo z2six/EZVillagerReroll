@@ -1,5 +1,4 @@
-// PacketOpenVillagerInventory.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketOpenVillagerInventory.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\PacketOpenVillagerInventory.java
 package org.z2six.villageroverhaul.network;
 
 import net.minecraft.network.FriendlyByteBuf;

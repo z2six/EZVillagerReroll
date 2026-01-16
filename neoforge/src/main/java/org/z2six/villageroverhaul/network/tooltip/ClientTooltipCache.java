@@ -1,4 +1,4 @@
-// MainFile: src/main/java/org/z2six/villageroverhaul/network/ClientTooltipCache.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\tooltip\ClientTooltipCache.java
 package org.z2six.villageroverhaul.network.tooltip;
 
 public final class ClientTooltipCache {

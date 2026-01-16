@@ -1,5 +1,4 @@
-// RecruitVillagerScreen.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/RecruitVillagerScreen.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\client\RecruitVillagerScreen.java
 package org.z2six.villageroverhaul.client;
 
 import net.minecraft.ChatFormatting;

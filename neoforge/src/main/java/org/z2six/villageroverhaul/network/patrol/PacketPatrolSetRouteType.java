@@ -1,5 +1,4 @@
-// PacketPatrolSetRouteType.java
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/network/PacketPatrolSetRouteType.java
+// neoforge\src\main\java\org\z2six\villageroverhaul\network\patrol\PacketPatrolSetRouteType.java
 package org.z2six.villageroverhaul.network.patrol;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;
