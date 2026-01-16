@@ -17,7 +17,8 @@
     "MerchantScreenTradeLockRightClickMixin",
     "MerchantScreenRerollButtonRightClickMixin",
     "villagerRendering.VillagerModelVisibilityMixin",
-    "villagerRendering.VillagerRendererVisibilityMixin"
+    "villagerRendering.VillagerRendererVisibilityMixin",
+    "villagerRendering.ItemInHandLayerDisableForVillagerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

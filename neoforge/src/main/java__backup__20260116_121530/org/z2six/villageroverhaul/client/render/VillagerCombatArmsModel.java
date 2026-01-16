@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\client\render\VillagerCombatArmsModel.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/render/VillagerCombatArmsModel.java
 package org.z2six.villageroverhaul.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;

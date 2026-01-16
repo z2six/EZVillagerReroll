@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\client\render\VillagerHumanoidHeldItemLayer.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/render/VillagerHumanoidHeldItemLayer.java
 package org.z2six.villageroverhaul.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -28,7 +28,7 @@ public final class VillagerHumanoidHeldItemLayer extends RenderLayer<Villager, V
     /** Extra translation after translateToHand() */
     private static final float ITX = 0.0f;
     private static final float ITY = 0.0f;
-    private static final float ITZ = -0.05f;
+    private static final float ITZ = 0.0f;
 
     /** Extra rotation after translateToHand() */
     private static final float IRX_DEG = -90.0f;

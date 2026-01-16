@@ -1,4 +1,5 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\client\render\ClientRenderEvents.java
+// ClientRenderEvents.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/ClientRenderEvents.java
 package org.z2six.villageroverhaul.client.render;
 
 import net.minecraft.client.model.HumanoidModel;
@@ -11,7 +12,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.client.render.VillagerHumanoidHeldItemLayer;
 
 /**
  * Client-only renderer wiring (registered from VillagerOverhaul main class on MOD bus).
@@ -58,7 +58,7 @@ public final class ClientRenderEvents {
             HumanoidModel<LivingEntity> outerArmor = new HumanoidModel<>(e.getEntityModels().bakeLayer(ModelLayers.PLAYER_OUTER_ARMOR));
             villagerRenderer.addLayer(new VillagerHumanoidArmorLayer(villagerRenderer, innerArmor, outerArmor));
 
-            // --- Arms model (shared between arms + held-item layers) ---
+            // --- Arms layer (NEW) ---
             VillagerCombatArmsModel armsModel = new VillagerCombatArmsModel(
                     e.getEntityModels().bakeLayer(VillagerCombatArmsModel.LAYER_LOCATION)
             );
@@ -68,13 +68,9 @@ public final class ClientRenderEvents {
                     e.getEntityModels().bakeLayer(ModelLayers.ZOMBIE)
             );
 
-            // --- Custom arms (renders the geometry) ---
             villagerRenderer.addLayer(new VillagerHumanoidArmsLayer(villagerRenderer, armsModel, driverHumanoid));
 
-            // --- Held items (renders mainhand + offhand anchored to the custom arms pose) ---
-            villagerRenderer.addLayer(new VillagerHumanoidHeldItemLayer(villagerRenderer, armsModel));
-
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Added VillagerHumanoidArmorLayer + VillagerHumanoidArmsLayer + VillagerHumanoidHeldItemLayer to Villager renderer.");
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Added VillagerHumanoidArmorLayer + VillagerHumanoidArmsLayer to Villager renderer.");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ClientRenderEvents.onAddLayers failed", t);
