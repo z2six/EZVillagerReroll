@@ -13,6 +13,9 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
  * Bits:
  *  - 0x01 => render bodywear (robe)
  *  - 0x02 => render custom humanoid arms (and hide vanilla crossed-arms bone)
+ *
+ * Derived decisions:
+ *  - Vanilla crossed-arms chest-held-item layer should render IFF we are NOT rendering custom arms.
  */
 public final class VillagerRenderFlags {
 
@@ -36,6 +39,14 @@ public final class VillagerRenderFlags {
 
     public static boolean renderCustomArms(byte flags) {
         return (flags & FLAG_RENDER_CUSTOM_ARMS) != 0;
+    }
+
+    /**
+     * Vanilla crossed-arms item layer (the chest-held item render) should render
+     * ONLY when we are using vanilla crossed arms (i.e., NOT using custom humanoid arms).
+     */
+    public static boolean renderVanillaCrossedArmsItemLayer(byte flags) {
+        return !renderCustomArms(flags);
     }
 
     public static byte pack(boolean renderBodywear, boolean renderCustomArms) {
