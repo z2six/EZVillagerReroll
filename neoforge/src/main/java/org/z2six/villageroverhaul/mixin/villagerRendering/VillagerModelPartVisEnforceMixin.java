@@ -1,12 +1,12 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/clientdebug/VillagerModelPartVisEnforceMixin.java
-package org.z2six.villageroverhaul.mixin.clientdebug;
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/villagerRendering/VillagerModelPartVisEnforceMixin.java
+package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import net.minecraft.client.model.VillagerModel;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.z2six.villageroverhaul.client.debug.ClientPartVisibilityRules;
+import org.z2six.villageroverhaul.client.render.ClientPartVisibilityRules;
 
 /**
  * Re-applies part visibility rules every frame AFTER vanilla has run its animation/setup,

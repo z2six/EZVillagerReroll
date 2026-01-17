@@ -1,5 +1,5 @@
-// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/debug/ClientPartVisibilityRules.java
-package org.z2six.villageroverhaul.client.debug;
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/render/ClientPartVisibilityRules.java
+package org.z2six.villageroverhaul.client.render;
 
 import net.minecraft.client.model.geom.ModelPart;
 import org.z2six.villageroverhaul.VillagerOverhaul;

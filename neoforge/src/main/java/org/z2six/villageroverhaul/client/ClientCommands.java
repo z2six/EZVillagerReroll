@@ -22,7 +22,7 @@ import net.minecraft.world.phys.HitResult;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.client.debug.ClientPartVisibilityRules;
+import org.z2six.villageroverhaul.client.render.ClientPartVisibilityRules;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;

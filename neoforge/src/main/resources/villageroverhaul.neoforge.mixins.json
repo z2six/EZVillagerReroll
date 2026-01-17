@@ -20,7 +20,7 @@
     "villagerRendering.VillagerRendererVisibilityMixin",
     "villagerRendering.ItemInHandLayerDisableForVillagerMixin",
     "villagerRendering.CrossedArmsItemLayerDisableForVillagerMixin",
-    "clientdebug.VillagerModelPartVisEnforceMixin"
+    "villagerRendering.VillagerModelPartVisEnforceMixin"
   ],
   "injectors": {
     "defaultRequire": 1
