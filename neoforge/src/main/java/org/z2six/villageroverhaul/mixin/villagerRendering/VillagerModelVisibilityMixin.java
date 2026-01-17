@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\villagerRendering\VillagerModelVisibilityMixin.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/villagerRendering/VillagerModelVisibilityMixin.java
 package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import net.minecraft.client.model.VillagerModel;
@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.client.render.VillagerHatVisibilityEnforcer;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
 import java.lang.reflect.Field;
@@ -27,6 +28,7 @@ import java.util.UUID;
  * Enforced at:
  *  - setupAnim(TAIL) for whichever signature matches
  *  - renderToBuffer(HEAD) for multiple signatures
+ *  - hatVisible(TAIL) (vanilla re-toggles hat frequently)
  *
  * IMPORTANT PERFORMANCE NOTE:
  * - This model instance is reused across many villagers, so do NOT log per-render.
@@ -44,6 +46,9 @@ public abstract class VillagerModelVisibilityMixin {
     @Unique private ModelPart ezvr$robePart = null;
     @Unique private String ezvr$robePath = null;
     @Unique private String ezvr$robeKey = null;
+
+    // NEW: Hat resolution (root.head.hat)
+    @Unique private VillagerHatVisibilityEnforcer.ResolvedHat ezvr$hatResolved = null;
 
     // Current entity context when renderToBuffer is called (no entity param).
     @Unique private AbstractVillager ezvr$ctxVillager = null;
@@ -87,6 +92,16 @@ public abstract class VillagerModelVisibilityMixin {
                                             float headPitch,
                                             CallbackInfo ci) {
         ezvr$applyFromEntity(entity, "setupAnim(AbstractVillager,TAIL)");
+    }
+
+    // Vanilla uses hatVisible(...) to re-toggle hat/hat_rim etc.
+    @Inject(
+            method = "hatVisible(Z)V",
+            at = @At("TAIL"),
+            require = 0
+    )
+    private void ezvr$hatVisibleTail(boolean visible, CallbackInfo ci) {
+        ezvr$applyFromContext("hatVisible(TAIL)");
     }
 
     // -------------------------------------------------------------------------
@@ -148,7 +163,6 @@ public abstract class VillagerModelVisibilityMixin {
             ezvr$ctxVillager = villager;
             ezvr$apply(villager, phase);
         } catch (Throwable t) {
-            // keep soft; avoid INFO spam
             if (VillagerOverhaul.LOG().isDebugEnabled()) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VisibilityMixin applyFromEntity failed (soft): {}", t.toString());
             }
@@ -209,10 +223,15 @@ public abstract class VillagerModelVisibilityMixin {
                 // Robe/outer layer: prefer "jacket" (confirmed), fallback "bodywear"
                 ezvr$resolveRobe(root);
 
+                // NEW: Hat resolve (root.head.hat)
+                ezvr$hatResolved = VillagerHatVisibilityEnforcer.resolve(root);
+
                 VillagerOverhaul.LOG().info(
-                        "[VillagerOverhaul] [client] VisibilityMixin resolved: crossedArmsFound={}, crossedArmsPath='{}', robeFound={}, robeKey='{}', robePath='{}'",
+                        "[VillagerOverhaul] [client] VisibilityMixin resolved: crossedArmsFound={}, crossedArmsPath='{}', robeFound={}, robeKey='{}', robePath='{}', hatFound={}, hatPath='{}'",
                         (ezvr$crossedArmsPart != null), String.valueOf(ezvr$crossedArmsPath),
-                        (ezvr$robePart != null), String.valueOf(ezvr$robeKey), String.valueOf(ezvr$robePath)
+                        (ezvr$robePart != null), String.valueOf(ezvr$robeKey), String.valueOf(ezvr$robePath),
+                        (ezvr$hatResolved != null && ezvr$hatResolved.hatPart != null),
+                        (ezvr$hatResolved == null ? "null" : String.valueOf(ezvr$hatResolved.hatPath))
                 );
             }
 
@@ -229,6 +248,9 @@ public abstract class VillagerModelVisibilityMixin {
             if (ezvr$crossedArmsPart != null) ezvr$crossedArmsPart.visible = showCrossedArms;
             if (ezvr$robePart != null) ezvr$robePart.visible = showRobe;
 
+            // NEW: enforce hat visibility
+            VillagerHatVisibilityEnforcer.apply(ezvr$hatResolved, flags);
+
             // DEBUG-only, throttled, per-UUID (NO INFO SPAM)
             if (VillagerOverhaul.LOG().isDebugEnabled()) {
                 UUID id = villager.getUUID();
@@ -244,8 +266,11 @@ public abstract class VillagerModelVisibilityMixin {
                         ezvr$lastFlagsByUuid.put(id, flags);
                         ezvr$lastLogTickByUuid.put(id, tick);
 
+                        boolean hatVis = false;
+                        try { hatVis = (ezvr$hatResolved != null && ezvr$hatResolved.hatPart != null && ezvr$hatResolved.hatPart.visible); } catch (Throwable ignored) {}
+
                         VillagerOverhaul.LOG().debug(
-                                "[VillagerOverhaul] [client] Visibility ({}): entity={}, flags={}, showRobe={}, showCrossedArms={}, armsVis={}, robeVis={}, robeKey='{}'",
+                                "[VillagerOverhaul] [client] Visibility ({}): entity={}, flags={}, showRobe={}, showCrossedArms={}, armsVis={}, robeVis={}, robeKey='{}', hatVis={}",
                                 phase,
                                 id,
                                 (int) flags,
@@ -253,7 +278,8 @@ public abstract class VillagerModelVisibilityMixin {
                                 showCrossedArms,
                                 (ezvr$crossedArmsPart != null && ezvr$crossedArmsPart.visible),
                                 (ezvr$robePart != null && ezvr$robePart.visible),
-                                String.valueOf(ezvr$robeKey)
+                                String.valueOf(ezvr$robeKey),
+                                hatVis
                         );
                     }
                 }

@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\villagerRendering\VillagerRendererVisibilityMixin.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/villagerRendering/VillagerRendererVisibilityMixin.java
 package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -15,6 +15,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.client.render.VillagerHatVisibilityEnforcer;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
 import java.lang.reflect.Field;
@@ -46,6 +47,9 @@ public abstract class VillagerRendererVisibilityMixin {
     @Unique private ModelPart ezvr$robePart = null;
     @Unique private String ezvr$robePath = null;
     @Unique private String ezvr$robeKey = null;
+
+    // NEW: Hat resolution (root.head.hat)
+    @Unique private VillagerHatVisibilityEnforcer.ResolvedHat ezvr$hatResolved = null;
 
     // Per-villager state to prevent spam.
     @Unique private final Map<UUID, Byte> ezvr$lastFlagsByUuid = new HashMap<>();
@@ -108,10 +112,15 @@ public abstract class VillagerRendererVisibilityMixin {
                 // Robe: jacket confirmed by dump
                 ezvr$resolveRobe(root);
 
+                // NEW: Hat resolve (root.head.hat)
+                ezvr$hatResolved = VillagerHatVisibilityEnforcer.resolve(root);
+
                 VillagerOverhaul.LOG().info(
-                        "[VillagerOverhaul] [client] RendererVisibilityMixin resolved: crossedArmsFound={}, crossedArmsPath='{}', robeFound={}, robeKey='{}', robePath='{}'",
+                        "[VillagerOverhaul] [client] RendererVisibilityMixin resolved: crossedArmsFound={}, crossedArmsPath='{}', robeFound={}, robeKey='{}', robePath='{}', hatFound={}, hatPath='{}'",
                         (ezvr$crossedArmsPart != null), String.valueOf(ezvr$crossedArmsPath),
-                        (ezvr$robePart != null), String.valueOf(ezvr$robeKey), String.valueOf(ezvr$robePath)
+                        (ezvr$robePart != null), String.valueOf(ezvr$robeKey), String.valueOf(ezvr$robePath),
+                        (ezvr$hatResolved != null && ezvr$hatResolved.hatPart != null),
+                        (ezvr$hatResolved == null ? "null" : String.valueOf(ezvr$hatResolved.hatPath))
                 );
             }
 
@@ -128,6 +137,9 @@ public abstract class VillagerRendererVisibilityMixin {
             if (ezvr$crossedArmsPart != null) ezvr$crossedArmsPart.visible = showCrossedArms;
             if (ezvr$robePart != null) ezvr$robePart.visible = showRobe;
 
+            // NEW: enforce hat visibility
+            VillagerHatVisibilityEnforcer.apply(ezvr$hatResolved, flags);
+
             // DEBUG-only, throttled, per-UUID (NO INFO SPAM)
             if (VillagerOverhaul.LOG().isDebugEnabled()) {
                 UUID id = villager.getUUID();
@@ -143,15 +155,19 @@ public abstract class VillagerRendererVisibilityMixin {
                         ezvr$lastFlagsByUuid.put(id, flags);
                         ezvr$lastLogTickByUuid.put(id, tick);
 
+                        boolean hatVis = false;
+                        try { hatVis = (ezvr$hatResolved != null && ezvr$hatResolved.hatPart != null && ezvr$hatResolved.hatPart.visible); } catch (Throwable ignored) {}
+
                         VillagerOverhaul.LOG().debug(
-                                "[VillagerOverhaul] [client] RendererVisibility: entity={}, flags={}, showRobe={}, showCrossedArms={}, crossedArmsVis={}, robeVis={}, robeKey='{}'",
+                                "[VillagerOverhaul] [client] RendererVisibility: entity={}, flags={}, showRobe={}, showCrossedArms={}, crossedArmsVis={}, robeVis={}, robeKey='{}', hatVis={}",
                                 id,
                                 (int) flags,
                                 showRobe,
                                 showCrossedArms,
                                 (ezvr$crossedArmsPart != null && ezvr$crossedArmsPart.visible),
                                 (ezvr$robePart != null && ezvr$robePart.visible),
-                                String.valueOf(ezvr$robeKey)
+                                String.valueOf(ezvr$robeKey),
+                                hatVis
                         );
                     }
                 }

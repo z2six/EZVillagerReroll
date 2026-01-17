@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\server\ai\VillagerBrain.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/ai/VillagerBrain.java
 package org.z2six.villageroverhaul.server.ai;
 
 import net.minecraft.nbt.CompoundTag;
@@ -7,7 +7,6 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.Brain;
@@ -23,12 +22,11 @@ import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 import org.z2six.villageroverhaul.server.RecruitService;
 import net.minecraft.world.InteractionHand;
 
-import java.lang.reflect.Method;
-import java.util.ArrayList;
+import java.util.Map;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -62,23 +60,11 @@ public final class VillagerBrain {
     private static final String K_WP_Z = "z";
 
     // ============================================================
-    // HAND PERSISTENCE (FIX: prevent AI from "deleting" held items)
+    // HAND CLEAR PREVENTION SUPPORT (NO RESTORE LOGIC ANYMORE)
     // ============================================================
 
-    private static final String K_HANDS = "hands";
-    private static final String K_HAND_MAIN = "main";
-    private static final String K_HAND_OFF = "off";
-
-    // Legacy bad fallback keys (from earlier implementation) — we auto-clean them.
-    private static final String LEGACY_ID_FALLBACK = "id_fallback";
-    private static final String LEGACY_COUNT_FALLBACK = "count_fallback";
-
-    // log-throttle so we don't spam when something keeps clearing it
-    private static final Map<UUID, Long> LAST_RESTORE_LOG_GAME_TIME = new HashMap<>();
-    private static final Map<UUID, Long> LAST_CLEAN_LOG_GAME_TIME = new HashMap<>();
-
     // Allow-clears: lets our mixin permit intentional clears (menu/script) for a short window.
-    // Stored in ezvr_brain root (NOT inside "hands").
+    // Stored in ezvr_brain root.
     private static final String K_ALLOW_CLEAR_MAIN_UNTIL = "allow_clear_main_until";
     private static final String K_ALLOW_CLEAR_OFF_UNTIL  = "allow_clear_off_until";
 
@@ -165,9 +151,7 @@ public final class VillagerBrain {
             if (vill == null) return;
             if (vill.level() == null || vill.level().isClientSide()) return;
 
-            // Enforce held-item persistence (server authority)
-            tickHeldItemPersistence(vill);
-
+            // IMPORTANT: restore-on-clear logic removed. We only compute render flags here now.
             byte flags = VillagerRenderFlags.computeFromEquipment(vill);
 
             if (vill instanceof VillagerOverhaulRenderAccess acc) {
@@ -187,8 +171,7 @@ public final class VillagerBrain {
 
     /**
      * Public hook: call this whenever *we* intentionally set/clear a villager's hand item.
-     * Also sets a short "allow-clear" window when clearing so our prevention mixin
-     * does NOT cancel intentional clears coming from our menu/UI.
+     * We keep ONLY the allow-clear window behavior (no snapshot storage, no restoring).
      */
     public static void notifyManualHandSet(Entity entity, EquipmentSlot slot, ItemStack newStack, String reason) {
         try {
@@ -197,33 +180,27 @@ public final class VillagerBrain {
             if (slot != EquipmentSlot.MAINHAND && slot != EquipmentSlot.OFFHAND) return;
             if (!(vill.level() instanceof ServerLevel sl)) return;
 
-            // Determine which hand this slot corresponds to
             InteractionHand hand = (slot == EquipmentSlot.MAINHAND) ? InteractionHand.MAIN_HAND : InteractionHand.OFF_HAND;
 
             // If this is a CLEAR request, allow clears briefly so our mixin doesn't block it.
             if (newStack == null || newStack.isEmpty()) {
-                allowClearFor(sl, vill, hand, 5); // 5 ticks is plenty for menu actions
+                allowClearFor(sl, vill, hand, 5);
             } else {
                 clearAllowClearMarker(vill, hand);
             }
 
-            // Update persistent snapshot
-            CompoundTag hands = getOrCreateHands(vill);
-            if (slot == EquipmentSlot.MAINHAND) {
-                writeStackToHands(sl, hands, K_HAND_MAIN, safeCopy(newStack));
-            } else {
-                writeStackToHands(sl, hands, K_HAND_OFF, safeCopy(newStack));
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                if (reason == null) reason = "unknown";
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Hand set/clear noted (villager={}, slot={}, reason={}, empty={})",
+                        vill.getUUID(), slot, reason, (newStack == null || newStack.isEmpty()));
             }
 
-            if (reason == null) reason = "unknown";
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Hand lock updated (villager={}, slot={}, reason={}, empty={})",
-                    vill.getUUID(), slot, reason, (newStack == null || newStack.isEmpty()));
         } catch (Throwable ignored) {}
     }
 
     // ============================================================
-// TRUE PREVENTION SUPPORT (used by LivingEntityPreventVillagerHandClearMixin)
-// ============================================================
+    // TRUE PREVENTION SUPPORT (used by LivingEntityPreventVillagerHandClearMixin)
+    // ============================================================
 
     /**
      * Returns true if we should BLOCK attempts to clear the villager's hand (set EMPTY).
@@ -292,334 +269,6 @@ public final class VillagerBrain {
             if (hand == InteractionHand.MAIN_HAND) root.remove(K_ALLOW_CLEAR_MAIN_UNTIL);
             else root.remove(K_ALLOW_CLEAR_OFF_UNTIL);
         } catch (Throwable ignored) {}
-    }
-
-    /**
-     * Core fix: keep main/offhand from being "cleared" by villager AI.
-     */
-    private static void tickHeldItemPersistence(Villager vill) {
-        try {
-            if (vill == null) return;
-            if (vill.level() == null || vill.level().isClientSide()) return;
-            if (!(vill.level() instanceof ServerLevel sl)) return;
-
-            CompoundTag hands = getOrCreateHands(vill);
-
-            // Current
-            ItemStack curMain = safeCopy(vill.getMainHandItem());
-            ItemStack curOff  = safeCopy(vill.getOffhandItem());
-
-            // Desired (snapshot)
-            ItemStack wantMain = readStackFromHands(sl, hands, K_HAND_MAIN, K_HAND_MAIN);
-            ItemStack wantOff  = readStackFromHands(sl, hands, K_HAND_OFF, K_HAND_OFF);
-
-            // MAINHAND
-            wantMain = syncOneHand(sl, vill, hands, K_HAND_MAIN, EquipmentSlot.MAINHAND, curMain, wantMain);
-
-            // OFFHAND
-            wantOff = syncOneHand(sl, vill, hands, K_HAND_OFF, EquipmentSlot.OFFHAND, curOff, wantOff);
-
-            // If both are empty, keep the compound lightweight
-            if (!hands.contains(K_HAND_MAIN) && !hands.contains(K_HAND_OFF)) {
-                CompoundTag root = getOrCreateRoot(vill);
-                root.remove(K_HANDS);
-            }
-
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] tickHeldItemPersistence failed (soft): {}", t.toString());
-        }
-    }
-
-    private static ItemStack syncOneHand(ServerLevel sl,
-                                         Villager vill,
-                                         CompoundTag hands,
-                                         String key,
-                                         EquipmentSlot slot,
-                                         ItemStack cur,
-                                         ItemStack want) {
-        try {
-            if (vill == null || sl == null || slot == null || key == null) return want;
-
-            // If we haven't tracked anything yet, and something is in hand, start tracking it.
-            if ((want == null || want.isEmpty()) && (cur != null && !cur.isEmpty())) {
-                writeStackToHands(sl, hands, key, safeCopy(cur));
-                return safeCopy(cur);
-            }
-
-            // If we *think* something should be in hand, but it got cleared, restore it.
-            if (want != null && !want.isEmpty() && (cur == null || cur.isEmpty())) {
-                // Try to pull it from villager pickup inventory first to avoid duplication.
-                ItemStack recovered = tryTakeFromVillagerPickupInventory(sl, vill, want);
-
-                if (recovered == null || recovered.isEmpty()) {
-                    recovered = safeCopy(want);
-                } else {
-                    // If we recovered a partial stack, update want to match recovered (conservation).
-                    want = safeCopy(recovered);
-                }
-
-                // Restore to hand
-                try {
-                    if (slot == EquipmentSlot.MAINHAND) {
-                        vill.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, recovered);
-                    } else {
-                        vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, recovered);
-                    }
-                } catch (Throwable ignoredSet) {}
-
-                // Persist snapshot to whatever we actually put back
-                writeStackToHands(sl, hands, key, safeCopy(recovered));
-
-                throttledRestoreLog(sl, vill, slot, recovered);
-                return safeCopy(recovered);
-            }
-
-            // If the held item changed (legit), update snapshot.
-            if (cur != null && !cur.isEmpty()) {
-                if (want == null || want.isEmpty() || !stacksExactlyEqual(want, cur)) {
-                    writeStackToHands(sl, hands, key, safeCopy(cur));
-                    return safeCopy(cur);
-                }
-            }
-
-            // If both empty, snapshot can be cleared (but ONLY if someone did it intentionally via notifyManualHandSet)
-            // We do not auto-clear here; leaving want as-is prevents accidental loss.
-            return want;
-
-        } catch (Throwable ignored) {
-            return want;
-        }
-    }
-
-    private static void throttledRestoreLog(ServerLevel sl, Villager vill, EquipmentSlot slot, ItemStack restored) {
-        try {
-            if (sl == null || vill == null || slot == null) return;
-
-            long now = sl.getGameTime();
-            UUID id = vill.getUUID();
-
-            Long last = LAST_RESTORE_LOG_GAME_TIME.get(id);
-            if (last != null && (now - last) < 40L) return; // once per ~2s per villager
-
-            LAST_RESTORE_LOG_GAME_TIME.put(id, now);
-
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Prevented AI hand clear: restored {}x {} to {} (villager={})",
-                    (restored == null ? 0 : restored.getCount()),
-                    (restored == null || restored.isEmpty()) ? "EMPTY" : restored.getItem().toString(),
-                    slot,
-                    vill.getUUID());
-
-        } catch (Throwable ignored) {}
-    }
-
-    private static void throttledCleanLog(ServerLevel sl, Villager vill, String whichKey) {
-        try {
-            if (sl == null || vill == null) return;
-
-            long now = sl.getGameTime();
-            UUID id = vill.getUUID();
-
-            Long last = LAST_CLEAN_LOG_GAME_TIME.get(id);
-            if (last != null && (now - last) < 100L) return; // once per ~5s per villager
-
-            LAST_CLEAN_LOG_GAME_TIME.put(id, now);
-
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Cleaned legacy invalid hand snapshot '{}' (villager={})",
-                    whichKey, vill.getUUID());
-        } catch (Throwable ignored) {}
-    }
-
-    private static ItemStack tryTakeFromVillagerPickupInventory(ServerLevel sl, Villager vill, ItemStack desired) {
-        try {
-            if (vill == null || desired == null || desired.isEmpty()) return ItemStack.EMPTY;
-
-            Container inv = tryGetVillagerPickupInventory(vill);
-            if (inv == null) return ItemStack.EMPTY;
-
-            int need = Math.max(1, desired.getCount());
-
-            for (int i = 0; i < inv.getContainerSize(); i++) {
-                ItemStack inSlot = inv.getItem(i);
-                if (inSlot == null || inSlot.isEmpty()) continue;
-
-                if (!stacksSameType(desired, inSlot)) continue;
-
-                int take = Math.min(need, inSlot.getCount());
-                ItemStack removed = inv.removeItem(i, take);
-
-                try { inv.setChanged(); } catch (Throwable ignored) {}
-
-                if (removed != null && !removed.isEmpty()) return removed;
-            }
-
-            return ItemStack.EMPTY;
-
-        } catch (Throwable ignored) {
-            return ItemStack.EMPTY;
-        }
-    }
-
-    private static boolean stacksSameType(ItemStack a, ItemStack b) {
-        try {
-            if (a == null || b == null) return false;
-            if (a.isEmpty() || b.isEmpty()) return false;
-
-            // ignore count but include components
-            ItemStack ac = a.copy();
-            ItemStack bc = b.copy();
-            try { ac.setCount(1); } catch (Throwable ignored) {}
-            try { bc.setCount(1); } catch (Throwable ignored) {}
-
-            return ItemStack.isSameItemSameComponents(ac, bc);
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    private static boolean stacksExactlyEqual(ItemStack a, ItemStack b) {
-        try {
-            if (a == b) return true;
-            if (a == null || b == null) return false;
-            if (a.isEmpty() && b.isEmpty()) return true;
-            if (a.isEmpty() || b.isEmpty()) return false;
-            if (a.getCount() != b.getCount()) return false;
-            return ItemStack.isSameItemSameComponents(a, b);
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    private static ItemStack safeCopy(ItemStack st) {
-        try {
-            if (st == null || st.isEmpty()) return ItemStack.EMPTY;
-            return st.copy();
-        } catch (Throwable ignored) {
-            return ItemStack.EMPTY;
-        }
-    }
-
-    private static CompoundTag getOrCreateHands(Villager vill) {
-        CompoundTag root = getOrCreateRoot(vill);
-        if (!root.contains(K_HANDS, Tag.TAG_COMPOUND)) {
-            root.put(K_HANDS, new CompoundTag());
-        }
-        return root.getCompound(K_HANDS);
-    }
-
-    /**
-     * Reads a stored snapshot from hands.
-     * - Uses ItemStack.parse(registryAccess, Tag) (1.21+ correct way)
-     * - Detects & removes legacy invalid fallback tags to stop Minecraft error spam
-     */
-    private static ItemStack readStackFromHands(ServerLevel sl, CompoundTag hands, String key, String whichKeyForLog) {
-        try {
-            if (sl == null || hands == null || key == null) return ItemStack.EMPTY;
-            if (!hands.contains(key)) return ItemStack.EMPTY;
-
-            Tag raw = hands.get(key);
-            if (raw == null) {
-                hands.remove(key);
-                return ItemStack.EMPTY;
-            }
-
-            // Legacy cleanup: if the stored tag is a CompoundTag with our old fallback keys, remove it.
-            if (raw instanceof CompoundTag ct) {
-                if (ct.contains(LEGACY_ID_FALLBACK) || ct.contains(LEGACY_COUNT_FALLBACK)) {
-                    hands.remove(key);
-                    throttledCleanLog(sl, nullSafeVillagerFromHandsOwner(sl, hands), whichKeyForLog);
-                    return ItemStack.EMPTY;
-                }
-            }
-
-            Optional<ItemStack> parsed;
-            try {
-                parsed = ItemStack.parse(sl.registryAccess(), raw);
-            } catch (Throwable parseFail) {
-                // If Minecraft can't parse it, drop it so we don't re-trigger internal error logs forever.
-                hands.remove(key);
-                return ItemStack.EMPTY;
-            }
-
-            if (parsed == null || parsed.isEmpty()) {
-                hands.remove(key);
-                return ItemStack.EMPTY;
-            }
-
-            ItemStack st = parsed.get();
-            return (st == null) ? ItemStack.EMPTY : st;
-
-        } catch (Throwable ignored) {
-            try { if (hands != null && key != null) hands.remove(key); } catch (Throwable ignored2) {}
-            return ItemStack.EMPTY;
-        }
-    }
-
-    // We can't reliably know the villager from just the hands tag, so this is best-effort and safe.
-    private static Villager nullSafeVillagerFromHandsOwner(ServerLevel sl, CompoundTag hands) {
-        return null;
-    }
-
-    /**
-     * Stores snapshot using ItemStack.save(registryAccess) -> Tag (1.21+ correct).
-     * No fallback format, because it causes parse spam and cannot be restored.
-     */
-    private static void writeStackToHands(ServerLevel sl, CompoundTag hands, String key, ItemStack stack) {
-        try {
-            if (sl == null || hands == null || key == null) return;
-
-            if (stack == null || stack.isEmpty()) {
-                hands.remove(key);
-                return;
-            }
-
-            Tag encoded;
-            try {
-                encoded = stack.save(sl.registryAccess());
-            } catch (Throwable t) {
-                // If encoding fails, do NOT store junk — just remove snapshot.
-                hands.remove(key);
-                VillagerOverhaul.LOG().error("[VillagerOverhaul] Failed to encode hand snapshot (key={}): {}", key, t.toString());
-                return;
-            }
-
-            if (encoded == null) {
-                hands.remove(key);
-                return;
-            }
-
-            hands.put(key, encoded);
-
-        } catch (Throwable ignored) {}
-    }
-
-    private static Container tryGetVillagerPickupInventory(Villager vill) {
-        try {
-            if (vill == null) return null;
-
-            Method m = null;
-            Class<?> c = vill.getClass();
-            while (c != null && c != Object.class) {
-                for (Method mm : c.getDeclaredMethods()) {
-                    if (mm == null) continue;
-                    if (!"getInventory".equals(mm.getName())) continue;
-                    if (mm.getParameterCount() != 0) continue;
-                    mm.setAccessible(true);
-                    m = mm;
-                    break;
-                }
-                if (m != null) break;
-                c = c.getSuperclass();
-            }
-            if (m == null) return null;
-
-            Object out = m.invoke(vill);
-            if (out instanceof Container cont) return cont;
-
-            return null;
-
-        } catch (Throwable ignored) {
-            return null;
-        }
     }
 
     // ============================================================
@@ -1105,7 +754,7 @@ public final class VillagerBrain {
                 try {
                     f.setAccessible(true);
                     Object v = f.get(brain);
-                    if (!(v instanceof Map<?, ?> m)) continue;
+                    if (!(v instanceof java.util.Map<?, ?> m)) continue;
 
                     Object anyKey = m.keySet().stream().findFirst().orElse(null);
                     if (anyKey instanceof MemoryModuleType<?>) {
