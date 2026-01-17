@@ -61,8 +61,10 @@ public final class ClientCommands {
 
             // /vo_partvis <needle> <true|false>
             d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_partvis")
-                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, String>argument("needle", StringArgumentType.greedyString())
-                            .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Boolean>argument("visible", BoolArgumentType.bool())
+                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, String>argument(
+                                    "needle", StringArgumentType.string())
+                            .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Boolean>argument(
+                                            "visible", BoolArgumentType.bool())
                                     .executes(ctx -> setPartVisibility(
                                             StringArgumentType.getString(ctx, "needle"),
                                             BoolArgumentType.getBool(ctx, "visible")
