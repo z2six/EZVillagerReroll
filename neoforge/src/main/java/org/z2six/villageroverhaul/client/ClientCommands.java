@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\client\ClientCommands.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/client/ClientCommands.java
 package org.z2six.villageroverhaul.client;
 
 import com.mojang.brigadier.CommandDispatcher;
@@ -22,6 +22,7 @@ import net.minecraft.world.phys.HitResult;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.client.debug.ClientPartVisibilityRules;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -59,13 +60,35 @@ public final class ClientCommands {
                                             IntegerArgumentType.getInteger(ctx, "maxLines")
                                     )))));
 
-            // /vo_partvis <needle> <true|false>
+            /**
+             * Usage:
+             *   /vo_partvis <needle> <true|false>
+             *   /vo_partvis clear
+             *   /vo_partvis list
+             *
+             * NOTE: needle is a single token (no spaces). Use dot paths like root.head, root.head.hat, etc.
+             */
             d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_partvis")
-                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, String>argument(
-                                    "needle", StringArgumentType.string())
-                            .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Boolean>argument(
-                                            "visible", BoolArgumentType.bool())
-                                    .executes(ctx -> setPartVisibility(
+                    .executes(ctx -> {
+                        clientMsg("Usage: /vo_partvis <needle> <true|false>  OR  /vo_partvis clear  OR  /vo_partvis list");
+                        return 0;
+                    })
+                    .then(LiteralArgumentBuilder.<CommandSourceStack>literal("clear")
+                            .executes(ctx -> {
+                                ClientPartVisibilityRules.clearAll();
+                                clientMsg("Cleared all part visibility rules.");
+                                return 1;
+                            }))
+                    .then(LiteralArgumentBuilder.<CommandSourceStack>literal("list")
+                            .executes(ctx -> {
+                                String s = ClientPartVisibilityRules.describeRules();
+                                clientMsg(s.isEmpty() ? "No partvis rules set." : s);
+                                return 1;
+                            }))
+                    // IMPORTANT: needle must NOT be greedyString, otherwise it eats the boolean and causes “incomplete command”
+                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, String>argument("needle", StringArgumentType.string())
+                            .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Boolean>argument("visible", BoolArgumentType.bool())
+                                    .executes(ctx -> setPartVisibilityRule(
                                             StringArgumentType.getString(ctx, "needle"),
                                             BoolArgumentType.getBool(ctx, "visible")
                                     )))));
@@ -125,7 +148,7 @@ public final class ClientCommands {
         }
     }
 
-    private static int setPartVisibility(String needleRaw, boolean visible) {
+    private static int setPartVisibilityRule(String needleRaw, boolean visible) {
         try {
             String needle = (needleRaw == null) ? "" : needleRaw.trim();
             if (needle.isEmpty()) {
@@ -133,31 +156,25 @@ public final class ClientCommands {
                 return 0;
             }
 
+            // Persist the rule (the mixin will enforce it every frame)
+            ClientPartVisibilityRules.setRule(needle, visible);
+
+            // Apply immediately as well (so the user sees it instantly without waiting a tick)
+            int changedNow = 0;
             Villager target = findTargetVillager();
-            if (target == null) {
-                clientMsg("No villager targeted/found (look at one or stand near one).");
-                return 0;
+            if (target != null) {
+                VillagerModel<Villager> model = resolveVillagerModelFor(target);
+                if (model != null) {
+                    ModelPart root = tryCallRoot(model);
+                    if (root != null) {
+                        changedNow = ClientPartVisibilityRules.applyToRoot(root);
+                    }
+                }
             }
 
-            VillagerModel<Villager> model = resolveVillagerModelFor(target);
-            if (model == null) {
-                clientMsg("Failed to resolve VillagerModel for targeted villager (see log).");
-                return 0;
-            }
-
-            ModelPart root = tryCallRoot(model);
-            if (root == null) {
-                clientMsg("Failed to call VillagerModel.root() (see log).");
-                return 0;
-            }
-
-            int changed = applyVisibilityByNeedle(root, needle, visible);
-
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_partvis needle='{}' visible={} changedParts={} (NOTE: renderer model instance is shared)",
-                    needle, visible, changed);
-
-            clientMsg("Set visible=" + visible + " for " + changed + " parts matching: " + needle + " (see log).");
-            return changed > 0 ? 1 : 0;
+            clientMsg("Rule set: " + needle + " -> visible=" + visible + " (enforced every frame). changedNow=" + changedNow);
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_partvis rule needle='{}' visible={} changedNow={}", needle, visible, changedNow);
+            return 1;
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_partvis failed (soft): {}", t.toString());
@@ -256,15 +273,13 @@ public final class ClientCommands {
     }
 
     // =========================================================================================
-    // Tree dump / apply helpers (reflection to access ModelPart children map)
+    // Tree dump helpers (unchanged)
     // =========================================================================================
 
     private static int dumpTree(ModelPart root, int maxDepth, int maxLines) {
         int lines = 0;
         try {
             IdentityHashMap<ModelPart, Boolean> visited = new IdentityHashMap<>();
-
-            // Non-recursive stack: (part, path, depth)
             Deque<Object[]> stack = new ArrayDeque<>();
             stack.push(new Object[]{root, "root", 0});
 
@@ -308,54 +323,6 @@ public final class ClientCommands {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] dumpTree failed (soft): {}", t.toString());
         }
         return lines;
-    }
-
-    private static int applyVisibilityByNeedle(ModelPart root, String needle, boolean visible) {
-        int changed = 0;
-        try {
-            String n = needle.toLowerCase();
-
-            IdentityHashMap<ModelPart, Boolean> visited = new IdentityHashMap<>();
-            Deque<Object[]> stack = new ArrayDeque<>();
-            stack.push(new Object[]{root, "root"});
-
-            while (!stack.isEmpty()) {
-                Object[] it = stack.pop();
-                ModelPart part = (ModelPart) it[0];
-                String path = (String) it[1];
-
-                if (part == null) continue;
-                if (visited.put(part, Boolean.TRUE) != null) continue;
-
-                boolean match = path.toLowerCase().contains(n);
-                if (match) {
-                    boolean before = safeVisible(part);
-                    try {
-                        part.visible = visible;
-                        changed++;
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_partvis matched path='{}' vis:{}->{}",
-                                path, before, part.visible);
-                    } catch (Throwable t) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_partvis failed to set visible on path='{}' (soft): {}",
-                                path, t.toString());
-                    }
-                }
-
-                Map<String, ModelPart> children = getChildrenMap(part);
-                if (children == null || children.isEmpty()) continue;
-
-                for (Map.Entry<String, ModelPart> e : children.entrySet()) {
-                    String k = e.getKey();
-                    ModelPart v = e.getValue();
-                    if (k == null || v == null) continue;
-                    stack.push(new Object[]{v, path + "." + k});
-                }
-            }
-
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] applyVisibilityByNeedle failed (soft): {}", t.toString());
-        }
-        return changed;
     }
 
     @SuppressWarnings("unchecked")
