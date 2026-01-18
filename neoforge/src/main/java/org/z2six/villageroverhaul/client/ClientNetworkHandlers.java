@@ -20,6 +20,7 @@ import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
 import org.z2six.villageroverhaul.network.PacketSyncConfig;
 import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
@@ -509,6 +510,15 @@ public final class ClientNetworkHandlers {
         ctx.enqueueWork(() -> {
             try {
                 org.z2six.villageroverhaul.client.ClientUI.acceptVillagerCombatModeData(msg);
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    public static void onCombatSettingsData(PacketCombatSettingsData msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (msg == null) return;
+                ClientCombatSettingsCache.set(msg);
             } catch (Throwable ignored) {}
         });
     }

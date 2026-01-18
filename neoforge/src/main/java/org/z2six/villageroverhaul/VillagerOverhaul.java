@@ -13,6 +13,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import org.z2six.villageroverhaul.client.ClientCommands;
 import org.z2six.villageroverhaul.client.ClientUI;
+import org.z2six.villageroverhaul.client.ClientKeybinds;
 import org.z2six.villageroverhaul.client.VillagerInventoryScreen;
 import org.z2six.villageroverhaul.client.render.ClientRenderEvents;
 import org.z2six.villageroverhaul.config.ClientConfig;
@@ -83,6 +84,13 @@ public final class VillagerOverhaul {
             LOG.info("[VillagerOverhaul] Registered common/client setup listeners on MOD bus.");
         } catch (Throwable t) {
             LOG.error("[VillagerOverhaul] Failed to register setup listeners.", t);
+        }
+
+        try {
+            modBus.addListener(ClientKeybinds::onRegisterKeyMappings);
+            LOG.info("[VillagerOverhaul] Registered ClientKeybinds on MOD bus.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to register ClientKeybinds.", t);
         }
 
         // Menu->Screen mapping

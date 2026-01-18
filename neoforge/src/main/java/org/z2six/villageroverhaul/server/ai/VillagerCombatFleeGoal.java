@@ -7,7 +7,7 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.server.RecruitService;
+import org.z2six.villageroverhaul.server.CombatSettingsService;
 
 import java.util.EnumSet;
 import java.util.List;
@@ -25,10 +25,18 @@ public final class VillagerCombatFleeGoal extends Goal {
     private final Villager vill;
     private boolean loggedActive = false;
     private UUID threatUuid = null;
+    private Vec3 lastThreatPos = null;
     private long fleeUntilTick = 0L;
     private long lastThreatAt = 0L;
     private long nextRerouteAt = 0L;
     private long lastScanAt = 0L;
+    private long lastNoThreatLogAt = 0L;
+    private long lastRejectLogAt = 0L;
+
+    // Tuning (hardcoded for now)
+    private static final double FLEE_SPEED = 0.65;
+    private static final int FLEE_DISTANCE = 16;
+    private static final int FLEE_VERTICAL = 7;
 
     public VillagerCombatFleeGoal(Villager vill) {
         this.vill = vill;
@@ -42,11 +50,22 @@ public final class VillagerCombatFleeGoal extends Goal {
             if (vill.level() == null || vill.level().isClientSide()) return false;
 
             // Combat should not act during FOLLOW (per your spec).
-            if (VillagerBrain.getMode(vill) == VillagerBrain.Mode.FOLLOW) return false;
+            if (VillagerBrain.getMode(vill) == VillagerBrain.Mode.FOLLOW) {
+                logNoThreat("follow_mode");
+                return false;
+            }
 
-            return VillagerBrain.getCombatMode(vill) == VillagerBrain.CombatMode.FLEE;
+            if (VillagerBrain.getCombatMode(vill) != VillagerBrain.CombatMode.FLEE) return false;
+
+            if (threatUuid != null && findThreatByUuid(threatUuid) != null) return true;
+
+            LivingEntity attacker = findRecentAttacker(vill);
+            if (attacker != null) return true;
+
+            logNoThreat("no_recent_attacker");
+            return false;
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatFleeGoal.canUse failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatFleeGoal.canUse failed (soft): {}", t.toString());
             return false;
         }
     }
@@ -61,10 +80,13 @@ public final class VillagerCombatFleeGoal extends Goal {
         try {
             loggedActive = false;
             threatUuid = null;
+            lastThreatPos = null;
             fleeUntilTick = 0L;
             lastThreatAt = 0L;
             nextRerouteAt = 0L;
             lastScanAt = 0L;
+            lastNoThreatLogAt = 0L;
+            lastRejectLogAt = 0L;
         } catch (Throwable ignored) {}
     }
 
@@ -80,13 +102,12 @@ public final class VillagerCombatFleeGoal extends Goal {
                 LivingEntity attacker = findRecentAttacker(vill);
                 if (attacker != null) {
                     threatUuid = attacker.getUUID();
+                    lastThreatPos = attacker.position();
                     lastThreatAt = now;
                     fleeUntilTick = now + 20L * 30L;
 
-                    if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Flee threat set (villager={} attacker={})",
-                                vill.getUUID(), attacker.getUUID());
-                    }
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Flee threat set (villager={} attacker={})",
+                            vill.getUUID(), attacker.getUUID());
                 }
             }
 
@@ -112,15 +133,14 @@ public final class VillagerCombatFleeGoal extends Goal {
                 tryReroute(threat);
             }
 
-            // Step 1: do nothing besides optional debug.
-            if (!loggedActive && VillagerOverhaul.LOG().isDebugEnabled()) {
+            if (!loggedActive) {
                 loggedActive = true;
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: FLEE (villager={}, mode={})",
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat goal active: FLEE (villager={}, mode={})",
                         vill == null ? "null" : vill.getUUID(),
                         vill == null ? "null" : VillagerBrain.getMode(vill).id);
             }
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatFleeGoal.tick failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatFleeGoal.tick failed (soft): {}", t.toString());
         }
     }
 
@@ -129,10 +149,13 @@ public final class VillagerCombatFleeGoal extends Goal {
         try {
             loggedActive = false;
             threatUuid = null;
+            lastThreatPos = null;
             fleeUntilTick = 0L;
             lastThreatAt = 0L;
             nextRerouteAt = 0L;
             lastScanAt = 0L;
+            lastNoThreatLogAt = 0L;
+            lastRejectLogAt = 0L;
         } catch (Throwable ignored) {}
     }
 
@@ -140,16 +163,10 @@ public final class VillagerCombatFleeGoal extends Goal {
         try {
             if (vill == null || vill.level() == null) return null;
 
-            UUID owner = null;
-            try {
-                owner = RecruitService.getRecruiterUuid(vill);
-            } catch (Throwable ignored) {}
-
             AABB box = vill.getBoundingBox().inflate(26.0);
             List<LivingEntity> nearby = vill.level().getEntitiesOfClass(LivingEntity.class, box, e -> e != null && e.isAlive());
 
             for (LivingEntity target : nearby) {
-                if (target == vill) continue;
 
                 LivingEntity attacker = target.getLastHurtByMob();
                 if (attacker == null) continue;
@@ -157,12 +174,26 @@ public final class VillagerCombatFleeGoal extends Goal {
                 int hurtAt = target.getLastHurtByMobTimestamp();
                 if ((vill.tickCount - hurtAt) > 40) continue;
 
-                if (owner != null) {
-                    if (owner.equals(attacker.getUUID())) continue;
-                    if (owner.equals(target.getUUID())) continue;
+                if (attacker == vill) continue;
+
+                CombatSettingsService.TriggerCheck check =
+                        CombatSettingsService.checkTrigger(vill, VillagerBrain.CombatMode.FLEE, attacker, target);
+                if (!check.ok) {
+                    long now = vill.level().getGameTime();
+                    if ((now - lastRejectLogAt) > 40L) {
+                        lastRejectLogAt = now;
+                        VillagerOverhaul.LOG().info(
+                                "[VillagerOverhaul] FLEE candidate rejected (villager={} attacker={} target={} reason={})",
+                                vill.getUUID(),
+                                attacker.getUUID(),
+                                target.getUUID(),
+                                check.reason
+                        );
+                    }
+                    continue;
                 }
 
-                if (attacker == vill) continue;
+                lastThreatPos = attacker.position();
                 return attacker;
             }
         } catch (Throwable ignored) {}
@@ -187,30 +218,27 @@ public final class VillagerCombatFleeGoal extends Goal {
             if (vill == null || vill.level() == null) return;
 
             Vec3 villPos = vill.position();
-            Vec3 threatPos = (threat != null) ? threat.position() : null;
+            Vec3 threatPos = (threat != null) ? threat.position() : lastThreatPos;
 
-            Vec3 away2d;
-            if (threatPos != null) {
-                Vec3 away = villPos.subtract(threatPos);
-                away2d = new Vec3(away.x, 0.0, away.z);
-            } else {
-                away2d = new Vec3(1.0, 0.0, 0.0);
-            }
-
+            Vec3 away = (threatPos != null) ? villPos.subtract(threatPos) : new Vec3(1.0, 0.0, 0.0);
+            Vec3 away2d = new Vec3(away.x, 0.0, away.z);
             double len = away2d.lengthSqr();
-            if (len < 0.0001) {
-                away2d = new Vec3(1.0, 0.0, 0.0);
-            }
+            if (len < 0.0001) away2d = new Vec3(1.0, 0.0, 0.0);
 
-            Vec3 perp = new Vec3(-away2d.z, 0.0, away2d.x);
-            if (vill.getRandom().nextBoolean()) {
-                perp = perp.scale(-1.0);
-            }
+            Vec3 dir = away2d.normalize();
+            Vec3 target = villPos.add(dir.scale(FLEE_DISTANCE));
 
-            Vec3 dir = perp.normalize();
-            Vec3 target = villPos.add(dir.scale(10.0));
+            vill.getNavigation().moveTo(target.x, target.y, target.z, FLEE_SPEED);
+        } catch (Throwable ignored) {}
+    }
 
-            vill.getNavigation().moveTo(target.x, target.y, target.z, 1.2);
+    private void logNoThreat(String reason) {
+        try {
+            if (vill == null || vill.level() == null) return;
+            long now = vill.level().getGameTime();
+            if ((now - lastNoThreatLogAt) < 40L) return;
+            lastNoThreatLogAt = now;
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] FLEE waiting (villager={} reason={})", vill.getUUID(), reason);
         } catch (Throwable ignored) {}
     }
 }

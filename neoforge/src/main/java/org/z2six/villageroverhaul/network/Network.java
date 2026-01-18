@@ -13,6 +13,9 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.autoReroll.*;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
@@ -150,6 +153,10 @@ public final class Network {
                     (msg, ctx) -> handleVillagerCommandServer(msg, ctx));
             r.playToServer(PacketVillagerCombatCommand.TYPE, PacketVillagerCombatCommand.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerCombatCommandServer(msg, ctx));
+            r.playToServer(PacketCombatSettingsQuery.TYPE, PacketCombatSettingsQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCombatSettingsQuery(msg, ctx)));
+            r.playToServer(PacketCombatSettingsUpdate.TYPE, PacketCombatSettingsUpdate.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCombatSettingsUpdate(msg, ctx)));
 
             // ============================
             // Patrol serverbound
@@ -163,6 +170,8 @@ public final class Network {
                     (msg, ctx) -> dispatchToClientHandler("onVillagerModeData", msg, ctx));
             r.playToClient(PacketVillagerCombatModeData.TYPE, PacketVillagerCombatModeData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onVillagerCombatModeData", msg, ctx));
+            r.playToClient(PacketCombatSettingsData.TYPE, PacketCombatSettingsData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCombatSettingsData", msg, ctx));
 
             // === Recruit gate () ===
             r.playToServer(PacketRecruitGateQuery.TYPE, PacketRecruitGateQuery.STREAM_CODEC,

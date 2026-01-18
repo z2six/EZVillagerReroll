@@ -25,6 +25,9 @@ import org.z2six.villageroverhaul.logic.WalletBridge;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.autoReroll.*;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
@@ -36,10 +39,12 @@ import org.z2six.villageroverhaul.network.recruit.*;
 import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.server.CatalogBuilder;
+import org.z2six.villageroverhaul.server.CombatSettingsService;
 import org.z2six.villageroverhaul.server.SearchService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
+import org.z2six.villageroverhaul.combat.CombatSettings;
 
 // patrol packets
 
@@ -804,10 +809,13 @@ public final class ServerHandlers {
             if (vill == null) return;
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCombatCommand denied (player={} villager={} cmd={})",
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] handleVillagerCombatCommand denied (player={} villager={} cmd={})",
                         sp.getGameProfile().getName(), vill.getUUID(), msg.command());
                 return;
             }
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] handleVillagerCombatCommand received (player={} villager={} cmd={})",
+                    sp.getGameProfile().getName(), vill.getUUID(), msg.command());
 
             switch (msg.command()) {
                 case OFF -> VillagerBrain.combatOff(vill);
@@ -816,7 +824,7 @@ public final class ServerHandlers {
                 case AGGRESSIVE -> VillagerBrain.combatAggressive(vill);
             }
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCombatCommand: player={} villager={} cmd={}",
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] handleVillagerCombatCommand applied (player={} villager={} cmd={})",
                     sp.getGameProfile().getName(), vill.getUUID(), msg.command());
 
             try {
@@ -826,6 +834,71 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerCombatCommand failed", t);
+        }
+    }
+
+    public static void handleCombatSettingsQuery(PacketCombatSettingsQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            if (msg.global()) {
+                CombatSettings settings = CombatSettingsService.getGlobal(sp.serverLevel());
+                ctx.reply(new PacketCombatSettingsData(0, true, settings.toTag()));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings query (global) by player={}",
+                        sp.getGameProfile().getName());
+                return;
+            }
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                return;
+            }
+
+            CombatSettings settings = CombatSettingsService.getPerVillager(vill);
+            if (settings == null) settings = CombatSettingsService.getGlobal(sp.serverLevel());
+
+            ctx.reply(new PacketCombatSettingsData(vill.getId(), false, settings.toTag()));
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings query (villager={}) by player={}",
+                    vill.getUUID(), sp.getGameProfile().getName());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleCombatSettingsQuery failed", t);
+        }
+    }
+
+    public static void handleCombatSettingsUpdate(PacketCombatSettingsUpdate msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            CombatSettings settings = CombatSettings.fromTag(msg.settings());
+
+            if (msg.global()) {
+                if (!sp.hasPermissions(2)) return;
+                CombatSettingsService.setGlobal(sp.serverLevel(), settings);
+                ctx.reply(new PacketCombatSettingsData(0, true, settings.toTag()));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings updated (global) by player={}",
+                        sp.getGameProfile().getName());
+                return;
+            }
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                return;
+            }
+
+            CombatSettingsService.setPerVillager(vill, settings);
+            ctx.reply(new PacketCombatSettingsData(vill.getId(), false, settings.toTag()));
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings updated (villager={}) by player={}",
+                    vill.getUUID(), sp.getGameProfile().getName());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleCombatSettingsUpdate failed", t);
         }
     }
 

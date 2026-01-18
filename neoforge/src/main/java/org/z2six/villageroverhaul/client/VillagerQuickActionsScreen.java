@@ -41,7 +41,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     private Button mvNeutral, mvIdle, mvFollow, mvPatrol;
 
     // Combat buttons (placeholders like ClientUI unless you later wire real packets)
-    private Button cbFlee, cbDefend, cbAggressive;
+    private Button cbFlee, cbDefend, cbAggressive, cbSettings;
 
     // Backdrop + header icons (like ClientUI)
     private CommandsBackdropWidget commandsBackdrop;
@@ -120,7 +120,7 @@ public final class VillagerQuickActionsScreen extends Screen {
 
             // Row widths
             int movementButtonsW = (4 * w) + (3 * gap);
-            int combatButtonsW   = (3 * w) + (2 * gap);
+            int combatButtonsW   = (4 * w) + (3 * gap);
 
             // Each row has a header icon + gap + buttons
             int movementRowW = w + gap + movementButtonsW; // icon + gap + buttons
@@ -202,14 +202,18 @@ public final class VillagerQuickActionsScreen extends Screen {
                     .pos(cbX0 + 1 * (w + gap), row2Y).size(w, h).build();
             cbAggressive = Button.builder(Component.literal("A"), b -> onCombatCommand("aggressive", PacketVillagerCombatCommand.Command.AGGRESSIVE))
                     .pos(cbX0 + 2 * (w + gap), row2Y).size(w, h).build();
+            cbSettings = Button.builder(Component.literal("⛭"), b -> onCombatSettings())
+                    .pos(cbX0 + 3 * (w + gap), row2Y).size(w, h).build();
 
             cbFlee.setTooltip(Tooltip.create(Component.literal("Flee")));
             cbDefend.setTooltip(Tooltip.create(Component.literal("Defend")));
             cbAggressive.setTooltip(Tooltip.create(Component.literal("Aggressive")));
+            cbSettings.setTooltip(Tooltip.create(Component.literal("Combat settings")));
 
             addRenderableWidget(cbFlee);
             addRenderableWidget(cbDefend);
             addRenderableWidget(cbAggressive);
+            addRenderableWidget(cbSettings);
 
             COMBAT_BTNS.put("flee", cbFlee);
             COMBAT_BTNS.put("defend", cbDefend);
@@ -309,6 +313,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             setWidgetVisible(cbFlee, v);
             setWidgetVisible(cbDefend, v);
             setWidgetVisible(cbAggressive, v);
+            setWidgetVisible(cbSettings, v);
 
             // When collapsing, also clear highlights back to default
             if (!v) {
@@ -374,6 +379,20 @@ public final class VillagerQuickActionsScreen extends Screen {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions combat command failed", t);
+        }
+    }
+
+    private void onCombatSettings() {
+        try {
+            if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery(villagerEntityId, false));
+            mc.setScreen(new CombatSettingsScreen(this, villagerEntityId, false));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions combat settings failed", t);
         }
     }
 

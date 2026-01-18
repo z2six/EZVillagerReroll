@@ -182,11 +182,9 @@ public final class VillagerBrain {
             CompoundTag root = getOrCreateRoot(vill);
             root.putString(K_COMBAT_MODE, mode.id);
 
-            if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatMode set (villager={}, mode={})", vill.getUUID(), mode.id);
-            }
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatMode set (villager={}, mode={})", vill.getUUID(), mode.id);
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] setCombatMode failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] setCombatMode failed (soft): {}", t.toString());
         }
     }
 
@@ -745,42 +743,40 @@ public final class VillagerBrain {
             if (vill == null) return;
             if (vill.level().isClientSide()) return;
 
-            if (!hasGoal(vill, VillagerIdleGoal.class)) {
-                vill.goalSelector.addGoal(0, new VillagerIdleGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
-            }
-
-            if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
-                vill.goalSelector.addGoal(1, new VillagerPatrolSetupFollowGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
-            }
-
-            if (!hasGoal(vill, VillagerFollowGoal.class)) {
-                vill.goalSelector.addGoal(2, new VillagerFollowGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerFollowGoal (villager={})", vill.getUUID());
-            }
-
-            if (!hasGoal(vill, VillagerPatrolGoal.class)) {
-                vill.goalSelector.addGoal(3, new VillagerPatrolGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolGoal (villager={})", vill.getUUID());
-            }
-
-            // ------------------------------------------------------------
-            // Combat goals (NEW) - inert for now, AI later
-            // ------------------------------------------------------------
+            // Combat has higher priority than movement (except FOLLOW which disables combat in canUse).
             if (!hasGoal(vill, VillagerCombatFleeGoal.class)) {
-                vill.goalSelector.addGoal(4, new VillagerCombatFleeGoal(vill));
+                vill.goalSelector.addGoal(0, new VillagerCombatFleeGoal(vill));
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatFleeGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerCombatDefendGoal.class)) {
-                vill.goalSelector.addGoal(5, new VillagerCombatDefendGoal(vill));
+                vill.goalSelector.addGoal(1, new VillagerCombatDefendGoal(vill));
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatDefendGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerCombatAggressiveGoal.class)) {
-                vill.goalSelector.addGoal(6, new VillagerCombatAggressiveGoal(vill));
+                vill.goalSelector.addGoal(2, new VillagerCombatAggressiveGoal(vill));
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatAggressiveGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerIdleGoal.class)) {
+                vill.goalSelector.addGoal(3, new VillagerIdleGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
+                vill.goalSelector.addGoal(4, new VillagerPatrolSetupFollowGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerFollowGoal.class)) {
+                vill.goalSelector.addGoal(5, new VillagerFollowGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerFollowGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerPatrolGoal.class)) {
+                vill.goalSelector.addGoal(6, new VillagerPatrolGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolGoal (villager={})", vill.getUUID());
             }
 
         } catch (Throwable t) {
@@ -821,7 +817,8 @@ public final class VillagerBrain {
         try {
             if (vill == null) return true;
             if (!RecruitService.isRecruited(vill)) return true;
-            return getMode(vill) == Mode.NEUTRAL;
+            if (getMode(vill) != Mode.NEUTRAL) return false;
+            return getCombatMode(vill) == CombatMode.OFF;
         } catch (Throwable t) {
             return true;
         }

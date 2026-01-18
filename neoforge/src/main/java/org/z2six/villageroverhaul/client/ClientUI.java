@@ -51,6 +51,7 @@ import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogQuery;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -368,6 +369,19 @@ public final class ClientUI {
         }
     }
 
+    public static void openCombatSettings(Screen parent, int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            ClientNetwork.sendToServer(new PacketCombatSettingsQuery(villagerEntityId, false));
+            mc.setScreen(new CombatSettingsScreen(parent, villagerEntityId, false));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] openCombatSettings failed", t);
+        }
+    }
+
     private static void onScreenInitPost(final ScreenEvent.Init.Post e) {
         try {
             if (!(e.getScreen() instanceof MerchantScreen screen)) return;
@@ -586,7 +600,7 @@ public final class ClientUI {
                 int panelX = cmdX + w + gap;
 
                 String[] movement = new String[] { "Neutral", "Idle", "Follow", "Patrol" };
-                String[] combat   = new String[] { "Flee", "Defend", "Aggressive" };
+                String[] combat   = new String[] { "Flee", "Defend", "Aggressive", "Settings" };
 
                 int movementBlockH = movement.length * h + (movement.length - 1) * gap;
                 int combatBlockH   = combat.length   * h + (combat.length   - 1) * gap;
@@ -751,9 +765,16 @@ public final class ClientUI {
                     final String label = combat[i];
                     int by = combatStartY + i * (h + gap);
 
-                    Button b = Button.builder(Component.literal(label.substring(0, 1)), bbtn -> {
+                    boolean isSettings = "Settings".equalsIgnoreCase(label);
+                    String glyph = isSettings ? "⛭" : label.substring(0, 1);
+
+                    Button b = Button.builder(Component.literal(glyph), bbtn -> {
                                 try {
                                     int villagerEntityId = resolveTraderEntityId(screen);
+                                    if (isSettings) {
+                                        openCombatSettings(screen, villagerEntityId);
+                                        return;
+                                    }
                                     if (villagerEntityId > 0) {
                                         PacketVillagerCombatCommand.Command cmd = switch (label.toLowerCase(java.util.Locale.ROOT)) {
                                             case "flee" -> PacketVillagerCombatCommand.Command.FLEE;
@@ -799,9 +820,11 @@ public final class ClientUI {
                     // store combat buttons for green highlight updates
                     // ============================================================
                     try {
-                        COMBAT_BTNS
-                                .computeIfAbsent(screen, s -> new java.util.HashMap<>())
-                                .put(label.toLowerCase(java.util.Locale.ROOT), b);
+                        if (!isSettings) {
+                            COMBAT_BTNS
+                                    .computeIfAbsent(screen, s -> new java.util.HashMap<>())
+                                    .put(label.toLowerCase(java.util.Locale.ROOT), b);
+                        }
                     } catch (Throwable ignored) {}
                 }
 
@@ -2150,6 +2173,14 @@ public final class ClientUI {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
 
+            try {
+                if (ClientKeybinds.consumeOpenGlobalCombatSettings()) {
+                    if (mc.screen == null) {
+                        openGlobalCombatSettings();
+                    }
+                }
+            } catch (Throwable ignored) {}
+
             if (PENDING_QUICK_VILLAGER_ID <= 0) return;
 
             long age = System.currentTimeMillis() - PENDING_QUICK_AT_MS;
@@ -2178,6 +2209,18 @@ public final class ClientUI {
             mc.setScreen(new VillagerQuickActionsScreen(id));
 
         } catch (Throwable ignored) {}
+    }
+
+    public static void openGlobalCombatSettings() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            ClientNetwork.sendToServer(new PacketCombatSettingsQuery(0, true));
+            mc.setScreen(new CombatSettingsScreen(null, 0, true));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] openGlobalCombatSettings failed", t);
+        }
     }
 
     public static boolean canUseControlsForVillager(int villagerEntityId) {
