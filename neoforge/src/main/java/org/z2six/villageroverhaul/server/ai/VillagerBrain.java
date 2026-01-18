@@ -48,6 +48,7 @@ public final class VillagerBrain {
     // -------------------------
     private static final String K_COMBAT_MODE = "combat_mode";
     private static final String K_UI_PAUSED_UNTIL = "ui_paused_until";
+    private static final String K_FORCE_BLOCK_UNTIL = "force_block_until";
 
     // Patrol sub-root
     private static final String K_PATROL = "patrol";
@@ -863,6 +864,83 @@ public final class VillagerBrain {
         try {
             if (vill == null) return false;
             return vill.getPersistentData().getBoolean("ezvr_combat_engaged");
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static final java.util.Set<Villager> FORCE_BLOCK_VILLS =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
+    public static void forceBlockFor(Villager vill, int ticks) {
+        try {
+            if (vill == null || !(vill.level() instanceof ServerLevel sl)) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            long until = sl.getGameTime() + Math.max(1, ticks);
+            root.putLong(K_FORCE_BLOCK_UNTIL, until);
+            forceBlockStart(vill);
+            FORCE_BLOCK_VILLS.add(vill);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void tickForceBlocks() {
+        try {
+            if (FORCE_BLOCK_VILLS.isEmpty()) return;
+            java.util.Iterator<Villager> it = FORCE_BLOCK_VILLS.iterator();
+            while (it.hasNext()) {
+                Villager vill = it.next();
+                if (vill == null || vill.level() == null) {
+                    it.remove();
+                    continue;
+                }
+                boolean active = tickForceBlockForVillager(vill);
+                if (!active) it.remove();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean tickForceBlockForVillager(Villager vill) {
+        try {
+            if (vill == null || !(vill.level() instanceof ServerLevel sl)) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            long until = root.getLong(K_FORCE_BLOCK_UNTIL);
+            if (until <= 0L) return false;
+
+            long now = sl.getGameTime();
+            if (now >= until) {
+                root.putLong(K_FORCE_BLOCK_UNTIL, 0L);
+                try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+                return false;
+            }
+
+            forceBlockStart(vill);
+            return true;
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static void forceBlockStart(Villager vill) {
+        try {
+            if (vill == null) return;
+            if (vill.isUsingItem()) return;
+
+            ItemStack off = vill.getOffhandItem();
+            if (isShieldItem(off)) {
+                vill.startUsingItem(InteractionHand.OFF_HAND);
+                return;
+            }
+
+            ItemStack main = vill.getMainHandItem();
+            if (isShieldItem(main)) {
+                vill.startUsingItem(InteractionHand.MAIN_HAND);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isShieldItem(ItemStack st) {
+        try {
+            if (st == null || st.isEmpty()) return false;
+            return st.getUseAnimation() == net.minecraft.world.item.UseAnim.BLOCK;
         } catch (Throwable t) {
             return false;
         }

@@ -264,6 +264,10 @@ public final class ServerEvents {
             }
 
             try {
+                VillagerBrain.tickForceBlocks();
+            } catch (Throwable ignored) {}
+
+            try {
                 long gt = server.overworld().getGameTime();
                 if (gt % 200L == 0L && gt != lastTickDebugGameTime) {
                     lastTickDebugGameTime = gt;

@@ -180,7 +180,7 @@ public final class VillagerCombatFleeGoal extends Goal {
                 if (attacker == null) continue;
 
                 int hurtAt = target.getLastHurtByMobTimestamp();
-                if ((vill.tickCount - hurtAt) > 40) continue;
+                if ((target.tickCount - hurtAt) > 40) continue;
 
                 if (attacker == vill) continue;
 

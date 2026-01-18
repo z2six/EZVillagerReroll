@@ -29,6 +29,7 @@ import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerForceBlock;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
@@ -893,6 +894,30 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleCombatSettingsSync failed", t);
+        }
+    }
+
+    public static void handleVillagerForceBlock(PacketVillagerForceBlock msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                return;
+            }
+
+            int ticks = Math.max(1, Math.min(20 * 30, msg.ticks()));
+            org.z2six.villageroverhaul.server.ai.VillagerBrain.forceBlockFor(vill, ticks);
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Force block requested (villager={} ticks={})",
+                    vill.getUUID(), ticks);
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerForceBlock failed", t);
         }
     }
 

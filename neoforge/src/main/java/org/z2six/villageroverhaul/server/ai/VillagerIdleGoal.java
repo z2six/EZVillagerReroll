@@ -31,6 +31,7 @@ public final class VillagerIdleGoal extends Goal {
     public boolean canUse() {
         return vill != null
                 && VillagerBrain.getMode(vill) == VillagerBrain.Mode.IDLE
+                && !VillagerBrain.isCombatEngaged(vill)
                 && !VillagerBrain.isUiPaused(vill);
     }
 

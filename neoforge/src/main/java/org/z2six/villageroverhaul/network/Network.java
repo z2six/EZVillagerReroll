@@ -20,6 +20,7 @@ import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerForceBlock;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
@@ -161,6 +162,8 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCombatSettingsSync(msg, ctx)));
             r.playToServer(PacketCombatSettingsUpdate.TYPE, PacketCombatSettingsUpdate.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCombatSettingsUpdate(msg, ctx)));
+            r.playToServer(PacketVillagerForceBlock.TYPE, PacketVillagerForceBlock.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerForceBlock(msg, ctx)));
             r.playToServer(PacketVillagerUiPause.TYPE, PacketVillagerUiPause.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerUiPause(msg, ctx)));
 

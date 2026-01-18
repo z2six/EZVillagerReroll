@@ -23,14 +23,14 @@ public final class VillagerCombatDefendGoal extends Goal {
 
     private final Villager vill;
     private boolean loggedActive = false;
+    private java.util.UUID targetUuid = null;
     private long lastNoThreatLogAt = 0L;
     private long lastRejectLogAt = 0L;
     private long lastScanAt = 0L;
 
     public VillagerCombatDefendGoal(Villager vill) {
         this.vill = vill;
-        // No flags yet (do not interfere with movement until combat director exists).
-        this.setFlags(EnumSet.noneOf(Flag.class));
+        this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
     @Override
@@ -74,6 +74,7 @@ public final class VillagerCombatDefendGoal extends Goal {
     public void start() {
         try {
             loggedActive = false;
+            targetUuid = null;
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
             lastScanAt = 0L;
@@ -90,6 +91,28 @@ public final class VillagerCombatDefendGoal extends Goal {
                         vill == null ? "null" : vill.getUUID(),
                         vill == null ? "null" : VillagerBrain.getMode(vill).id);
             }
+
+            if (vill == null || vill.level() == null) return;
+
+            LivingEntity target = null;
+            if (targetUuid != null) {
+                target = findThreatByUuid(targetUuid);
+                if (target == null || !target.isAlive()) {
+                    targetUuid = null;
+                }
+            }
+
+            if (target == null) {
+                LivingEntity attacker = findRecentAttacker(vill);
+                if (attacker != null) {
+                    targetUuid = attacker.getUUID();
+                    target = attacker;
+                }
+            }
+
+            if (target == null) return;
+
+            VillagerCombatDirector.tickAttack(vill, target);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatDefendGoal.tick failed (soft): {}", t.toString());
         }
@@ -99,9 +122,11 @@ public final class VillagerCombatDefendGoal extends Goal {
     public void stop() {
         try {
             loggedActive = false;
+            targetUuid = null;
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
             lastScanAt = 0L;
+            VillagerCombatDirector.stop(vill);
         } catch (Throwable ignored) {}
     }
 
@@ -120,7 +145,7 @@ public final class VillagerCombatDefendGoal extends Goal {
                 if (attacker == null) continue;
 
                 int hurtAt = target.getLastHurtByMobTimestamp();
-                if ((vill.tickCount - hurtAt) > 40) continue;
+                if ((target.tickCount - hurtAt) > 40) continue;
 
                 if (attacker == vill) continue;
 
@@ -146,6 +171,18 @@ public final class VillagerCombatDefendGoal extends Goal {
             }
         } catch (Throwable ignored) {}
 
+        return null;
+    }
+
+    private LivingEntity findThreatByUuid(java.util.UUID id) {
+        try {
+            if (id == null || vill == null || vill.level() == null) return null;
+            AABB box = vill.getBoundingBox().inflate(32.0);
+            List<LivingEntity> nearby = vill.level().getEntitiesOfClass(LivingEntity.class, box, e -> e != null && e.isAlive());
+            for (LivingEntity e : nearby) {
+                if (id.equals(e.getUUID())) return e;
+            }
+        } catch (Throwable ignored) {}
         return null;
     }
 

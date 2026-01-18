@@ -23,6 +23,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.client.render.ClientPartVisibilityRules;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerForceBlock;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -93,7 +94,12 @@ public final class ClientCommands {
                                             BoolArgumentType.getBool(ctx, "visible")
                                     )))));
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis");
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_blocktest")
+                    .executes(ctx -> forceBlockTest(200))
+                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Integer>argument("ticks", IntegerArgumentType.integer(1, 600))
+                            .executes(ctx -> forceBlockTest(IntegerArgumentType.getInteger(ctx, "ticks")))));
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] [client] RegisterClientCommandsEvent failed.", t);
@@ -179,6 +185,22 @@ public final class ClientCommands {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_partvis failed (soft): {}", t.toString());
             clientMsg("partvis failed (see log).");
+            return 0;
+        }
+    }
+
+    private static int forceBlockTest(int ticks) {
+        try {
+            Villager target = findTargetVillager();
+            if (target == null) {
+                clientMsg("No villager targeted/found (look at one or stand near one).");
+                return 0;
+            }
+            ClientNetwork.sendToServer(new PacketVillagerForceBlock(target.getId(), ticks));
+            clientMsg("Force block requested for " + ticks + " ticks.");
+            return 1;
+        } catch (Throwable t) {
+            clientMsg("Force block failed (see log).");
             return 0;
         }
     }

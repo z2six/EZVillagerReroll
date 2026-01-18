@@ -28,14 +28,14 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
     private final Villager vill;
     private boolean loggedActive = false;
+    private java.util.UUID targetUuid = null;
     private long lastNoThreatLogAt = 0L;
     private long lastRejectLogAt = 0L;
     private long lastScanAt = 0L;
 
     public VillagerCombatAggressiveGoal(Villager vill) {
         this.vill = vill;
-        // No flags yet (do not interfere with movement until combat director exists).
-        this.setFlags(EnumSet.noneOf(Flag.class));
+        this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
     @Override
@@ -81,6 +81,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
     public void start() {
         try {
             loggedActive = false;
+            targetUuid = null;
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
             lastScanAt = 0L;
@@ -97,6 +98,35 @@ public final class VillagerCombatAggressiveGoal extends Goal {
                         vill == null ? "null" : vill.getUUID(),
                         vill == null ? "null" : VillagerBrain.getMode(vill).id);
             }
+
+            if (vill == null || vill.level() == null) return;
+
+            LivingEntity target = null;
+            if (targetUuid != null) {
+                target = findTargetByUuid(targetUuid);
+                if (target == null || !target.isAlive()) {
+                    targetUuid = null;
+                }
+            }
+
+            CombatSettings settings = CombatSettingsService.getPerVillager(vill);
+            if (settings == null) return;
+            CombatSettings.ModeSettings m = settings.aggressive;
+            Set<String> wl = normalize(m.aggressiveWhitelist);
+            Set<String> bl = normalize(m.aggressiveBlacklist);
+            if (wl.isEmpty() && bl.isEmpty()) return;
+
+            if (target == null) {
+                LivingEntity found = findAggressiveTarget(wl, bl);
+                if (found != null) {
+                    targetUuid = found.getUUID();
+                    target = found;
+                }
+            }
+
+            if (target == null) return;
+
+            VillagerCombatDirector.tickAttack(vill, target);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatAggressiveGoal.tick failed (soft): {}", t.toString());
         }
@@ -106,9 +136,11 @@ public final class VillagerCombatAggressiveGoal extends Goal {
     public void stop() {
         try {
             loggedActive = false;
+            targetUuid = null;
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
             lastScanAt = 0L;
+            VillagerCombatDirector.stop(vill);
         } catch (Throwable ignored) {}
     }
 
@@ -184,5 +216,17 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             out.add(s.trim().toLowerCase(Locale.ROOT));
         }
         return out;
+    }
+
+    private LivingEntity findTargetByUuid(java.util.UUID id) {
+        try {
+            if (id == null || vill == null || vill.level() == null) return null;
+            AABB box = vill.getBoundingBox().inflate(32.0);
+            List<LivingEntity> nearby = vill.level().getEntitiesOfClass(LivingEntity.class, box, e -> e != null && e.isAlive());
+            for (LivingEntity e : nearby) {
+                if (id.equals(e.getUUID())) return e;
+            }
+        } catch (Throwable ignored) {}
+        return null;
     }
 }
