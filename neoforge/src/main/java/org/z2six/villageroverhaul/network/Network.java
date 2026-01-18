@@ -16,6 +16,7 @@ import org.z2six.villageroverhaul.network.autoReroll.*;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
@@ -156,6 +157,8 @@ public final class Network {
                     (msg, ctx) -> handleVillagerCombatCommandServer(msg, ctx));
             r.playToServer(PacketCombatSettingsQuery.TYPE, PacketCombatSettingsQuery.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCombatSettingsQuery(msg, ctx)));
+            r.playToServer(PacketCombatSettingsSync.TYPE, PacketCombatSettingsSync.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCombatSettingsSync(msg, ctx)));
             r.playToServer(PacketCombatSettingsUpdate.TYPE, PacketCombatSettingsUpdate.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCombatSettingsUpdate(msg, ctx)));
             r.playToServer(PacketVillagerUiPause.TYPE, PacketVillagerUiPause.STREAM_CODEC,
@@ -616,6 +619,12 @@ public final class Network {
                     ctx.reply(new PacketRecruitResult(id, false, false, 0, "Failed to recruit (server error)"));
                     return;
                 }
+
+                try {
+                    org.z2six.villageroverhaul.combat.CombatSettings globalSettings =
+                            org.z2six.villageroverhaul.server.CombatSettingsService.getGlobal(sp.serverLevel());
+                    org.z2six.villageroverhaul.server.CombatSettingsService.setPerVillager(vill, globalSettings);
+                } catch (Throwable ignored) {}
 
                 ctx.reply(new PacketRecruitResult(id, true, true, cost, "Recruited!"));
 

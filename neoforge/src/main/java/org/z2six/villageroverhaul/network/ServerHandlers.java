@@ -27,6 +27,7 @@ import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.autoReroll.*;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
@@ -867,6 +868,31 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleCombatSettingsQuery failed", t);
+        }
+    }
+
+    public static void handleCombatSettingsSync(PacketCombatSettingsSync msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                return;
+            }
+
+            CombatSettings settings = CombatSettingsService.getGlobal(sp.serverLevel());
+            CombatSettingsService.setPerVillager(vill, settings);
+
+            ctx.reply(new PacketCombatSettingsData(vill.getId(), false, settings.toTag()));
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings synced from global (villager={} player={})",
+                    vill.getUUID(), sp.getGameProfile().getName());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleCombatSettingsSync failed", t);
         }
     }
 

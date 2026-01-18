@@ -56,9 +56,7 @@ public final class CombatSettingsService {
 
     public static CombatSettings getEffectiveSettings(Villager vill) {
         CombatSettings per = getPerVillager(vill);
-        if (per != null) return per;
-        if (vill == null || !(vill.level() instanceof ServerLevel level)) return new CombatSettings();
-        return getGlobal(level);
+        return per == null ? new CombatSettings() : per;
     }
 
     public static boolean shouldTrigger(Villager vill, VillagerBrain.CombatMode mode, LivingEntity attacker, LivingEntity target) {
@@ -70,36 +68,31 @@ public final class CombatSettingsService {
             if (vill == null) return new TriggerCheck(false, "no_villager");
             if (attacker == null || target == null) return new TriggerCheck(false, "missing_attacker_or_target");
 
-            CombatSettings settings = getEffectiveSettings(vill);
-            CombatSettings.ModeSettings general = settings.general;
+            CombatSettings settings = getPerVillager(vill);
+            if (settings == null) return new TriggerCheck(false, "no_settings");
             CombatSettings.ModeSettings specific = settings.getForMode(mode);
 
             UUID owner = RecruitService.getRecruiterUuid(vill);
-            if (owner != null) {
-                if (owner.equals(target.getUUID()) && !(general.triggerWhenOwnerAttacked || specific.triggerWhenOwnerAttacked)) {
-                    return new TriggerCheck(false, "owner_attacked_disabled");
-                }
-                if (owner.equals(attacker.getUUID()) && !(general.triggerWhenOwnerAttacks || specific.triggerWhenOwnerAttacks)) {
-                    return new TriggerCheck(false, "owner_attacks_disabled");
-                }
+
+            if (owner != null && owner.equals(target.getUUID())) {
+                if (!specific.ownerAttacked.enabled) return new TriggerCheck(false, "owner_attacked_disabled");
+                return checkLists("owner_attacked", specific.ownerAttacked, attacker);
             }
 
-            String attackedId = safeEntityId(target);
-            String attacksId = safeEntityId(attacker);
-            if (attackedId.isEmpty() || attacksId.isEmpty()) return new TriggerCheck(false, "missing_entity_id");
+            if (owner != null && owner.equals(attacker.getUUID())) {
+                if (!specific.ownerAttacks.enabled) return new TriggerCheck(false, "owner_attacks_disabled");
+                return checkLists("owner_attacks", specific.ownerAttacks, target);
+            }
 
-            Set<String> wlAttacked = union(general.whitelistAttacked, specific.whitelistAttacked);
-            Set<String> wlAttacks = union(general.whitelistAttacks, specific.whitelistAttacks);
-            Set<String> blAttacked = union(general.blacklistAttacked, specific.blacklistAttacked);
-            Set<String> blAttacks = union(general.blacklistAttacks, specific.blacklistAttacks);
+            if (specific.entityAttacks.enabled) {
+                return checkLists("entity_attacks", specific.entityAttacks, attacker);
+            }
 
-            if (blAttacked.contains(attackedId)) return new TriggerCheck(false, "blacklist_attacked");
-            if (blAttacks.contains(attacksId)) return new TriggerCheck(false, "blacklist_attacks");
+            if (specific.entityAttacked.enabled) {
+                return checkLists("entity_attacked", specific.entityAttacked, target);
+            }
 
-            if (!wlAttacked.isEmpty() && !wlAttacked.contains(attackedId)) return new TriggerCheck(false, "whitelist_attacked_missing");
-            if (!wlAttacks.isEmpty() && !wlAttacks.contains(attacksId)) return new TriggerCheck(false, "whitelist_attacks_missing");
-
-            return new TriggerCheck(true, "ok");
+            return new TriggerCheck(false, "no_trigger_enabled");
         } catch (Throwable t) {
             return new TriggerCheck(false, "exception");
         }
@@ -123,13 +116,26 @@ public final class CombatSettingsService {
         }
     }
 
-    private static Set<String> union(Iterable<String> a, Iterable<String> b) {
+    private static TriggerCheck checkLists(String label, CombatSettings.TriggerSettings settings, LivingEntity entity) {
+        if (settings == null) return new TriggerCheck(false, label + "_missing_settings");
+        String id = safeEntityId(entity);
+        if (id.isEmpty()) return new TriggerCheck(false, label + "_missing_entity_id");
+
+        Set<String> wl = normalize(settings.whitelist);
+        Set<String> bl = normalize(settings.blacklist);
+
+        if (bl.contains(id)) return new TriggerCheck(false, label + "_blacklist");
+        if (!wl.isEmpty() && !wl.contains(id)) return new TriggerCheck(false, label + "_whitelist_missing");
+
+        return new TriggerCheck(true, "ok");
+    }
+
+    private static Set<String> normalize(Iterable<String> items) {
         Set<String> out = new HashSet<>();
-        if (a != null) {
-            for (String s : a) if (s != null && !s.isBlank()) out.add(s.trim());
-        }
-        if (b != null) {
-            for (String s : b) if (s != null && !s.isBlank()) out.add(s.trim());
+        if (items == null) return out;
+        for (String s : items) {
+            if (s == null || s.isBlank()) continue;
+            out.add(s.trim().toLowerCase());
         }
         return out;
     }

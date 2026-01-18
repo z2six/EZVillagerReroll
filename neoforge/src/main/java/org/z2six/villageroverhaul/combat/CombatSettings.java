@@ -12,29 +12,26 @@ import java.util.List;
 
 public final class CombatSettings {
 
-    private static final String K_GENERAL = "general";
     private static final String K_FLEE = "flee";
     private static final String K_DEFEND = "defend";
     private static final String K_AGGRESSIVE = "aggressive";
 
-    public final ModeSettings general = new ModeSettings();
     public final ModeSettings flee = new ModeSettings();
     public final ModeSettings defend = new ModeSettings();
     public final ModeSettings aggressive = new ModeSettings();
 
     public ModeSettings getForMode(VillagerBrain.CombatMode mode) {
-        if (mode == null) return general;
+        if (mode == null) return flee;
         return switch (mode) {
             case FLEE -> flee;
             case DEFEND -> defend;
             case AGGRESSIVE -> aggressive;
-            default -> general;
+            default -> flee;
         };
     }
 
     public CompoundTag toTag() {
         CompoundTag tag = new CompoundTag();
-        tag.put(K_GENERAL, general.toTag());
         tag.put(K_FLEE, flee.toTag());
         tag.put(K_DEFEND, defend.toTag());
         tag.put(K_AGGRESSIVE, aggressive.toTag());
@@ -45,15 +42,36 @@ public final class CombatSettings {
         CombatSettings out = new CombatSettings();
         if (tag == null) return out;
 
-        if (tag.contains(K_GENERAL, Tag.TAG_COMPOUND)) out.general.readFrom(tag.getCompound(K_GENERAL));
+        ModeSettings legacyGeneral = null;
+        if (tag.contains("general", Tag.TAG_COMPOUND)) {
+            legacyGeneral = new ModeSettings();
+            legacyGeneral.readFrom(tag.getCompound("general"));
+        }
+
         if (tag.contains(K_FLEE, Tag.TAG_COMPOUND)) out.flee.readFrom(tag.getCompound(K_FLEE));
+        else if (legacyGeneral != null) out.flee.copyFromLegacy(legacyGeneral);
+
         if (tag.contains(K_DEFEND, Tag.TAG_COMPOUND)) out.defend.readFrom(tag.getCompound(K_DEFEND));
+        else if (legacyGeneral != null) out.defend.copyFromLegacy(legacyGeneral);
+
         if (tag.contains(K_AGGRESSIVE, Tag.TAG_COMPOUND)) out.aggressive.readFrom(tag.getCompound(K_AGGRESSIVE));
+        else if (legacyGeneral != null) out.aggressive.copyFromLegacy(legacyGeneral);
 
         return out;
     }
 
     public static final class ModeSettings {
+        private static final String K_TR_OWNER_ATTACKED = "tr_owner_attacked";
+        private static final String K_TR_OWNER_ATTACKS = "tr_owner_attacks";
+        private static final String K_TR_ENTITY_ATTACKS = "tr_entity_attacks";
+        private static final String K_TR_ENTITY_ATTACKED = "tr_entity_attacked";
+        private static final String K_TR_ENABLED = "enabled";
+        private static final String K_TR_WL = "wl";
+        private static final String K_TR_BL = "bl";
+        private static final String K_AGGRO_WL = "aggressive_wl";
+        private static final String K_AGGRO_BL = "aggressive_bl";
+
+        // Legacy keys
         private static final String K_OWNER_ATTACKED = "owner_attacked";
         private static final String K_OWNER_ATTACKS = "owner_attacks";
         private static final String K_WL_ATTACKED = "wl_attacked";
@@ -61,40 +79,85 @@ public final class CombatSettings {
         private static final String K_BL_ATTACKED = "bl_attacked";
         private static final String K_BL_ATTACKS = "bl_attacks";
 
-        public boolean triggerWhenOwnerAttacked = false;
-        public boolean triggerWhenOwnerAttacks = false;
+        public final TriggerSettings ownerAttacked = new TriggerSettings();
+        public final TriggerSettings ownerAttacks = new TriggerSettings();
+        public final TriggerSettings entityAttacks = new TriggerSettings();
+        public final TriggerSettings entityAttacked = new TriggerSettings();
 
-        public final List<String> whitelistAttacked = new ArrayList<>();
-        public final List<String> whitelistAttacks = new ArrayList<>();
-        public final List<String> blacklistAttacked = new ArrayList<>();
-        public final List<String> blacklistAttacks = new ArrayList<>();
+        public final List<String> aggressiveWhitelist = new ArrayList<>();
+        public final List<String> aggressiveBlacklist = new ArrayList<>();
 
         public CompoundTag toTag() {
             CompoundTag tag = new CompoundTag();
-            tag.putBoolean(K_OWNER_ATTACKED, triggerWhenOwnerAttacked);
-            tag.putBoolean(K_OWNER_ATTACKS, triggerWhenOwnerAttacks);
-            tag.put(K_WL_ATTACKED, writeStringList(whitelistAttacked));
-            tag.put(K_WL_ATTACKS, writeStringList(whitelistAttacks));
-            tag.put(K_BL_ATTACKED, writeStringList(blacklistAttacked));
-            tag.put(K_BL_ATTACKS, writeStringList(blacklistAttacks));
+            tag.put(K_TR_OWNER_ATTACKED, ownerAttacked.toTag());
+            tag.put(K_TR_OWNER_ATTACKS, ownerAttacks.toTag());
+            tag.put(K_TR_ENTITY_ATTACKS, entityAttacks.toTag());
+            tag.put(K_TR_ENTITY_ATTACKED, entityAttacked.toTag());
+            tag.put(K_AGGRO_WL, writeStringList(aggressiveWhitelist));
+            tag.put(K_AGGRO_BL, writeStringList(aggressiveBlacklist));
             return tag;
         }
 
         public void readFrom(CompoundTag tag) {
             if (tag == null) return;
 
-            triggerWhenOwnerAttacked = tag.getBoolean(K_OWNER_ATTACKED);
-            triggerWhenOwnerAttacks = tag.getBoolean(K_OWNER_ATTACKS);
+            if (tag.contains(K_TR_OWNER_ATTACKED, Tag.TAG_COMPOUND)) ownerAttacked.readFrom(tag.getCompound(K_TR_OWNER_ATTACKED));
+            if (tag.contains(K_TR_OWNER_ATTACKS, Tag.TAG_COMPOUND)) ownerAttacks.readFrom(tag.getCompound(K_TR_OWNER_ATTACKS));
+            if (tag.contains(K_TR_ENTITY_ATTACKS, Tag.TAG_COMPOUND)) entityAttacks.readFrom(tag.getCompound(K_TR_ENTITY_ATTACKS));
+            if (tag.contains(K_TR_ENTITY_ATTACKED, Tag.TAG_COMPOUND)) entityAttacked.readFrom(tag.getCompound(K_TR_ENTITY_ATTACKED));
 
-            whitelistAttacked.clear();
-            whitelistAttacks.clear();
-            blacklistAttacked.clear();
-            blacklistAttacks.clear();
+            aggressiveWhitelist.clear();
+            aggressiveBlacklist.clear();
 
-            readStringList(tag, K_WL_ATTACKED, whitelistAttacked);
-            readStringList(tag, K_WL_ATTACKS, whitelistAttacks);
-            readStringList(tag, K_BL_ATTACKED, blacklistAttacked);
-            readStringList(tag, K_BL_ATTACKS, blacklistAttacks);
+            readStringList(tag, K_AGGRO_WL, aggressiveWhitelist);
+            readStringList(tag, K_AGGRO_BL, aggressiveBlacklist);
+
+            // Legacy migration
+            if (tag.contains(K_OWNER_ATTACKED, Tag.TAG_ANY_NUMERIC) || tag.contains(K_WL_ATTACKED, Tag.TAG_LIST)) {
+                ownerAttacked.enabled = tag.getBoolean(K_OWNER_ATTACKED);
+                ownerAttacks.enabled = tag.getBoolean(K_OWNER_ATTACKS);
+                ownerAttacked.whitelist.clear();
+                ownerAttacked.blacklist.clear();
+                ownerAttacks.whitelist.clear();
+                ownerAttacks.blacklist.clear();
+                readStringList(tag, K_WL_ATTACKED, ownerAttacked.whitelist);
+                readStringList(tag, K_BL_ATTACKED, ownerAttacked.blacklist);
+                readStringList(tag, K_WL_ATTACKS, ownerAttacks.whitelist);
+                readStringList(tag, K_BL_ATTACKS, ownerAttacks.blacklist);
+            }
+        }
+
+        private void copyFromLegacy(ModeSettings legacy) {
+            if (legacy == null) return;
+            ownerAttacked.enabled = legacy.ownerAttacked.enabled;
+            ownerAttacks.enabled = legacy.ownerAttacks.enabled;
+            ownerAttacked.whitelist.addAll(legacy.ownerAttacked.whitelist);
+            ownerAttacked.blacklist.addAll(legacy.ownerAttacked.blacklist);
+            ownerAttacks.whitelist.addAll(legacy.ownerAttacks.whitelist);
+            ownerAttacks.blacklist.addAll(legacy.ownerAttacks.blacklist);
+        }
+    }
+
+    public static final class TriggerSettings {
+        public boolean enabled = false;
+        public final List<String> whitelist = new ArrayList<>();
+        public final List<String> blacklist = new ArrayList<>();
+
+        private CompoundTag toTag() {
+            CompoundTag tag = new CompoundTag();
+            tag.putBoolean(ModeSettings.K_TR_ENABLED, enabled);
+            tag.put(ModeSettings.K_TR_WL, writeStringList(whitelist));
+            tag.put(ModeSettings.K_TR_BL, writeStringList(blacklist));
+            return tag;
+        }
+
+        private void readFrom(CompoundTag tag) {
+            if (tag == null) return;
+            enabled = tag.getBoolean(ModeSettings.K_TR_ENABLED);
+            whitelist.clear();
+            blacklist.clear();
+            readStringList(tag, ModeSettings.K_TR_WL, whitelist);
+            readStringList(tag, ModeSettings.K_TR_BL, blacklist);
         }
     }
 

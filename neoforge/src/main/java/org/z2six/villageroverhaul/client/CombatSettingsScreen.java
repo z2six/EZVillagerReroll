@@ -6,18 +6,16 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.combat.CombatSettings;
+import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.function.Consumer;
 
 public final class CombatSettingsScreen extends Screen {
 
@@ -30,7 +28,6 @@ public final class CombatSettingsScreen extends Screen {
     private CombatSettings settings;
 
     private enum Tab {
-        GENERAL("General"),
         FLEE("Flee"),
         DEFEND("Defend"),
         AGGRESSIVE("Aggressive");
@@ -39,7 +36,7 @@ public final class CombatSettingsScreen extends Screen {
         Tab(String label) { this.label = label; }
     }
 
-    private Tab currentTab = Tab.GENERAL;
+    private Tab currentTab = Tab.FLEE;
 
     // Layout
     private static final int PANEL_W = 360;
@@ -49,29 +46,38 @@ public final class CombatSettingsScreen extends Screen {
     private static final int PANEL_BG = 0xCC0B0B0B;
     private static final int PANEL_BORDER = 0xFF3A3A3A;
 
-    private static final int INPUT_W = 240;
-    private static final int INPUT_H = 16;
-
     private CheckBoxWidget cbOwnerAttacked;
     private CheckBoxWidget cbOwnerAttacks;
+    private CheckBoxWidget cbEntityAttacks;
+    private CheckBoxWidget cbEntityAttacked;
 
-    private EditBox wlAttacked;
-    private EditBox wlAttacks;
-    private EditBox blAttacked;
-    private EditBox blAttacks;
+    private Button wlOwnerAttacked;
+    private Button blOwnerAttacked;
+    private Button wlOwnerAttacks;
+    private Button blOwnerAttacks;
+    private Button wlEntityAttacks;
+    private Button blEntityAttacks;
+    private Button wlEntityAttacked;
+    private Button blEntityAttacked;
 
-    private Button btnAddWlAttacked;
-    private Button btnAddWlAttacks;
-    private Button btnAddBlAttacked;
-    private Button btnAddBlAttacks;
+    private InfoIconWidget infoOwnerAttacked;
+    private InfoIconWidget infoOwnerAttacks;
+    private InfoIconWidget infoEntityAttacks;
+    private InfoIconWidget infoEntityAttacked;
+
+    private Button aggroWl;
+    private Button aggroBl;
 
     private Button btnSave;
     private Button btnBack;
+    private Button btnSync;
 
-    private TabButton tabGeneral;
     private TabButton tabFlee;
     private TabButton tabDefend;
     private TabButton tabAggressive;
+
+    private final List<AbstractWidget> fleeDefendWidgets = new ArrayList<>();
+    private final List<AbstractWidget> aggressiveWidgets = new ArrayList<>();
     private final List<InfoIconWidget> infoIcons = new ArrayList<>();
 
     public CombatSettingsScreen(Screen parent, int villagerEntityId, boolean global) {
@@ -111,6 +117,15 @@ public final class CombatSettingsScreen extends Screen {
                 .build();
         this.addRenderableWidget(btnBack);
 
+        if (!global) {
+            int syncX = backX - 6 - 58;
+            btnSync = Button.builder(Component.literal("Sync"), b -> onSync())
+                    .pos(syncX, top + PAD)
+                    .size(58, 18)
+                    .build();
+            this.addRenderableWidget(btnSync);
+        }
+
         btnSave = Button.builder(Component.literal("Save"), b -> onSave())
                 .pos(saveX, top + PAD)
                 .size(58, 18)
@@ -118,94 +133,99 @@ public final class CombatSettingsScreen extends Screen {
         this.addRenderableWidget(btnSave);
 
         int tabsY = top + PANEL_H - 26;
-        int tabW = 72;
+        int tabW = 90;
         int tabH = 18;
-        int tabsX = left + (PANEL_W - (tabW * 4 + 6 * 3)) / 2;
+        int tabsX = left + (PANEL_W - (tabW * 3 + 6 * 2)) / 2;
 
-        tabGeneral = new TabButton(tabsX, tabsY, tabW, tabH, Tab.GENERAL);
-        tabFlee = new TabButton(tabsX + (tabW + 6), tabsY, tabW, tabH, Tab.FLEE);
-        tabDefend = new TabButton(tabsX + 2 * (tabW + 6), tabsY, tabW, tabH, Tab.DEFEND);
-        tabAggressive = new TabButton(tabsX + 3 * (tabW + 6), tabsY, tabW, tabH, Tab.AGGRESSIVE);
+        tabFlee = new TabButton(tabsX, tabsY, tabW, tabH, Tab.FLEE);
+        tabDefend = new TabButton(tabsX + (tabW + 6), tabsY, tabW, tabH, Tab.DEFEND);
+        tabAggressive = new TabButton(tabsX + 2 * (tabW + 6), tabsY, tabW, tabH, Tab.AGGRESSIVE);
 
-        this.addRenderableWidget(tabGeneral);
         this.addRenderableWidget(tabFlee);
         this.addRenderableWidget(tabDefend);
         this.addRenderableWidget(tabAggressive);
 
         int x = left + PAD;
-        int y = top + 40;
+        int y = top + 52;
+        int blockH = 36;
 
-        cbOwnerAttacked = new CheckBoxWidget(x, y, "Triggered when owner attacked");
-        cbOwnerAttacks = new CheckBoxWidget(x, y + 18, "Triggered when owner attacks");
+        cbOwnerAttacked = new CheckBoxWidget(x, y, "Triggered when owner is attacked");
+        cbOwnerAttacks = new CheckBoxWidget(x, y + blockH, "Triggered when owner attacks");
+        cbEntityAttacks = new CheckBoxWidget(x, y + blockH * 2, "Triggered when entity attacks");
+        cbEntityAttacked = new CheckBoxWidget(x, y + blockH * 3, "Triggered when entity is attacked");
 
-        this.addRenderableWidget(cbOwnerAttacked);
-        this.addRenderableWidget(cbOwnerAttacks);
+        addFleeDefendWidget(cbOwnerAttacked);
+        addFleeDefendWidget(cbOwnerAttacks);
+        addFleeDefendWidget(cbEntityAttacks);
+        addFleeDefendWidget(cbEntityAttacked);
 
         int infoSize = 12;
         int infoX = left + PANEL_W - PAD - infoSize;
-        InfoIconWidget infoOwnerAttacked = new InfoIconWidget(infoX, y + 1, infoSize,
-                "If the owner is the TARGET of an attack, this rule can trigger.");
-        InfoIconWidget infoOwnerAttacks = new InfoIconWidget(infoX, y + 19, infoSize,
-                "If the owner is the ATTACKER, this rule can trigger.");
+
+        infoOwnerAttacked = new InfoIconWidget(infoX, y + 1, infoSize,
+                "Trigger when the owner is attacked; lists filter the attacker.");
+        infoOwnerAttacks = new InfoIconWidget(infoX, y + blockH + 1, infoSize,
+                "Trigger when the owner attacks; lists filter the target.");
+        infoEntityAttacks = new InfoIconWidget(infoX, y + blockH * 2 + 1, infoSize,
+                "Trigger when any entity attacks; lists filter the attacker.");
+        infoEntityAttacked = new InfoIconWidget(infoX, y + blockH * 3 + 1, infoSize,
+                "Trigger when any entity is attacked; lists filter the attacked.");
+
+        addFleeDefendWidget(infoOwnerAttacked);
+        addFleeDefendWidget(infoOwnerAttacks);
+        addFleeDefendWidget(infoEntityAttacks);
+        addFleeDefendWidget(infoEntityAttacked);
+
         infoIcons.add(infoOwnerAttacked);
         infoIcons.add(infoOwnerAttacks);
-        this.addRenderableWidget(infoOwnerAttacked);
-        this.addRenderableWidget(infoOwnerAttacks);
+        infoIcons.add(infoEntityAttacks);
+        infoIcons.add(infoEntityAttacked);
 
-        int listX = x;
-        int listY = y + 46;
-        int btnX = listX + INPUT_W + 6;
+        int btnW = 84;
+        int btnH = 16;
+        int btnGap = 6;
+        int btnX = x + 18;
 
-        wlAttacked = new EditBox(this.font, listX, listY, INPUT_W, INPUT_H, Component.literal("Whitelist ATTACKED"));
-        btnAddWlAttacked = Button.builder(Component.literal("+"), b -> openEntityPicker(wlAttacked))
-                .pos(btnX, listY).size(18, INPUT_H).build();
+        wlOwnerAttacked = makeListButton(btnX, y + 16, btnW, btnH, "Whitelist", () -> openListForOwnerAttacked(true));
+        blOwnerAttacked = makeListButton(btnX + btnW + btnGap, y + 16, btnW, btnH, "Blacklist", () -> openListForOwnerAttacked(false));
 
-        wlAttacks = new EditBox(this.font, listX, listY + 24, INPUT_W, INPUT_H, Component.literal("Whitelist ATTACKS"));
-        btnAddWlAttacks = Button.builder(Component.literal("+"), b -> openEntityPicker(wlAttacks))
-                .pos(btnX, listY + 24).size(18, INPUT_H).build();
+        wlOwnerAttacks = makeListButton(btnX, y + blockH + 16, btnW, btnH, "Whitelist", () -> openListForOwnerAttacks(true));
+        blOwnerAttacks = makeListButton(btnX + btnW + btnGap, y + blockH + 16, btnW, btnH, "Blacklist", () -> openListForOwnerAttacks(false));
 
-        blAttacked = new EditBox(this.font, listX, listY + 48, INPUT_W, INPUT_H, Component.literal("Blacklist ATTACKED"));
-        btnAddBlAttacked = Button.builder(Component.literal("+"), b -> openEntityPicker(blAttacked))
-                .pos(btnX, listY + 48).size(18, INPUT_H).build();
+        wlEntityAttacks = makeListButton(btnX, y + blockH * 2 + 16, btnW, btnH, "Whitelist", () -> openListForEntityAttacks(true));
+        blEntityAttacks = makeListButton(btnX + btnW + btnGap, y + blockH * 2 + 16, btnW, btnH, "Blacklist", () -> openListForEntityAttacks(false));
 
-        blAttacks = new EditBox(this.font, listX, listY + 72, INPUT_W, INPUT_H, Component.literal("Blacklist ATTACKS"));
-        btnAddBlAttacks = Button.builder(Component.literal("+"), b -> openEntityPicker(blAttacks))
-                .pos(btnX, listY + 72).size(18, INPUT_H).build();
+        wlEntityAttacked = makeListButton(btnX, y + blockH * 3 + 16, btnW, btnH, "Whitelist", () -> openListForEntityAttacked(true));
+        blEntityAttacked = makeListButton(btnX + btnW + btnGap, y + blockH * 3 + 16, btnW, btnH, "Blacklist", () -> openListForEntityAttacked(false));
 
-        setEditHint(wlAttacked, "Attacked whitelist (comma-separated)");
-        setEditHint(wlAttacks, "Attacker whitelist (comma-separated)");
-        setEditHint(blAttacked, "Attacked blacklist (comma-separated)");
-        setEditHint(blAttacks, "Attacker blacklist (comma-separated)");
+        addFleeDefendWidget(wlOwnerAttacked);
+        addFleeDefendWidget(blOwnerAttacked);
+        addFleeDefendWidget(wlOwnerAttacks);
+        addFleeDefendWidget(blOwnerAttacks);
+        addFleeDefendWidget(wlEntityAttacks);
+        addFleeDefendWidget(blEntityAttacks);
+        addFleeDefendWidget(wlEntityAttacked);
+        addFleeDefendWidget(blEntityAttacked);
 
-        this.addRenderableWidget(wlAttacked);
-        this.addRenderableWidget(wlAttacks);
-        this.addRenderableWidget(blAttacked);
-        this.addRenderableWidget(blAttacks);
-        this.addRenderableWidget(btnAddWlAttacked);
-        this.addRenderableWidget(btnAddWlAttacks);
-        this.addRenderableWidget(btnAddBlAttacked);
-        this.addRenderableWidget(btnAddBlAttacks);
+        int aggroY = y + blockH;
+        aggroWl = makeListButton(x, aggroY, 120, btnH, "Whitelist", this::openAggressiveWhitelist);
+        aggroBl = makeListButton(x + 126, aggroY, 120, btnH, "Blacklist", this::openAggressiveBlacklist);
 
-        int labelInfoX = btnX + 20;
-        InfoIconWidget infoWlAttacked = new InfoIconWidget(labelInfoX, listY + 1, infoSize,
-                "List of entities that can be TARGETS. Empty = no restriction.");
-        InfoIconWidget infoWlAttacks = new InfoIconWidget(labelInfoX, listY + 25, infoSize,
-                "List of entities that can be ATTACKERS. Empty = no restriction.");
-        InfoIconWidget infoBlAttacked = new InfoIconWidget(labelInfoX, listY + 49, infoSize,
-                "List of entities that can NOT be TARGETS.");
-        InfoIconWidget infoBlAttacks = new InfoIconWidget(labelInfoX, listY + 73, infoSize,
-                "List of entities that can NOT be ATTACKERS.");
-        infoIcons.add(infoWlAttacked);
-        infoIcons.add(infoWlAttacks);
-        infoIcons.add(infoBlAttacked);
-        infoIcons.add(infoBlAttacks);
-        this.addRenderableWidget(infoWlAttacked);
-        this.addRenderableWidget(infoWlAttacks);
-        this.addRenderableWidget(infoBlAttacked);
-        this.addRenderableWidget(infoBlAttacks);
+        addAggressiveWidget(aggroWl);
+        addAggressiveWidget(aggroBl);
 
         tryApplySettingsFromCache();
         applyTabToWidgets();
+    }
+
+    private void addFleeDefendWidget(AbstractWidget w) {
+        this.addRenderableWidget(w);
+        fleeDefendWidgets.add(w);
+    }
+
+    private void addAggressiveWidget(AbstractWidget w) {
+        this.addRenderableWidget(w);
+        aggressiveWidgets.add(w);
     }
 
     @Override
@@ -226,17 +246,20 @@ public final class CombatSettingsScreen extends Screen {
     }
 
     private void applyTabToWidgets() {
+        boolean aggressive = currentTab == Tab.AGGRESSIVE;
+        setGroupVisible(fleeDefendWidgets, !aggressive);
+        setGroupVisible(aggressiveWidgets, aggressive);
+
         if (settings == null) return;
         CombatSettings.ModeSettings m = getCurrentModeSettings();
         if (m == null) return;
 
-        cbOwnerAttacked.setChecked(m.triggerWhenOwnerAttacked);
-        cbOwnerAttacks.setChecked(m.triggerWhenOwnerAttacks);
-
-        wlAttacked.setValue(String.join(", ", m.whitelistAttacked));
-        wlAttacks.setValue(String.join(", ", m.whitelistAttacks));
-        blAttacked.setValue(String.join(", ", m.blacklistAttacked));
-        blAttacks.setValue(String.join(", ", m.blacklistAttacks));
+        if (!aggressive) {
+            cbOwnerAttacked.setChecked(m.ownerAttacked.enabled);
+            cbOwnerAttacks.setChecked(m.ownerAttacks.enabled);
+            cbEntityAttacks.setChecked(m.entityAttacks.enabled);
+            cbEntityAttacked.setChecked(m.entityAttacked.enabled);
+        }
     }
 
     private void storeWidgetsToTab() {
@@ -244,24 +267,17 @@ public final class CombatSettingsScreen extends Screen {
         CombatSettings.ModeSettings m = getCurrentModeSettings();
         if (m == null) return;
 
-        m.triggerWhenOwnerAttacked = cbOwnerAttacked.isChecked();
-        m.triggerWhenOwnerAttacks = cbOwnerAttacks.isChecked();
-
-        m.whitelistAttacked.clear();
-        m.whitelistAttacks.clear();
-        m.blacklistAttacked.clear();
-        m.blacklistAttacks.clear();
-
-        m.whitelistAttacked.addAll(parseList(wlAttacked));
-        m.whitelistAttacks.addAll(parseList(wlAttacks));
-        m.blacklistAttacked.addAll(parseList(blAttacked));
-        m.blacklistAttacks.addAll(parseList(blAttacks));
+        if (currentTab != Tab.AGGRESSIVE) {
+            m.ownerAttacked.enabled = cbOwnerAttacked.isChecked();
+            m.ownerAttacks.enabled = cbOwnerAttacks.isChecked();
+            m.entityAttacks.enabled = cbEntityAttacks.isChecked();
+            m.entityAttacked.enabled = cbEntityAttacked.isChecked();
+        }
     }
 
     private CombatSettings.ModeSettings getCurrentModeSettings() {
         if (settings == null) return null;
         return switch (currentTab) {
-            case GENERAL -> settings.general;
             case FLEE -> settings.flee;
             case DEFEND -> settings.defend;
             case AGGRESSIVE -> settings.aggressive;
@@ -277,6 +293,18 @@ public final class CombatSettingsScreen extends Screen {
                     global, villagerEntityId);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] CombatSettingsScreen.onSave failed", t);
+        }
+    }
+
+    private void onSync() {
+        try {
+            if (global) return;
+            settings = null;
+            ClientNetwork.sendToServer(new PacketCombatSettingsSync(villagerEntityId));
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettingsScreen sync requested (villagerEntityId={})",
+                    villagerEntityId);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] CombatSettingsScreen.onSync failed", t);
         }
     }
 
@@ -307,7 +335,7 @@ public final class CombatSettingsScreen extends Screen {
         String title = global ? "Combat Settings (Global)" : "Combat Settings";
         gg.drawString(font, title, left + PAD, top + PAD + 5, 0xFFFFFFFF, true);
 
-        drawLabels(gg, font, left + PAD, top + 86);
+        drawIntroText(gg, font, left, top);
 
         for (InfoIconWidget w : infoIcons) {
             if (w == null || !w.isHoveredOrFocused()) continue;
@@ -318,6 +346,16 @@ public final class CombatSettingsScreen extends Screen {
         super.render(gg, mouseX, mouseY, partialTick);
     }
 
+    private void drawIntroText(GuiGraphics gg, Font font, int left, int top) {
+        int y = top + PAD + 24;
+        String line = switch (currentTab) {
+            case FLEE -> "Configure when villagers should flee.";
+            case DEFEND -> "Configure when villagers should defend.";
+            case AGGRESSIVE -> "Configure which entities are attacked on sight.";
+        };
+        gg.drawString(font, line, left + PAD, y, 0xFFBFBFBF, false);
+    }
+
     private static void drawPanel(GuiGraphics gg, int x, int y, int w, int h) {
         gg.fill(x, y, x + w, y + h, PANEL_BG);
         gg.fill(x, y, x + w, y + 1, PANEL_BORDER);
@@ -326,58 +364,73 @@ public final class CombatSettingsScreen extends Screen {
         gg.fill(x + w - 1, y, x + w, y + h, PANEL_BORDER);
     }
 
-    private static void drawLabels(GuiGraphics gg, Font font, int x, int startY) {
-        gg.drawString(font, "Whitelist ATTACKED", x, startY, 0xFFFFFFFF, false);
-        gg.drawString(font, "Whitelist ATTACKS", x, startY + 24, 0xFFFFFFFF, false);
-        gg.drawString(font, "Blacklist ATTACKED", x, startY + 48, 0xFFFFFFFF, false);
-        gg.drawString(font, "Blacklist ATTACKS", x, startY + 72, 0xFFFFFFFF, false);
-    }
-
-    private static List<String> parseList(EditBox box) {
-        String text = box == null ? "" : box.getValue();
-        List<String> out = new ArrayList<>();
-        if (text == null || text.isBlank()) return out;
-        String[] parts = text.split("[,\\s]+");
-        for (String p : parts) {
-            String v = p.trim().toLowerCase(Locale.ROOT);
-            if (!v.isEmpty()) out.add(v);
+    private static void setGroupVisible(List<AbstractWidget> widgets, boolean visible) {
+        if (widgets == null) return;
+        for (AbstractWidget w : widgets) {
+            if (w == null) continue;
+            w.visible = visible;
+            if (w instanceof Button b) b.active = visible;
         }
-        return out;
     }
 
-    private void openEntityPicker(EditBox target) {
-        try {
-            if (target == null) return;
-            Minecraft mc = Minecraft.getInstance();
-            if (mc == null) return;
-            storeWidgetsToTab();
-            Consumer<String> add = id -> {
-                addIdToCurrentList(target, id);
-                applyTabToWidgets();
-            };
-            mc.setScreen(new EntityPickerScreen(this, add, new java.util.HashSet<>(parseList(target))));
-        } catch (Throwable ignored) {}
+    private Button makeListButton(int x, int y, int w, int h, String label, Runnable action) {
+        Button b = Button.builder(Component.literal(label), btn -> {
+                    try {
+                        storeWidgetsToTab();
+                        if (action != null) action.run();
+                    } catch (Throwable ignored) {}
+                })
+                .pos(x, y)
+                .size(w, h)
+                .build();
+        return b;
     }
 
-    private void addIdToCurrentList(EditBox target, String id) {
-        if (target == null || id == null || id.isBlank()) return;
-        if (settings == null) settings = new CombatSettings();
+    private void openListForOwnerAttacked(boolean whitelist) {
         CombatSettings.ModeSettings m = getCurrentModeSettings();
         if (m == null) return;
+        String title = whitelist ? "Owner attacked: attacker whitelist" : "Owner attacked: attacker blacklist";
+        openListEditor(whitelist ? m.ownerAttacked.whitelist : m.ownerAttacked.blacklist, title);
+    }
 
-        List<String> list = null;
-        if (target == wlAttacked) list = m.whitelistAttacked;
-        else if (target == wlAttacks) list = m.whitelistAttacks;
-        else if (target == blAttacked) list = m.blacklistAttacked;
-        else if (target == blAttacks) list = m.blacklistAttacks;
+    private void openListForOwnerAttacks(boolean whitelist) {
+        CombatSettings.ModeSettings m = getCurrentModeSettings();
+        if (m == null) return;
+        String title = whitelist ? "Owner attacks: target whitelist" : "Owner attacks: target blacklist";
+        openListEditor(whitelist ? m.ownerAttacks.whitelist : m.ownerAttacks.blacklist, title);
+    }
 
+    private void openListForEntityAttacks(boolean whitelist) {
+        CombatSettings.ModeSettings m = getCurrentModeSettings();
+        if (m == null) return;
+        String title = whitelist ? "Entity attacks: attacker whitelist" : "Entity attacks: attacker blacklist";
+        openListEditor(whitelist ? m.entityAttacks.whitelist : m.entityAttacks.blacklist, title);
+    }
+
+    private void openListForEntityAttacked(boolean whitelist) {
+        CombatSettings.ModeSettings m = getCurrentModeSettings();
+        if (m == null) return;
+        String title = whitelist ? "Entity attacked: attacked whitelist" : "Entity attacked: attacked blacklist";
+        openListEditor(whitelist ? m.entityAttacked.whitelist : m.entityAttacked.blacklist, title);
+    }
+
+    private void openAggressiveWhitelist() {
+        CombatSettings.ModeSettings m = getCurrentModeSettings();
+        if (m == null) return;
+        openListEditor(m.aggressiveWhitelist, "Aggressive: whitelist");
+    }
+
+    private void openAggressiveBlacklist() {
+        CombatSettings.ModeSettings m = getCurrentModeSettings();
+        if (m == null) return;
+        openListEditor(m.aggressiveBlacklist, "Aggressive: blacklist");
+    }
+
+    private void openListEditor(List<String> list, String title) {
         if (list == null) return;
-        String norm = id.trim().toLowerCase(Locale.ROOT);
-        if (norm.isEmpty()) return;
-        for (String s : list) {
-            if (s != null && s.equalsIgnoreCase(norm)) return;
-        }
-        list.add(norm);
+        Minecraft mc = Minecraft.getInstance();
+        if (mc == null) return;
+        mc.setScreen(new EntityListEditorScreen(this, list, title));
     }
 
     @Override
@@ -476,14 +529,6 @@ public final class CombatSettingsScreen extends Screen {
         protected void updateWidgetNarration(NarrationElementOutput narrationElementOutput) {
             // no-op
         }
-    }
-
-    private static void setEditHint(EditBox box, String hint) {
-        try {
-            if (box == null || hint == null) return;
-            var m = box.getClass().getMethod("setHint", Component.class);
-            m.invoke(box, Component.literal(hint).withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
-        } catch (Throwable ignored) {}
     }
 
     private static final class InfoIconWidget extends AbstractWidget {
