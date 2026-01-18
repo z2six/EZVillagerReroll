@@ -49,9 +49,13 @@ public final class VillagerCombatFleeGoal extends Goal {
             if (vill == null) return false;
             if (vill.level() == null || vill.level().isClientSide()) return false;
 
-            // Combat should not act during FOLLOW (per your spec).
-            if (VillagerBrain.getMode(vill) == VillagerBrain.Mode.FOLLOW) {
-                logNoThreat("follow_mode");
+            if (!VillagerBrain.shouldCombatActNow(vill)) {
+                logNoThreat("combat_inactive");
+                return false;
+            }
+
+            if (VillagerBrain.isUiPaused(vill)) {
+                logNoThreat("ui_paused");
                 return false;
             }
 
@@ -87,6 +91,7 @@ public final class VillagerCombatFleeGoal extends Goal {
             lastScanAt = 0L;
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
+            VillagerBrain.setCombatEngaged(vill, false);
         } catch (Throwable ignored) {}
     }
 
@@ -105,6 +110,7 @@ public final class VillagerCombatFleeGoal extends Goal {
                     lastThreatPos = attacker.position();
                     lastThreatAt = now;
                     fleeUntilTick = now + 20L * 30L;
+                    VillagerBrain.setCombatEngaged(vill, true);
 
                     VillagerOverhaul.LOG().info("[VillagerOverhaul] Flee threat set (villager={} attacker={})",
                             vill.getUUID(), attacker.getUUID());
@@ -117,6 +123,7 @@ public final class VillagerCombatFleeGoal extends Goal {
             if (threat == null || !threat.isAlive()) {
                 if (now - lastThreatAt > 40L) {
                     threatUuid = null;
+                    VillagerBrain.setCombatEngaged(vill, false);
                     vill.getNavigation().stop();
                     return;
                 }
@@ -124,6 +131,7 @@ public final class VillagerCombatFleeGoal extends Goal {
 
             if (fleeUntilTick > 0L && now > fleeUntilTick) {
                 threatUuid = null;
+                VillagerBrain.setCombatEngaged(vill, false);
                 vill.getNavigation().stop();
                 return;
             }
@@ -156,6 +164,7 @@ public final class VillagerCombatFleeGoal extends Goal {
             lastScanAt = 0L;
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
+            VillagerBrain.setCombatEngaged(vill, false);
         } catch (Throwable ignored) {}
     }
 

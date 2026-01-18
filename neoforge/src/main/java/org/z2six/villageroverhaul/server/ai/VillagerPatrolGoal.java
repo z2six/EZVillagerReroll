@@ -51,6 +51,7 @@ public final class VillagerPatrolGoal extends Goal {
         if (!(vill.level() instanceof ServerLevel)) return false;
 
         if (VillagerBrain.getMode(vill) != VillagerBrain.Mode.PATROL) return false;
+        if (VillagerBrain.isUiPaused(vill)) return false;
 
         // Pauses automatically while merchant menu open (via VillagerBrain.isPatrolPaused change)
         if (VillagerBrain.isPatrolPaused(vill)) return false;

@@ -31,6 +31,7 @@ import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
@@ -899,6 +900,25 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleCombatSettingsUpdate failed", t);
+        }
+    }
+
+    public static void handleVillagerUiPause(PacketVillagerUiPause msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                return;
+            }
+
+            VillagerBrain.setUiPaused(vill, msg.paused());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerUiPause failed", t);
         }
     }
 

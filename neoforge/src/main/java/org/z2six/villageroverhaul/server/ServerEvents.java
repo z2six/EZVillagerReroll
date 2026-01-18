@@ -150,6 +150,7 @@ public final class ServerEvents {
                         == org.z2six.villageroverhaul.server.ai.VillagerBrain.Mode.PATROL) {
                     org.z2six.villageroverhaul.server.ai.VillagerBrain.setPatrolPaused(vill, true);
                 }
+                org.z2six.villageroverhaul.server.ai.VillagerBrain.setUiPaused(vill, true);
             } catch (Throwable ignored) {}
 
             // If busy (task OR settlement), do NOT touch offers.
@@ -332,6 +333,7 @@ public final class ServerEvents {
                             == org.z2six.villageroverhaul.server.ai.VillagerBrain.Mode.PATROL) {
                         org.z2six.villageroverhaul.server.ai.VillagerBrain.setPatrolPaused(vill, false);
                     }
+                    org.z2six.villageroverhaul.server.ai.VillagerBrain.setUiPaused(vill, false);
                 }
             } catch (Throwable ignored) {}
 

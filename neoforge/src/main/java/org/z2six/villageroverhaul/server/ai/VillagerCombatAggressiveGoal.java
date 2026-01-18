@@ -31,8 +31,8 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             if (vill == null) return false;
             if (vill.level() == null || vill.level().isClientSide()) return false;
 
-            // Combat should not act during FOLLOW (per your spec).
-            if (VillagerBrain.getMode(vill) == VillagerBrain.Mode.FOLLOW) return false;
+            if (!VillagerBrain.shouldCombatActNow(vill)) return false;
+            if (VillagerBrain.isUiPaused(vill)) return false;
 
             return VillagerBrain.getCombatMode(vill) == VillagerBrain.CombatMode.AGGRESSIVE;
         } catch (Throwable t) {

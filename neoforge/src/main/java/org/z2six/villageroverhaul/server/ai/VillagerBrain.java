@@ -47,6 +47,7 @@ public final class VillagerBrain {
     // Combat state (NEW)
     // -------------------------
     private static final String K_COMBAT_MODE = "combat_mode";
+    private static final String K_UI_PAUSED_UNTIL = "ui_paused_until";
 
     // Patrol sub-root
     private static final String K_PATROL = "patrol";
@@ -817,10 +818,53 @@ public final class VillagerBrain {
         try {
             if (vill == null) return true;
             if (!RecruitService.isRecruited(vill)) return true;
+            if (isUiPaused(vill)) return false;
             if (getMode(vill) != Mode.NEUTRAL) return false;
-            return getCombatMode(vill) == CombatMode.OFF;
+            return !isCombatEngaged(vill);
         } catch (Throwable t) {
             return true;
+        }
+    }
+
+    public static void setUiPaused(Villager vill, boolean paused) {
+        try {
+            if (vill == null || !(vill.level() instanceof ServerLevel sl)) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (paused) {
+                root.putLong(K_UI_PAUSED_UNTIL, sl.getGameTime() + 40L);
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            } else {
+                root.putLong(K_UI_PAUSED_UNTIL, 0L);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean isUiPaused(Villager vill) {
+        try {
+            if (vill == null || !(vill.level() instanceof ServerLevel sl)) return false;
+            try { if (vill.getTradingPlayer() != null) return true; } catch (Throwable ignored) {}
+            CompoundTag root = getOrCreateRoot(vill);
+            long until = root.getLong(K_UI_PAUSED_UNTIL);
+            return until > sl.getGameTime();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setCombatEngaged(Villager vill, boolean engaged) {
+        try {
+            if (vill == null) return;
+            if (engaged) vill.getPersistentData().putBoolean("ezvr_combat_engaged", true);
+            else vill.getPersistentData().remove("ezvr_combat_engaged");
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean isCombatEngaged(Villager vill) {
+        try {
+            if (vill == null) return false;
+            return vill.getPersistentData().getBoolean("ezvr_combat_engaged");
+        } catch (Throwable t) {
+            return false;
         }
     }
 

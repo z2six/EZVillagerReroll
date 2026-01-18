@@ -35,6 +35,7 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import net.minecraft.network.chat.Style;
@@ -120,6 +121,8 @@ public final class ClientUI {
     }
 
     private static final Map<Integer, RecruitStateSnap> RECRUIT_STATE = new WeakHashMap<>();
+    private static final Map<Integer, Long> UI_PAUSE_AT = new WeakHashMap<>();
+    private static final long UI_PAUSE_KEEPALIVE_MS = 600;
 
     // Quick-actions open debounce
     private static int PENDING_QUICK_VILLAGER_ID = -1;
@@ -217,7 +220,9 @@ public final class ClientUI {
 
             // RecruitCostData does NOT contain "canUseControls".
             // Cache recruited state only; ownership defaults to false until we get RecruitGateData.
-            RECRUIT_STATE.put(id, new RecruitStateSnap(p.alreadyRecruited(), false, System.currentTimeMillis()));
+            RecruitStateSnap prev = RECRUIT_STATE.get(id);
+            boolean canUse = prev != null && prev.canUseControls;
+            RECRUIT_STATE.put(id, new RecruitStateSnap(p.alreadyRecruited(), canUse, System.currentTimeMillis()));
         } catch (Throwable ignored) {}
     }
 
@@ -991,6 +996,15 @@ public final class ClientUI {
 
     private static void onScreenClosed(final ScreenEvent.Closing e) {
         try {
+            try {
+                Screen s = e.getScreen();
+                if (s instanceof VillagerQuickActionsScreen qa) {
+                    sendUiPauseNow(qa.getVillagerEntityId(), false);
+                } else if (s instanceof CombatSettingsScreen cs && !cs.isGlobal()) {
+                    sendUiPauseNow(cs.getVillagerEntityId(), false);
+                }
+            } catch (Throwable ignored) {}
+
             REROLL_BUTTONS.remove(e.getScreen());
             COOLDOWN_OVERLAYS.remove(e.getScreen());
             STATS_BUTTONS.remove(e.getScreen());
@@ -1950,6 +1964,25 @@ public final class ClientUI {
         } catch (Throwable ignored) {}
     }
 
+    private static void sendUiPauseKeepalive(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            long now = System.currentTimeMillis();
+            Long at = UI_PAUSE_AT.get(villagerEntityId);
+            if (at != null && (now - at) < UI_PAUSE_KEEPALIVE_MS) return;
+            sendUiPauseNow(villagerEntityId, true);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void sendUiPauseNow(int villagerEntityId, boolean paused) {
+        try {
+            if (villagerEntityId <= 0) return;
+            ClientNetwork.sendToServer(new PacketVillagerUiPause(villagerEntityId, paused));
+            if (paused) UI_PAUSE_AT.put(villagerEntityId, System.currentTimeMillis());
+            else UI_PAUSE_AT.remove(villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
     // ===================================
     // SHARED WIDGETS
     // ===================================
@@ -2178,6 +2211,15 @@ public final class ClientUI {
                     if (mc.screen == null) {
                         openGlobalCombatSettings();
                     }
+                }
+            } catch (Throwable ignored) {}
+
+            try {
+                Screen s = mc.screen;
+                if (s instanceof VillagerQuickActionsScreen qa) {
+                    sendUiPauseKeepalive(qa.getVillagerEntityId());
+                } else if (s instanceof CombatSettingsScreen cs && !cs.isGlobal()) {
+                    sendUiPauseKeepalive(cs.getVillagerEntityId());
                 }
             } catch (Throwable ignored) {}
 

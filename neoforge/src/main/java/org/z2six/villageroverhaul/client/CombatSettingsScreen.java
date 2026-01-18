@@ -81,6 +81,14 @@ public final class CombatSettingsScreen extends Screen {
         this.global = global;
     }
 
+    public int getVillagerEntityId() {
+        return villagerEntityId;
+    }
+
+    public boolean isGlobal() {
+        return global;
+    }
+
     @Override
     public void renderBackground(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
         // no-op
@@ -342,23 +350,34 @@ public final class CombatSettingsScreen extends Screen {
             if (target == null) return;
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
+            storeWidgetsToTab();
             Consumer<String> add = id -> {
-                appendId(target, id);
-                storeWidgetsToTab();
+                addIdToCurrentList(target, id);
+                applyTabToWidgets();
             };
             mc.setScreen(new EntityPickerScreen(this, add, new java.util.HashSet<>(parseList(target))));
         } catch (Throwable ignored) {}
     }
 
-    private static void appendId(EditBox target, String id) {
+    private void addIdToCurrentList(EditBox target, String id) {
         if (target == null || id == null || id.isBlank()) return;
-        String cur = target.getValue();
-        if (cur == null || cur.isBlank()) {
-            target.setValue(id);
-            return;
+        if (settings == null) settings = new CombatSettings();
+        CombatSettings.ModeSettings m = getCurrentModeSettings();
+        if (m == null) return;
+
+        List<String> list = null;
+        if (target == wlAttacked) list = m.whitelistAttacked;
+        else if (target == wlAttacks) list = m.whitelistAttacks;
+        else if (target == blAttacked) list = m.blacklistAttacked;
+        else if (target == blAttacks) list = m.blacklistAttacks;
+
+        if (list == null) return;
+        String norm = id.trim().toLowerCase(Locale.ROOT);
+        if (norm.isEmpty()) return;
+        for (String s : list) {
+            if (s != null && s.equalsIgnoreCase(norm)) return;
         }
-        if (cur.toLowerCase(Locale.ROOT).contains(id.toLowerCase(Locale.ROOT))) return;
-        target.setValue(cur + ", " + id);
+        list.add(norm);
     }
 
     @Override

@@ -65,6 +65,10 @@ public final class VillagerQuickActionsScreen extends Screen {
         this.villagerEntityId = villagerEntityId;
     }
 
+    public int getVillagerEntityId() {
+        return villagerEntityId;
+    }
+
     @Override
     protected void init() {
         // Ask server gate state right away

@@ -29,7 +29,9 @@ public final class VillagerIdleGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        return vill != null && VillagerBrain.getMode(vill) == VillagerBrain.Mode.IDLE;
+        return vill != null
+                && VillagerBrain.getMode(vill) == VillagerBrain.Mode.IDLE
+                && !VillagerBrain.isUiPaused(vill);
     }
 
     @Override
