@@ -13,6 +13,9 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.autoReroll.*;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
@@ -145,15 +148,21 @@ public final class Network {
             // Villager AI
             r.playToServer(PacketVillagerCommand.TYPE, PacketVillagerCommand.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerCommandServer(msg, ctx));
+            r.playToServer(PacketVillagerCombatCommand.TYPE, PacketVillagerCombatCommand.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerCombatCommandServer(msg, ctx));
 
             // ============================
             // Patrol serverbound
             // ============================
             r.playToServer(PacketVillagerModeQuery.TYPE, PacketVillagerModeQuery.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerModeQuery(msg, ctx)));
+            r.playToServer(PacketVillagerCombatModeQuery.TYPE, PacketVillagerCombatModeQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerCombatModeQuery(msg, ctx)));
 
             r.playToClient(PacketVillagerModeData.TYPE, PacketVillagerModeData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onVillagerModeData", msg, ctx));
+            r.playToClient(PacketVillagerCombatModeData.TYPE, PacketVillagerCombatModeData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onVillagerCombatModeData", msg, ctx));
 
             // === Recruit gate () ===
             r.playToServer(PacketRecruitGateQuery.TYPE, PacketRecruitGateQuery.STREAM_CODEC,
@@ -262,6 +271,16 @@ public final class Network {
                 ServerHandlers.handleVillagerCommand(msg, ctx);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerCommand handler error", t);
+            }
+        });
+    }
+
+    private static void handleVillagerCombatCommandServer(PacketVillagerCombatCommand msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handleVillagerCombatCommand(msg, ctx);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerCombatCommand handler error", t);
             }
         });
     }

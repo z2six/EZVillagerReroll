@@ -15,6 +15,8 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
@@ -47,11 +49,13 @@ public final class VillagerQuickActionsScreen extends Screen {
     private RowHeaderIconWidget combatHeaderIcon;
 
     // Track command buttons by key for green highlight
-    private final Map<String, Button> COMMAND_BTNS = new HashMap<>();
+    private final Map<String, Button> MOVEMENT_BTNS = new HashMap<>();
+    private final Map<String, Button> COMBAT_BTNS = new HashMap<>();
 
     // Mode query debounce (like ClientUI)
     private static final long MODE_STALE_MS = 1000L;
     private long lastModeQueryMs = 0L;
+    private long lastCombatModeQueryMs = 0L;
 
     // Visual green used in ClientUI
     private static final int GREEN_RGB = 0x58E766;
@@ -68,8 +72,9 @@ public final class VillagerQuickActionsScreen extends Screen {
             ClientNetwork.sendToServer(new PacketRecruitGateQuery(villagerEntityId));
         } catch (Throwable ignored) {}
 
-        // Ask server mode right away (for highlight)
+        // Ask server modes right away (for highlight)
         trySendModeQueryIfNeeded(true);
+        trySendCombatModeQueryIfNeeded(true);
 
         final int w = 18, h = 18;
         final int gap = 2;
@@ -183,19 +188,19 @@ public final class VillagerQuickActionsScreen extends Screen {
             addRenderableWidget(mvFollow);
             addRenderableWidget(mvPatrol);
 
-            COMMAND_BTNS.put("neutral", mvNeutral);
-            COMMAND_BTNS.put("idle", mvIdle);
-            COMMAND_BTNS.put("follow", mvFollow);
-            COMMAND_BTNS.put("patrol", mvPatrol);
+            MOVEMENT_BTNS.put("neutral", mvNeutral);
+            MOVEMENT_BTNS.put("idle", mvIdle);
+            MOVEMENT_BTNS.put("follow", mvFollow);
+            MOVEMENT_BTNS.put("patrol", mvPatrol);
 
             // Row 2 (Combat): icon then buttons (placeholders like ClientUI unless wired later)
             int cbX0 = row2X + w + gap;
 
-            cbFlee = Button.builder(Component.literal("F"), b -> onCombatPlaceholder("flee"))
+            cbFlee = Button.builder(Component.literal("F"), b -> onCombatCommand("flee", PacketVillagerCombatCommand.Command.FLEE))
                     .pos(cbX0 + 0 * (w + gap), row2Y).size(w, h).build();
-            cbDefend = Button.builder(Component.literal("D"), b -> onCombatPlaceholder("defend"))
+            cbDefend = Button.builder(Component.literal("D"), b -> onCombatCommand("defend", PacketVillagerCombatCommand.Command.DEFEND))
                     .pos(cbX0 + 1 * (w + gap), row2Y).size(w, h).build();
-            cbAggressive = Button.builder(Component.literal("A"), b -> onCombatPlaceholder("aggressive"))
+            cbAggressive = Button.builder(Component.literal("A"), b -> onCombatCommand("aggressive", PacketVillagerCombatCommand.Command.AGGRESSIVE))
                     .pos(cbX0 + 2 * (w + gap), row2Y).size(w, h).build();
 
             cbFlee.setTooltip(Tooltip.create(Component.literal("Flee")));
@@ -206,9 +211,9 @@ public final class VillagerQuickActionsScreen extends Screen {
             addRenderableWidget(cbDefend);
             addRenderableWidget(cbAggressive);
 
-            COMMAND_BTNS.put("flee", cbFlee);
-            COMMAND_BTNS.put("defend", cbDefend);
-            COMMAND_BTNS.put("aggressive", cbAggressive);
+            COMBAT_BTNS.put("flee", cbFlee);
+            COMBAT_BTNS.put("defend", cbDefend);
+            COMBAT_BTNS.put("aggressive", cbAggressive);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions failed building commands palette", t);
@@ -346,35 +351,29 @@ public final class VillagerQuickActionsScreen extends Screen {
             updateCommandsMainButtonVisual();
 
             // Optimistically highlight the chosen mode until server update arrives
-            if (key != null) applyHighlightKey(key);
+            if (key != null) applyHighlightKey(MOVEMENT_BTNS, key);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions sendMovementCmd failed", t);
         }
     }
 
-    private void onCombatPlaceholder(String key) {
+    private void onCombatCommand(String key, PacketVillagerCombatCommand.Command cmd) {
         try {
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
 
-            Minecraft mc = Minecraft.getInstance();
-            if (mc != null && mc.player != null) {
-                mc.player.displayClientMessage(
-                        Component.literal("Combat command: " + key + " (coming soon)").withStyle(ChatFormatting.YELLOW),
-                        true
-                );
-            }
+            ClientNetwork.sendToServer(new PacketVillagerCombatCommand(villagerEntityId, cmd));
 
             // Collapse after click (like ClientUI)
             commandsExpanded = false;
             setCommandsVisible(false);
             updateCommandsMainButtonVisual();
 
-            // If your server later supports these, you can highlight too:
-            if (key != null) applyHighlightKey(key);
+            // Optimistically highlight the chosen mode until server update arrives
+            if (key != null) applyHighlightKey(COMBAT_BTNS, key);
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions combat placeholder failed", t);
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions combat command failed", t);
         }
     }
 
@@ -442,6 +441,7 @@ public final class VillagerQuickActionsScreen extends Screen {
 
         // Keep mode highlight in sync
         trySendModeQueryIfNeeded(false);
+        trySendCombatModeQueryIfNeeded(false);
 
         // Only bother styling if palette visible
         if (commandsExpanded) {
@@ -475,32 +475,51 @@ public final class VillagerQuickActionsScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
-    private void updateCommandButtonsHighlight() {
+    private void trySendCombatModeQueryIfNeeded(boolean force) {
         try {
-            String mode = readModeIdFromClientUI(villagerEntityId);
-            if (mode == null) mode = "neutral";
+            long now = System.currentTimeMillis();
+            if (!force && (now - lastCombatModeQueryMs) < MODE_STALE_MS) return;
+            lastCombatModeQueryMs = now;
 
-            // match ClientUI: patrol_setup -> patrol
-            String key = switch (mode) {
-                case "idle" -> "idle";
-                case "follow" -> "follow";
-                case "patrol", "patrol_setup" -> "patrol";
-                case "flee" -> "flee";
-                case "defend" -> "defend";
-                case "aggressive" -> "aggressive";
-                default -> "neutral";
-            };
-
-            applyHighlightKey(key);
+            ClientNetwork.sendToServer(new PacketVillagerCombatModeQuery(villagerEntityId));
         } catch (Throwable ignored) {}
     }
 
-    private void applyHighlightKey(String activeKey) {
+    private void updateCommandButtonsHighlight() {
         try {
+            String movementMode = readModeIdFromClientUI(villagerEntityId);
+            if (movementMode == null) movementMode = "neutral";
+
+            // match ClientUI: patrol_setup -> patrol
+            String movementKey = switch (movementMode) {
+                case "idle" -> "idle";
+                case "follow" -> "follow";
+                case "patrol", "patrol_setup" -> "patrol";
+                default -> "neutral";
+            };
+
+            String combatMode = readCombatModeIdFromClientUI(villagerEntityId);
+            if (combatMode == null) combatMode = "off";
+
+            String combatKey = switch (combatMode) {
+                case "flee" -> "flee";
+                case "defend" -> "defend";
+                case "aggressive" -> "aggressive";
+                default -> "off";
+            };
+
+            applyHighlightKey(MOVEMENT_BTNS, movementKey);
+            applyHighlightKey(COMBAT_BTNS, combatKey);
+        } catch (Throwable ignored) {}
+    }
+
+    private void applyHighlightKey(Map<String, Button> buttons, String activeKey) {
+        try {
+            if (buttons == null) return;
             if (activeKey == null) activeKey = "neutral";
             activeKey = activeKey.toLowerCase(Locale.ROOT);
 
-            for (Map.Entry<String, Button> e : COMMAND_BTNS.entrySet()) {
+            for (Map.Entry<String, Button> e : buttons.entrySet()) {
                 String k = (e.getKey() == null) ? "" : e.getKey();
                 Button b = e.getValue();
                 if (b == null) continue;
@@ -508,7 +527,8 @@ public final class VillagerQuickActionsScreen extends Screen {
                 String glyph = "";
                 try { glyph = b.getMessage() == null ? "" : b.getMessage().getString(); } catch (Throwable ignored) {}
 
-                if (k.equals(activeKey)) {
+                boolean active = k.equals(activeKey) && !"off".equals(activeKey);
+                if (active) {
                     b.setMessage(Component.literal(glyph).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(GREEN_RGB))));
                 } else {
                     b.setMessage(Component.literal(glyph));
@@ -519,7 +539,13 @@ public final class VillagerQuickActionsScreen extends Screen {
 
     private void resetAllCommandButtonStyles() {
         try {
-            for (Button b : COMMAND_BTNS.values()) {
+            for (Button b : MOVEMENT_BTNS.values()) {
+                if (b == null) continue;
+                String glyph = "";
+                try { glyph = b.getMessage() == null ? "" : b.getMessage().getString(); } catch (Throwable ignored) {}
+                b.setMessage(Component.literal(glyph));
+            }
+            for (Button b : COMBAT_BTNS.values()) {
                 if (b == null) continue;
                 String glyph = "";
                 try { glyph = b.getMessage() == null ? "" : b.getMessage().getString(); } catch (Throwable ignored) {}
@@ -538,6 +564,32 @@ public final class VillagerQuickActionsScreen extends Screen {
             Field f = null;
             try {
                 f = clz.getDeclaredField("MODE_ID");
+            } catch (NoSuchFieldException ignored) {}
+
+            if (f == null) return null;
+            f.setAccessible(true);
+
+            Object mapObj = f.get(null);
+            if (!(mapObj instanceof Map<?, ?> m)) return null;
+
+            Object v = m.get(villagerId);
+            return (v instanceof String s) ? s : null;
+
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String readCombatModeIdFromClientUI(int villagerId) {
+        try {
+            // ClientUI has:
+            // private static final Map<Integer, String> COMBAT_MODE_ID = new WeakHashMap<>();
+            Class<?> clz = Class.forName("org.z2six.villageroverhaul.client.ClientUI");
+
+            Field f = null;
+            try {
+                f = clz.getDeclaredField("COMBAT_MODE_ID");
             } catch (NoSuchFieldException ignored) {}
 
             if (f == null) return null;

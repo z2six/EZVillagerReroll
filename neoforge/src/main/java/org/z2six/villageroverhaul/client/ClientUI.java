@@ -30,6 +30,9 @@ import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.network.tooltip.PacketTooltipQuery;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocksQuery;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
@@ -97,8 +100,12 @@ public final class ClientUI {
     private static final long MODE_STALE_MS = 1000;
     private static final Map<Integer, Long> MODE_AT = new WeakHashMap<>();
     private static final Map<Integer, String> MODE_ID = new WeakHashMap<>();
+    private static final Map<Integer, Long> COMBAT_MODE_AT = new WeakHashMap<>();
+    private static final Map<Integer, String> COMBAT_MODE_ID = new WeakHashMap<>();
     // Movement buttons per screen: key is "neutral"/"idle"/"follow"/"patrol"
     private static final Map<Screen, Map<String, Button>> MOVEMENT_BTNS = new WeakHashMap<>();
+    // Combat buttons per screen: key is "flee"/"defend"/"aggressive"
+    private static final Map<Screen, Map<String, Button>> COMBAT_BTNS = new WeakHashMap<>();
 
     private static final class RecruitStateSnap {
         final boolean recruited;
@@ -148,6 +155,14 @@ public final class ClientUI {
             if (p == null) return;
             MODE_ID.put(p.villagerEntityId(), p.modeId() == null ? "neutral" : p.modeId());
             MODE_AT.put(p.villagerEntityId(), System.currentTimeMillis());
+        } catch (Throwable ignored) {}
+    }
+
+    public static void acceptVillagerCombatModeData(PacketVillagerCombatModeData p) {
+        try {
+            if (p == null) return;
+            COMBAT_MODE_ID.put(p.villagerEntityId(), p.combatModeId() == null ? "off" : p.combatModeId());
+            COMBAT_MODE_AT.put(p.villagerEntityId(), System.currentTimeMillis());
         } catch (Throwable ignored) {}
     }
 
@@ -373,8 +388,9 @@ public final class ClientUI {
             // Ask server for recruited state (villager-only) so UI can decide visibility.
             trySendRecruitStateQueryIfNeeded(screen);
 
-            // ask server for current villager mode (for highlight)
+            // ask server for current villager modes (for highlight)
             trySendModeQueryIfNeeded(screen);
+            trySendCombatModeQueryIfNeeded(screen);
 
             // --------------------------------
             // 1) REROLL (top)
@@ -738,6 +754,20 @@ public final class ClientUI {
                     Button b = Button.builder(Component.literal(label.substring(0, 1)), bbtn -> {
                                 try {
                                     int villagerEntityId = resolveTraderEntityId(screen);
+                                    if (villagerEntityId > 0) {
+                                        PacketVillagerCombatCommand.Command cmd = switch (label.toLowerCase(java.util.Locale.ROOT)) {
+                                            case "flee" -> PacketVillagerCombatCommand.Command.FLEE;
+                                            case "defend" -> PacketVillagerCombatCommand.Command.DEFEND;
+                                            case "aggressive" -> PacketVillagerCombatCommand.Command.AGGRESSIVE;
+                                            default -> PacketVillagerCombatCommand.Command.OFF;
+                                        };
+                                        ClientNetwork.sendToServer(new PacketVillagerCombatCommand(villagerEntityId, cmd));
+
+                                        COMBAT_MODE_ID.put(villagerEntityId, label.toLowerCase(java.util.Locale.ROOT));
+                                        COMBAT_MODE_AT.put(villagerEntityId, System.currentTimeMillis());
+                                        updateCombatButtonsVisual(screen);
+                                    }
+
                                     VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat command clicked: {} (villagerEntityId={})",
                                             label, villagerEntityId);
                                 } catch (Throwable t) {
@@ -764,6 +794,15 @@ public final class ClientUI {
 
                     e.addListener(b);
                     subs.add(b);
+
+                    // ============================================================
+                    // store combat buttons for green highlight updates
+                    // ============================================================
+                    try {
+                        COMBAT_BTNS
+                                .computeIfAbsent(screen, s -> new java.util.HashMap<>())
+                                .put(label.toLowerCase(java.util.Locale.ROOT), b);
+                    } catch (Throwable ignored) {}
                 }
 
                 COMMANDS_SUB_BUTTONS.put(screen, subs);
@@ -783,9 +822,12 @@ public final class ClientUI {
             // Ensure palette starts collapsed and visuals are correct
             collapseCommands(screen);
 
-            // apply movement highlight once at init (will update again during render)
+            // apply mode highlights once at init (will update again during render)
             try {
                 updateMovementButtonsVisual(screen);
+            } catch (Throwable ignored) {}
+            try {
+                updateCombatButtonsVisual(screen);
             } catch (Throwable ignored) {}
 
         } catch (Throwable t) {
@@ -807,10 +849,12 @@ public final class ClientUI {
             setUiButtonsVisible(screen, controlsEnabled);
 
             // ============================================================
-            // keep movement highlight in sync with server
+            // keep movement/combat highlights in sync with server
             // ============================================================
             trySendModeQueryIfNeeded(screen);
+            trySendCombatModeQueryIfNeeded(screen);
             updateMovementButtonsVisual(screen);
+            updateCombatButtonsVisual(screen);
 
             boolean expanded = controlsEnabled && isCommandsExpanded(screen);
 
@@ -935,8 +979,9 @@ public final class ClientUI {
             COMMANDS_BACKDROPS.remove(e.getScreen());
             COMMANDS_HEADER_ICONS.remove(e.getScreen());
 
-            // movement highlight buttons cache
+            // movement/combat highlight buttons cache
             MOVEMENT_BTNS.remove(e.getScreen());
+            COMBAT_BTNS.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
                 int cid = resolveContainerId(ms);
@@ -1982,6 +2027,21 @@ public final class ClientUI {
         } catch (Throwable ignored) {}
     }
 
+    private static void trySendCombatModeQueryIfNeeded(MerchantScreen screen) {
+        try {
+            if (screen == null) return;
+
+            int id = resolveTraderEntityId(screen);
+            if (id <= 0) return;
+
+            Long at = COMBAT_MODE_AT.get(id);
+            long age = (at == null) ? Long.MAX_VALUE : (System.currentTimeMillis() - at);
+            if (age < MODE_STALE_MS) return;
+
+            ClientNetwork.sendToServer(new PacketVillagerCombatModeQuery(id));
+        } catch (Throwable ignored) {}
+    }
+
     private static void updateMovementButtonsVisual(MerchantScreen screen) {
         try {
             if (screen == null) return;
@@ -2018,6 +2078,50 @@ public final class ClientUI {
                 }
 
                 if (key != null && key.equals(activeKey)) {
+                    b.setMessage(Component.literal(glyph).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(greenRgb))));
+                } else {
+                    b.setMessage(Component.literal(glyph)); // default
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void updateCombatButtonsVisual(MerchantScreen screen) {
+        try {
+            if (screen == null) return;
+
+            int villId = resolveTraderEntityId(screen);
+            if (villId <= 0) return;
+
+            String mode = COMBAT_MODE_ID.get(villId);
+            if (mode == null) mode = "off";
+
+            String activeKey = switch (mode) {
+                case "flee" -> "flee";
+                case "defend" -> "defend";
+                case "aggressive" -> "aggressive";
+                default -> "off";
+            };
+
+            Map<String, Button> m = COMBAT_BTNS.get(screen);
+            if (m == null || m.isEmpty()) return;
+
+            int greenRgb = 0x58E766;
+
+            for (Map.Entry<String, Button> ent : m.entrySet()) {
+                String key = ent.getKey();
+                Button b = ent.getValue();
+                if (b == null) continue;
+
+                String glyph;
+                try {
+                    glyph = (b.getMessage() == null) ? "" : b.getMessage().getString();
+                } catch (Throwable ignored) {
+                    glyph = "";
+                }
+
+                boolean active = key != null && key.equals(activeKey) && !"off".equals(activeKey);
+                if (active) {
                     b.setMessage(Component.literal(glyph).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(greenRgb))));
                 } else {
                     b.setMessage(Component.literal(glyph)); // default

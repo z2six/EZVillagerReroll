@@ -25,6 +25,9 @@ import org.z2six.villageroverhaul.logic.WalletBridge;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.autoReroll.*;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
@@ -566,6 +569,23 @@ public final class ServerHandlers {
         } catch (Throwable ignored) {}
     }
 
+    public static void handleVillagerCombatModeQuery(PacketVillagerCombatModeQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) {
+                ctx.reply(new PacketVillagerCombatModeData(msg.villagerEntityId(), "off"));
+                return;
+            }
+
+            var mode = VillagerBrain.getCombatMode(vill);
+            ctx.reply(new PacketVillagerCombatModeData(vill.getId(), mode == null ? "off" : mode.id));
+
+        } catch (Throwable ignored) {}
+    }
+
     private static boolean tryChargePlayer(ServerPlayer sp, int cost) {
         try {
             boolean isTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
@@ -771,6 +791,41 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerCommand failed", t);
+        }
+    }
+
+    public static void handleVillagerCombatCommand(PacketVillagerCombatCommand msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCombatCommand denied (player={} villager={} cmd={})",
+                        sp.getGameProfile().getName(), vill.getUUID(), msg.command());
+                return;
+            }
+
+            switch (msg.command()) {
+                case OFF -> VillagerBrain.combatOff(vill);
+                case FLEE -> VillagerBrain.combatFlee(vill);
+                case DEFEND -> VillagerBrain.combatDefend(vill);
+                case AGGRESSIVE -> VillagerBrain.combatAggressive(vill);
+            }
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCombatCommand: player={} villager={} cmd={}",
+                    sp.getGameProfile().getName(), vill.getUUID(), msg.command());
+
+            try {
+                var mode = VillagerBrain.getCombatMode(vill);
+                ctx.reply(new PacketVillagerCombatModeData(vill.getId(), mode == null ? "off" : mode.id));
+            } catch (Throwable ignored) {}
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerCombatCommand failed", t);
         }
     }
 
