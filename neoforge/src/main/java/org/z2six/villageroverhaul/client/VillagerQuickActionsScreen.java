@@ -371,7 +371,15 @@ public final class VillagerQuickActionsScreen extends Screen {
         try {
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
 
-            ClientNetwork.sendToServer(new PacketVillagerCombatCommand(villagerEntityId, cmd));
+            String current = readCombatModeIdFromClientUI(villagerEntityId);
+            if (current == null) current = "off";
+            String normKey = key == null ? "" : key.toLowerCase(Locale.ROOT);
+
+            PacketVillagerCombatCommand.Command actual = normKey.equals(current)
+                    ? PacketVillagerCombatCommand.Command.OFF
+                    : cmd;
+
+            ClientNetwork.sendToServer(new PacketVillagerCombatCommand(villagerEntityId, actual));
 
             // Collapse after click (like ClientUI)
             commandsExpanded = false;
@@ -379,7 +387,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             updateCommandsMainButtonVisual();
 
             // Optimistically highlight the chosen mode until server update arrives
-            if (key != null) applyHighlightKey(COMBAT_BTNS, key);
+            if (key != null) applyHighlightKey(COMBAT_BTNS, normKey.equals(current) ? "off" : key);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions combat command failed", t);

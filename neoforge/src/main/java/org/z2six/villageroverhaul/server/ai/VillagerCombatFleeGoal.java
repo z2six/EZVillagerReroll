@@ -49,6 +49,7 @@ public final class VillagerCombatFleeGoal extends Goal {
             if (vill == null) return false;
             if (vill.level() == null || vill.level().isClientSide()) return false;
 
+            if (VillagerBrain.getCombatMode(vill) != VillagerBrain.CombatMode.FLEE) return false;
             if (!VillagerBrain.shouldCombatActNow(vill)) {
                 logNoThreat("combat_inactive");
                 return false;
@@ -58,8 +59,6 @@ public final class VillagerCombatFleeGoal extends Goal {
                 logNoThreat("ui_paused");
                 return false;
             }
-
-            if (VillagerBrain.getCombatMode(vill) != VillagerBrain.CombatMode.FLEE) return false;
 
             if (threatUuid != null && findThreatByUuid(threatUuid) != null) return true;
 

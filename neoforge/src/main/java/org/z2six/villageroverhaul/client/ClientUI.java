@@ -60,6 +60,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.WeakHashMap;
 
 public final class ClientUI {
@@ -120,7 +121,7 @@ public final class ClientUI {
         }
     }
 
-    private static final Map<Integer, RecruitStateSnap> RECRUIT_STATE = new WeakHashMap<>();
+    private static final Map<Integer, RecruitStateSnap> RECRUIT_STATE = new HashMap<>();
     private static final Map<Integer, Long> UI_PAUSE_AT = new WeakHashMap<>();
     private static final long UI_PAUSE_KEEPALIVE_MS = 600;
 
@@ -781,7 +782,14 @@ public final class ClientUI {
                                         return;
                                     }
                                     if (villagerEntityId > 0) {
-                                        PacketVillagerCombatCommand.Command cmd = switch (label.toLowerCase(java.util.Locale.ROOT)) {
+                                        String key = label.toLowerCase(java.util.Locale.ROOT);
+                                        String current = COMBAT_MODE_ID.get(villagerEntityId);
+                                        if (current == null) current = "off";
+
+                                        boolean toggleOff = key.equals(current);
+                                        PacketVillagerCombatCommand.Command cmd = toggleOff
+                                                ? PacketVillagerCombatCommand.Command.OFF
+                                                : switch (key) {
                                             case "flee" -> PacketVillagerCombatCommand.Command.FLEE;
                                             case "defend" -> PacketVillagerCombatCommand.Command.DEFEND;
                                             case "aggressive" -> PacketVillagerCombatCommand.Command.AGGRESSIVE;
@@ -789,7 +797,7 @@ public final class ClientUI {
                                         };
                                         ClientNetwork.sendToServer(new PacketVillagerCombatCommand(villagerEntityId, cmd));
 
-                                        COMBAT_MODE_ID.put(villagerEntityId, label.toLowerCase(java.util.Locale.ROOT));
+                                        COMBAT_MODE_ID.put(villagerEntityId, toggleOff ? "off" : key);
                                         COMBAT_MODE_AT.put(villagerEntityId, System.currentTimeMillis());
                                         updateCombatButtonsVisual(screen);
                                     }
@@ -2196,6 +2204,10 @@ public final class ClientUI {
             if (p == null) return;
             int id = p.villagerEntityId();
             if (id <= 0) return;
+
+            if (!p.ok()) {
+                return;
+            }
 
             RECRUIT_STATE.put(id, new RecruitStateSnap(p.recruited(), p.canUseControls(), System.currentTimeMillis()));
         } catch (Throwable ignored) {}
