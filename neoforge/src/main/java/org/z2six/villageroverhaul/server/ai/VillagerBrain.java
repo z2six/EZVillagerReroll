@@ -7,6 +7,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.Brain;
@@ -20,13 +21,11 @@ import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 import org.z2six.villageroverhaul.server.RecruitService;
-import net.minecraft.world.InteractionHand;
 
-import java.util.Map;
-import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -43,6 +42,11 @@ public final class VillagerBrain {
 
     // Follow target (existing FOLLOW)
     private static final String K_FOLLOW_PLAYER = "follow_player";
+
+    // -------------------------
+    // Combat state (NEW)
+    // -------------------------
+    private static final String K_COMBAT_MODE = "combat_mode";
 
     // Patrol sub-root
     private static final String K_PATROL = "patrol";
@@ -82,6 +86,25 @@ public final class VillagerBrain {
             if (s == null) return NEUTRAL;
             for (Mode m : values()) if (m.id.equalsIgnoreCase(s)) return m;
             return NEUTRAL;
+        }
+    }
+
+    // ============================================================
+    // Combat modes (NEW, parallel to movement)
+    // ============================================================
+    public enum CombatMode {
+        OFF("off"),
+        FLEE("flee"),
+        DEFEND("defend"),
+        AGGRESSIVE("aggressive");
+
+        public final String id;
+        CombatMode(String id) { this.id = id; }
+
+        public static CombatMode fromId(String s) {
+            if (s == null) return OFF;
+            for (CombatMode m : values()) if (m.id.equalsIgnoreCase(s)) return m;
+            return OFF;
         }
     }
 
@@ -137,6 +160,81 @@ public final class VillagerBrain {
         setMode(vill, Mode.FOLLOW);
 
         return true;
+    }
+
+    // ============================================================
+    // Combat API (NEW) - activation only, AI later
+    // ============================================================
+
+    public static CombatMode getCombatMode(Villager vill) {
+        try {
+            if (vill == null) return CombatMode.OFF;
+            CompoundTag root = getOrCreateRoot(vill);
+            return CombatMode.fromId(root.getString(K_COMBAT_MODE));
+        } catch (Throwable t) {
+            return CombatMode.OFF;
+        }
+    }
+
+    public static void setCombatMode(Villager vill, CombatMode mode) {
+        try {
+            if (vill == null || mode == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.putString(K_COMBAT_MODE, mode.id);
+
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatMode set (villager={}, mode={})", vill.getUUID(), mode.id);
+            }
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] setCombatMode failed (soft): {}", t.toString());
+        }
+    }
+
+    public static boolean combatOff(Villager vill) {
+        if (vill == null) return false;
+        if (!isControllable(vill)) return false;
+        ensureAttached(vill);
+        setCombatMode(vill, CombatMode.OFF);
+        return true;
+    }
+
+    public static boolean combatFlee(Villager vill) {
+        if (vill == null) return false;
+        if (!isControllable(vill)) return false;
+        ensureAttached(vill);
+        setCombatMode(vill, CombatMode.FLEE);
+        return true;
+    }
+
+    public static boolean combatDefend(Villager vill) {
+        if (vill == null) return false;
+        if (!isControllable(vill)) return false;
+        ensureAttached(vill);
+        setCombatMode(vill, CombatMode.DEFEND);
+        return true;
+    }
+
+    public static boolean combatAggressive(Villager vill) {
+        if (vill == null) return false;
+        if (!isControllable(vill)) return false;
+        ensureAttached(vill);
+        setCombatMode(vill, CombatMode.AGGRESSIVE);
+        return true;
+    }
+
+    /**
+     * Helper: combat AI should do nothing during FOLLOW.
+     * (We still allow combat mode to be set while following; it just won't act.)
+     */
+    public static boolean shouldCombatActNow(Villager vill) {
+        try {
+            if (vill == null) return false;
+            if (!isControllable(vill)) return false;
+            if (getMode(vill) == Mode.FOLLOW) return false;
+            return getCombatMode(vill) != CombatMode.OFF;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     // ============================================================
@@ -667,6 +765,24 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolGoal (villager={})", vill.getUUID());
             }
 
+            // ------------------------------------------------------------
+            // Combat goals (NEW) - inert for now, AI later
+            // ------------------------------------------------------------
+            if (!hasGoal(vill, VillagerCombatFleeGoal.class)) {
+                vill.goalSelector.addGoal(4, new VillagerCombatFleeGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatFleeGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerCombatDefendGoal.class)) {
+                vill.goalSelector.addGoal(5, new VillagerCombatDefendGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatDefendGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerCombatAggressiveGoal.class)) {
+                vill.goalSelector.addGoal(6, new VillagerCombatAggressiveGoal(vill));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatAggressiveGoal (villager={})", vill.getUUID());
+            }
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerBrain.ensureAttached failed (soft): {}", t.toString());
         }
@@ -797,7 +913,16 @@ public final class VillagerBrain {
         if (!pd.contains(TAG_ROOT, Tag.TAG_COMPOUND)) {
             CompoundTag root = new CompoundTag();
             root.putString(K_MODE, Mode.NEUTRAL.id);
+            root.putString(K_COMBAT_MODE, CombatMode.OFF.id);
             pd.put(TAG_ROOT, root);
+        } else {
+            // Ensure new keys exist for older villagers
+            try {
+                CompoundTag root = pd.getCompound(TAG_ROOT);
+                if (!root.contains(K_COMBAT_MODE, Tag.TAG_STRING)) {
+                    root.putString(K_COMBAT_MODE, CombatMode.OFF.id);
+                }
+            } catch (Throwable ignored) {}
         }
         return pd.getCompound(TAG_ROOT);
     }
