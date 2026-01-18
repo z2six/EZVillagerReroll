@@ -1,11 +1,21 @@
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/ai/VillagerCombatAggressiveGoal.java
 package org.z2six.villageroverhaul.server.ai;
 
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.phys.AABB;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.combat.CombatSettings;
+import org.z2six.villageroverhaul.server.CombatSettingsService;
 
 import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * Combat module: AGGRESSIVE (activation only in Step 1).
@@ -18,6 +28,9 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
     private final Villager vill;
     private boolean loggedActive = false;
+    private long lastNoThreatLogAt = 0L;
+    private long lastRejectLogAt = 0L;
+    private long lastScanAt = 0L;
 
     public VillagerCombatAggressiveGoal(Villager vill) {
         this.vill = vill;
@@ -34,7 +47,25 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             if (!VillagerBrain.shouldCombatActNow(vill)) return false;
             if (VillagerBrain.isUiPaused(vill)) return false;
 
-            return VillagerBrain.getCombatMode(vill) == VillagerBrain.CombatMode.AGGRESSIVE;
+            if (VillagerBrain.getCombatMode(vill) != VillagerBrain.CombatMode.AGGRESSIVE) return false;
+
+            CombatSettings settings = CombatSettingsService.getPerVillager(vill);
+            if (settings == null) {
+                logNoThreat("no_settings");
+                return false;
+            }
+            CombatSettings.ModeSettings m = settings.aggressive;
+            Set<String> wl = normalize(m.aggressiveWhitelist);
+            Set<String> bl = normalize(m.aggressiveBlacklist);
+            if (wl.isEmpty() && bl.isEmpty()) {
+                logNoThreat("no_filters");
+                return false;
+            }
+
+            if (findAggressiveTarget(wl, bl) != null) return true;
+
+            logNoThreat("no_target");
+            return false;
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatAggressiveGoal.canUse failed (soft): {}", t.toString());
             return false;
@@ -50,6 +81,9 @@ public final class VillagerCombatAggressiveGoal extends Goal {
     public void start() {
         try {
             loggedActive = false;
+            lastNoThreatLogAt = 0L;
+            lastRejectLogAt = 0L;
+            lastScanAt = 0L;
         } catch (Throwable ignored) {}
     }
 
@@ -57,9 +91,9 @@ public final class VillagerCombatAggressiveGoal extends Goal {
     public void tick() {
         try {
             // Step 1: do nothing besides optional debug.
-            if (!loggedActive && VillagerOverhaul.LOG().isDebugEnabled()) {
+            if (!loggedActive) {
                 loggedActive = true;
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: AGGRESSIVE (villager={}, mode={})",
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat goal active: AGGRESSIVE (villager={}, mode={})",
                         vill == null ? "null" : vill.getUUID(),
                         vill == null ? "null" : VillagerBrain.getMode(vill).id);
             }
@@ -72,6 +106,83 @@ public final class VillagerCombatAggressiveGoal extends Goal {
     public void stop() {
         try {
             loggedActive = false;
+            lastNoThreatLogAt = 0L;
+            lastRejectLogAt = 0L;
+            lastScanAt = 0L;
         } catch (Throwable ignored) {}
+    }
+
+    private LivingEntity findAggressiveTarget(Set<String> wl, Set<String> bl) {
+        try {
+            if (vill == null || vill.level() == null) return null;
+            long now = vill.level().getGameTime();
+            if ((now - lastScanAt) < 10L) return null;
+            lastScanAt = now;
+
+            AABB box = vill.getBoundingBox().inflate(16.0);
+            List<LivingEntity> nearby = vill.level().getEntitiesOfClass(LivingEntity.class, box, e -> e != null && e.isAlive());
+
+            for (LivingEntity e : nearby) {
+                if (e == vill) continue;
+                String id = safeEntityId(e);
+                if (id.isEmpty()) continue;
+
+                if (bl.contains(id)) {
+                    logReject(id, "blacklisted");
+                    continue;
+                }
+
+                if (!wl.isEmpty() && !wl.contains(id)) {
+                    logReject(id, "not_whitelisted");
+                    continue;
+                }
+
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] AGGRESSIVE target found (villager={} target={})",
+                        vill.getUUID(), e.getUUID());
+                return e;
+            }
+        } catch (Throwable ignored) {}
+
+        return null;
+    }
+
+    private String safeEntityId(LivingEntity e) {
+        try {
+            ResourceLocation id = BuiltInRegistries.ENTITY_TYPE.getKey(e.getType());
+            return id == null ? "" : id.toString();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private void logReject(String id, String reason) {
+        try {
+            if (vill == null || vill.level() == null) return;
+            long now = vill.level().getGameTime();
+            if ((now - lastRejectLogAt) < 40L) return;
+            lastRejectLogAt = now;
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] AGGRESSIVE candidate rejected (villager={} entity={} reason={})",
+                    vill.getUUID(), id, reason);
+        } catch (Throwable ignored) {}
+    }
+
+    private void logNoThreat(String reason) {
+        try {
+            if (vill == null || vill.level() == null) return;
+            long now = vill.level().getGameTime();
+            if ((now - lastNoThreatLogAt) < 40L) return;
+            lastNoThreatLogAt = now;
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] AGGRESSIVE waiting (villager={} reason={})", vill.getUUID(), reason);
+        } catch (Throwable ignored) {}
+    }
+
+    private static Set<String> normalize(Iterable<String> items) {
+        Set<String> out = new HashSet<>();
+        if (items == null) return out;
+        for (String s : items) {
+            if (s == null || s.isBlank()) continue;
+            out.add(s.trim().toLowerCase(Locale.ROOT));
+        }
+        return out;
     }
 }

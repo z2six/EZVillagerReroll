@@ -348,12 +348,18 @@ public final class CombatSettingsScreen extends Screen {
 
     private void drawIntroText(GuiGraphics gg, Font font, int left, int top) {
         int y = top + PAD + 24;
-        String line = switch (currentTab) {
-            case FLEE -> "Configure when villagers should flee.";
-            case DEFEND -> "Configure when villagers should defend.";
-            case AGGRESSIVE -> "Configure which entities are attacked on sight.";
+        String[] lines = switch (currentTab) {
+            case FLEE -> new String[] { "Configure when villagers should flee." };
+            case DEFEND -> new String[] { "Configure when villagers should defend." };
+            case AGGRESSIVE -> new String[] {
+                    "Configure which entities are attacked on sight.",
+                    "Does nothing if whitelist and blacklist are both empty."
+            };
         };
-        gg.drawString(font, line, left + PAD, y, 0xFFBFBFBF, false);
+        for (String line : lines) {
+            gg.drawString(font, line, left + PAD, y, 0xFFBFBFBF, false);
+            y += font.lineHeight + 2;
+        }
     }
 
     private static void drawPanel(GuiGraphics gg, int x, int y, int w, int h) {
