@@ -47,6 +47,7 @@ import org.z2six.villageroverhaul.server.SearchService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
+import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 
 // patrol packets
@@ -991,6 +992,10 @@ public final class ServerHandlers {
                         sp.getGameProfile().getName(), vill.getUUID());
                 return;
             }
+
+            try {
+                VillagerCombatLoadoutService.prepareForInventoryOpen(vill);
+            } catch (Throwable ignored) {}
 
             // Open menu; write villager id to buf so client menu knows which entity to render
             sp.openMenu(

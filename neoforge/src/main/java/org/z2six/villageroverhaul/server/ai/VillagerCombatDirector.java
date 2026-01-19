@@ -1,11 +1,9 @@
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/ai/VillagerCombatDirector.java
 package org.z2six.villageroverhaul.server.ai;
 
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
-import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
@@ -17,7 +15,6 @@ import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -27,6 +24,7 @@ public final class VillagerCombatDirector {
     private static final boolean ENABLE_BLOCKING = true;
 
     private static final double MOVE_SPEED = 0.70;
+    private static final double BACKPEDAL_SPEED = MOVE_SPEED * 0.25;
     private static final double BASE_REACH = 2.0;
     private static final double SAFETY_MARGIN = 0.5;
 
@@ -34,8 +32,8 @@ public final class VillagerCombatDirector {
     private static final long SWING_ANIM_TICKS = 6L;
     private static final long NO_HIT_SWING_DELAY_TICKS = 30L;
 
-    private static final double EAT_RETREAT_DIST = 6.0;
-    private static final double EAT_MIN_DIST_BUFFER = 1.5;
+    private static final double TOO_CLOSE_PAD = 0.30;
+    private static final double TOO_CLOSE_HYSTERESIS = 0.40;
 
     private static final Map<Villager, State> STATE = new WeakHashMap<>();
 
@@ -53,6 +51,12 @@ public final class VillagerCombatDirector {
             if (!target.isAlive()) return;
 
             State st = STATE.computeIfAbsent(vill, v -> new State());
+            if (st.targetId != null && !st.targetId.equals(target.getUUID())) {
+                st.hitSinceLastSwing = false;
+                st.blockNoHitSince = -1L;
+                st.lastHurtTimeSeen = 0;
+                st.lastHitAt = -1L;
+            }
             st.targetId = target.getUUID();
 
             if (!VillagerBrain.shouldCombatActNow(vill) || VillagerBrain.isUiPaused(vill)) {
@@ -66,27 +70,8 @@ public final class VillagerCombatDirector {
 
             detectHitEdge(vill, st, now);
 
-            if (st.eating) {
-                if (!vill.isUsingItem()) {
-                    finishEating(vill, st);
-                }
-            }
-
-            if (!st.eating && shouldEat(vill)) {
-                if (tryStartEating(vill, st)) {
-                    faceTargetHard(vill, target);
-                    return;
-                }
-            }
-
             double reach = computeReach(vill, target);
             double swingRange = reach + SAFETY_MARGIN;
-
-            if (st.eating) {
-                keepDistanceWhileEating(vill, target, swingRange + EAT_MIN_DIST_BUFFER);
-                faceTargetHard(vill, target);
-                return;
-            }
 
             double dist = vill.distanceTo(target);
             boolean inSwingRange = dist <= swingRange;
@@ -94,7 +79,11 @@ public final class VillagerCombatDirector {
             if (!inSwingRange) {
                 try { vill.getNavigation().moveTo(target, MOVE_SPEED); } catch (Throwable ignored) {}
             } else {
-                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                if (shouldBackpedalInCombat(vill, target, dist)) {
+                    backpedalAway(vill, target, BACKPEDAL_SPEED, 3.5);
+                } else {
+                    try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                }
             }
 
             if (now < st.noBlockUntil) {
@@ -154,10 +143,6 @@ public final class VillagerCombatDirector {
     public static void stop(Villager vill) {
         try {
             if (vill == null) return;
-            State st = STATE.get(vill);
-            if (st != null) {
-                if (st.eating) finishEating(vill, st);
-            }
             try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             try { vill.stopUsingItem(); } catch (Throwable ignored) {}
             VillagerBrain.setCombatEngaged(vill, false);
@@ -295,76 +280,52 @@ public final class VillagerCombatDirector {
         return false;
     }
 
-    private static boolean shouldEat(Villager vill) {
+    private static boolean shouldBackpedalInCombat(Villager vill, LivingEntity target, double dist) {
         try {
-            return vill.getHealth() <= (vill.getMaxHealth() * 0.5f);
-        } catch (Throwable t) {
-            return false;
-        }
-    }
+            if (vill == null || target == null) return false;
 
-    private static boolean tryStartEating(Villager vill, State st) {
-        try {
-            Container inv = getVillagerInventory(vill);
-            if (inv == null) return false;
+            double tooClose = computeTooCloseDist(vill, target);
+            if (stoppedOrNearlyStopped(vill)) {
+                return dist <= tooClose;
+            }
 
-            int slot = findFoodSlot(inv);
-            if (slot < 0) return false;
-
-            ItemStack food = inv.getItem(slot);
-            if (food == null || food.isEmpty()) return false;
-
-            st.prevMainhand = vill.getMainHandItem().copy();
-            st.prevSlot = slot;
-            st.eating = true;
-
-            inv.setItem(slot, ItemStack.EMPTY);
-            vill.setItemInHand(InteractionHand.MAIN_HAND, food);
-            vill.startUsingItem(InteractionHand.MAIN_HAND);
-
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat eat start (villager={} food={})",
-                    safeUuid(vill), safeItemId(food));
-            return true;
+            return dist <= (tooClose + TOO_CLOSE_HYSTERESIS);
         } catch (Throwable ignored) {}
         return false;
     }
 
-    private static void finishEating(Villager vill, State st) {
+    private static boolean stoppedOrNearlyStopped(Villager vill) {
         try {
-            ItemStack cur = vill.getMainHandItem();
-            Container inv = getVillagerInventory(vill);
-
-            if (inv != null && !cur.isEmpty()) {
-                inv.setItem(st.prevSlot, cur);
-            }
-
-            if (!st.prevMainhand.isEmpty()) {
-                vill.setItemInHand(InteractionHand.MAIN_HAND, st.prevMainhand);
-            }
-
-            st.prevMainhand = ItemStack.EMPTY;
-            st.prevSlot = -1;
-            st.eating = false;
-
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat eat end (villager={})", safeUuid(vill));
-        } catch (Throwable ignored) {}
+            Vec3 d = vill.getDeltaMovement();
+            return d.lengthSqr() < 1.0e-4;
+        } catch (Throwable ignored) {
+            return true;
+        }
     }
 
-    private static void keepDistanceWhileEating(Villager vill, LivingEntity target, double minDist) {
+    private static double computeTooCloseDist(Villager vill, LivingEntity target) {
         try {
-            Vec3 villPos = vill.position();
-            Vec3 targetPos = target.position();
-            double dist = vill.distanceTo(target);
-            if (dist >= minDist) {
-                vill.getNavigation().stop();
-                return;
-            }
+            double v = vill == null ? 0.6 : vill.getBbWidth();
+            double t = target == null ? 0.6 : target.getBbWidth();
+            return Math.max(1.0, (v * 0.5) + (t * 0.5) + TOO_CLOSE_PAD);
+        } catch (Throwable ignored) {
+            return 1.0;
+        }
+    }
 
-            Vec3 away = villPos.subtract(targetPos);
-            if (away.lengthSqr() < 0.0001) away = new Vec3(1.0, 0.0, 0.0);
-            Vec3 dir = away.normalize();
-            Vec3 dest = villPos.add(dir.scale(EAT_RETREAT_DIST));
-            vill.getNavigation().moveTo(dest.x, dest.y, dest.z, MOVE_SPEED);
+    private static void backpedalAway(Villager vill, LivingEntity target, double speed, double step) {
+        try {
+            if (vill == null || target == null) return;
+            Vec3 vp = vill.position();
+            Vec3 tp = target.position();
+
+            Vec3 away = vp.subtract(tp);
+            Vec3 away2d = new Vec3(away.x, 0.0, away.z);
+            if (away2d.lengthSqr() < 1.0e-6) away2d = new Vec3(1.0, 0.0, 0.0);
+
+            Vec3 dir = away2d.normalize();
+            Vec3 dest = vp.add(dir.scale(step));
+            vill.getNavigation().moveTo(dest.x, dest.y, dest.z, speed);
         } catch (Throwable ignored) {}
     }
 
@@ -382,55 +343,6 @@ public final class VillagerCombatDirector {
         } catch (Throwable t) {
             return false;
         }
-    }
-
-    private static int findFoodSlot(Container inv) {
-        try {
-            int size = inv.getContainerSize();
-            for (int i = 0; i < size; i++) {
-                ItemStack st = inv.getItem(i);
-                if (st == null || st.isEmpty()) continue;
-                if (st.has(DataComponents.FOOD)) return i;
-            }
-        } catch (Throwable ignored) {}
-        return -1;
-    }
-
-    private static Container getVillagerInventory(Villager vill) {
-        try {
-            Method m = null;
-            Class<?> c = vill.getClass();
-            while (c != null && c != Object.class) {
-                for (Method mm : c.getDeclaredMethods()) {
-                    if (mm == null) continue;
-                    if (!"getInventory".equals(mm.getName())) continue;
-                    if (mm.getParameterCount() != 0) continue;
-                    mm.setAccessible(true);
-                    m = mm;
-                    break;
-                }
-                if (m != null) break;
-                c = c.getSuperclass();
-            }
-            if (m != null) {
-                Object out = m.invoke(vill);
-                if (out instanceof Container cont) return cont;
-            }
-
-            Class<?> c2 = vill.getClass();
-            while (c2 != null && c2 != Object.class) {
-                for (Field f : c2.getDeclaredFields()) {
-                    try {
-                        if (f == null) continue;
-                        f.setAccessible(true);
-                        Object v = f.get(vill);
-                        if (v instanceof Container cont) return cont;
-                    } catch (Throwable ignored) {}
-                }
-                c2 = c2.getSuperclass();
-            }
-        } catch (Throwable ignored) {}
-        return null;
     }
 
     // ---- Facing helpers ----
@@ -535,9 +447,5 @@ public final class VillagerCombatDirector {
 
         long lastHitLogAt = 0L;
         long lastSwingReasonLogAt = 0L;
-
-        boolean eating = false;
-        int prevSlot = -1;
-        ItemStack prevMainhand = ItemStack.EMPTY;
     }
 }

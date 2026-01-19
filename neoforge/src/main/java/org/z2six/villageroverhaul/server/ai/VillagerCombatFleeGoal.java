@@ -32,6 +32,10 @@ public final class VillagerCombatFleeGoal extends Goal {
     private long lastScanAt = 0L;
     private long lastNoThreatLogAt = 0L;
     private long lastRejectLogAt = 0L;
+    private int lastHurtTimeSeen = 0;
+    private long lastBlockedTickSeen = -1L;
+
+    private static final String PD_BLOCKED_TICK = "ezvr_blocked_tick";
 
     // Tuning (hardcoded for now)
     private static final double FLEE_SPEED = 0.65;
@@ -62,11 +66,14 @@ public final class VillagerCombatFleeGoal extends Goal {
 
             if (threatUuid != null && findThreatByUuid(threatUuid) != null) return true;
 
+            UUID stored = VillagerBrain.getFleeThreat(vill);
+            if (stored != null && findThreatByUuid(stored) != null) return true;
+
             LivingEntity attacker = findRecentAttacker(vill);
             if (attacker != null) return true;
 
-            logNoThreat("no_recent_attacker");
-            return false;
+            // Still tick in FLEE mode even without a recent attacker so we can instantly exit FLEE on contact.
+            return true;
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatFleeGoal.canUse failed (soft): {}", t.toString());
             return false;
@@ -90,6 +97,8 @@ public final class VillagerCombatFleeGoal extends Goal {
             lastScanAt = 0L;
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
+            lastHurtTimeSeen = 0;
+            lastBlockedTickSeen = -1L;
             VillagerBrain.setCombatEngaged(vill, false);
         } catch (Throwable ignored) {}
     }
@@ -100,6 +109,32 @@ public final class VillagerCombatFleeGoal extends Goal {
             if (vill == null || vill.level() == null || vill.level().isClientSide()) return;
 
             long now = vill.level().getGameTime();
+
+            if (detectContact(vill, now)) {
+                // If we got hit once (including shield-blocked hits), stop fleeing and immediately return to combat.
+                VillagerBrain.exitFleeToPreviousCombatMode(vill);
+                VillagerBrain.setCombatEngaged(vill, true);
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                threatUuid = null;
+                lastThreatPos = null;
+                fleeUntilTick = 0L;
+                try { VillagerBrain.setFleeThreat(vill, null); } catch (Throwable ignored) {}
+                return;
+            }
+
+            if (threatUuid == null) {
+                UUID stored = VillagerBrain.getFleeThreat(vill);
+                if (stored != null) {
+                    LivingEntity t = findThreatByUuid(stored);
+                    if (t != null && t.isAlive()) {
+                        threatUuid = stored;
+                        lastThreatPos = t.position();
+                        lastThreatAt = now;
+                        fleeUntilTick = now + 20L * 30L;
+                        VillagerBrain.setCombatEngaged(vill, true);
+                    }
+                }
+            }
 
             if (now - lastScanAt >= 5L) {
                 lastScanAt = now;
@@ -116,12 +151,22 @@ public final class VillagerCombatFleeGoal extends Goal {
                 }
             }
 
-            if (threatUuid == null) return;
+            if (threatUuid == null) {
+                // No known threat yet; just stay "active" so we can break out on first contact.
+                if (!loggedActive) {
+                    loggedActive = true;
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: FLEE (villager={}, mode={})",
+                            vill == null ? "null" : vill.getUUID(),
+                            vill == null ? "null" : VillagerBrain.getMode(vill).id);
+                }
+                return;
+            }
 
             LivingEntity threat = findThreatByUuid(threatUuid);
             if (threat == null || !threat.isAlive()) {
                 if (now - lastThreatAt > 40L) {
                     threatUuid = null;
+                    try { VillagerBrain.setFleeThreat(vill, null); } catch (Throwable ignored) {}
                     VillagerBrain.setCombatEngaged(vill, false);
                     vill.getNavigation().stop();
                     return;
@@ -130,6 +175,7 @@ public final class VillagerCombatFleeGoal extends Goal {
 
             if (fleeUntilTick > 0L && now > fleeUntilTick) {
                 threatUuid = null;
+                try { VillagerBrain.setFleeThreat(vill, null); } catch (Throwable ignored) {}
                 VillagerBrain.setCombatEngaged(vill, false);
                 vill.getNavigation().stop();
                 return;
@@ -163,8 +209,35 @@ public final class VillagerCombatFleeGoal extends Goal {
             lastScanAt = 0L;
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
+            lastHurtTimeSeen = 0;
+            lastBlockedTickSeen = -1L;
+            try { VillagerBrain.setFleeThreat(vill, null); } catch (Throwable ignored) {}
             VillagerBrain.setCombatEngaged(vill, false);
         } catch (Throwable ignored) {}
+    }
+
+    private boolean detectContact(Villager vill, long now) {
+        try {
+            if (vill == null) return false;
+
+            int ht = 0;
+            try { ht = vill.hurtTime; } catch (Throwable ignored) { ht = 0; }
+
+            if (ht > lastHurtTimeSeen) {
+                lastHurtTimeSeen = ht;
+                return true;
+            }
+            lastHurtTimeSeen = ht;
+
+            long blockedTick = -1L;
+            try { blockedTick = vill.getPersistentData().getLong(PD_BLOCKED_TICK); } catch (Throwable ignored) { blockedTick = -1L; }
+
+            if (blockedTick > 0L && blockedTick != lastBlockedTickSeen) {
+                lastBlockedTickSeen = blockedTick;
+                if (blockedTick <= now) return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
     }
 
     private LivingEntity findRecentAttacker(Villager vill) {

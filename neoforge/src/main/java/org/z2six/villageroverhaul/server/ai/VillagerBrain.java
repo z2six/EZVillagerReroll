@@ -4,9 +4,11 @@ package org.z2six.villageroverhaul.server.ai;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -22,8 +24,11 @@ import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 import org.z2six.villageroverhaul.server.RecruitService;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,6 +52,9 @@ public final class VillagerBrain {
     // Combat state (NEW)
     // -------------------------
     private static final String K_COMBAT_MODE = "combat_mode";
+    private static final String K_COMBAT_PRE_FLEE = "combat_pre_flee";
+    private static final String K_FLEE_THREAT = "flee_threat";
+
     private static final String K_UI_PAUSED_UNTIL = "ui_paused_until";
     private static final String K_FORCE_BLOCK_UNTIL = "force_block_until";
 
@@ -182,11 +190,61 @@ public final class VillagerBrain {
         try {
             if (vill == null || mode == null) return;
             CompoundTag root = getOrCreateRoot(vill);
+
+            CombatMode prev = CombatMode.fromId(root.getString(K_COMBAT_MODE));
+            if (mode == CombatMode.FLEE && prev != CombatMode.FLEE) {
+                root.putString(K_COMBAT_PRE_FLEE, prev.id);
+            } else if (mode != CombatMode.FLEE) {
+                root.remove(K_COMBAT_PRE_FLEE);
+            }
+
             root.putString(K_COMBAT_MODE, mode.id);
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatMode set (villager={}, mode={})", vill.getUUID(), mode.id);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] setCombatMode failed (soft): {}", t.toString());
+        }
+    }
+
+    /**
+     * Used when fleeing is interrupted (e.g. got hit): switch to previous combat mode so
+     * the villager immediately resumes normal combat behavior (block/swing/retarget).
+     */
+    public static boolean exitFleeToPreviousCombatMode(Villager vill) {
+        try {
+            if (vill == null) return false;
+            if (getCombatMode(vill) != CombatMode.FLEE) return false;
+
+            CompoundTag root = getOrCreateRoot(vill);
+            CombatMode prev = CombatMode.fromId(root.getString(K_COMBAT_PRE_FLEE));
+
+            // If there was no previous mode (or it was OFF), fall back to DEFEND so we still fight back.
+            if (prev == CombatMode.FLEE || prev == CombatMode.OFF) prev = CombatMode.DEFEND;
+
+            setCombatMode(vill, prev);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static void setFleeThreat(Villager vill, UUID threat) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (threat == null) root.remove(K_FLEE_THREAT);
+            else root.putUUID(K_FLEE_THREAT, threat);
+        } catch (Throwable ignored) {}
+    }
+
+    public static UUID getFleeThreat(Villager vill) {
+        try {
+            if (vill == null) return null;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.hasUUID(K_FLEE_THREAT)) return null;
+            return root.getUUID(K_FLEE_THREAT);
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
@@ -745,6 +803,9 @@ public final class VillagerBrain {
             if (vill == null) return;
             if (vill.level().isClientSide()) return;
 
+            // Track for combat loadout enforcement.
+            VillagerCombatLoadoutService.track(vill);
+
             // Combat has higher priority than movement (except FOLLOW which disables combat in canUse).
             if (!hasGoal(vill, VillagerCombatFleeGoal.class)) {
                 vill.goalSelector.addGoal(0, new VillagerCombatFleeGoal(vill));
@@ -785,6 +846,7 @@ public final class VillagerBrain {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerBrain.ensureAttached failed (soft): {}", t.toString());
         }
     }
+
 
     private static boolean hasGoal(Villager vill, Class<?> goalClazz) {
         try {

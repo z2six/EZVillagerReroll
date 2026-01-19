@@ -25,6 +25,7 @@ import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.ServerSync;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
+import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 
 public final class ServerEvents {
 
@@ -265,6 +266,10 @@ public final class ServerEvents {
 
             try {
                 VillagerBrain.tickForceBlocks();
+            } catch (Throwable ignored) {}
+
+            try {
+                VillagerCombatLoadoutService.tick(server);
             } catch (Throwable ignored) {}
 
             try {

@@ -192,9 +192,14 @@ public final class VillagerInventoryScreen extends AbstractContainerScreen<Villa
             if (this.hoveredSlot == null) return;
             if (this.hoveredSlot.hasItem()) return;
 
-            if (!(this.hoveredSlot instanceof VillagerInventoryMenu.EquipmentProxySlot eq)) return;
-
-            String label = eq.getEmptyLabel();
+            String label = null;
+            if (this.hoveredSlot instanceof VillagerInventoryMenu.EquipmentProxySlot eq) {
+                label = eq.getEmptyLabel();
+            } else if (this.hoveredSlot instanceof VillagerInventoryMenu.CombatLoadoutSlot cl) {
+                label = cl.getEmptyLabel();
+            } else {
+                return;
+            }
             if (label == null || label.isBlank()) return;
 
             Font font = Minecraft.getInstance().font;
