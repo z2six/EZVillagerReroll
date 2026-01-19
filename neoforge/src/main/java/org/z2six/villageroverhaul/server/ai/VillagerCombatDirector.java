@@ -1,12 +1,14 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\server\ai\VillagerCombatDirector.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/ai/VillagerCombatDirector.java
 package org.z2six.villageroverhaul.server.ai;
 
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.UseAnim;
@@ -20,10 +22,18 @@ import java.util.WeakHashMap;
 
 public final class VillagerCombatDirector {
 
+    /**
+     * TEMPORARY: disable any blocking logic entirely so we can focus on attacking correctness.
+     * When true again, we can re-introduce block windows after we verify vanilla damage works.
+     */
+    private static final boolean ENABLE_BLOCKING = false;
+
     private static final double MOVE_SPEED = 0.70;
     private static final double BASE_REACH = 2.0;
     private static final double SAFETY_MARGIN = 0.5;
     private static final long SWING_COOLDOWN_TICKS = 15L;
+
+    // Blocking constants are left intact, but unused while ENABLE_BLOCKING == false
     private static final long BLOCK_WINDOW_TICKS = 12L;
     private static final long BLOCK_COOLDOWN_TICKS = 6L;
     private static final long BLOCK_AFTER_SWING_DELAY_TICKS = 3L;
@@ -53,6 +63,11 @@ public final class VillagerCombatDirector {
 
             long now = vill.level().getGameTime();
 
+            // If blocking is disabled, ensure we're not stuck "using item" from any other system.
+            if (!ENABLE_BLOCKING) {
+                try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+            }
+
             if (st.eating) {
                 if (!vill.isUsingItem()) {
                     finishEating(vill, st);
@@ -81,8 +96,18 @@ public final class VillagerCombatDirector {
                 trySwing(vill, target, st, now);
             }
 
-            updateBlocking(vill, target, st, now);
-            vill.getLookControl().setLookAt(target, 30.0f, 30.0f);
+            // TEMP: fully disable blocking while debugging attack damage.
+            if (ENABLE_BLOCKING) {
+                updateBlocking(vill, target, st, now);
+            } else {
+                // Ensure we don't accidentally flip into block pose/use state.
+                try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+            }
+
+            // Keep looking at target for nicer behavior; doesn't affect damage calc.
+            try {
+                vill.getLookControl().setLookAt(target, 30.0f, 30.0f);
+            } catch (Throwable ignored) {}
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatDirector.tickAttack failed (soft): {}", t.toString());
@@ -96,26 +121,85 @@ public final class VillagerCombatDirector {
             if (st != null) {
                 if (st.eating) finishEating(vill, st);
             }
-            vill.getNavigation().stop();
-            vill.stopUsingItem();
+            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            try { vill.stopUsingItem(); } catch (Throwable ignored) {}
             VillagerBrain.setCombatEngaged(vill, false);
         } catch (Throwable ignored) {}
     }
 
     private static void trySwing(Villager vill, LivingEntity target, State st, long now) {
-        if (now < st.nextSwingAt) return;
-        vill.stopUsingItem();
-        vill.swing(InteractionHand.MAIN_HAND);
-        boolean hit = vill.doHurtTarget(target);
-        if (!hit) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat swing dealt no damage (villager={} target={})",
-                    vill.getUUID(), target.getUUID());
+        try {
+            if (vill == null || target == null || st == null) return;
+            if (now < st.nextSwingAt) return;
+
+            // Make sure we're not using item (esp. shields) while debugging.
+            try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+
+            // Pre-swing debug: attribute values
+            double atkBase = -1.0;
+            double atkVal = -1.0;
+            try {
+                AttributeInstance inst = vill.getAttribute(Attributes.ATTACK_DAMAGE);
+                if (inst != null) {
+                    atkBase = inst.getBaseValue();
+                    atkVal = inst.getValue();
+                }
+            } catch (Throwable ignored) {}
+
+            ItemStack main = ItemStack.EMPTY;
+            try { main = vill.getMainHandItem(); } catch (Throwable ignored) {}
+
+            float beforeHp = -1.0f;
+            try { beforeHp = target.getHealth(); } catch (Throwable ignored) {}
+
+            // Swing animation trigger (server side). Client should receive swing state.
+            try { vill.swing(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+
+            boolean hit = false;
+            try {
+                hit = vill.doHurtTarget(target);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] doHurtTarget threw (villager={} target={} err={})",
+                        safeUuid(vill), safeUuid(target), t.toString());
+                hit = false;
+            }
+
+            float afterHp = -1.0f;
+            try { afterHp = target.getHealth(); } catch (Throwable ignored) {}
+
+            // Cooldown tracking
+            st.nextSwingAt = now + SWING_COOLDOWN_TICKS;
+            st.lastSwingAt = now;
+
+            // High-signal logs: if damage is 0, we will see it immediately.
+            VillagerOverhaul.LOG().info(
+                    "[VillagerOverhaul] SWING (villager={} target={} hit={} hp {}->{} atkBase={} atkVal={} mainItem={})",
+                    safeUuid(vill),
+                    safeUuid(target),
+                    hit,
+                    trim1(beforeHp),
+                    trim1(afterHp),
+                    trim3(atkBase),
+                    trim3(atkVal),
+                    safeItemId(main)
+            );
+
+            if (beforeHp >= 0.0f && afterHp >= 0.0f) {
+                if (Math.abs(afterHp - beforeHp) < 0.0001f) {
+                    VillagerOverhaul.LOG().info(
+                            "[VillagerOverhaul] SWING dealt NO HP damage (villager={} target={}) (this usually means attack damage is ~0, target immune, or event canceled)",
+                            safeUuid(vill), safeUuid(target)
+                    );
+                }
+            }
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] trySwing failed (soft): {}", t.toString());
         }
-        st.nextSwingAt = now + SWING_COOLDOWN_TICKS;
-        st.lastSwingAt = now;
     }
 
     private static void updateBlocking(Villager vill, LivingEntity target, State st, long now) {
+        // Not used while ENABLE_BLOCKING == false, but retained for later.
         if (st.eating) return;
 
         if ((now - st.lastSwingAt) < BLOCK_AFTER_SWING_DELAY_TICKS) {
@@ -187,7 +271,7 @@ public final class VillagerCombatDirector {
             vill.startUsingItem(InteractionHand.MAIN_HAND);
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat eat start (villager={} food={})",
-                    vill.getUUID(), safeItemId(food));
+                    safeUuid(vill), safeItemId(food));
             return true;
         } catch (Throwable ignored) {}
         return false;
@@ -210,7 +294,7 @@ public final class VillagerCombatDirector {
             st.prevSlot = -1;
             st.eating = false;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat eat end (villager={})", vill.getUUID());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat eat end (villager={})", safeUuid(vill));
         } catch (Throwable ignored) {}
     }
 
@@ -299,11 +383,30 @@ public final class VillagerCombatDirector {
 
     private static String safeItemId(ItemStack st) {
         try {
+            if (st == null || st.isEmpty()) return "empty";
             ResourceLocation id = BuiltInRegistries.ITEM.getKey(st.getItem());
-            return id == null ? "" : id.toString();
+            return id == null ? "unknown" : id.toString();
         } catch (Throwable t) {
-            return "";
+            return "error";
         }
+    }
+
+    private static String safeUuid(Object e) {
+        try {
+            if (e instanceof LivingEntity le) return String.valueOf(le.getUUID());
+            if (e instanceof Villager v) return String.valueOf(v.getUUID());
+        } catch (Throwable ignored) {}
+        return "null";
+    }
+
+    private static double trim3(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return 0.0;
+        return Math.round(v * 1000.0) / 1000.0;
+    }
+
+    private static double trim1(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return 0.0;
+        return Math.round(v * 10.0) / 10.0;
     }
 
     private static final class State {

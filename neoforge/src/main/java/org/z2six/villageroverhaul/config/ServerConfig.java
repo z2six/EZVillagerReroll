@@ -355,7 +355,7 @@ public final class ServerConfig {
                         Strength MIN delta applied to generic.attack_damage at points=-100.
                         Unit: damage points.
                         """)
-                        .defineInRange("strengthMinDamage", -1.0, -1024.0, 1024.0);
+                        .defineInRange("strengthMinDamage", -3.0, -1024.0, 1024.0);
 
         STRENGTH_MAX_DAMAGE =
                 B.comment("""
@@ -376,7 +376,7 @@ public final class ServerConfig {
                         Armor MAX delta applied to generic.armor at points=+100.
                         Unit: armor points.
                         """)
-                        .defineInRange("armorMax", 15.0, -1024.0, 1024.0);
+                        .defineInRange("armorMax", 5.0, -1024.0, 1024.0);
 
         // ----------------------------
         // Hoarder clamp

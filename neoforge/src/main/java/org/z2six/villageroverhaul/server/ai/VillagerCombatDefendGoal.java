@@ -87,7 +87,7 @@ public final class VillagerCombatDefendGoal extends Goal {
             // Step 1: do nothing besides optional debug.
             if (!loggedActive) {
                 loggedActive = true;
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat goal active: DEFEND (villager={}, mode={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: DEFEND (villager={}, mode={})",
                         vill == null ? "null" : vill.getUUID(),
                         vill == null ? "null" : VillagerBrain.getMode(vill).id);
             }

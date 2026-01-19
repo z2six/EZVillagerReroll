@@ -142,7 +142,7 @@ public final class VillagerCombatFleeGoal extends Goal {
 
             if (!loggedActive) {
                 loggedActive = true;
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat goal active: FLEE (villager={}, mode={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: FLEE (villager={}, mode={})",
                         vill == null ? "null" : vill.getUUID(),
                         vill == null ? "null" : VillagerBrain.getMode(vill).id);
             }

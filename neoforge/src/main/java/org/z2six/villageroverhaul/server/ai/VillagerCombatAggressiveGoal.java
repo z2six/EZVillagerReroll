@@ -94,7 +94,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             // Step 1: do nothing besides optional debug.
             if (!loggedActive) {
                 loggedActive = true;
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat goal active: AGGRESSIVE (villager={}, mode={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: AGGRESSIVE (villager={}, mode={})",
                         vill == null ? "null" : vill.getUUID(),
                         vill == null ? "null" : VillagerBrain.getMode(vill).id);
             }
@@ -178,7 +178,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             }
 
             if (best != null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] AGGRESSIVE target found (villager={} target={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] AGGRESSIVE target found (villager={} target={})",
                         vill.getUUID(), best.getUUID());
             }
             return best;
@@ -202,7 +202,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             long now = vill.level().getGameTime();
             if ((now - lastRejectLogAt) < 40L) return;
             lastRejectLogAt = now;
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] AGGRESSIVE candidate rejected (villager={} entity={} reason={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] AGGRESSIVE candidate rejected (villager={} entity={} reason={})",
                     vill.getUUID(), id, reason);
         } catch (Throwable ignored) {}
     }
@@ -213,7 +213,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             long now = vill.level().getGameTime();
             if ((now - lastNoThreatLogAt) < 40L) return;
             lastNoThreatLogAt = now;
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] AGGRESSIVE waiting (villager={} reason={})", vill.getUUID(), reason);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] AGGRESSIVE waiting (villager={} reason={})", vill.getUUID(), reason);
         } catch (Throwable ignored) {}
     }
 

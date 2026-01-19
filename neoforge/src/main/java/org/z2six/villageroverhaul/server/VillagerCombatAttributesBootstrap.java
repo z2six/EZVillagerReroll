@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\server\VillagerCombatAttributesBootstrap.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/VillagerCombatAttributesBootstrap.java
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.world.entity.EntityType;
@@ -11,9 +11,18 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 /**
  * Ensures villager-like entities actually HAVE the vanilla attributes we want to modify.
  *
- * Villagers do NOT include ATTACK_DAMAGE by default, so applying Strength would fail (AttributeInstance null).
+ * Villagers do NOT include ATTACK_DAMAGE by default, so applying Strength would fail (AttributeInstance null),
+ * and vanilla melee damage (Mob#doHurtTarget) would compute as ~0 if no sensible base is present.
  *
  * This runs on the MOD event bus (not the gameplay bus).
+ *
+ * Key detail:
+ * EntityAttributeModificationEvent exposes:
+ *   - add(type, attribute)
+ *   - add(type, attribute, baseValue)
+ *   - has(type, attribute)
+ *
+ * We use has(...) so we do NOT override vanilla defaults or another mod's supplier values if already present.
  */
 public final class VillagerCombatAttributesBootstrap {
 
@@ -41,29 +50,96 @@ public final class VillagerCombatAttributesBootstrap {
             ensureFor(e, EntityType.VILLAGER);
             ensureFor(e, EntityType.WANDERING_TRADER);
 
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] EntityAttributeModificationEvent typesCount={}", e.getTypes().size());
+            }
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] onEntityAttributeModification failed", t);
         }
     }
 
-    // IMPORTANT: must be LivingEntity types, because the event only allows attributes for LivingEntity types.
     private static void ensureFor(EntityAttributeModificationEvent e, EntityType<? extends LivingEntity> type) {
         try {
             if (e == null || type == null) return;
 
-            // Already exist on villagers, but adding is harmless if present.
-            e.add(type, Attributes.MAX_HEALTH);
-            e.add(type, Attributes.MOVEMENT_SPEED);
+            // Common attributes that should exist anyway; only add if missing.
+            ensurePresent(e, type, Attributes.MAX_HEALTH, null, "MAX_HEALTH");
+            ensurePresent(e, type, Attributes.MOVEMENT_SPEED, null, "MOVEMENT_SPEED");
 
-            // These are the key ones villagers normally DON'T have:
-            e.add(type, Attributes.ATTACK_DAMAGE);
-            e.add(type, Attributes.ARMOR);
+            // Core combat attributes we actively use.
+            // Base attack damage: keep 1.0 baseline so bare-handed attacks aren't permanently 0 due to missing base.
+            ensurePresent(e, type, Attributes.ATTACK_DAMAGE, 1.0D, "ATTACK_DAMAGE");
+            ensurePresent(e, type, Attributes.ARMOR, 0.0D, "ARMOR");
+            ensurePresent(e, type, Attributes.ARMOR_TOUGHNESS, 0.0D, "ARMOR_TOUGHNESS");
 
-            // Optional: only matters if you decide to use toughness later
-            e.add(type, Attributes.ARMOR_TOUGHNESS);
+            // "May need later" combat / feel / tuning attributes (added at 0 unless you later decide otherwise).
+            ensurePresent(e, type, Attributes.ATTACK_KNOCKBACK, 0.0D, "ATTACK_KNOCKBACK");
+            ensurePresent(e, type, Attributes.KNOCKBACK_RESISTANCE, 0.0D, "KNOCKBACK_RESISTANCE");
+            ensurePresent(e, type, Attributes.FOLLOW_RANGE, 0.0D, "FOLLOW_RANGE");
+            ensurePresent(e, type, Attributes.STEP_HEIGHT, 0.0D, "STEP_HEIGHT");
+            ensurePresent(e, type, Attributes.SCALE, 0.0D, "SCALE");
 
-        } catch (Throwable ignored) {
-            // soft
+            // These exist in the Attributes list and can be useful later, but are often ignored by many entities.
+            // Still safe to ensure-present at 0 without overriding if vanilla already supplies them. :contentReference[oaicite:3]{index=3}
+            ensurePresent(e, type, Attributes.ATTACK_SPEED, 0.0D, "ATTACK_SPEED");
+            ensurePresent(e, type, Attributes.LUCK, 0.0D, "LUCK");
+            ensurePresent(e, type, Attributes.FLYING_SPEED, 0.0D, "FLYING_SPEED");
+            ensurePresent(e, type, Attributes.JUMP_STRENGTH, 0.0D, "JUMP_STRENGTH");
+
+        } catch (Throwable t) {
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] ensureFor failed (soft) type={} err={}", type, t.toString());
+            }
+        }
+    }
+
+    /**
+     * Ensures the attribute exists on the entity type's AttributeSupplier builder.
+     *
+     * - If baseValue is null: uses event.add(type, attr) (does not set/override a base).
+     * - If baseValue is non-null: uses event.add(type, attr, baseValue) but only if missing.
+     *
+     * We always check event.has(...) first to avoid overriding vanilla defaults. :contentReference[oaicite:4]{index=4}
+     */
+    private static void ensurePresent(
+            EntityAttributeModificationEvent e,
+            EntityType<? extends LivingEntity> type,
+            net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute> attr,
+            Double baseValue,
+            String debugName
+    ) {
+        try {
+            if (e == null || type == null || attr == null) return;
+
+            if (e.has(type, attr)) {
+                if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attribute already present (type={} attr={})", type.toShortString(), debugName);
+                }
+                return;
+            }
+
+            if (baseValue == null) {
+                e.add(type, attr);
+                if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Added attribute (type={} attr={})", type.toShortString(), debugName);
+                }
+            } else {
+                e.add(type, attr, baseValue.doubleValue());
+                if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                    VillagerOverhaul.LOG().debug(
+                            "[VillagerOverhaul] Added attribute with base (type={} attr={} base={})",
+                            type.toShortString(), debugName, baseValue
+                    );
+                }
+            }
+        } catch (Throwable t) {
+            if (VillagerOverhaul.LOG().isDebugEnabled()) {
+                VillagerOverhaul.LOG().debug(
+                        "[VillagerOverhaul] ensurePresent failed (soft) type={} attr={} err={}",
+                        type, debugName, t.toString()
+                );
+            }
         }
     }
 }
