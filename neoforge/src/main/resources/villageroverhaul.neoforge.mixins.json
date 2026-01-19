@@ -11,7 +11,8 @@
     "VillagerBrainGateMixin",
     "villagerRendering.VillagerRenderStateMixin",
     "villagerRendering.LivingEntityPreventVillagerHandClearMixin",
-    "villagerRendering.MobPreventVillagerHandClearMixin"
+    "villagerRendering.MobPreventVillagerHandClearMixin",
+    "villagerCombat.LivingEntityHurtBlockedTickMixin"
   ],
   "client": [
     "MerchantScreenTradeLockRightClickMixin",

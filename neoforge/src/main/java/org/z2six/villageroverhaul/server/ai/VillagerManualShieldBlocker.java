@@ -1,5 +1,5 @@
 // MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/server/VillagerManualShieldBlocker.java
-package org.z2six.villageroverhaul.server;
+package org.z2six.villageroverhaul.server.ai;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -20,7 +20,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import net.neoforged.neoforge.event.entity.living.LivingKnockBackEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import org.z2six.villageroverhaul.server.ai.VillagerBrain;
+import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;

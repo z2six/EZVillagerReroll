@@ -24,7 +24,7 @@ import org.z2six.villageroverhaul.server.BusyVillagerBlocker;
 import org.z2six.villageroverhaul.server.CombatBlockDiagnostics;
 import org.z2six.villageroverhaul.server.ServerEvents;
 import org.z2six.villageroverhaul.server.VillagerCombatAttributesBootstrap;
-import org.z2six.villageroverhaul.server.VillagerManualShieldBlocker;
+import org.z2six.villageroverhaul.server.ai.VillagerManualShieldBlocker;
 
 @Mod(Constants.MOD_ID)
 public final class VillagerOverhaul {

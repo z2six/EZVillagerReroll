@@ -4,6 +4,7 @@ package org.z2six.villageroverhaul.server.ai;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
@@ -23,39 +24,25 @@ import java.util.WeakHashMap;
 
 public final class VillagerCombatDirector {
 
-    /**
-     * Re-enabled.
-     * The policy is now:
-     * - default state is BLOCKING
-     * - SWING is an interrupt (triggered by: got hit OR timeout-without-hit)
-     */
     private static final boolean ENABLE_BLOCKING = true;
 
     private static final double MOVE_SPEED = 0.70;
     private static final double BASE_REACH = 2.0;
     private static final double SAFETY_MARGIN = 0.5;
 
-    /**
-     * Server combat cadence (damage cadence).
-     * This is independent from the visual swing duration on the client.
-     */
-    private static final long SWING_COOLDOWN_TICKS = 15L;
-
-    /**
-     * Match your client visual swing window (currently 6).
-     * We do NOT block during this window so the arms don't snap into block pose.
-     */
+    private static final long SWING_COOLDOWN_TICKS = 30L;
     private static final long SWING_ANIM_TICKS = 6L;
-
-    /**
-     * Rule #4: if not hit while blocking for ~1.5 seconds, swing.
-     */
-    private static final long NO_HIT_SWING_DELAY_TICKS = 30L; // 1.5s
+    private static final long NO_HIT_SWING_DELAY_TICKS = 30L;
 
     private static final double EAT_RETREAT_DIST = 6.0;
     private static final double EAT_MIN_DIST_BUFFER = 1.5;
 
     private static final Map<Villager, State> STATE = new WeakHashMap<>();
+
+    // Reflection caches for yaw/head/body setters (mappings drift)
+    private static volatile boolean ROT_REFLECT_SCANNED = false;
+    private static volatile Method SET_Y_HEAD_ROT = null;
+    private static volatile Method SET_Y_BODY_ROT = null;
 
     private VillagerCombatDirector() {}
 
@@ -77,10 +64,8 @@ public final class VillagerCombatDirector {
 
             long now = vill.level().getGameTime();
 
-            // Detect “got hit” (even if damage was 0) using hurtTime rising edge.
             detectHitEdge(vill, st, now);
 
-            // Eating logic (unchanged)
             if (st.eating) {
                 if (!vill.isUsingItem()) {
                     finishEating(vill, st);
@@ -89,7 +74,7 @@ public final class VillagerCombatDirector {
 
             if (!st.eating && shouldEat(vill)) {
                 if (tryStartEating(vill, st)) {
-                    // While eating we keep distance and do not block/swing.
+                    faceTargetHard(vill, target);
                     return;
                 }
             }
@@ -99,44 +84,32 @@ public final class VillagerCombatDirector {
 
             if (st.eating) {
                 keepDistanceWhileEating(vill, target, swingRange + EAT_MIN_DIST_BUFFER);
+                faceTargetHard(vill, target);
                 return;
             }
 
             double dist = vill.distanceTo(target);
             boolean inSwingRange = dist <= swingRange;
 
-            // Movement policy:
-            // - If out of range: move toward target (while blocking)
-            // - If in range: stop navigation (block stance + swing interrupts)
             if (!inSwingRange) {
                 try { vill.getNavigation().moveTo(target, MOVE_SPEED); } catch (Throwable ignored) {}
             } else {
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             }
 
-            // If we are within the post-swing “no block” window, ensure we are not using item.
-            // This makes blocking resume only after the swing animation is “complete”.
             if (now < st.noBlockUntil) {
                 try { vill.stopUsingItem(); } catch (Throwable ignored) {}
             }
 
-            // Decide if we should swing now (Rule #3 and #4).
-            // - Must be in range to swing.
-            // - Must not be in the no-block window (i.e., previous swing anim still playing).
-            // - Must respect cooldown.
             boolean canSwingNow = inSwingRange && now >= st.noBlockUntil && now >= st.nextSwingAt;
 
             boolean wantSwing = false;
             String swingReason = null;
 
-            // Rule #3: if villager has been hit once -> swing
             if (st.hitSinceLastSwing) {
                 wantSwing = true;
                 swingReason = "hit";
             } else {
-                // Rule #4: if not hit while blocking for ~1.5s -> swing
-                // Only count time while we're in "combat loop" and effectively blocking.
-                // (We reset this timer when we swing or when we get hit.)
                 if (st.blockNoHitSince < 0L) {
                     st.blockNoHitSince = now;
                 } else {
@@ -149,37 +122,29 @@ public final class VillagerCombatDirector {
             }
 
             if (wantSwing && canSwingNow) {
-                // Swing is an interrupt: stop blocking immediately, swing, then re-block after SWING_ANIM_TICKS.
                 performSwing(vill, target, st, now, swingReason);
-
-                // After we swing, we intentionally do not block until noBlockUntil.
-                // Blocking will resume automatically below on subsequent ticks.
+                faceTargetHard(vill, target);
                 return;
             }
 
-            // Default state: BLOCKING (Rule #1 and #2).
-            // - Out of range => keep blocking while pathing
-            // - In range => keep blocking unless we are currently in a swing “no-block” window
             if (ENABLE_BLOCKING) {
                 if (now >= st.noBlockUntil) {
-                    // Start/maintain blocking.
                     boolean started = startBlocking(vill);
                     if (started) {
-                        // When we (re-)enter blocking state, start/reset the no-hit timer.
                         if (st.blockNoHitSince < 0L) st.blockNoHitSince = now;
                     }
                 } else {
-                    // Still in swing animation window: do not block.
                     try { vill.stopUsingItem(); } catch (Throwable ignored) {}
                 }
             } else {
                 try { vill.stopUsingItem(); } catch (Throwable ignored) {}
             }
 
-            // Keep looking at target (helps block-angle later).
-            try {
-                vill.getLookControl().setLookAt(target, 30.0f, 30.0f);
-            } catch (Throwable ignored) {}
+            // Head look
+            try { vill.getLookControl().setLookAt(target, 30.0f, 30.0f); } catch (Throwable ignored) {}
+
+            // Body facing
+            faceTargetHard(vill, target);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatDirector.tickAttack failed (soft): {}", t.toString());
@@ -199,28 +164,19 @@ public final class VillagerCombatDirector {
         } catch (Throwable ignored) {}
     }
 
-    // -------------------------------------------------------------------------
-    // Swing control (interrupt)
-    // -------------------------------------------------------------------------
-
     private static void performSwing(Villager vill, LivingEntity target, State st, long now, String reason) {
         try {
             if (vill == null || target == null || st == null) return;
 
-            // Stop blocking before swing
             try { vill.stopUsingItem(); } catch (Throwable ignored) {}
 
-            // Try swing + damage
             doSwingAndHit(vill, target, st, now);
 
-            // After swing: do not block for the duration of the visible swing anim.
             st.noBlockUntil = now + Math.max(1L, SWING_ANIM_TICKS);
 
-            // Reset “hit” trigger for next cycle and restart no-hit timer *after* swing completes.
             st.hitSinceLastSwing = false;
             st.blockNoHitSince = st.noBlockUntil;
 
-            // Throttled info logs
             if (st.lastSwingReasonLogAt <= 0L || (now - st.lastSwingReasonLogAt) >= 10L) {
                 st.lastSwingReasonLogAt = now;
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat SWING reason={} villager={} target={}",
@@ -252,10 +208,8 @@ public final class VillagerCombatDirector {
             float beforeHp = -1.0f;
             try { beforeHp = target.getHealth(); } catch (Throwable ignored) {}
 
-            // Vanilla swing (server)
             try { vill.swing(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
 
-            // deterministic client animation signal
             try {
                 if (vill instanceof VillagerOverhaulSwingAccess acc) {
                     int prev = acc.ezvr$getSwingSeq();
@@ -295,27 +249,18 @@ public final class VillagerCombatDirector {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Hit detection (Rule #3 trigger)
-    // -------------------------------------------------------------------------
-
     private static void detectHitEdge(Villager vill, State st, long now) {
         try {
             if (vill == null || st == null) return;
 
-            // hurtTime is reset high when a hurt event occurs and counts down.
             int ht = 0;
             try { ht = vill.hurtTime; } catch (Throwable ignored) { ht = 0; }
 
-            // Rising edge: new hit if current hurtTime is greater than last seen.
             if (ht > st.lastHurtTimeSeen) {
                 st.lastHitAt = now;
                 st.hitSinceLastSwing = true;
-
-                // Reset the no-hit timer immediately (we *did* get hit).
                 st.blockNoHitSince = now;
 
-                // Throttled debug/info
                 if (st.lastHitLogAt <= 0L || (now - st.lastHitLogAt) >= 10L) {
                     st.lastHitLogAt = now;
                     VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat HIT detected (villager={} hurtTime={} now={})",
@@ -328,19 +273,9 @@ public final class VillagerCombatDirector {
         } catch (Throwable ignored) {}
     }
 
-    // -------------------------------------------------------------------------
-    // Blocking control (default state)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Start blocking if holding a shield in either hand.
-     * @return true if we successfully started blocking this call (or were already blocking)
-     */
     private static boolean startBlocking(Villager vill) {
         try {
             if (vill == null) return false;
-
-            // If already using item, don't spam startUsingItem.
             if (vill.isUsingItem()) return true;
 
             ItemStack off = vill.getOffhandItem();
@@ -359,10 +294,6 @@ public final class VillagerCombatDirector {
 
         return false;
     }
-
-    // -------------------------------------------------------------------------
-    // Eating logic (unchanged)
-    // -------------------------------------------------------------------------
 
     private static boolean shouldEat(Villager vill) {
         try {
@@ -437,10 +368,6 @@ public final class VillagerCombatDirector {
         } catch (Throwable ignored) {}
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
     private static double computeReach(Villager vill, LivingEntity target) {
         double v = (vill == null) ? 0.6 : vill.getBbWidth();
         double t = (target == null) ? 0.6 : target.getBbWidth();
@@ -506,6 +433,63 @@ public final class VillagerCombatDirector {
         return null;
     }
 
+    // ---- Facing helpers ----
+
+    private static void faceTargetHard(Villager vill, LivingEntity target) {
+        try {
+            if (vill == null || target == null) return;
+
+            Vec3 vp = vill.position();
+            Vec3 tp = target.position();
+
+            double dx = tp.x - vp.x;
+            double dz = tp.z - vp.z;
+
+            if ((dx * dx + dz * dz) < 1.0e-6) return;
+
+            float desiredYaw = (float) (Mth.atan2(dz, dx) * (180.0 / Math.PI)) - 90.0f;
+            desiredYaw = Mth.wrapDegrees(desiredYaw);
+
+            try { vill.setYRot(desiredYaw); } catch (Throwable ignored) {}
+            try { vill.yRotO = desiredYaw; } catch (Throwable ignored) {}
+
+            if (!ROT_REFLECT_SCANNED) warmupRotReflection();
+            tryInvokeYawSetter(SET_Y_HEAD_ROT, vill, desiredYaw);
+            tryInvokeYawSetter(SET_Y_BODY_ROT, vill, desiredYaw);
+
+        } catch (Throwable ignored) {}
+    }
+
+    private static void warmupRotReflection() {
+        ROT_REFLECT_SCANNED = true;
+        try {
+            for (Method m : LivingEntity.class.getMethods()) {
+                if (m == null) continue;
+                if (m.getParameterCount() != 1) continue;
+                if (m.getParameterTypes()[0] != float.class) continue;
+
+                String n = m.getName();
+                if (n == null) continue;
+
+                if (SET_Y_HEAD_ROT == null && (n.equals("setYHeadRot") || n.toLowerCase().contains("yheadrot"))) {
+                    SET_Y_HEAD_ROT = m;
+                }
+                if (SET_Y_BODY_ROT == null && (n.equals("setYBodyRot") || n.toLowerCase().contains("ybodyrot"))) {
+                    SET_Y_BODY_ROT = m;
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void tryInvokeYawSetter(Method m, LivingEntity e, float yaw) {
+        try {
+            if (m == null || e == null) return;
+            m.invoke(e, yaw);
+        } catch (Throwable ignored) {}
+    }
+
+    // ---- existing helpers ----
+
     private static String safeItemId(ItemStack st) {
         try {
             if (st == null || st.isEmpty()) return "empty";
@@ -534,34 +518,24 @@ public final class VillagerCombatDirector {
         return Math.round(v * 10.0) / 10.0;
     }
 
-    // -------------------------------------------------------------------------
-    // State
-    // -------------------------------------------------------------------------
-
     private static final class State {
         java.util.UUID targetId;
 
         long nextSwingAt = 0L;
         long lastSwingAt = -9999L;
 
-        // Do not block until this tick (used to let swing anim complete)
         long noBlockUntil = 0L;
 
-        // “Got hit” trigger
         boolean hitSinceLastSwing = false;
         long lastHitAt = -1L;
 
-        // Tracks hurtTime for rising edge detection
         int lastHurtTimeSeen = 0;
 
-        // “No hit while blocking” timer
         long blockNoHitSince = -1L;
 
-        // Throttled logs
         long lastHitLogAt = 0L;
         long lastSwingReasonLogAt = 0L;
 
-        // Eating
         boolean eating = false;
         int prevSlot = -1;
         ItemStack prevMainhand = ItemStack.EMPTY;
