@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\mixin\villagerRendering\VillagerRenderStateMixin.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/mixin/villagerRendering/VillagerRenderStateMixin.java
 package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -12,25 +12,35 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 /**
- * Adds a synced byte to Villager containing render decisions, and updates it every server tick
- * using VillagerBrain as the single authority.
+ * Adds synced render decisions + a synced swing sequence counter to Villager.
+ *
+ * - Render flags are updated every server tick by VillagerBrain.
+ * - Swing sequence is incremented by server combat code exactly when a swing happens.
  */
 @Mixin(Villager.class)
-public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAccess {
+public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAccess, VillagerOverhaulSwingAccess {
 
     @Unique
     private static final EntityDataAccessor<Byte> EZVR_RENDER_FLAGS =
             SynchedEntityData.defineId(Villager.class, EntityDataSerializers.BYTE);
 
+    @Unique
+    private static final EntityDataAccessor<Integer> EZVR_SWING_SEQ =
+            SynchedEntityData.defineId(Villager.class, EntityDataSerializers.INT);
+
     @Inject(method = "defineSynchedData", at = @At("TAIL"))
     private void ezvr$defineSynchedData(SynchedEntityData.Builder builder, CallbackInfo ci) {
         try {
             if (builder == null) return;
+
             builder.define(EZVR_RENDER_FLAGS, VillagerRenderFlags.defaultFlags());
+            builder.define(EZVR_SWING_SEQ, 0);
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerRenderStateMixin#defineSynchedData failed (soft): {}", t.toString());
         }
@@ -51,6 +61,10 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Render flags (existing)
+    // -------------------------------------------------------------------------
+
     @Override
     public byte ezvr$getRenderFlags() {
         try {
@@ -69,6 +83,31 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
             Villager self = (Villager) (Object) this;
             if (self.getEntityData() == null) return;
             self.getEntityData().set(EZVR_RENDER_FLAGS, flags);
+        } catch (Throwable ignored) {}
+    }
+
+    // -------------------------------------------------------------------------
+    // Swing sequence (new)
+    // -------------------------------------------------------------------------
+
+    @Override
+    public int ezvr$getSwingSeq() {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return 0;
+            Integer v = self.getEntityData().get(EZVR_SWING_SEQ);
+            return v == null ? 0 : v.intValue();
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    @Override
+    public void ezvr$setSwingSeq(int seq) {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return;
+            self.getEntityData().set(EZVR_SWING_SEQ, seq);
         } catch (Throwable ignored) {}
     }
 }
