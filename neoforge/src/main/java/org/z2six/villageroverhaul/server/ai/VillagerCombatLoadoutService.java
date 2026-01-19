@@ -216,7 +216,14 @@ public final class VillagerCombatLoadoutService {
             ItemStack curOff = vill.getOffhandItem();
 
             // MAINHAND: self-heal if the hand doesn't match the equipped loadout.
-            if (eqMain != null && !eqMain.isEmpty()) {
+            boolean skipMain = false;
+            try {
+                long until = vill.getPersistentData().getLong("ezvr_loadout_skip_main_until");
+                long now = vill.level() == null ? 0L : vill.level().getGameTime();
+                skipMain = until > 0L && now < until;
+            } catch (Throwable ignored) {}
+
+            if (!skipMain && eqMain != null && !eqMain.isEmpty()) {
                 if (curMain == null) curMain = ItemStack.EMPTY;
 
                 if (curMain.isEmpty()) {

@@ -12,7 +12,9 @@
     "villagerRendering.VillagerRenderStateMixin",
     "villagerRendering.LivingEntityPreventVillagerHandClearMixin",
     "villagerRendering.MobPreventVillagerHandClearMixin",
-    "villagerCombat.LivingEntityHurtBlockedTickMixin"
+    "villagerCombat.LivingEntityHurtBlockedTickMixin",
+    "villagerCombat.MobYawLockMixin",
+    "villagerCombat.MobBackpedalInputMixin"
   ],
   "client": [
     "MerchantScreenTradeLockRightClickMixin",

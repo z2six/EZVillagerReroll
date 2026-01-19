@@ -74,7 +74,20 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        return canUse();
+        try {
+            if (vill == null) return false;
+            if (vill.level() == null || vill.level().isClientSide()) return false;
+
+            if (!VillagerBrain.shouldCombatActNow(vill)) return false;
+            if (VillagerBrain.isUiPaused(vill)) return false;
+            if (VillagerBrain.getCombatMode(vill) != VillagerBrain.CombatMode.AGGRESSIVE) return false;
+
+            if (targetUuid == null) return false;
+            LivingEntity t = findTargetByUuid(targetUuid);
+            return t != null && t.isAlive();
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     @Override
