@@ -56,6 +56,14 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
      */
     private static final float SWING_CONE_SCALE = 0.80f; // 20% lower cone
 
+    // Manual eat pose tuning (for UseAnim.EAT)
+    // Increased inward/upward rotation to bring the hand closer to the mouth.
+    private static final float EAT_XROT_BASE = -1.55f;
+    private static final float EAT_XROT_WOBBLE = 0.10f;
+    private static final float EAT_YROT_IN = 0.60f;
+    private static final float EAT_ZROT_TWIST = 0.16f;
+    private static final float EAT_WOBBLE_SPEED = 0.70f;
+
     /**
      * Additional improvement: avoid the first frame snapping "too high" when duration is short (4 ticks).
      * We ease-in the progress before taking sin(), while still preserving endpoints.
@@ -119,6 +127,8 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             setupDriverState(villager, swingProg);
 
             driverHumanoid.setupAnim(villager, limbSwing, limbSwingAmount, ageInTicks, netHeadYaw, headPitch);
+
+            applyManualEatPoseToDriverArms(villager, partialTick, ageInTicks);
 
             applyManualSwingToDriverArms(villager, swingProg);
 
@@ -211,7 +221,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             driverHumanoid.rightArmPose = HumanoidModel.ArmPose.EMPTY;
 
             // If using item (eat/bow/block), do not swing.
-            if (v.isUsingItem()) {
+            if (v.isUsingItem() || isEatingPoseForced(v)) {
                 InteractionHand hand = v.getUsedItemHand();
                 ItemStack using = v.getUseItem();
 
@@ -240,6 +250,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
         try {
             if (v == null || driverHumanoid == null) return;
             if (v.isUsingItem()) return;
+            if (isEatingPoseForced(v)) return;
             if (p <= 0.0001f) return;
 
             // Optionally ease-in/out to avoid the first frame "jump" when duration is very short.
@@ -268,6 +279,66 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] applyManualSwingToDriverArms failed (soft): {}", t.toString());
+        }
+    }
+
+    private void applyManualEatPoseToDriverArms(Villager v, float partialTick, float ageInTicks) {
+        try {
+            if (v == null || driverHumanoid == null) return;
+
+            boolean forced = isEatingPoseForced(v);
+
+            ItemStack using;
+            InteractionHand hand;
+
+            if (forced) {
+                using = v.getMainHandItem();
+                hand = InteractionHand.MAIN_HAND;
+            } else {
+                if (!v.isUsingItem()) return;
+                using = v.getUseItem();
+                hand = v.getUsedItemHand();
+            }
+
+            if (using == null || using.isEmpty()) return;
+            if (using.getUseAnimation() != UseAnim.EAT) return;
+
+            HumanoidArm mainArm = v.getMainArm();
+            boolean usingMainHand = (hand == InteractionHand.MAIN_HAND);
+
+            boolean activeIsRight = usingMainHand
+                    ? (mainArm == HumanoidArm.RIGHT)
+                    : (mainArm != HumanoidArm.RIGHT);
+
+            ModelPart arm = activeIsRight ? driverHumanoid.rightArm : driverHumanoid.leftArm;
+            if (arm == null) return;
+
+            float t = ageInTicks + partialTick;
+            float wobble = Mth.cos(t * EAT_WOBBLE_SPEED) * EAT_XROT_WOBBLE;
+
+            // Raise hand to mouth with a small wobble.
+            arm.xRot = EAT_XROT_BASE + wobble;
+
+            // Rotate inward toward face.
+            arm.yRot += activeIsRight ? -EAT_YROT_IN : EAT_YROT_IN;
+
+            // Small twist for "bite" motion.
+            arm.zRot += activeIsRight ? -EAT_ZROT_TWIST : EAT_ZROT_TWIST;
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] applyManualEatPoseToDriverArms failed (soft): {}", t.toString());
+        }
+    }
+
+    private static boolean isEatingPoseForced(Villager v) {
+        try {
+            if (v == null) return false;
+            if (v instanceof VillagerOverhaulRenderAccess acc) {
+                return VillagerRenderFlags.renderEatingPose(acc.ezvr$getRenderFlags());
+            }
+            return false;
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 

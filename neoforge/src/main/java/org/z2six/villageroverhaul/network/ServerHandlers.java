@@ -29,6 +29,7 @@ import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerEatTest;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerForceBlock;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
@@ -48,6 +49,7 @@ import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
+import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 
 // patrol packets
@@ -922,6 +924,31 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerForceBlock failed", t);
+        }
+    }
+
+    public static void handleVillagerEatTest(PacketVillagerEatTest msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                return;
+            }
+            if (!sp.hasPermissions(2)) {
+                return;
+            }
+
+            boolean ok = VillagerEatTestService.requestEatNearestFood(vill);
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Eat test requested (villager={} ok={})",
+                    vill.getUUID(), ok);
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerEatTest failed", t);
         }
     }
 

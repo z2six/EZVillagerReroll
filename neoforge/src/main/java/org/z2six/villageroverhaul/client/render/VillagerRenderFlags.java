@@ -14,6 +14,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
  *  - 0x01 => render bodywear (robe)
  *  - 0x02 => render custom humanoid arms (and hide vanilla crossed-arms bone)
  *  - 0x04 => HIDE villager hat part (root.head.hat) (used when helmet is equipped)
+ *  - 0x08 => render eating arm pose (manual override; server-authoritative)
  *
  * Derived decisions:
  *  - Vanilla crossed-arms chest-held-item layer should render IFF we are NOT rendering custom arms.
@@ -27,6 +28,9 @@ public final class VillagerRenderFlags {
 
     /** If set, the client should NOT render root.head.hat. */
     public static final byte FLAG_HIDE_HAT = 0x04;
+
+    /** If set, the client should force an "eating" arm pose. */
+    public static final byte FLAG_EATING_POSE = 0x08;
 
     /**
      * Default before the server has ticked/synced:
@@ -44,6 +48,10 @@ public final class VillagerRenderFlags {
 
     public static boolean renderCustomArms(byte flags) {
         return (flags & FLAG_RENDER_CUSTOM_ARMS) != 0;
+    }
+
+    public static boolean renderEatingPose(byte flags) {
+        return (flags & FLAG_EATING_POSE) != 0;
     }
 
     /** True when the hat should be rendered. */

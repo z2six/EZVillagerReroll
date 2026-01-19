@@ -310,6 +310,15 @@ public final class VillagerBrain {
             // IMPORTANT: restore-on-clear logic removed. We only compute render flags here now.
             byte flags = VillagerRenderFlags.computeFromEquipment(vill);
 
+            // Force eating pose if server says we are in an eating window.
+            try {
+                long until = vill.getPersistentData().getLong("ezvr_eat_pose_until");
+                long now = vill.level().getGameTime();
+                if (until > now) {
+                    flags |= VillagerRenderFlags.FLAG_EATING_POSE;
+                }
+            } catch (Throwable ignored) {}
+
             if (vill instanceof VillagerOverhaulRenderAccess acc) {
                 byte prev = acc.ezvr$getRenderFlags();
                 if (prev != flags) {

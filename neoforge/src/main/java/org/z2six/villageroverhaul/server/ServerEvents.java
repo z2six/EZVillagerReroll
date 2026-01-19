@@ -26,6 +26,7 @@ import org.z2six.villageroverhaul.network.ServerSync;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
+import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
 
 public final class ServerEvents {
 
@@ -270,6 +271,10 @@ public final class ServerEvents {
 
             try {
                 VillagerCombatLoadoutService.tick(server);
+            } catch (Throwable ignored) {}
+
+            try {
+                VillagerEatTestService.tick(server);
             } catch (Throwable ignored) {}
 
             try {

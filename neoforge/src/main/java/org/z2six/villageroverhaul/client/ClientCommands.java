@@ -23,6 +23,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.client.render.ClientPartVisibilityRules;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerEatTest;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerForceBlock;
 
 import java.lang.reflect.Field;
@@ -99,7 +100,10 @@ public final class ClientCommands {
                     .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Integer>argument("ticks", IntegerArgumentType.integer(1, 600))
                             .executes(ctx -> forceBlockTest(IntegerArgumentType.getInteger(ctx, "ticks")))));
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest");
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_eat_test")
+                    .executes(ctx -> eatTest()));
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest, /vo_eat_test");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] [client] RegisterClientCommandsEvent failed.", t);
@@ -154,6 +158,26 @@ public final class ClientCommands {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_modeldump failed (soft): {}", t.toString());
             clientMsg("Model dump failed (see log).");
+            return 0;
+        }
+    }
+
+    private static int eatTest() {
+        try {
+            if (!clientHasOp()) {
+                clientMsg("You must be an operator to use /vo_eat_test.");
+                return 0;
+            }
+            Villager target = findTargetVillager();
+            if (target == null) {
+                clientMsg("No villager found (look at one or stand closer).");
+                return 0;
+            }
+            ClientNetwork.sendToServer(new PacketVillagerEatTest(target.getId()));
+            clientMsg("Requested eat test for villager id=" + target.getId());
+            return 1;
+        } catch (Throwable t) {
+            clientMsg("vo_eat_test failed: " + t);
             return 0;
         }
     }
