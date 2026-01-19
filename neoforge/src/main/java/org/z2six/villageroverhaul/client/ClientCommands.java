@@ -112,6 +112,10 @@ public final class ClientCommands {
 
     private static int dumpVillagerModel(int maxDepth, int maxLines) {
         try {
+            if (!clientHasOp()) {
+                clientMsg("You must be an operator to use /vo_modeldump.");
+                return 0;
+            }
             Villager target = findTargetVillager();
             if (target == null) {
                 clientMsg("No villager targeted/found (look at one or stand near one).");
@@ -156,6 +160,10 @@ public final class ClientCommands {
 
     private static int setPartVisibilityRule(String needleRaw, boolean visible) {
         try {
+            if (!clientHasOp()) {
+                clientMsg("You must be an operator to use /vo_partvis.");
+                return 0;
+            }
             String needle = (needleRaw == null) ? "" : needleRaw.trim();
             if (needle.isEmpty()) {
                 clientMsg("Usage: /vo_partvis <needle> <true|false>");
@@ -191,6 +199,10 @@ public final class ClientCommands {
 
     private static int forceBlockTest(int ticks) {
         try {
+            if (!clientHasOp()) {
+                clientMsg("You must be an operator to use /vo_blocktest.");
+                return 0;
+            }
             Villager target = findTargetVillager();
             if (target == null) {
                 clientMsg("No villager targeted/found (look at one or stand near one).");
@@ -402,5 +414,15 @@ public final class ClientCommands {
             if (p == null) return;
             p.sendSystemMessage(Component.literal("[VillagerOverhaul] " + msg));
         } catch (Throwable ignored) {}
+    }
+
+    private static boolean clientHasOp() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.player == null) return false;
+            return mc.player.hasPermissions(2);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 }

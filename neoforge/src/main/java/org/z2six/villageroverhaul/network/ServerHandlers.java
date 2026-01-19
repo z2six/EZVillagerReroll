@@ -909,6 +909,9 @@ public final class ServerHandlers {
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
                 return;
             }
+            if (!sp.hasPermissions(2)) {
+                return;
+            }
 
             int ticks = Math.max(1, Math.min(20 * 30, msg.ticks()));
             org.z2six.villageroverhaul.server.ai.VillagerBrain.forceBlockFor(vill, ticks);

@@ -116,12 +116,10 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             Set<String> bl = normalize(m.aggressiveBlacklist);
             if (wl.isEmpty() && bl.isEmpty()) return;
 
-            if (target == null) {
-                LivingEntity found = findAggressiveTarget(wl, bl);
-                if (found != null) {
-                    targetUuid = found.getUUID();
-                    target = found;
-                }
+            LivingEntity found = findAggressiveTarget(wl, bl);
+            if (found != null && (target == null || !found.getUUID().equals(targetUuid))) {
+                targetUuid = found.getUUID();
+                target = found;
             }
 
             if (target == null) return;
@@ -154,6 +152,9 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             AABB box = vill.getBoundingBox().inflate(16.0);
             List<LivingEntity> nearby = vill.level().getEntitiesOfClass(LivingEntity.class, box, e -> e != null && e.isAlive());
 
+            LivingEntity best = null;
+            double bestDist = Double.MAX_VALUE;
+
             for (LivingEntity e : nearby) {
                 if (e == vill) continue;
                 String id = safeEntityId(e);
@@ -169,10 +170,18 @@ public final class VillagerCombatAggressiveGoal extends Goal {
                     continue;
                 }
 
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] AGGRESSIVE target found (villager={} target={})",
-                        vill.getUUID(), e.getUUID());
-                return e;
+                double d2 = vill.distanceToSqr(e);
+                if (d2 < bestDist) {
+                    bestDist = d2;
+                    best = e;
+                }
             }
+
+            if (best != null) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] AGGRESSIVE target found (villager={} target={})",
+                        vill.getUUID(), best.getUUID());
+            }
+            return best;
         } catch (Throwable ignored) {}
 
         return null;

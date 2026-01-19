@@ -12,7 +12,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.UseAnim;
 import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-import net.minecraft.world.entity.ai.attributes.Attributes;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -27,6 +26,7 @@ public final class VillagerCombatDirector {
     private static final long SWING_COOLDOWN_TICKS = 15L;
     private static final long BLOCK_WINDOW_TICKS = 12L;
     private static final long BLOCK_COOLDOWN_TICKS = 6L;
+    private static final long BLOCK_AFTER_SWING_DELAY_TICKS = 3L;
 
     private static final double EAT_RETREAT_DIST = 6.0;
     private static final double EAT_MIN_DIST_BUFFER = 1.5;
@@ -106,12 +106,22 @@ public final class VillagerCombatDirector {
         if (now < st.nextSwingAt) return;
         vill.stopUsingItem();
         vill.swing(InteractionHand.MAIN_HAND);
-        applyMeleeDamage(vill, target);
+        boolean hit = vill.doHurtTarget(target);
+        if (!hit) {
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat swing dealt no damage (villager={} target={})",
+                    vill.getUUID(), target.getUUID());
+        }
         st.nextSwingAt = now + SWING_COOLDOWN_TICKS;
+        st.lastSwingAt = now;
     }
 
     private static void updateBlocking(Villager vill, LivingEntity target, State st, long now) {
         if (st.eating) return;
+
+        if ((now - st.lastSwingAt) < BLOCK_AFTER_SWING_DELAY_TICKS) {
+            try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+            return;
+        }
 
         if (now < st.blockUntil) {
             if (!vill.isUsingItem()) {
@@ -238,22 +248,6 @@ public final class VillagerCombatDirector {
         }
     }
 
-    private static void applyMeleeDamage(Villager vill, LivingEntity target) {
-        try {
-            float dmg = (float) vill.getAttributeValue(Attributes.ATTACK_DAMAGE);
-            if (dmg < 0.1f) dmg = 1.0f;
-            boolean hurt = target.hurt(vill.damageSources().mobAttack(vill), dmg);
-            if (!hurt) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat hit dealt no damage (villager={} target={})",
-                        vill.getUUID(), target.getUUID());
-            }
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat hit failed (villager={} target={})",
-                    vill == null ? "null" : vill.getUUID(),
-                    target == null ? "null" : target.getUUID());
-        }
-    }
-
     private static int findFoodSlot(Container inv) {
         try {
             int size = inv.getContainerSize();
@@ -315,6 +309,7 @@ public final class VillagerCombatDirector {
     private static final class State {
         java.util.UUID targetId;
         long nextSwingAt = 0L;
+        long lastSwingAt = -9999L;
         long blockUntil = 0L;
         long blockCooldownUntil = 0L;
         boolean eating = false;

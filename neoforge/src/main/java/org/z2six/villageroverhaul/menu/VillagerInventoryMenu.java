@@ -319,19 +319,17 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
 
                 // FIX: use hand APIs for hands
                 if (slot == EquipmentSlot.MAINHAND) {
-                    le.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-                    setChanged();
-
                     // IMPORTANT: tell VillagerBrain this was intentional
                     VillagerBrain.notifyManualHandSet(le, EquipmentSlot.MAINHAND, ItemStack.EMPTY, "menu_remove");
+                    le.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+                    setChanged();
                     return out;
                 }
                 if (slot == EquipmentSlot.OFFHAND) {
-                    le.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);
-                    setChanged();
-
                     // IMPORTANT: tell VillagerBrain this was intentional
                     VillagerBrain.notifyManualHandSet(le, EquipmentSlot.OFFHAND, ItemStack.EMPTY, "menu_remove");
+                    le.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);
+                    setChanged();
                     return out;
                 }
 
@@ -362,6 +360,9 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
 
                 // FIX: use hand APIs for hands
                 if (slot == EquipmentSlot.MAINHAND) {
+                    if (toSet.isEmpty()) {
+                        VillagerBrain.notifyManualHandSet(le, EquipmentSlot.MAINHAND, ItemStack.EMPTY, "menu_clear");
+                    }
                     le.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, toSet);
                     setChanged();
 
@@ -370,6 +371,9 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
                     return;
                 }
                 if (slot == EquipmentSlot.OFFHAND) {
+                    if (toSet.isEmpty()) {
+                        VillagerBrain.notifyManualHandSet(le, EquipmentSlot.OFFHAND, ItemStack.EMPTY, "menu_clear");
+                    }
                     le.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, toSet);
                     setChanged();
 
