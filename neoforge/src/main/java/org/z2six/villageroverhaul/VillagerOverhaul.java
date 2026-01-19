@@ -1,4 +1,4 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\VillagerOverhaul.java
+// MainFile: neoforge/src/main/java/org/z2six/villageroverhaul/VillagerOverhaul.java
 package org.z2six.villageroverhaul;
 
 import com.mojang.logging.LogUtils;
@@ -21,8 +21,10 @@ import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.menu.ModMenus;
 import org.z2six.villageroverhaul.network.Network;
 import org.z2six.villageroverhaul.server.BusyVillagerBlocker;
+import org.z2six.villageroverhaul.server.CombatBlockDiagnostics;
 import org.z2six.villageroverhaul.server.ServerEvents;
 import org.z2six.villageroverhaul.server.VillagerCombatAttributesBootstrap;
+import org.z2six.villageroverhaul.server.VillagerManualShieldBlocker;
 
 @Mod(Constants.MOD_ID)
 public final class VillagerOverhaul {
@@ -134,6 +136,26 @@ public final class VillagerOverhaul {
 
     private void commonSetup(final FMLCommonSetupEvent e) {
         LOG.info("[VillagerOverhaul] Common setup.");
+
+        try {
+            e.enqueueWork(() -> {
+                try {
+                    CombatBlockDiagnostics.register();
+                    LOG.info("[VillagerOverhaul] CombatBlockDiagnostics registered (server-side block logging).");
+                } catch (Throwable t) {
+                    LOG.error("[VillagerOverhaul] CombatBlockDiagnostics registration failed (continuing).", t);
+                }
+
+                try {
+                    VillagerManualShieldBlocker.register();
+                    LOG.info("[VillagerOverhaul] VillagerManualShieldBlocker registered (manual shield blocking).");
+                } catch (Throwable t) {
+                    LOG.error("[VillagerOverhaul] VillagerManualShieldBlocker registration failed (continuing).", t);
+                }
+            });
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to enqueue server-side registrations (continuing).", t);
+        }
     }
 
     private void clientSetup(final FMLClientSetupEvent e) {
