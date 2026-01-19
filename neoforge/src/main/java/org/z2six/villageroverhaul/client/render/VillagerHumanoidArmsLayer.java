@@ -220,6 +220,16 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             driverHumanoid.leftArmPose = HumanoidModel.ArmPose.EMPTY;
             driverHumanoid.rightArmPose = HumanoidModel.ArmPose.EMPTY;
 
+            // If the server forced an eat window (FLAG_EATING_POSE), but client-side "using item"
+            // didn't sync, start using the mainhand item locally so vanilla ITEM-use animation can run.
+            // (Particles are server-driven via entity event 9.)
+            if (!v.isUsingItem() && isEatingPoseForced(v)) {
+                ItemStack mh = v.getMainHandItem();
+                if (mh != null && !mh.isEmpty() && mh.getUseAnimation() == UseAnim.EAT) {
+                    try { v.startUsingItem(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+                }
+            }
+
             // If using item (eat/bow/block), do not swing.
             if (v.isUsingItem() || isEatingPoseForced(v)) {
                 InteractionHand hand = v.getUsedItemHand();
@@ -292,9 +302,13 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             InteractionHand hand;
 
             if (forced) {
+                // If we managed to start using the item locally, let vanilla animation run instead.
+                if (v.isUsingItem()) return;
                 using = v.getMainHandItem();
                 hand = InteractionHand.MAIN_HAND;
             } else {
+                // If vanilla is correctly syncing "using item", apply the eat pose when UseAnim is EAT.
+                // This makes the third-person arms animation visible on our custom arms layer.
                 if (!v.isUsingItem()) return;
                 using = v.getUseItem();
                 hand = v.getUsedItemHand();

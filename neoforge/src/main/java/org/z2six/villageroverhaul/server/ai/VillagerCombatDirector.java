@@ -333,6 +333,8 @@ public final class VillagerCombatDirector {
                             cancelEatProcess(vill, st, "eat_start_failed");
                             return false;
                         }
+                    } else {
+                        ensureStillEating(vill, st, now);
                     }
 
                     if (now >= st.eatFinishAt) {
@@ -369,6 +371,8 @@ public final class VillagerCombatDirector {
                             cancelEatProcess(vill, st, "eat_start_failed");
                             return false;
                         }
+                    } else {
+                        ensureStillEating(vill, st, now);
                     }
 
                     if (now >= st.eatFinishAt) {
@@ -600,8 +604,11 @@ public final class VillagerCombatDirector {
             st.eatPrevMain = prevMain.copy();
             st.eatFoodUsed = one.copy();
             st.eatFinishAt = now + Math.max(1, useDuration);
+            st.eatNextFxAt = now + 5L;
 
             try {
+                // Used by VillagerBrain.tickRenderDecisions to set FLAG_EATING_POSE (client can use this as an animation hint).
+                vill.getPersistentData().putLong("ezvr_eat_pose_until", st.eatFinishAt);
                 vill.getPersistentData().putLong("ezvr_loadout_skip_main_until", st.eatFinishAt + 2L);
             } catch (Throwable ignored) {}
 
@@ -620,9 +627,8 @@ public final class VillagerCombatDirector {
             if (vill == null || st == null) return;
 
             // Try to spawn eat particles (vanilla client handler typically listens for entity event 9).
-            try {
-                vill.level().broadcastEntityEvent(vill, (byte) 9);
-            } catch (Throwable ignored) {}
+            // Fallback "final bite" burst in case periodic FX were suppressed.
+            try { vill.level().broadcastEntityEvent(vill, (byte) 9); } catch (Throwable ignored) {}
 
             ItemStack hand = vill.getMainHandItem();
             if (hand == null) hand = ItemStack.EMPTY;
@@ -645,6 +651,7 @@ public final class VillagerCombatDirector {
             if (st.eatPrevMain != null && !st.eatPrevMain.isEmpty()) {
                 vill.setItemInHand(InteractionHand.MAIN_HAND, st.eatPrevMain.copy());
             }
+            try { vill.stopUsingItem(); } catch (Throwable ignored) {}
 
             // Store remainder to pickup inventory (if any) so we don't dup/drop.
             if (!remainder.isEmpty()) {
@@ -654,6 +661,7 @@ public final class VillagerCombatDirector {
 
             try {
                 CompoundTag pd = vill.getPersistentData();
+                pd.remove("ezvr_eat_pose_until");
                 pd.remove("ezvr_loadout_skip_main_until");
             } catch (Throwable ignored) {}
 
@@ -689,6 +697,7 @@ public final class VillagerCombatDirector {
 
                 try {
                     CompoundTag pd = vill.getPersistentData();
+                    pd.remove("ezvr_eat_pose_until");
                     pd.remove("ezvr_loadout_skip_main_until");
                     pd.remove(PD_LOCK_YAW_UNTIL);
                     pd.remove(PD_LOCK_YAW);
@@ -701,8 +710,45 @@ public final class VillagerCombatDirector {
             }
 
             st.eatFinishAt = -1L;
+            st.eatNextFxAt = 0L;
             st.eatPrevMain = ItemStack.EMPTY;
             st.eatFoodUsed = ItemStack.EMPTY;
+
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Combat can interrupt item use (block/swing/hurt side effects). If we are in an active eat window,
+     * keep reasserting "using item" so the client gets vanilla use animation + bite particles.
+     */
+    private static void ensureStillEating(Villager vill, State st, long now) {
+        try {
+            if (vill == null || st == null) return;
+            if (st.eatFinishAt <= 0L) return;
+            if (now >= st.eatFinishAt) return;
+
+            ItemStack main = vill.getMainHandItem();
+            if (main == null || main.isEmpty()) return;
+            if (main.getUseAnimation() != UseAnim.EAT) return;
+
+            boolean using = false;
+            try { using = vill.isUsingItem(); } catch (Throwable ignored) { using = false; }
+
+            if (!using) {
+                try { vill.startUsingItem(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+            }
+
+            // Emit bite particles periodically (vanilla uses entity event 9). This is server authoritative.
+            if (st.eatNextFxAt <= 0L || now >= st.eatNextFxAt) {
+                try { vill.level().broadcastEntityEvent(vill, (byte) 9); } catch (Throwable ignored) {}
+                st.eatNextFxAt = now + 5L;
+            }
+
+            // Extend skip window slightly so loadout enforcement never fights the food item mid-bite.
+            try {
+                vill.getPersistentData().putLong("ezvr_loadout_skip_main_until", st.eatFinishAt + 2L);
+                vill.getPersistentData().putLong("ezvr_eat_pose_until", st.eatFinishAt);
+            } catch (Throwable ignored) {}
 
         } catch (Throwable ignored) {}
     }
@@ -1094,6 +1140,7 @@ public final class VillagerCombatDirector {
         long eatBlockedSeenAt = -1L;
 
         long eatFinishAt = -1L;
+        long eatNextFxAt = 0L;
         ItemStack eatPrevMain = ItemStack.EMPTY;
         ItemStack eatFoodUsed = ItemStack.EMPTY;
     }
