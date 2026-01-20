@@ -8,9 +8,11 @@ import net.minecraft.world.phys.AABB;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 import org.z2six.villageroverhaul.server.CombatSettingsService;
+import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.util.EnumSet;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Combat module: DEFEND (activation only in Step 1).
@@ -55,7 +57,7 @@ public final class VillagerCombatDefendGoal extends Goal {
                 return false;
             }
 
-            if (findRecentAttacker(vill) != null) return true;
+            if (findRecentDefendTarget() != null) return true;
 
             logNoThreat("no_recent_attacker");
             return false;
@@ -115,11 +117,33 @@ public final class VillagerCombatDefendGoal extends Goal {
                 }
             }
 
+            // Never allow targeting owner or allied recruited villagers (same owner).
+            if (target != null && isFriendlyToVillager(vill, target)) {
+                target = null;
+                targetUuid = null;
+            }
+
+            // Priority 1: if THIS villager was attacked recently, retaliate against that attacker (unless friendly).
+            LivingEntity selfAttacker = null;
+            try { selfAttacker = vill.getLastHurtByMob(); } catch (Throwable ignored) {}
+            if (selfAttacker != null && selfAttacker.isAlive()) {
+                int ts = 0;
+                try { ts = vill.getLastHurtByMobTimestamp(); } catch (Throwable ignored) { ts = 0; }
+                if ((vill.tickCount - ts) <= 40) {
+                    CombatSettingsService.TriggerCheck chk = CombatSettingsService.checkTrigger(vill, VillagerBrain.CombatMode.DEFEND, selfAttacker, vill);
+                    if (chk.ok && !isFriendlyToVillager(vill, selfAttacker)) {
+                        targetUuid = selfAttacker.getUUID();
+                        target = selfAttacker;
+                    }
+                }
+            }
+
+            // Otherwise, choose a defend target from recent nearby hurt events.
             if (target == null) {
-                LivingEntity attacker = findRecentAttacker(vill);
-                if (attacker != null) {
-                    targetUuid = attacker.getUUID();
-                    target = attacker;
+                LivingEntity best = findRecentDefendTarget();
+                if (best != null) {
+                    targetUuid = best.getUUID();
+                    target = best;
                 }
             }
 
@@ -143,7 +167,7 @@ public final class VillagerCombatDefendGoal extends Goal {
         } catch (Throwable ignored) {}
     }
 
-    private LivingEntity findRecentAttacker(Villager vill) {
+    private LivingEntity findRecentDefendTarget() {
         try {
             if (vill == null || vill.level() == null) return null;
             long now = vill.level().getGameTime();
@@ -153,17 +177,20 @@ public final class VillagerCombatDefendGoal extends Goal {
             AABB box = vill.getBoundingBox().inflate(26.0);
             List<LivingEntity> nearby = vill.level().getEntitiesOfClass(LivingEntity.class, box, e -> e != null && e.isAlive());
 
-            for (LivingEntity target : nearby) {
-                LivingEntity attacker = target.getLastHurtByMob();
+            LivingEntity best = null;
+            double bestDist = Double.MAX_VALUE;
+
+            for (LivingEntity victim : nearby) {
+                LivingEntity attacker = victim.getLastHurtByMob();
                 if (attacker == null) continue;
 
-                int hurtAt = target.getLastHurtByMobTimestamp();
-                if ((target.tickCount - hurtAt) > 40) continue;
+                int hurtAt = victim.getLastHurtByMobTimestamp();
+                if ((victim.tickCount - hurtAt) > 40) continue;
 
                 if (attacker == vill) continue;
 
                 CombatSettingsService.TriggerCheck check =
-                        CombatSettingsService.checkTrigger(vill, VillagerBrain.CombatMode.DEFEND, attacker, target);
+                        CombatSettingsService.checkTrigger(vill, VillagerBrain.CombatMode.DEFEND, attacker, victim);
                 if (!check.ok) {
                     if ((now - lastRejectLogAt) > 40L) {
                         lastRejectLogAt = now;
@@ -171,20 +198,73 @@ public final class VillagerCombatDefendGoal extends Goal {
                                 "[VillagerOverhaul] DEFEND candidate rejected (villager={} attacker={} target={} reason={})",
                                 vill.getUUID(),
                                 attacker.getUUID(),
-                                target.getUUID(),
+                                victim.getUUID(),
                                 check.reason
                         );
                     }
                     continue;
                 }
 
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] DEFEND threat set (villager={} attacker={})",
-                        vill.getUUID(), attacker.getUUID());
-                return attacker;
+                LivingEntity toAttack = pickTargetToAttack(attacker, victim, check.trigger);
+                if (toAttack == null) continue;
+
+                if (isFriendlyToVillager(vill, toAttack)) continue;
+
+                double d2 = vill.distanceToSqr(toAttack);
+                if (d2 < bestDist) {
+                    bestDist = d2;
+                    best = toAttack;
+                }
             }
+
+            if (best != null) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] DEFEND threat set (villager={} target={})",
+                        vill.getUUID(), best.getUUID());
+            }
+            return best;
         } catch (Throwable ignored) {}
 
         return null;
+    }
+
+    /**
+     * For defend triggers:
+     * - owner_attacks => attack the entity the owner attacked (victim)
+     * - owner_attacked => attack the attacker
+     * - entity_* => attack the attacker
+     */
+    private LivingEntity pickTargetToAttack(LivingEntity attacker, LivingEntity victim, String trigger) {
+        try {
+            if (attacker == null || victim == null) return null;
+            String t = trigger == null ? "" : trigger;
+            if (t.equals("owner_attacks")) return victim;
+            if (t.equals("owner_attacked")) return attacker;
+            return attacker;
+        } catch (Throwable ignored) {
+            return attacker;
+        }
+    }
+
+    private static boolean isFriendlyToVillager(Villager vill, LivingEntity candidate) {
+        try {
+            if (vill == null || candidate == null) return true;
+            if (candidate == vill) return true;
+
+            UUID owner = RecruitService.getRecruiterUuid(vill);
+            if (owner == null) return false;
+
+            if (owner.equals(candidate.getUUID())) return true;
+
+            if (candidate instanceof Villager other) {
+                if (!RecruitService.isRecruited(other)) return false;
+                UUID otherOwner = RecruitService.getRecruiterUuid(other);
+                return otherOwner != null && owner.equals(otherOwner);
+            }
+
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private LivingEntity findThreatByUuid(java.util.UUID id) {

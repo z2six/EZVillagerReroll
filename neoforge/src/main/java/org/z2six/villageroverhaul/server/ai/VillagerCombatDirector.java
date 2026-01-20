@@ -600,6 +600,24 @@ public final class VillagerCombatDirector {
                 }
             }
 
+            // Our manual shield block cancels hurt() entirely, so hurtTime will not tick up.
+            // Treat a "blocked this tick" marker as an incoming attack so we still swing in multi-attacker scenarios.
+            try {
+                long blockedTick = vill.getPersistentData().getLong(PD_BLOCKED_TICK);
+                if (blockedTick > 0L && blockedTick > st.lastBlockedTickSeen) {
+                    st.lastBlockedTickSeen = blockedTick;
+                    st.lastHitAt = now;
+                    st.hitSinceLastSwing = true;
+                    st.blockNoHitSince = now;
+
+                    if (st.lastHitLogAt <= 0L || (now - st.lastHitLogAt) >= 10L) {
+                        st.lastHitLogAt = now;
+                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat HIT detected (villager={} blockedTick={} now={})",
+                                vill.getUUID(), blockedTick, now);
+                    }
+                }
+            } catch (Throwable ignored) {}
+
             st.lastHurtTimeSeen = ht;
 
         } catch (Throwable ignored) {}
@@ -613,12 +631,6 @@ public final class VillagerCombatDirector {
             ItemStack off = vill.getOffhandItem();
             if (isShieldItem(off)) {
                 vill.startUsingItem(InteractionHand.OFF_HAND);
-                return true;
-            }
-
-            ItemStack main = vill.getMainHandItem();
-            if (isShieldItem(main)) {
-                vill.startUsingItem(InteractionHand.MAIN_HAND);
                 return true;
             }
 
@@ -1563,6 +1575,7 @@ public final class VillagerCombatDirector {
         long lastHitAt = -1L;
 
         int lastHurtTimeSeen = 0;
+        long lastBlockedTickSeen = 0L;
 
         long blockNoHitSince = -1L;
 

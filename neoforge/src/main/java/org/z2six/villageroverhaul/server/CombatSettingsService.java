@@ -65,22 +65,22 @@ public final class CombatSettingsService {
 
     public static TriggerCheck checkTrigger(Villager vill, VillagerBrain.CombatMode mode, LivingEntity attacker, LivingEntity target) {
         try {
-            if (vill == null) return new TriggerCheck(false, "no_villager");
-            if (attacker == null || target == null) return new TriggerCheck(false, "missing_attacker_or_target");
+            if (vill == null) return new TriggerCheck(false, "no_villager", "");
+            if (attacker == null || target == null) return new TriggerCheck(false, "missing_attacker_or_target", "");
 
             CombatSettings settings = getPerVillager(vill);
-            if (settings == null) return new TriggerCheck(false, "no_settings");
+            if (settings == null) return new TriggerCheck(false, "no_settings", "");
             CombatSettings.ModeSettings specific = settings.getForMode(mode);
 
             UUID owner = RecruitService.getRecruiterUuid(vill);
 
             if (owner != null && owner.equals(target.getUUID())) {
-                if (!specific.ownerAttacked.enabled) return new TriggerCheck(false, "owner_attacked_disabled");
+                if (!specific.ownerAttacked.enabled) return new TriggerCheck(false, "owner_attacked_disabled", "owner_attacked");
                 return checkLists("owner_attacked", specific.ownerAttacked, attacker);
             }
 
             if (owner != null && owner.equals(attacker.getUUID())) {
-                if (!specific.ownerAttacks.enabled) return new TriggerCheck(false, "owner_attacks_disabled");
+                if (!specific.ownerAttacks.enabled) return new TriggerCheck(false, "owner_attacks_disabled", "owner_attacks");
                 return checkLists("owner_attacks", specific.ownerAttacks, target);
             }
 
@@ -92,18 +92,20 @@ public final class CombatSettingsService {
                 return checkLists("entity_attacked", specific.entityAttacked, target);
             }
 
-            return new TriggerCheck(false, "no_trigger_enabled");
+            return new TriggerCheck(false, "no_trigger_enabled", "");
         } catch (Throwable t) {
-            return new TriggerCheck(false, "exception");
+            return new TriggerCheck(false, "exception", "");
         }
     }
 
     public static final class TriggerCheck {
         public final boolean ok;
         public final String reason;
-        TriggerCheck(boolean ok, String reason) {
+        public final String trigger;
+        TriggerCheck(boolean ok, String reason, String trigger) {
             this.ok = ok;
             this.reason = reason == null ? "" : reason;
+            this.trigger = trigger == null ? "" : trigger;
         }
     }
 
@@ -117,17 +119,17 @@ public final class CombatSettingsService {
     }
 
     private static TriggerCheck checkLists(String label, CombatSettings.TriggerSettings settings, LivingEntity entity) {
-        if (settings == null) return new TriggerCheck(false, label + "_missing_settings");
+        if (settings == null) return new TriggerCheck(false, label + "_missing_settings", label);
         String id = safeEntityId(entity);
-        if (id.isEmpty()) return new TriggerCheck(false, label + "_missing_entity_id");
+        if (id.isEmpty()) return new TriggerCheck(false, label + "_missing_entity_id", label);
 
         Set<String> wl = normalize(settings.whitelist);
         Set<String> bl = normalize(settings.blacklist);
 
-        if (bl.contains(id)) return new TriggerCheck(false, label + "_blacklist");
-        if (!wl.isEmpty() && !wl.contains(id)) return new TriggerCheck(false, label + "_whitelist_missing");
+        if (bl.contains(id)) return new TriggerCheck(false, label + "_blacklist", label);
+        if (!wl.isEmpty() && !wl.contains(id)) return new TriggerCheck(false, label + "_whitelist_missing", label);
 
-        return new TriggerCheck(true, "ok");
+        return new TriggerCheck(true, "ok", label);
     }
 
     private static Set<String> normalize(Iterable<String> items) {

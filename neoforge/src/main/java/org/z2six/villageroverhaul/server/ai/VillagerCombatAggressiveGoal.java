@@ -10,12 +10,14 @@ import net.minecraft.world.phys.AABB;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 import org.z2six.villageroverhaul.server.CombatSettingsService;
+import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Combat module: AGGRESSIVE (activation only in Step 1).
@@ -170,6 +172,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
             for (LivingEntity e : nearby) {
                 if (e == vill) continue;
+                if (isFriendlyToVillager(vill, e)) continue;
                 String id = safeEntityId(e);
                 if (id.isEmpty()) continue;
 
@@ -198,6 +201,28 @@ public final class VillagerCombatAggressiveGoal extends Goal {
         } catch (Throwable ignored) {}
 
         return null;
+    }
+
+    private static boolean isFriendlyToVillager(Villager vill, LivingEntity candidate) {
+        try {
+            if (vill == null || candidate == null) return true;
+            if (candidate == vill) return true;
+
+            UUID owner = RecruitService.getRecruiterUuid(vill);
+            if (owner == null) return false;
+
+            if (owner.equals(candidate.getUUID())) return true;
+
+            if (candidate instanceof Villager other) {
+                if (!RecruitService.isRecruited(other)) return false;
+                UUID otherOwner = RecruitService.getRecruiterUuid(other);
+                return otherOwner != null && owner.equals(otherOwner);
+            }
+
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private String safeEntityId(LivingEntity e) {
