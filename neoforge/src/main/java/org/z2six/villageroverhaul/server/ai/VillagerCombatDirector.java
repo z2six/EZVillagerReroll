@@ -42,6 +42,7 @@ public final class VillagerCombatDirector {
 
     private static final float EAT_HP_THRESHOLD = 0.65f;
     private static final float PASSIVE_EAT_HP_THRESHOLD = 0.80f;
+    private static final float EAT_MOVE_SLOW_MULT = 0.25f;
     private static final double EAT_BACKPEDAL_SPEED = 0.50;
     private static final double EAT_RUN_SPEED = 0.65;
     private static final double EAT_DIST_RUN_START = 3.0;
@@ -62,6 +63,7 @@ public final class VillagerCombatDirector {
     private static final String PD_CIRCLE_SPEED = "ezvr_circle_speed";
     private static final String PD_CIRCLE_DIR = "ezvr_circle_dir";
     private static final String PD_CIRCLE_ZZA = "ezvr_circle_zza";
+    private static final String PD_EAT_SLOW_UNTIL = "ezvr_eat_slow_until";
 
     private static final long SWING_COOLDOWN_TICKS = 30L;
     private static final long SWING_ANIM_TICKS = 6L;
@@ -137,7 +139,10 @@ public final class VillagerCombatDirector {
 
             // Already eating: keep it going until finish.
             if (st.eatFinishAt > 0L) {
-                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                try {
+                    // While passively eating in FOLLOW/PATROL, allow normal movement goals to keep moving the villager.
+                    if (m == VillagerBrain.Mode.IDLE) vill.getNavigation().stop();
+                } catch (Throwable ignored) {}
                 ensureStillEating(vill, st, now);
 
                 if (now >= st.eatFinishAt) {
@@ -156,7 +161,9 @@ public final class VillagerCombatDirector {
             }
 
             // Start a new passive eat.
-            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            try {
+                if (m == VillagerBrain.Mode.IDLE) vill.getNavigation().stop();
+            } catch (Throwable ignored) {}
             startEatFromPickupInv(vill, st, now, "passive");
 
         } catch (Throwable ignored) {}
@@ -507,10 +514,24 @@ public final class VillagerCombatDirector {
                 }
                 case EAT, FORCE_EAT -> {
                     // Face enemy and eat. FORCE_EAT ignores hit resets.
-                    try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                     faceTargetHard(vill, target);
                     try { vill.getLookControl().setLookAt(target, 30.0f, 30.0f); } catch (Throwable ignored) {}
                     lockYaw(vill, now, vill.getYRot());
+
+                    // While eating, allow movement but at a slow rate (0.25x base speed).
+                    try {
+                        double reach = computeReach(vill, target);
+                        double maintainDist = computeMaintainDistance(reach);
+                        if (dist < (maintainDist - 0.15)) {
+                            if (canBackpedalBehind(vill, target)) {
+                                applyBackpedalInput(vill, now, 0.50f);
+                            } else {
+                                applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                            }
+                        } else {
+                            applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                        }
+                    } catch (Throwable ignored) {}
 
                     if (st.eatFinishAt <= 0L) {
                         if (!startEatFromPickupInv(vill, st, now, st.eatPhase == EatPhase.FORCE_EAT ? "force" : "normal")) {
@@ -785,6 +806,7 @@ public final class VillagerCombatDirector {
             try {
                 // Used by VillagerBrain.tickRenderDecisions to set FLAG_EATING_POSE (client can use this as an animation hint).
                 vill.getPersistentData().putLong("ezvr_eat_pose_until", st.eatFinishAt);
+                vill.getPersistentData().putLong(PD_EAT_SLOW_UNTIL, st.eatFinishAt);
                 vill.getPersistentData().putLong("ezvr_loadout_skip_main_until", st.eatFinishAt + 2L);
             } catch (Throwable ignored) {}
 
@@ -842,6 +864,7 @@ public final class VillagerCombatDirector {
             try {
                 CompoundTag pd = vill.getPersistentData();
                 pd.remove("ezvr_eat_pose_until");
+                pd.remove(PD_EAT_SLOW_UNTIL);
                 pd.remove("ezvr_loadout_skip_main_until");
             } catch (Throwable ignored) {}
 
@@ -878,6 +901,7 @@ public final class VillagerCombatDirector {
                 try {
                     CompoundTag pd = vill.getPersistentData();
                     pd.remove("ezvr_eat_pose_until");
+                    pd.remove(PD_EAT_SLOW_UNTIL);
                     pd.remove("ezvr_loadout_skip_main_until");
                     pd.remove(PD_LOCK_YAW_UNTIL);
                     pd.remove(PD_LOCK_YAW);
@@ -956,6 +980,7 @@ public final class VillagerCombatDirector {
             try {
                 vill.getPersistentData().putLong("ezvr_loadout_skip_main_until", st.eatFinishAt + 2L);
                 vill.getPersistentData().putLong("ezvr_eat_pose_until", st.eatFinishAt);
+                vill.getPersistentData().putLong(PD_EAT_SLOW_UNTIL, st.eatFinishAt);
             } catch (Throwable ignored) {}
 
         } catch (Throwable ignored) {}

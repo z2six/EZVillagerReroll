@@ -18,6 +18,7 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import org.z2six.villageroverhaul.Constants;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;

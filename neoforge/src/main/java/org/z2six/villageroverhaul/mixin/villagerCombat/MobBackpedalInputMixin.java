@@ -4,6 +4,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -18,6 +19,8 @@ public abstract class MobBackpedalInputMixin {
     private static final String PD_CIRCLE_SPEED = "ezvr_circle_speed";
     private static final String PD_CIRCLE_DIR = "ezvr_circle_dir";
     private static final String PD_CIRCLE_ZZA = "ezvr_circle_zza";
+
+    private static final String PD_EAT_SLOW_UNTIL = "ezvr_eat_slow_until";
 
     @Inject(
             method = "aiStep",
@@ -38,16 +41,37 @@ public abstract class MobBackpedalInputMixin {
                 float speed = pd.getFloat(PD_BACKPEDAL_SPEED);
                 if (speed <= 0.0f) speed = 0.5f;
 
+                boolean eatingSlow = false;
+                try {
+                    long eatUntil = pd.getLong(PD_EAT_SLOW_UNTIL);
+                    eatingSlow = eatUntil > now;
+                } catch (Throwable ignored) {}
+
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
 
                 // If we recently had a high-velocity nav move (e.g. run-away), damp it so backpedal doesn't "inherit" speed.
                 try {
                     Vec3 dm = vill.getDeltaMovement();
-                    vill.setDeltaMovement(dm.x * 0.15, dm.y, dm.z * 0.15);
+                    double horiz = Math.sqrt(dm.x * dm.x + dm.z * dm.z);
+                    double target = speed;
+                    if (eatingSlow) {
+                        try { target = (double) ((float) vill.getAttributeValue(Attributes.MOVEMENT_SPEED) * 0.25f); } catch (Throwable ignored) {}
+                    }
+                    // Only damp when we're carrying excessive momentum; always damping causes "snail movement".
+                    double maxAllowed = Math.max(0.05, target * 1.4);
+                    if (horiz > maxAllowed) {
+                        double k = eatingSlow ? 0.35 : 0.15;
+                        vill.setDeltaMovement(dm.x * k, dm.y, dm.z * k);
+                    }
                 } catch (Throwable ignored) {}
 
                 // Emulate holding "S": move backwards relative to facing direction.
-                vill.setSpeed(speed);
+                if (eatingSlow) {
+                    float base = (float) vill.getAttributeValue(Attributes.MOVEMENT_SPEED);
+                    vill.setSpeed(base * 0.25f);
+                } else {
+                    vill.setSpeed(speed);
+                }
                 vill.zza = -1.0f;
                 vill.xxa = 0.0f;
                 vill.yya = 0.0f;
@@ -59,6 +83,12 @@ public abstract class MobBackpedalInputMixin {
                 float speed = pd.getFloat(PD_CIRCLE_SPEED);
                 if (speed <= 0.0f) speed = 0.35f;
 
+                boolean eatingSlow = false;
+                try {
+                    long eatUntil = pd.getLong(PD_EAT_SLOW_UNTIL);
+                    eatingSlow = eatUntil > now;
+                } catch (Throwable ignored) {}
+
                 float dir = pd.getFloat(PD_CIRCLE_DIR);
                 if (dir == 0.0f) dir = 1.0f;
 
@@ -69,14 +99,30 @@ public abstract class MobBackpedalInputMixin {
                 // Same damping for circling to avoid runaway velocity being preserved.
                 try {
                     Vec3 dm = vill.getDeltaMovement();
-                    vill.setDeltaMovement(dm.x * 0.15, dm.y, dm.z * 0.15);
+                    double horiz = Math.sqrt(dm.x * dm.x + dm.z * dm.z);
+                    double target = speed;
+                    if (eatingSlow) {
+                        try { target = (double) ((float) vill.getAttributeValue(Attributes.MOVEMENT_SPEED) * 0.25f); } catch (Throwable ignored) {}
+                    }
+                    double maxAllowed = Math.max(0.05, target * 1.4);
+                    if (horiz > maxAllowed) {
+                        double k = eatingSlow ? 0.35 : 0.15;
+                        vill.setDeltaMovement(dm.x * k, dm.y, dm.z * k);
+                    }
                 } catch (Throwable ignored) {}
 
                 // Strafe around target while keeping facing handled elsewhere (yaw lock).
-                vill.setSpeed(speed);
+                if (eatingSlow) {
+                    float base = (float) vill.getAttributeValue(Attributes.MOVEMENT_SPEED);
+                    vill.setSpeed(base * 0.25f);
+                } else {
+                    vill.setSpeed(speed);
+                }
                 vill.zza = zza;
                 // Full strafe input is extremely fast on mobs; scale it down for a slow "circle".
-                vill.xxa = dir * 0.35f;
+                // While eating we already clamp speed, so don't double-nerf the input.
+                float strafeScale = eatingSlow ? 1.0f : 0.35f;
+                vill.xxa = dir * strafeScale;
                 vill.yya = 0.0f;
             }
 
