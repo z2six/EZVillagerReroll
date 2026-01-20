@@ -20,6 +20,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
 import org.z2six.villageroverhaul.menu.VillagerInventoryMenu;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -39,7 +40,7 @@ public final class VillagerCombatDirector {
     private static final double EAT_DIST_RUN_START = 3.0;
     private static final double EAT_DIST_START_EATING = 5.0;
     private static final int EAT_MAX_RESETS = 1;
-    private static final int EAT_BACKPEDAL_HIT_FORCE_EAT = 0;
+    private static final int EAT_BACKPEDAL_HIT_FORCE_EAT = 2;
     private static final double EAT_BACKPEDAL_FORCE_EAT_SPEED = 0.50;
 
     private static final String PD_BLOCKED_TICK = "ezvr_blocked_tick";
@@ -69,6 +70,26 @@ public final class VillagerCombatDirector {
     private static volatile Method GET_USE_DURATION_1 = null;
     private static volatile boolean USE_DUR_SCANNED = false;
 
+    // -----------------------------------------------------------------------------------------
+    // EAT USE-STATE STABILITY (server-side)
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * If the eat window is active but something keeps interrupting "using item",
+     * repeated startUsingItem() calls will reset the internal use timer to full duration.
+     * Many use animations depend on a monotonic countdown / ticks-using progression. :contentReference[oaicite:1]{index=1}
+     *
+     * So: we repair the internal fields to the expected remaining ticks based on st.eatFinishAt - now.
+     */
+    private static final boolean DEBUG_EAT_USE_STATE = true;
+    private static final long DEBUG_EAT_USE_LOG_INTERVAL_TICKS = 10L;
+    private static final long EAT_USE_REPAIR_MIN_INTERVAL_TICKS = 2L;
+
+    // Reflection fallback: patch LivingEntity.useItem + LivingEntity.useItemRemaining on SERVER
+    private static volatile boolean USE_FIELDS_SCANNED = false;
+    private static volatile Field FIELD_USE_ITEM = null;           // LivingEntity.useItem
+    private static volatile Field FIELD_USE_ITEM_REMAINING = null; // LivingEntity.useItemRemaining
+
     private VillagerCombatDirector() {}
 
     public static void tickAttack(Villager vill, LivingEntity target) {
@@ -90,6 +111,14 @@ public final class VillagerCombatDirector {
                 st.eatPhase = EatPhase.NONE;
                 st.eatResetCount = 0;
                 st.eatHitSeenAt = -1L;
+                st.eatBackpedalHitCount = 0;
+                st.eatBlockedSeenAt = -1L;
+
+                // eat use stability tracking
+                st.eatStartAt = -1L;
+                st.eatUseDuration = 0;
+                st.eatLastUseLogAt = 0L;
+                st.eatLastUseRepairAt = 0L;
             }
             st.targetId = target.getUUID();
 
@@ -207,6 +236,12 @@ public final class VillagerCombatDirector {
                 st.eatFoodUsed = ItemStack.EMPTY;
                 st.eatBackpedalHitCount = 0;
                 st.eatBlockedSeenAt = -1L;
+
+                // eat use stability tracking
+                st.eatStartAt = -1L;
+                st.eatUseDuration = 0;
+                st.eatLastUseLogAt = 0L;
+                st.eatLastUseRepairAt = 0L;
 
                 if (EAT_BACKPEDAL_HIT_FORCE_EAT <= 0) {
                     st.eatPhase = EatPhase.BACKPEDAL_EAT;
@@ -347,6 +382,12 @@ public final class VillagerCombatDirector {
                         st.eatResetCount = 0;
                         st.eatBackpedalHitCount = 0;
                         st.eatBlockedSeenAt = -1L;
+
+                        // eat use stability tracking
+                        st.eatStartAt = -1L;
+                        st.eatUseDuration = 0;
+                        st.eatLastUseLogAt = 0L;
+                        st.eatLastUseRepairAt = 0L;
                     }
                 }
                 case RUN -> {
@@ -386,6 +427,12 @@ public final class VillagerCombatDirector {
                         st.eatResetCount = 0;
                         st.eatBackpedalHitCount = 0;
                         st.eatBlockedSeenAt = -1L;
+
+                        // eat use stability tracking
+                        st.eatStartAt = -1L;
+                        st.eatUseDuration = 0;
+                        st.eatLastUseLogAt = 0L;
+                        st.eatLastUseRepairAt = 0L;
 
                     }
                 }
@@ -595,9 +642,14 @@ public final class VillagerCombatDirector {
             ItemStack prevMain = vill.getMainHandItem();
             if (prevMain == null) prevMain = ItemStack.EMPTY;
 
+            // Mark that we're intentionally mutating MAIN_HAND so your loadout service can stand down.
+            // NOTE: we avoid the extra "empty hand" frame as much as possible to reduce flicker.
             allowClearHand(vill, InteractionHand.MAIN_HAND, "combat_eat_start");
-            vill.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
 
+            // Ensure we are not blocking when starting to eat.
+            try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+
+            // Equip food and start using (server authoritative).
             vill.setItemInHand(InteractionHand.MAIN_HAND, one.copy());
             vill.startUsingItem(InteractionHand.MAIN_HAND);
 
@@ -606,11 +658,21 @@ public final class VillagerCombatDirector {
             st.eatFinishAt = now + Math.max(1, useDuration);
             st.eatNextFxAt = now + 5L;
 
+            // eat use stability tracking
+            st.eatStartAt = now;
+            st.eatUseDuration = Math.max(1, useDuration);
+            st.eatLastUseLogAt = 0L;
+            st.eatLastUseRepairAt = 0L;
+
             try {
                 // Used by VillagerBrain.tickRenderDecisions to set FLAG_EATING_POSE (client can use this as an animation hint).
                 vill.getPersistentData().putLong("ezvr_eat_pose_until", st.eatFinishAt);
                 vill.getPersistentData().putLong("ezvr_loadout_skip_main_until", st.eatFinishAt + 2L);
             } catch (Throwable ignored) {}
+
+            // Immediately repair server-side timer to a known value (expected remaining = useDuration).
+            // This helps if another system briefly interrupted use on the same tick.
+            repairEatUseStateIfNeeded(vill, st, now, "start");
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=start kind={} item={} durationTicks={} hpBefore={}",
                     vill.getUUID(), safe(kind), safeItemId(one), useDuration, trim1(vill.getHealth()));
@@ -714,12 +776,20 @@ public final class VillagerCombatDirector {
             st.eatPrevMain = ItemStack.EMPTY;
             st.eatFoodUsed = ItemStack.EMPTY;
 
+            // eat use stability tracking
+            st.eatStartAt = -1L;
+            st.eatUseDuration = 0;
+            st.eatLastUseLogAt = 0L;
+            st.eatLastUseRepairAt = 0L;
+
         } catch (Throwable ignored) {}
     }
 
     /**
      * Combat can interrupt item use (block/swing/hurt side effects). If we are in an active eat window,
      * keep reasserting "using item" so the client gets vanilla use animation + bite particles.
+     *
+     * Key change: keep the *timer* stable. If we keep restarting use, the countdown resets and animations can stall. :contentReference[oaicite:2]{index=2}
      */
     private static void ensureStillEating(Villager vill, State st, long now) {
         try {
@@ -734,9 +804,25 @@ public final class VillagerCombatDirector {
             boolean using = false;
             try { using = vill.isUsingItem(); } catch (Throwable ignored) { using = false; }
 
+            InteractionHand usedHand = InteractionHand.MAIN_HAND;
+            try {
+                InteractionHand h = vill.getUsedItemHand();
+                if (h != null) usedHand = h;
+            } catch (Throwable ignored) {}
+
+            // If something flipped us to OFF_HAND using, hard-correct back to MAIN_HAND for eating.
+            if (using && usedHand != InteractionHand.MAIN_HAND) {
+                try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+                using = false;
+            }
+
+            // If we're not using, start using (but immediately repair remaining ticks to expected).
             if (!using) {
                 try { vill.startUsingItem(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
             }
+
+            // Repair server-side useItem/useItemRemaining to the expected value based on eatFinishAt.
+            repairEatUseStateIfNeeded(vill, st, now, "ensure");
 
             // Emit bite particles periodically (vanilla uses entity event 9). This is server authoritative.
             if (st.eatNextFxAt <= 0L || now >= st.eatNextFxAt) {
@@ -753,6 +839,168 @@ public final class VillagerCombatDirector {
         } catch (Throwable ignored) {}
     }
 
+    private static void repairEatUseStateIfNeeded(Villager vill, State st, long now, String why) {
+        try {
+            if (vill == null || st == null) return;
+            if (st.eatFinishAt <= 0L) return;
+            if (now >= st.eatFinishAt) return;
+
+            // Throttle repairs to avoid hammering reflection every tick.
+            if (st.eatLastUseRepairAt > 0L && (now - st.eatLastUseRepairAt) < EAT_USE_REPAIR_MIN_INTERVAL_TICKS) {
+                if (DEBUG_EAT_USE_STATE) maybeLogEatUseState(vill, st, now, why, false, "throttled");
+                return;
+            }
+
+            ItemStack main = vill.getMainHandItem();
+            if (main == null || main.isEmpty()) return;
+            if (main.getUseAnimation() != UseAnim.EAT) return;
+
+            int expected = (int) (st.eatFinishAt - now);
+            if (expected < 1) expected = 1;
+
+            int max = st.eatUseDuration > 0 ? st.eatUseDuration : safeUseDuration(main, vill);
+            if (max <= 0) max = 32;
+            if (expected > max) expected = max;
+
+            boolean using = false;
+            try { using = vill.isUsingItem(); } catch (Throwable ignored) { using = false; }
+
+            InteractionHand usedHand = InteractionHand.MAIN_HAND;
+            try {
+                InteractionHand h = vill.getUsedItemHand();
+                if (h != null) usedHand = h;
+            } catch (Throwable ignored) {}
+
+            int curRem = 0;
+            try { curRem = vill.getUseItemRemainingTicks(); } catch (Throwable ignored) { curRem = 0; }
+
+            ItemStack active = ItemStack.EMPTY;
+            try { active = vill.getUseItem(); } catch (Throwable ignored) { active = ItemStack.EMPTY; }
+            if (active == null) active = ItemStack.EMPTY;
+
+            boolean activeOk = !active.isEmpty() && active.getUseAnimation() == UseAnim.EAT;
+            boolean remOk = Math.abs(curRem - expected) <= 1;
+            boolean handOk = !using || usedHand == InteractionHand.MAIN_HAND;
+
+            boolean needPatch = !activeOk || !remOk || !handOk;
+
+            // If not using, start using (but do not allow timer reset to full duration to persist).
+            if (!using) {
+                try { vill.startUsingItem(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+            } else if (usedHand != InteractionHand.MAIN_HAND) {
+                try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+                try { vill.startUsingItem(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+                needPatch = true;
+            }
+
+            if (needPatch) {
+                warmupUseFields();
+
+                boolean patched = false;
+                try {
+                    if (FIELD_USE_ITEM != null) {
+                        FIELD_USE_ITEM.set(vill, main.copy());
+                        patched = true;
+                    }
+                    if (FIELD_USE_ITEM_REMAINING != null) {
+                        FIELD_USE_ITEM_REMAINING.setInt(vill, expected);
+                        patched = true;
+                    }
+                } catch (Throwable ignored) {}
+
+                st.eatLastUseRepairAt = now;
+
+                if (DEBUG_EAT_USE_STATE) {
+                    maybeLogEatUseState(vill, st, now, why, patched, "patched");
+                }
+            } else {
+                if (DEBUG_EAT_USE_STATE) maybeLogEatUseState(vill, st, now, why, false, "ok");
+            }
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] repairEatUseStateIfNeeded failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void maybeLogEatUseState(Villager vill, State st, long now, String why, boolean didPatch, String note) {
+        try {
+            if (!DEBUG_EAT_USE_STATE) return;
+            if (vill == null || st == null) return;
+
+            if (st.eatLastUseLogAt > 0L && (now - st.eatLastUseLogAt) < DEBUG_EAT_USE_LOG_INTERVAL_TICKS) return;
+            st.eatLastUseLogAt = now;
+
+            boolean using = false;
+            try { using = vill.isUsingItem(); } catch (Throwable ignored) { using = false; }
+
+            InteractionHand usedHand = InteractionHand.MAIN_HAND;
+            try {
+                InteractionHand h = vill.getUsedItemHand();
+                if (h != null) usedHand = h;
+            } catch (Throwable ignored) {}
+
+            ItemStack main = vill.getMainHandItem();
+            if (main == null) main = ItemStack.EMPTY;
+
+            ItemStack active = ItemStack.EMPTY;
+            try { active = vill.getUseItem(); } catch (Throwable ignored) { active = ItemStack.EMPTY; }
+            if (active == null) active = ItemStack.EMPTY;
+
+            int curRem = 0;
+            try { curRem = vill.getUseItemRemainingTicks(); } catch (Throwable ignored) { curRem = 0; }
+
+            int expected = (int) (st.eatFinishAt - now);
+            if (expected < 0) expected = 0;
+
+            VillagerOverhaul.LOG().info(
+                    "[VillagerOverhaul] [combat_eat_use] villager={} now={} why={} using={} usedHand={} curRem={} expectedRem={} main={} active={} patched={} note={}",
+                    vill.getUUID(),
+                    now,
+                    safe(why),
+                    using,
+                    usedHand.name(),
+                    curRem,
+                    expected,
+                    safeItemId(main),
+                    (active.isEmpty() ? "empty" : safeItemId(active)),
+                    didPatch,
+                    safe(note)
+            );
+        } catch (Throwable ignored) {}
+    }
+
+    private static void warmupUseFields() {
+        if (USE_FIELDS_SCANNED) return;
+        USE_FIELDS_SCANNED = true;
+        try {
+            Field fUse = null;
+            Field fRem = null;
+
+            try {
+                fUse = LivingEntity.class.getDeclaredField("useItem");
+                fUse.setAccessible(true);
+            } catch (Throwable ignored) { fUse = null; }
+
+            try {
+                fRem = LivingEntity.class.getDeclaredField("useItemRemaining");
+                fRem.setAccessible(true);
+            } catch (Throwable ignored) { fRem = null; }
+
+            FIELD_USE_ITEM = fUse;
+            FIELD_USE_ITEM_REMAINING = fRem;
+
+            VillagerOverhaul.LOG().info(
+                    "[VillagerOverhaul] [combat_eat] warmupUseFields done useItemField={} useItemRemainingField={}",
+                    (FIELD_USE_ITEM != null),
+                    (FIELD_USE_ITEM_REMAINING != null)
+            );
+
+        } catch (Throwable ignored) {
+            FIELD_USE_ITEM = null;
+            FIELD_USE_ITEM_REMAINING = null;
+        }
+    }
+
     private static void cancelEatProcess(Villager vill, State st, String why) {
         try {
             cancelEatInProgressOnly(vill, st, why);
@@ -761,6 +1009,13 @@ public final class VillagerCombatDirector {
             st.eatHitSeenAt = st.lastHitAt;
             st.eatBackpedalHitCount = 0;
             st.eatBlockedSeenAt = -1L;
+
+            // eat use stability tracking
+            st.eatStartAt = -1L;
+            st.eatUseDuration = 0;
+            st.eatLastUseLogAt = 0L;
+            st.eatLastUseRepairAt = 0L;
+
         } catch (Throwable ignored) {}
     }
 
@@ -1143,6 +1398,12 @@ public final class VillagerCombatDirector {
         long eatNextFxAt = 0L;
         ItemStack eatPrevMain = ItemStack.EMPTY;
         ItemStack eatFoodUsed = ItemStack.EMPTY;
+
+        // --- eat use stability tracking ---
+        long eatStartAt = -1L;
+        int eatUseDuration = 0;
+        long eatLastUseLogAt = 0L;
+        long eatLastUseRepairAt = 0L;
     }
 
     private enum EatPhase {

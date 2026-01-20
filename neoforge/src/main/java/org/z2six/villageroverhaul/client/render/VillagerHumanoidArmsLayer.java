@@ -53,26 +53,51 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
     // Manual swing tuning
     private static final float SWING_XROT_SCALE = 1.20f;
     private static final float SWING_ZROT_SCALE = 0.40f;
-
     private static final float SWING_CONE_SCALE = 0.80f;
 
-    // Manual eat pose tuning (kept but OFF by default — you want vanilla)
-    private static final float EAT_XROT_BASE = -1.55f;
-    private static final float EAT_XROT_WOBBLE = 0.10f;
-    private static final float EAT_YROT_IN = 0.60f;
-    private static final float EAT_ZROT_TWIST = 0.16f;
+    // ---------------------------------------------------------------------
+    // EAT OVERRIDE (THIS IS THE REAL FIX)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Vanilla/driver eat pose is too subtle for villagers in your pipeline (confirmed by your driver logs:
+     * rRot around -0.33..-0.36, tiny zRot drift).
+     *
+     * So we override the arm into a clear "hand to mouth" pose during UseAnim.EAT.
+     */
+    private static final boolean ENABLE_EAT_OVERRIDE = true;
+
+    /**
+     * How strongly we override the arm pose.
+     * 1.0 = fully our pose; 0.0 = do nothing.
+     */
+    private static final float EAT_OVERRIDE_BLEND = 1.0f;
+
+    /**
+     * Base target pose for the active (eating) arm.
+     * These are intentionally strong so you can actually see it.
+     */
+    private static final float EAT_TARGET_XROT = -1.35f;
+    private static final float EAT_TARGET_YROT_IN = 0.55f;
+    private static final float EAT_TARGET_ZROT_TWIST = 0.18f;
+
+    /**
+     * Small wobble so the bite looks alive.
+     */
     private static final float EAT_WOBBLE_SPEED = 0.70f;
+    private static final float EAT_WOBBLE_XROT = 0.10f;
+
+    /**
+     * Optional secondary arm response (subtle).
+     */
+    private static final boolean EAT_MOVE_OTHER_ARM_SLIGHTLY = true;
+    private static final float EAT_OTHER_ARM_XROT = -0.25f;
+    private static final float EAT_OTHER_ARM_ZROT = 0.04f;
 
     private static final boolean ENABLE_EASED_PROGRESS = true;
 
     /**
-     * IMPORTANT FINDING (based on your log where activeUse=cooked_beef remTicks=32 but still no arm pose):
-     * Base HumanoidModel often does NOT show a visible third-person "hand to mouth" use animation for ITEM/EAT,
-     * while PlayerModel does.
-     *
-     * Therefore:
-     * - We drive our arm animation using a PlayerModel instance as the driver model.
-     * - We still render ONLY your custom arms model.
+     * Driver model for vanilla arm logic.
      */
     private static final boolean USE_PLAYERMODEL_DRIVER_FOR_VANILLA_EAT = true;
 
@@ -82,7 +107,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
     private static final boolean PREFER_VANILLA_EAT = true;
 
     /**
-     * Manual fallback pose (leave false unless you want your hardcoded pose).
+     * Manual fallback pose (kept but OFF — we now do a better targeted override above).
      */
     private static final boolean ENABLE_MANUAL_EAT_POSE_FALLBACK = false;
 
@@ -98,7 +123,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
     private static final Map<UUID, String> LAST_USE_SEED_KEY = new HashMap<>();
     private static final int USE_SEED_MIN_INTERVAL_TICKS = 6;
 
-    // Keep this on for now; it logs one line per new eat start.
     private static final boolean DEBUG_USE_SEED_LOG = true;
 
     // Reflection fallback: directly patch LivingEntity.useItem + LivingEntity.useItemRemaining on CLIENT
@@ -118,14 +142,17 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
     private final VillagerCombatArmsModel armsModel;
 
-    // Keep the injected driver as a fallback (in case PlayerModel can't be created for some reason).
     private final HumanoidModel<LivingEntity> injectedDriverHumanoid;
-
-    // Lazily constructed driver used for animation. If USE_PLAYERMODEL_DRIVER_FOR_VANILLA_EAT=true we prefer this.
     private volatile PlayerModel<LivingEntity> playerDriver = null;
 
     private boolean ezvr$initLogged = false;
     private boolean ezvr$driverLogged = false;
+
+    // Debug: driver pose logs (your recently-added diagnostic)
+    private static final Map<UUID, Integer> LAST_EATPOSE_LOG_TICK = new HashMap<>();
+
+    // Debug: eat override application logs
+    private static final Map<UUID, Integer> LAST_EAT_OVERRIDE_LOG_TICK = new HashMap<>();
 
     public VillagerHumanoidArmsLayer(RenderLayerParent<Villager, VillagerModel<Villager>> parent,
                                      VillagerCombatArmsModel armsModel,
@@ -162,28 +189,33 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
             if (!ezvr$driverLogged) {
                 ezvr$driverLogged = true;
-                VillagerOverhaul.LOG().info(
-                        "[VillagerOverhaul] [client] ArmsLayer driverModel={}",
-                        driver.getClass().getName()
-                );
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] ArmsLayer driverModel={}", driver.getClass().getName());
             }
 
             float swingProg = computeSeqDrivenSwingProgress(villager, partialTick);
 
             setupDriverState(driver, villager, swingProg);
 
-            // Let the chosen vanilla model compute arm rotations.
+            // Vanilla flow
             driver.prepareMobModel(villager, limbSwing, limbSwingAmount, partialTick);
             driver.setupAnim(villager, limbSwing, limbSwingAmount, ageInTicks, netHeadYaw, headPitch);
 
-            // Optional manual fallback. OFF by default.
+            // Debug: prove the driver is doing *something* (you already saw it move slightly).
+            debugLogDriverEatPose(villager, driver);
+
+            // Optional manual fallback (kept).
             if (ENABLE_MANUAL_EAT_POSE_FALLBACK) {
                 applyManualEatPoseToDriverArms(driver, villager, partialTick, ageInTicks);
             }
 
+            // Strong eat override: make it visibly "hand to mouth".
+            if (ENABLE_EAT_OVERRIDE) {
+                applyEatOverrideIfEating(driver, villager, partialTick, ageInTicks);
+            }
+
             applyManualSwingToDriverArms(driver, villager, swingProg);
 
-            // Copy the final arm rotations to your custom arms model and render them.
+            // Copy to custom arms model
             armsModel.setArmRotationsFromHumanoid(driver.rightArm, driver.leftArm);
 
             poseStack.pushPose();
@@ -213,13 +245,11 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             PlayerModel<LivingEntity> pd = playerDriver;
             if (pd != null) return pd;
 
-            // Lazy init. If anything fails (missing layer, null MC, etc.) fall back to injected driver.
             try {
                 Minecraft mc = Minecraft.getInstance();
                 if (mc == null) return injectedDriverHumanoid;
 
                 ModelPart root = mc.getEntityModels().bakeLayer(ModelLayers.PLAYER);
-                // false = "normal arms" model, not slim
                 pd = new PlayerModel<>(root, false);
                 playerDriver = pd;
                 return pd;
@@ -291,13 +321,9 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
         try {
             if (driver == null || v == null) return;
 
-            // IMPORTANT: "forced" is a server-synced render-hint (your RenderFlags 3->11 log).
-            // If the client isn't actually marked as "using item", vanilla arm logic won't animate.
-            // So: seed client use state when forced OR when already using.
             boolean forced = isEatingPoseForced(v);
 
             if (PREFER_VANILLA_EAT) {
-                // Ensure active-use stack + remaining ticks are correct on CLIENT so vanilla anim can run.
                 seedClientActiveUseIfNeeded(v, forced);
             }
 
@@ -312,9 +338,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             try { usingFlag = v.isUsingItem(); } catch (Throwable ignored) { usingFlag = false; }
 
             InteractionHand usedHand = InteractionHand.MAIN_HAND;
-
-            // If we are truly using, respect the used-hand. If we're only "forced", prefer MAIN_HAND
-            // because your combat-eat equips food into MAIN_HAND.
             if (!forced) {
                 try {
                     InteractionHand h = v.getUsedItemHand();
@@ -324,7 +347,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
             ItemStack heldInUsedHand = getHandStackSafe(v, usedHand);
             ItemStack mainHand = getHandStackSafe(v, InteractionHand.MAIN_HAND);
-
             ItemStack effectiveUsing = (!heldInUsedHand.isEmpty()) ? heldInUsedHand : mainHand;
 
             boolean shouldTreatAsUsing = usingFlag || forced;
@@ -389,7 +411,205 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
         }
     }
 
-    private void applyManualEatPoseToDriverArms(HumanoidModel<LivingEntity> driver, Villager v, float partialTick, float ageInTicks) {
+    /**
+     * Strong, deterministic eat animation. This is applied *after* vanilla setupAnim() so it wins.
+     */
+    private void applyEatOverrideIfEating(HumanoidModel<LivingEntity> driver, Villager v, float partialTick, float ageInTicks) {
+        try {
+            if (driver == null || v == null) return;
+
+            EatCtx ctx = getEatContext(v);
+            if (!ctx.isEating) return;
+
+            // Determine active arm from used hand + main arm.
+            HumanoidArm mainArm = v.getMainArm();
+            boolean usingMainHand = (ctx.usedHand == InteractionHand.MAIN_HAND);
+
+            boolean activeIsRight = usingMainHand
+                    ? (mainArm == HumanoidArm.RIGHT)
+                    : (mainArm != HumanoidArm.RIGHT);
+
+            ModelPart activeArm = activeIsRight ? driver.rightArm : driver.leftArm;
+            ModelPart otherArm = activeIsRight ? driver.leftArm : driver.rightArm;
+            if (activeArm == null) return;
+
+            // Progress 0..1 (0 = start, 1 = end) using remaining ticks.
+            float p = ctx.progress01;
+            if (ENABLE_EASED_PROGRESS) p = smoothStep01(p);
+
+            // Wobble
+            float t = ageInTicks + partialTick;
+            float wobble = Mth.cos(t * EAT_WOBBLE_SPEED) * EAT_WOBBLE_XROT;
+
+            // Target pose
+            float targetX = EAT_TARGET_XROT + wobble;
+            float targetY = (activeIsRight ? -EAT_TARGET_YROT_IN : EAT_TARGET_YROT_IN);
+            float targetZ = (activeIsRight ? -EAT_TARGET_ZROT_TWIST : EAT_TARGET_ZROT_TWIST);
+
+            // Some bite-like pulsing near the end of the cycle
+            float bite = Mth.sin(p * (float) Math.PI);
+            targetX += bite * 0.15f;
+
+            // Blend into the target (so you can dial it down if needed)
+            float blend = EAT_OVERRIDE_BLEND;
+            activeArm.xRot = lerp(activeArm.xRot, targetX, blend);
+            activeArm.yRot = lerp(activeArm.yRot, targetY, blend);
+            activeArm.zRot = lerp(activeArm.zRot, targetZ, blend);
+
+            if (EAT_MOVE_OTHER_ARM_SLIGHTLY && otherArm != null) {
+                float ox = EAT_OTHER_ARM_XROT;
+                float oz = activeIsRight ? EAT_OTHER_ARM_ZROT : -EAT_OTHER_ARM_ZROT;
+
+                otherArm.xRot = lerp(otherArm.xRot, ox, blend * 0.35f);
+                otherArm.zRot = lerp(otherArm.zRot, oz, blend * 0.35f);
+            }
+
+            debugLogEatOverride(v, ctx, activeIsRight, activeArm, otherArm);
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] applyEatOverrideIfEating failed (soft): {}", t.toString());
+        }
+    }
+
+    private static final class EatCtx {
+        final boolean isEating;
+        final InteractionHand usedHand;
+        final float progress01;
+
+        EatCtx(boolean isEating, InteractionHand usedHand, float progress01) {
+            this.isEating = isEating;
+            this.usedHand = usedHand;
+            this.progress01 = progress01;
+        }
+    }
+
+    private static EatCtx getEatContext(Villager v) {
+        try {
+            if (v == null) return new EatCtx(false, InteractionHand.MAIN_HAND, 0.0f);
+
+            boolean forced = isEatingPoseForced(v);
+
+            boolean using = false;
+            try { using = v.isUsingItem(); } catch (Throwable ignored) { using = false; }
+
+            // Determine which item is being used
+            InteractionHand usedHand = InteractionHand.MAIN_HAND;
+            if (using && !forced) {
+                try {
+                    InteractionHand h = v.getUsedItemHand();
+                    if (h != null) usedHand = h;
+                } catch (Throwable ignored) {}
+            }
+
+            ItemStack held = getHandStackSafe(v, usedHand);
+            if (held.isEmpty() && forced) {
+                usedHand = InteractionHand.MAIN_HAND;
+                held = getHandStackSafe(v, InteractionHand.MAIN_HAND);
+            }
+
+            boolean isEatAnim = false;
+            try { isEatAnim = !held.isEmpty() && held.getUseAnimation() == UseAnim.EAT; } catch (Throwable ignored) { isEatAnim = false; }
+
+            boolean eatActive = forced || (using && isEatAnim);
+            if (!eatActive) return new EatCtx(false, InteractionHand.MAIN_HAND, 0.0f);
+
+            int rem = 0;
+            try { rem = v.getUseItemRemainingTicks(); } catch (Throwable ignored) { rem = 0; }
+
+            int dur = 32;
+            try { dur = held.getUseDuration(v); } catch (Throwable ignored) { dur = 32; }
+            if (dur <= 0) dur = 32;
+
+            // progress: 0 at start (rem=dur), 1 at end (rem~0)
+            float p = 0.0f;
+            try {
+                p = 1.0f - (rem / (float) dur);
+            } catch (Throwable ignored) {
+                p = 0.0f;
+            }
+
+            if (Float.isNaN(p) || Float.isInfinite(p)) p = 0.0f;
+            if (p < 0.0f) p = 0.0f;
+            if (p > 1.0f) p = 1.0f;
+
+            return new EatCtx(true, usedHand, p);
+
+        } catch (Throwable ignored) {
+            return new EatCtx(false, InteractionHand.MAIN_HAND, 0.0f);
+        }
+    }
+
+    private static void debugLogEatOverride(Villager v, EatCtx ctx, boolean activeIsRight, ModelPart activeArm, ModelPart otherArm) {
+        try {
+            if (v == null || ctx == null) return;
+            UUID id = v.getUUID();
+            if (id == null) return;
+
+            int tick = v.tickCount;
+            Integer last = LAST_EAT_OVERRIDE_LOG_TICK.get(id);
+            if (last != null && (tick - last) < 10) return;
+            LAST_EAT_OVERRIDE_LOG_TICK.put(id, tick);
+
+            float ax = activeArm == null ? 0 : activeArm.xRot;
+            float ay = activeArm == null ? 0 : activeArm.yRot;
+            float az = activeArm == null ? 0 : activeArm.zRot;
+
+            float ox = otherArm == null ? 0 : otherArm.xRot;
+            float oy = otherArm == null ? 0 : otherArm.yRot;
+            float oz = otherArm == null ? 0 : otherArm.zRot;
+
+            VillagerOverhaul.LOG().info(
+                    "[VillagerOverhaul] [client] eat_override vill={} tick={} hand={} activeIsRight={} prog={} aRot=({},{},{}) oRot=({},{},{})",
+                    id,
+                    tick,
+                    ctx.usedHand.name(),
+                    activeIsRight,
+                    fmt3(ctx.progress01),
+                    fmt3(ax), fmt3(ay), fmt3(az),
+                    fmt3(ox), fmt3(oy), fmt3(oz)
+            );
+        } catch (Throwable ignored) {}
+    }
+
+    private static void debugLogDriverEatPose(Villager v, HumanoidModel<LivingEntity> driver) {
+        try {
+            if (v == null || driver == null) return;
+
+            boolean using = false;
+            try { using = v.isUsingItem(); } catch (Throwable ignored) { using = false; }
+
+            boolean forced = isEatingPoseForced(v);
+            if (!using && !forced) return;
+
+            UUID id = v.getUUID();
+            if (id == null) return;
+
+            int tick = v.tickCount;
+            Integer last = LAST_EATPOSE_LOG_TICK.get(id);
+            if (last != null && (tick - last) < 5) return;
+            LAST_EATPOSE_LOG_TICK.put(id, tick);
+
+            ModelPart r = driver.rightArm;
+            ModelPart l = driver.leftArm;
+
+            float rx = (r == null) ? 0 : r.xRot;
+            float ry = (r == null) ? 0 : r.yRot;
+            float rz = (r == null) ? 0 : r.zRot;
+
+            float lx = (l == null) ? 0 : l.xRot;
+            float ly = (l == null) ? 0 : l.yRot;
+            float lz = (l == null) ? 0 : l.zRot;
+
+            VillagerOverhaul.LOG().info(
+                    "[VillagerOverhaul] [client] eat_driver_pose vill={} tick={} using={} forced={} rRot=({},{},{}) lRot=({},{},{})",
+                    id, tick, using, forced,
+                    fmt3(rx), fmt3(ry), fmt3(rz),
+                    fmt3(lx), fmt3(ly), fmt3(lz)
+            );
+        } catch (Throwable ignored) {}
+    }
+
+    private static void applyManualEatPoseToDriverArms(HumanoidModel<LivingEntity> driver, Villager v, float partialTick, float ageInTicks) {
         try {
             if (driver == null || v == null) return;
 
@@ -448,11 +668,11 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             if (arm == null) return;
 
             float t = ageInTicks + partialTick;
-            float wobble = Mth.cos(t * EAT_WOBBLE_SPEED) * EAT_XROT_WOBBLE;
+            float wobble = Mth.cos(t * EAT_WOBBLE_SPEED) * EAT_WOBBLE_XROT;
 
-            arm.xRot = EAT_XROT_BASE + wobble;
-            arm.yRot += activeIsRight ? -EAT_YROT_IN : EAT_YROT_IN;
-            arm.zRot += activeIsRight ? -EAT_ZROT_TWIST : EAT_ZROT_TWIST;
+            arm.xRot = (-1.55f) + wobble;
+            arm.yRot += activeIsRight ? -0.60f : 0.60f;
+            arm.zRot += activeIsRight ? -0.16f : 0.16f;
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] applyManualEatPoseToDriverArms failed (soft): {}", t.toString());
@@ -481,14 +701,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
         }
     }
 
-    /**
-     * Ensure client use state is valid so vanilla use/eat animation logic can run.
-     *
-     * Key fix:
-     * - Previously we returned early unless v.isUsingItem() was already true on CLIENT.
-     * - But your server-driven eat FX can happen even if the client never enters "using item".
-     * - So if "forced" (RenderFlags say eating pose), we seed the use state anyway.
-     */
     private static void seedClientActiveUseIfNeeded(Villager v, boolean forcedEatingFlag) {
         try {
             if (v == null) return;
@@ -496,12 +708,8 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             boolean usingFlag = false;
             try { usingFlag = v.isUsingItem(); } catch (Throwable ignored) { usingFlag = false; }
 
-            // If the client isn't using AND we don't have a forced server hint, we do nothing.
             if (!usingFlag && !forcedEatingFlag) return;
 
-            // Determine which hand to seed:
-            // - If truly using, trust getUsedItemHand()
-            // - If forced-only, prefer MAIN_HAND (combat-eat equips food there).
             InteractionHand usedHand = InteractionHand.MAIN_HAND;
             if (usingFlag) {
                 try {
@@ -529,8 +737,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             try { rem = v.getUseItemRemainingTicks(); } catch (Throwable ignored) { rem = 0; }
 
             boolean activeIsEat = (!active.isEmpty() && active.getUseAnimation() == UseAnim.EAT);
-
-            // If we already look correct, stop here.
             if (activeIsEat && rem > 0) return;
 
             UUID id = v.getUUID();
@@ -548,7 +754,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             LAST_USE_SEED_TICK.put(id, tick);
             LAST_USE_SEED_KEY.put(id, key);
 
-            // Step 1: reset + restart use locally (visual-only).
             try { v.stopUsingItem(); } catch (Throwable ignored) {}
             try { v.startUsingItem(usedHand); } catch (Throwable ignored) {}
 
@@ -562,7 +767,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
             boolean activeAfterEat = (!activeAfter.isEmpty() && activeAfter.getUseAnimation() == UseAnim.EAT);
 
-            // Step 2: patch fields directly if still stale.
             if (!(activeAfterEat && remAfter > 0)) {
                 warmupUseFields();
 
@@ -576,12 +780,6 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
                 } catch (Throwable ignored) {}
 
                 try { v.startUsingItem(usedHand); } catch (Throwable ignored) {}
-
-                try { remAfter = v.getUseItemRemainingTicks(); } catch (Throwable ignored) { /* keep */ }
-                try {
-                    ItemStack ui3 = v.getUseItem();
-                    activeAfter = (ui3 == null) ? ItemStack.EMPTY : ui3;
-                } catch (Throwable ignored) { /* keep */ }
             }
 
             if (DEBUG_USE_SEED_LOG && newKey) {
@@ -703,5 +901,12 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
     private static String fmt3(float v) {
         if (Float.isNaN(v) || Float.isInfinite(v)) return "0";
         return String.valueOf(Math.round(v * 1000.0f) / 1000.0f);
+    }
+
+    private static float lerp(float a, float b, float t) {
+        if (Float.isNaN(a) || Float.isNaN(b) || Float.isNaN(t)) return b;
+        if (t <= 0.0f) return a;
+        if (t >= 1.0f) return b;
+        return a + (b - a) * t;
     }
 }
