@@ -30,7 +30,8 @@ public final class CombatSettingsScreen extends Screen {
     private enum Tab {
         FLEE("Flee"),
         DEFEND("Defend"),
-        AGGRESSIVE("Aggressive");
+        AGGRESSIVE("Aggressive"),
+        AI("AI");
 
         final String label;
         Tab(String label) { this.label = label; }
@@ -75,10 +76,19 @@ public final class CombatSettingsScreen extends Screen {
     private TabButton tabFlee;
     private TabButton tabDefend;
     private TabButton tabAggressive;
+    private TabButton tabAi;
 
     private final List<AbstractWidget> fleeDefendWidgets = new ArrayList<>();
     private final List<AbstractWidget> aggressiveWidgets = new ArrayList<>();
+    private final List<AbstractWidget> aiWidgets = new ArrayList<>();
     private final List<InfoIconWidget> infoIcons = new ArrayList<>();
+
+    // AI tab widgets
+    private CheckBoxWidget cbAiBlocking;
+    private CheckBoxWidget cbAiEating;
+    private CheckBoxWidget cbAiCircling;
+    private Button btnAiEatForceHits;
+    private Button btnAiEatMaxResets;
 
     public CombatSettingsScreen(Screen parent, int villagerEntityId, boolean global) {
         super(Component.literal("Combat Settings"));
@@ -133,17 +143,19 @@ public final class CombatSettingsScreen extends Screen {
         this.addRenderableWidget(btnSave);
 
         int tabsY = top + PANEL_H - 26;
-        int tabW = 90;
+        int tabW = 80;
         int tabH = 18;
-        int tabsX = left + (PANEL_W - (tabW * 3 + 6 * 2)) / 2;
+        int tabsX = left + (PANEL_W - (tabW * 4 + 6 * 3)) / 2;
 
         tabFlee = new TabButton(tabsX, tabsY, tabW, tabH, Tab.FLEE);
         tabDefend = new TabButton(tabsX + (tabW + 6), tabsY, tabW, tabH, Tab.DEFEND);
         tabAggressive = new TabButton(tabsX + 2 * (tabW + 6), tabsY, tabW, tabH, Tab.AGGRESSIVE);
+        tabAi = new TabButton(tabsX + 3 * (tabW + 6), tabsY, tabW, tabH, Tab.AI);
 
         this.addRenderableWidget(tabFlee);
         this.addRenderableWidget(tabDefend);
         this.addRenderableWidget(tabAggressive);
+        this.addRenderableWidget(tabAi);
 
         int x = left + PAD;
         int y = top + 52;
@@ -214,6 +226,54 @@ public final class CombatSettingsScreen extends Screen {
         addAggressiveWidget(aggroWl);
         addAggressiveWidget(aggroBl);
 
+        // ------------------------------------------------------------------
+        // AI tab
+        // ------------------------------------------------------------------
+        int aiX = left + PAD;
+        int aiY = top + 72;
+        int aiGap = 22;
+
+        cbAiBlocking = new CheckBoxWidget(aiX, aiY, "Enable blocking (shield)");
+        cbAiEating = new CheckBoxWidget(aiX, aiY + aiGap, "Enable eating to heal");
+        cbAiCircling = new CheckBoxWidget(aiX, aiY + aiGap * 2, "Enable circling/strafe");
+
+        addAiWidget(cbAiBlocking);
+        addAiWidget(cbAiEating);
+        addAiWidget(cbAiCircling);
+
+        int btnY = aiY + aiGap * 3 + 8;
+        int btnW2 = 240;
+        int btnH2 = 18;
+
+        btnAiEatForceHits = Button.builder(Component.literal("Force-eat after hits: ..."), b -> {
+                    try {
+                        if (settings == null) settings = new CombatSettings();
+                        int v = settings.ai.eatForceHits;
+                        v = (v >= 6) ? 0 : (v + 1);
+                        settings.ai.eatForceHits = v;
+                        b.setMessage(Component.literal("Force-eat after hits: " + v));
+                    } catch (Throwable ignored) {}
+                })
+                .pos(aiX, btnY)
+                .size(btnW2, btnH2)
+                .build();
+
+        btnAiEatMaxResets = Button.builder(Component.literal("Eat resets before force: ..."), b -> {
+                    try {
+                        if (settings == null) settings = new CombatSettings();
+                        int v = settings.ai.eatMaxResets;
+                        v = (v >= 5) ? 0 : (v + 1);
+                        settings.ai.eatMaxResets = v;
+                        b.setMessage(Component.literal("Eat resets before force: " + v));
+                    } catch (Throwable ignored) {}
+                })
+                .pos(aiX, btnY + btnH2 + 6)
+                .size(btnW2, btnH2)
+                .build();
+
+        addAiWidget(btnAiEatForceHits);
+        addAiWidget(btnAiEatMaxResets);
+
         tryApplySettingsFromCache();
         applyTabToWidgets();
     }
@@ -226,6 +286,11 @@ public final class CombatSettingsScreen extends Screen {
     private void addAggressiveWidget(AbstractWidget w) {
         this.addRenderableWidget(w);
         aggressiveWidgets.add(w);
+    }
+
+    private void addAiWidget(AbstractWidget w) {
+        this.addRenderableWidget(w);
+        aiWidgets.add(w);
     }
 
     @Override
@@ -246,11 +311,26 @@ public final class CombatSettingsScreen extends Screen {
     }
 
     private void applyTabToWidgets() {
+        boolean fleeDefend = currentTab == Tab.FLEE || currentTab == Tab.DEFEND;
         boolean aggressive = currentTab == Tab.AGGRESSIVE;
-        setGroupVisible(fleeDefendWidgets, !aggressive);
+        boolean ai = currentTab == Tab.AI;
+
+        setGroupVisible(fleeDefendWidgets, fleeDefend);
         setGroupVisible(aggressiveWidgets, aggressive);
+        setGroupVisible(aiWidgets, ai);
 
         if (settings == null) return;
+
+        if (ai) {
+            cbAiBlocking.setChecked(settings.ai.enableBlocking);
+            cbAiEating.setChecked(settings.ai.enableEating);
+            cbAiCircling.setChecked(settings.ai.enableCircling);
+
+            if (btnAiEatForceHits != null) btnAiEatForceHits.setMessage(Component.literal("Force-eat after hits: " + settings.ai.eatForceHits));
+            if (btnAiEatMaxResets != null) btnAiEatMaxResets.setMessage(Component.literal("Eat resets before force: " + settings.ai.eatMaxResets));
+            return;
+        }
+
         CombatSettings.ModeSettings m = getCurrentModeSettings();
         if (m == null) return;
 
@@ -264,6 +344,14 @@ public final class CombatSettingsScreen extends Screen {
 
     private void storeWidgetsToTab() {
         if (settings == null) settings = new CombatSettings();
+
+        if (currentTab == Tab.AI) {
+            settings.ai.enableBlocking = cbAiBlocking != null && cbAiBlocking.isChecked();
+            settings.ai.enableEating = cbAiEating != null && cbAiEating.isChecked();
+            settings.ai.enableCircling = cbAiCircling != null && cbAiCircling.isChecked();
+            return;
+        }
+
         CombatSettings.ModeSettings m = getCurrentModeSettings();
         if (m == null) return;
 
@@ -281,6 +369,7 @@ public final class CombatSettingsScreen extends Screen {
             case FLEE -> settings.flee;
             case DEFEND -> settings.defend;
             case AGGRESSIVE -> settings.aggressive;
+            case AI -> null;
         };
     }
 
@@ -354,6 +443,10 @@ public final class CombatSettingsScreen extends Screen {
             case AGGRESSIVE -> new String[] {
                     "Configure which entities are attacked on sight.",
                     "Does nothing if whitelist and blacklist are both empty."
+            };
+            case AI -> new String[] {
+                    "Configure combat AI behavior.",
+                    "These settings are clamped to avoid overpowered configs."
             };
         };
         for (String line : lines) {

@@ -24,7 +24,9 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
+import org.z2six.villageroverhaul.combat.CombatSettings;
 import org.z2six.villageroverhaul.menu.VillagerInventoryMenu;
+import org.z2six.villageroverhaul.server.CombatSettingsService;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -210,8 +212,10 @@ public final class VillagerCombatDirector {
 
             detectHitEdge(vill, st, now);
 
+            CombatSettings.AiSettings ai = getAiSettings(vill);
+
             // Low HP: prioritize escape-to-eat loop while we have food available.
-            if (shouldTryEatInCombat(vill) && hasAnyFoodInPickupInv(vill)) {
+            if (ai.enableEating && shouldTryEatInCombat(vill) && hasAnyFoodInPickupInv(vill)) {
                 if (tickEatEscapeProcess(vill, target, st, now)) return;
             } else {
                 // If we recovered above threshold or have no food, ensure we don't keep stale state.
@@ -236,14 +240,18 @@ public final class VillagerCombatDirector {
                     if (canBackpedalBehind(vill, target)) {
                         applyBackpedalInput(vill, now, 0.50f);
                     } else {
-                        applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                        if (ai.enableCircling) {
+                            applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                        }
                     }
                 } else if (dist > (maintainDist + 0.65)) {
                     try { vill.getNavigation().moveTo(target, MOVE_SPEED); } catch (Throwable ignored) {}
                 } else {
                     try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                     faceTargetHard(vill, target);
-                    applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                    if (ai.enableCircling) {
+                        applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                    }
                 }
             }
 
@@ -278,7 +286,8 @@ public final class VillagerCombatDirector {
                 return;
             }
 
-            if (ENABLE_BLOCKING) {
+            boolean allowBlocking = ENABLE_BLOCKING && ai.enableBlocking;
+            if (allowBlocking) {
                 if (now >= st.noBlockUntil) {
                     boolean started = startBlocking(vill);
                     if (started) {
@@ -329,6 +338,12 @@ public final class VillagerCombatDirector {
         try {
             if (vill == null || target == null || st == null) return false;
 
+            CombatSettings.AiSettings ai = getAiSettings(vill);
+            int maxResets = clampInt(ai.eatMaxResets, 0, 5);
+            int forceHits = clampInt(ai.eatForceHits, 0, 6);
+            boolean allowBlocking = ENABLE_BLOCKING && ai.enableBlocking;
+            boolean allowCircling = ai.enableCircling;
+
             // Initialize.
             if (st.eatPhase == EatPhase.NONE) {
                 st.eatPhase = EatPhase.BACKPEDAL;
@@ -346,7 +361,7 @@ public final class VillagerCombatDirector {
                 st.eatLastUseLogAt = 0L;
                 st.eatLastUseRepairAt = 0L;
 
-                if (EAT_BACKPEDAL_HIT_FORCE_EAT <= 0) {
+                if (forceHits <= 0) {
                     st.eatPhase = EatPhase.BACKPEDAL_EAT;
                 }
             }
@@ -359,7 +374,7 @@ public final class VillagerCombatDirector {
                 // We keep fighting while backing up, and after a few hits we eat anyway.
                 if (st.eatPhase == EatPhase.BACKPEDAL) {
                     st.eatBackpedalHitCount++;
-                    if (st.eatBackpedalHitCount >= EAT_BACKPEDAL_HIT_FORCE_EAT) {
+                    if (st.eatBackpedalHitCount >= forceHits) {
                         st.eatPhase = EatPhase.BACKPEDAL_EAT;
                         VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=backpedal_force_eat hits={}",
                                 vill.getUUID(), st.eatBackpedalHitCount);
@@ -367,7 +382,7 @@ public final class VillagerCombatDirector {
                 } else if (st.eatPhase != EatPhase.FORCE_EAT && st.eatPhase != EatPhase.BACKPEDAL_EAT) {
                     st.eatResetCount++;
                     cancelEatInProgressOnly(vill, st, "eat_reset_hit");
-                    if (st.eatResetCount >= EAT_MAX_RESETS) {
+                    if (st.eatResetCount >= maxResets) {
                         st.eatPhase = EatPhase.FORCE_EAT;
                     } else {
                         st.eatPhase = EatPhase.BACKPEDAL;
@@ -382,7 +397,7 @@ public final class VillagerCombatDirector {
                     if (blockedTick > 0L && blockedTick != st.eatBlockedSeenAt) {
                         st.eatBlockedSeenAt = blockedTick;
                         st.eatBackpedalHitCount++;
-                        if (st.eatBackpedalHitCount >= EAT_BACKPEDAL_HIT_FORCE_EAT) {
+                        if (st.eatBackpedalHitCount >= forceHits) {
                             st.eatPhase = EatPhase.BACKPEDAL_EAT;
                             VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=backpedal_force_eat why=blocked hits={}",
                                     vill.getUUID(), st.eatBackpedalHitCount);
@@ -396,13 +411,18 @@ public final class VillagerCombatDirector {
             switch (st.eatPhase) {
                 case BACKPEDAL -> {
                     // Backpedal slowly while shielding and facing target.
-                    startBlocking(vill);
+                    if (allowBlocking) startBlocking(vill);
+                    else {
+                        try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+                    }
                     faceTargetHard(vill, target);
                     try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                     if (canBackpedalBehind(vill, target)) {
                         applyBackpedalInput(vill, now, (float) EAT_BACKPEDAL_SPEED);
                     } else {
-                        applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                        if (allowCircling) {
+                            applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                        }
                     }
 
                     // Keep normal combat (swing/block) logic while backpedaling so we don't get trapped in 1v1s.
@@ -439,7 +459,7 @@ public final class VillagerCombatDirector {
                         faceTargetHard(vill, target);
                     }
 
-                    if (ENABLE_BLOCKING) {
+                    if (allowBlocking) {
                         if (now >= st.noBlockUntil) {
                             boolean started = startBlocking(vill);
                             if (started) {
@@ -468,7 +488,9 @@ public final class VillagerCombatDirector {
                         applyBackpedalInput(vill, now, (float) EAT_BACKPEDAL_FORCE_EAT_SPEED);
                     } else {
                         // Strafe to find a clearer backpedal line, but keep eating.
-                        applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), -0.2f);
+                        if (allowCircling) {
+                            applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), -0.2f);
+                        }
                     }
                     try { vill.getLookControl().setLookAt(target, 30.0f, 30.0f); } catch (Throwable ignored) {}
                     lockYaw(vill, now, vill.getYRot());
@@ -715,6 +737,23 @@ public final class VillagerCombatDirector {
         } catch (Throwable ignored) {}
 
         return false;
+    }
+
+    private static CombatSettings.AiSettings getAiSettings(Villager vill) {
+        try {
+            CombatSettings s = CombatSettingsService.getPerVillager(vill);
+            if (s == null) return new CombatSettings().ai;
+            if (s.ai == null) return new CombatSettings().ai;
+            return s.ai;
+        } catch (Throwable ignored) {
+            return new CombatSettings().ai;
+        }
+    }
+
+    private static int clampInt(int v, int min, int max) {
+        if (v < min) return min;
+        if (v > max) return max;
+        return v;
     }
 
     private static boolean shouldTryEatInCombat(Villager vill) {

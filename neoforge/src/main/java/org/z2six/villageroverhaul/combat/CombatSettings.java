@@ -15,10 +15,12 @@ public final class CombatSettings {
     private static final String K_FLEE = "flee";
     private static final String K_DEFEND = "defend";
     private static final String K_AGGRESSIVE = "aggressive";
+    private static final String K_AI = "ai";
 
     public final ModeSettings flee = new ModeSettings();
     public final ModeSettings defend = new ModeSettings();
     public final ModeSettings aggressive = new ModeSettings();
+    public final AiSettings ai = new AiSettings();
 
     public ModeSettings getForMode(VillagerBrain.CombatMode mode) {
         if (mode == null) return flee;
@@ -35,6 +37,7 @@ public final class CombatSettings {
         tag.put(K_FLEE, flee.toTag());
         tag.put(K_DEFEND, defend.toTag());
         tag.put(K_AGGRESSIVE, aggressive.toTag());
+        tag.put(K_AI, ai.toTag());
         return tag;
     }
 
@@ -57,7 +60,54 @@ public final class CombatSettings {
         if (tag.contains(K_AGGRESSIVE, Tag.TAG_COMPOUND)) out.aggressive.readFrom(tag.getCompound(K_AGGRESSIVE));
         else if (legacyGeneral != null) out.aggressive.copyFromLegacy(legacyGeneral);
 
+        if (tag.contains(K_AI, Tag.TAG_COMPOUND)) out.ai.readFrom(tag.getCompound(K_AI));
+
         return out;
+    }
+
+    /**
+     * Non-power / behavior tuning for combat AI.
+     *
+     * Values are clamped on read to prevent overpowered configs.
+     */
+    public static final class AiSettings {
+        private static final String K_ENABLE_BLOCKING = "enable_blocking";
+        private static final String K_ENABLE_EATING = "enable_eating";
+        private static final String K_ENABLE_CIRCLING = "enable_circling";
+        private static final String K_EAT_FORCE_HITS = "eat_force_hits";
+        private static final String K_EAT_MAX_RESETS = "eat_max_resets";
+
+        // These are intentionally conservative clamps.
+        private static final int EAT_FORCE_HITS_MIN = 0;   // 0 => immediately force-eat
+        private static final int EAT_FORCE_HITS_MAX = 6;
+        private static final int EAT_MAX_RESETS_MIN = 0;
+        private static final int EAT_MAX_RESETS_MAX = 5;
+
+        public boolean enableBlocking = true;
+        public boolean enableEating = true;
+        public boolean enableCircling = true;
+
+        public int eatForceHits = 2;
+        public int eatMaxResets = 1;
+
+        public CompoundTag toTag() {
+            CompoundTag tag = new CompoundTag();
+            tag.putBoolean(K_ENABLE_BLOCKING, enableBlocking);
+            tag.putBoolean(K_ENABLE_EATING, enableEating);
+            tag.putBoolean(K_ENABLE_CIRCLING, enableCircling);
+            tag.putInt(K_EAT_FORCE_HITS, clampInt(eatForceHits, EAT_FORCE_HITS_MIN, EAT_FORCE_HITS_MAX));
+            tag.putInt(K_EAT_MAX_RESETS, clampInt(eatMaxResets, EAT_MAX_RESETS_MIN, EAT_MAX_RESETS_MAX));
+            return tag;
+        }
+
+        public void readFrom(CompoundTag tag) {
+            if (tag == null) return;
+            enableBlocking = tag.getBoolean(K_ENABLE_BLOCKING);
+            enableEating = tag.getBoolean(K_ENABLE_EATING);
+            enableCircling = tag.getBoolean(K_ENABLE_CIRCLING);
+            eatForceHits = clampInt(tag.getInt(K_EAT_FORCE_HITS), EAT_FORCE_HITS_MIN, EAT_FORCE_HITS_MAX);
+            eatMaxResets = clampInt(tag.getInt(K_EAT_MAX_RESETS), EAT_MAX_RESETS_MIN, EAT_MAX_RESETS_MAX);
+        }
     }
 
     public static final class ModeSettings {
@@ -183,5 +233,11 @@ public final class CombatSettings {
             v = v.trim();
             if (!v.isEmpty()) out.add(v);
         }
+    }
+
+    private static int clampInt(int v, int min, int max) {
+        if (v < min) return min;
+        if (v > max) return max;
+        return v;
     }
 }
