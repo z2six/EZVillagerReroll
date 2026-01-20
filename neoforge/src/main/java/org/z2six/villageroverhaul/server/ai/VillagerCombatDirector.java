@@ -41,6 +41,7 @@ public final class VillagerCombatDirector {
     private static final double SAFETY_MARGIN = 0.5;
 
     private static final float EAT_HP_THRESHOLD = 0.65f;
+    private static final float PASSIVE_EAT_HP_THRESHOLD = 0.80f;
     private static final double EAT_BACKPEDAL_SPEED = 0.50;
     private static final double EAT_RUN_SPEED = 0.65;
     private static final double EAT_DIST_RUN_START = 3.0;
@@ -66,8 +67,8 @@ public final class VillagerCombatDirector {
     private static final long SWING_ANIM_TICKS = 6L;
     private static final long NO_HIT_SWING_DELAY_TICKS = 30L;
 
-    private static final double TOO_CLOSE_PAD = 0.30;
-    private static final double TOO_CLOSE_HYSTERESIS = 0.40;
+    private static final double TOO_CLOSE_PAD = 1.5;
+    private static final double TOO_CLOSE_HYSTERESIS = 1.6;
 
     private static final Map<Villager, State> STATE = new WeakHashMap<>();
 
@@ -104,6 +105,62 @@ public final class VillagerCombatDirector {
     private static volatile Field FIELD_USE_ITEM_REMAINING = null; // LivingEntity.useItemRemaining
 
     private VillagerCombatDirector() {}
+
+    /**
+     * Out-of-combat eating (movement modes IDLE/FOLLOW/PATROL only).
+     * Uses the same "consume + heal" pipeline as combat-eating, but without any target logic.
+     */
+    public static void tickPassiveEat(Villager vill) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (!vill.isAlive()) return;
+
+            VillagerBrain.Mode m = VillagerBrain.getMode(vill);
+            if (m != VillagerBrain.Mode.IDLE && m != VillagerBrain.Mode.FOLLOW && m != VillagerBrain.Mode.PATROL) return;
+
+            if (VillagerBrain.isUiPaused(vill)) return;
+
+            // If we're actively running combat AI, let combat-eat handle itself.
+            if (VillagerBrain.shouldCombatActNow(vill)) return;
+            if (VillagerBrain.isCombatEngaged(vill)) return;
+
+            float max = vill.getMaxHealth();
+            if (max <= 0.0f) return;
+            float frac = vill.getHealth() / max;
+            if (frac > PASSIVE_EAT_HP_THRESHOLD) return;
+
+            if (!hasAnyFoodInPickupInv(vill)) return;
+
+            State st = STATE.computeIfAbsent(vill, v -> new State());
+            long now = vill.level().getGameTime();
+
+            // Already eating: keep it going until finish.
+            if (st.eatFinishAt > 0L) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                ensureStillEating(vill, st, now);
+
+                if (now >= st.eatFinishAt) {
+                    finishEat(vill, st);
+                    st.eatFinishAt = -1L;
+                    st.eatNextFxAt = 0L;
+                    st.eatPrevMain = ItemStack.EMPTY;
+                    st.eatFoodUsed = ItemStack.EMPTY;
+
+                    st.eatStartAt = -1L;
+                    st.eatUseDuration = 0;
+                    st.eatLastUseLogAt = 0L;
+                    st.eatLastUseRepairAt = 0L;
+                }
+                return;
+            }
+
+            // Start a new passive eat.
+            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            startEatFromPickupInv(vill, st, now, "passive");
+
+        } catch (Throwable ignored) {}
+    }
 
     public static void tickAttack(Villager vill, LivingEntity target) {
         try {

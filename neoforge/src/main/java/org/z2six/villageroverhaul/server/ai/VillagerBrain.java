@@ -307,6 +307,10 @@ public final class VillagerBrain {
             if (vill == null) return;
             if (vill.level() == null || vill.level().isClientSide()) return;
 
+            // Passive out-of-combat healing: IDLE/FOLLOW/PATROL only, 80% threshold.
+            // Kept here because this runs once per villager per server tick via VillagerRenderStateMixin.
+            try { VillagerCombatDirector.tickPassiveEat(vill); } catch (Throwable ignored) {}
+
             // IMPORTANT: restore-on-clear logic removed. We only compute render flags here now.
             byte flags = VillagerRenderFlags.computeFromEquipment(vill);
 
