@@ -57,6 +57,8 @@ public final class VillagerCombatLoadoutService {
 
     private static final long ENFORCE_EVERY_TICKS = 10L;
 
+    private static final String PD_OFFHAND_BROKE_TICK = "ezvr_loadout_off_broke_tick";
+
     private static final Set<Villager> TRACKED =
             Collections.newSetFromMap(new WeakHashMap<>());
 
@@ -266,6 +268,18 @@ public final class VillagerCombatLoadoutService {
                 if (curOff == null) curOff = ItemStack.EMPTY;
 
                 if (curOff.isEmpty()) {
+                    // If the offhand shield broke this tick, do NOT re-equip from EQ; clear the canonical record instead.
+                    try {
+                        long brokeAt = vill.getPersistentData().getLong(PD_OFFHAND_BROKE_TICK);
+                        long now = vill.level() == null ? 0L : vill.level().getGameTime();
+                        if (brokeAt > 0L && (brokeAt == now || brokeAt == (now - 1L))) {
+                            writeStack(root, K_EQ_OFF, ItemStack.EMPTY, lookup);
+                            writeStack(root, K_GUI_OFF, ItemStack.EMPTY, lookup);
+                            VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=off_broke_clear reason={}", vill.getUUID(), safe(reason));
+                            return;
+                        }
+                    } catch (Throwable ignored) {}
+
                     ItemStack toEquip = eqOff.copy();
                     if (!toEquip.isEmpty()) toEquip.setCount(1);
                     stamp(toEquip, offId, SLOT_OFF);

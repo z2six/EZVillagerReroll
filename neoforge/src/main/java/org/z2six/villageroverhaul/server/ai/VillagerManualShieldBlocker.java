@@ -51,6 +51,9 @@ public final class VillagerManualShieldBlocker {
     /** NBT key stored on the victim for 1 tick to cancel knockback. */
     private static final String PD_BLOCKED_TICK = "ezvr_blocked_tick";
 
+    /** When an offhand shield breaks, mark this tick so loadout enforcement doesn't resurrect it. */
+    private static final String PD_OFFHAND_BROKE_TICK = "ezvr_loadout_off_broke_tick";
+
     /** Throttle block logs per victim. */
     private static final Map<UUID, Long> LAST_LOG_TICK = new HashMap<>();
     private static final long LOG_INTERVAL_TICKS = 10L;
@@ -120,6 +123,16 @@ public final class VillagerManualShieldBlocker {
             if (shieldDamage < 1) shieldDamage = 1;
 
             damageShield(vill, bs.hand, bs.item, shieldDamage);
+
+            // If the shield broke, prevent combat loadout from re-equipping a ghost copy.
+            try {
+                if (bs.hand == InteractionHand.OFF_HAND) {
+                    ItemStack offNow = vill.getOffhandItem();
+                    if (offNow == null || offNow.isEmpty()) {
+                        vill.getPersistentData().putLong(PD_OFFHAND_BROKE_TICK, vill.level().getGameTime());
+                    }
+                }
+            } catch (Throwable ignored) {}
 
             // Play shield block SFX
             playShieldBlockSound(vill);

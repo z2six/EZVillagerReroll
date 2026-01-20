@@ -2,6 +2,8 @@
 package org.z2six.villageroverhaul.server.ai;
 
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
@@ -11,10 +13,14 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.UseAnim;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
@@ -43,11 +49,18 @@ public final class VillagerCombatDirector {
     private static final int EAT_BACKPEDAL_HIT_FORCE_EAT = 2;
     private static final double EAT_BACKPEDAL_FORCE_EAT_SPEED = 0.50;
 
+    // Combat circling (strafing) tuning. These are "input" speeds, not raw blocks/tick.
+    private static final float CIRCLE_SPEED = 0.12f;
+
     private static final String PD_BLOCKED_TICK = "ezvr_blocked_tick";
     private static final String PD_LOCK_YAW_UNTIL = "ezvr_lock_yaw_until";
     private static final String PD_LOCK_YAW = "ezvr_lock_yaw";
     private static final String PD_BACKPEDAL_UNTIL = "ezvr_backpedal_until";
     private static final String PD_BACKPEDAL_SPEED = "ezvr_backpedal_speed";
+    private static final String PD_CIRCLE_UNTIL = "ezvr_circle_until";
+    private static final String PD_CIRCLE_SPEED = "ezvr_circle_speed";
+    private static final String PD_CIRCLE_DIR = "ezvr_circle_dir";
+    private static final String PD_CIRCLE_ZZA = "ezvr_circle_zza";
 
     private static final long SWING_COOLDOWN_TICKS = 30L;
     private static final long SWING_ANIM_TICKS = 6L;
@@ -143,6 +156,7 @@ public final class VillagerCombatDirector {
 
             double reach = computeReach(vill, target);
             double swingRange = reach + SAFETY_MARGIN;
+            double maintainDist = computeMaintainDistance(reach);
 
             double dist = vill.distanceTo(target);
             boolean inSwingRange = dist <= swingRange;
@@ -150,10 +164,22 @@ public final class VillagerCombatDirector {
             if (!inSwingRange) {
                 try { vill.getNavigation().moveTo(target, MOVE_SPEED); } catch (Throwable ignored) {}
             } else {
-                if (shouldBackpedalInCombat(vill, target, dist)) {
-                    backpedalAway(vill, target, BACKPEDAL_SPEED, 3.5);
+                // Maintain a safer spacing (avoid "kissing" range) and circle the target while fighting.
+                if (dist < (maintainDist - 0.15)) {
+                    try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                    faceTargetHard(vill, target);
+
+                    if (canBackpedalBehind(vill, target)) {
+                        applyBackpedalInput(vill, now, 0.50f);
+                    } else {
+                        applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                    }
+                } else if (dist > (maintainDist + 0.65)) {
+                    try { vill.getNavigation().moveTo(target, MOVE_SPEED); } catch (Throwable ignored) {}
                 } else {
                     try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                    faceTargetHard(vill, target);
+                    applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
                 }
             }
 
@@ -226,6 +252,10 @@ public final class VillagerCombatDirector {
                 pd.remove(PD_LOCK_YAW);
                 pd.remove(PD_BACKPEDAL_UNTIL);
                 pd.remove(PD_BACKPEDAL_SPEED);
+                pd.remove(PD_CIRCLE_UNTIL);
+                pd.remove(PD_CIRCLE_SPEED);
+                pd.remove(PD_CIRCLE_DIR);
+                pd.remove(PD_CIRCLE_ZZA);
             } catch (Throwable ignored) {}
             VillagerBrain.setCombatEngaged(vill, false);
         } catch (Throwable ignored) {}
@@ -305,7 +335,11 @@ public final class VillagerCombatDirector {
                     startBlocking(vill);
                     faceTargetHard(vill, target);
                     try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
-                    applyBackpedalInput(vill, now, (float) EAT_BACKPEDAL_SPEED);
+                    if (canBackpedalBehind(vill, target)) {
+                        applyBackpedalInput(vill, now, (float) EAT_BACKPEDAL_SPEED);
+                    } else {
+                        applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                    }
 
                     // Keep normal combat (swing/block) logic while backpedaling so we don't get trapped in 1v1s.
                     double reach = computeReach(vill, target);
@@ -366,7 +400,12 @@ public final class VillagerCombatDirector {
                     // Last resort: stop blocking and eat while continuing to backpedal.
                     faceTargetHard(vill, target);
                     try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
-                    applyBackpedalInput(vill, now, (float) EAT_BACKPEDAL_FORCE_EAT_SPEED);
+                    if (canBackpedalBehind(vill, target)) {
+                        applyBackpedalInput(vill, now, (float) EAT_BACKPEDAL_FORCE_EAT_SPEED);
+                    } else {
+                        // Strafe to find a clearer backpedal line, but keep eating.
+                        applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), -0.2f);
+                    }
                     try { vill.getLookControl().setLookAt(target, 30.0f, 30.0f); } catch (Throwable ignored) {}
                     lockYaw(vill, now, vill.getYRot());
 
@@ -775,6 +814,10 @@ public final class VillagerCombatDirector {
                     pd.remove(PD_LOCK_YAW);
                     pd.remove(PD_BACKPEDAL_UNTIL);
                     pd.remove(PD_BACKPEDAL_SPEED);
+                    pd.remove(PD_CIRCLE_UNTIL);
+                    pd.remove(PD_CIRCLE_SPEED);
+                    pd.remove(PD_CIRCLE_DIR);
+                    pd.remove(PD_CIRCLE_ZZA);
                 } catch (Throwable ignored) {}
 
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=cancel why={}",
@@ -1048,6 +1091,90 @@ public final class VillagerCombatDirector {
         } catch (Throwable ignored) {}
     }
 
+    private static void applyCircleInput(Villager vill, long now, float speed, float dir, float zza) {
+        try {
+            if (vill == null) return;
+            CompoundTag pd = vill.getPersistentData();
+            pd.putLong(PD_CIRCLE_UNTIL, now + 2L);
+            pd.putFloat(PD_CIRCLE_SPEED, speed);
+            pd.putFloat(PD_CIRCLE_DIR, dir);
+            pd.putFloat(PD_CIRCLE_ZZA, zza);
+        } catch (Throwable ignored) {}
+    }
+
+    private static float pickCircleDir(Villager vill, State st, long now) {
+        try {
+            if (st == null) return 1.0f;
+            if (st.circleDir == 0.0f) {
+                st.circleDir = (vill != null && vill.getRandom().nextBoolean()) ? 1.0f : -1.0f;
+                st.nextCircleSwitchAt = now + 30L + (vill == null ? 0 : vill.getRandom().nextInt(60));
+            }
+
+            if (now >= st.nextCircleSwitchAt) {
+                if (vill != null && vill.getRandom().nextBoolean()) st.circleDir = -st.circleDir;
+                st.nextCircleSwitchAt = now + 30L + (vill == null ? 0 : vill.getRandom().nextInt(60));
+            }
+
+            return st.circleDir == 0.0f ? 1.0f : st.circleDir;
+        } catch (Throwable ignored) {
+            return 1.0f;
+        }
+    }
+
+    private static boolean canBackpedalBehind(Villager vill, LivingEntity target) {
+        try {
+            if (vill == null || target == null) return true;
+            Level level = vill.level();
+            if (level == null) return true;
+
+            Vec3 vp = vill.position();
+            Vec3 tp = target.position();
+
+            Vec3 away = vp.subtract(tp);
+            Vec3 away2d = new Vec3(away.x, 0.0, away.z);
+            if (away2d.lengthSqr() < 1.0e-6) return true;
+
+            Vec3 dir = away2d.normalize();
+
+            // Sample a couple of points behind us.
+            if (!isStepSafe(vill, dir.scale(0.75))) return false;
+            if (!isStepSafe(vill, dir.scale(1.40))) return false;
+            return true;
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    private static boolean isStepSafe(Villager vill, Vec3 delta) {
+        try {
+            if (vill == null || delta == null) return true;
+            Level level = vill.level();
+            if (level == null) return true;
+
+            Vec3 dest = vill.position().add(delta);
+
+            // Collision check for the moved bounding box.
+            AABB moved = vill.getBoundingBox().move(delta);
+            if (!level.noCollision(vill, moved)) return false;
+
+            // Ground check to avoid backing into ravines/holes.
+            BlockPos below = BlockPos.containing(dest.x, dest.y - 0.05, dest.z).below();
+            BlockState bs = level.getBlockState(below);
+            if (bs == null) return false;
+            if (bs.getCollisionShape(level, below).isEmpty()) return false;
+
+            return true;
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    private static double computeMaintainDistance(double reach) {
+        double desired = 2.0;
+        if (reach > 0.0) desired = Math.max(2.0, reach - 1.0);
+        return desired;
+    }
+
     private static void allowClearHand(Villager vill, InteractionHand hand, String reason) {
         try {
             if (vill == null || hand == null) return;
@@ -1274,9 +1401,52 @@ public final class VillagerCombatDirector {
     }
 
     private static double computeReach(Villager vill, LivingEntity target) {
+        double r = tryGetReachAttribute(vill);
+        if (r > 0.0) return r;
         double v = (vill == null) ? 0.6 : vill.getBbWidth();
         double t = (target == null) ? 0.6 : target.getBbWidth();
         return BASE_REACH + (v * 0.5) + (t * 0.5);
+    }
+
+    private static volatile boolean REACH_ATTR_SCANNED = false;
+    private static volatile Holder<Attribute> REACH_ATTR = null;
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static double tryGetReachAttribute(Villager vill) {
+        try {
+            if (vill == null) return -1.0;
+            if (!REACH_ATTR_SCANNED) {
+                REACH_ATTR_SCANNED = true;
+                // Best-effort scan for a NeoForge reach attribute without hard depending on it.
+                try {
+                    Class<?> cls = Class.forName("net.neoforged.neoforge.common.NeoForgeMod");
+                    Field best = null;
+                    for (Field f : cls.getFields()) {
+                        String n = f.getName();
+                        if (n == null) continue;
+                        String ln = n.toLowerCase(java.util.Locale.ROOT);
+                        if (!ln.contains("reach")) continue;
+                        if (best == null) best = f;
+                        if (ln.contains("entity") && ln.contains("reach")) {
+                            best = f;
+                            break;
+                        }
+                    }
+                    if (best != null) {
+                        Object v0 = best.get(null);
+                        if (v0 instanceof Holder<?> h) REACH_ATTR = (Holder) h;
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            if (REACH_ATTR == null) return -1.0;
+            AttributeInstance inst = vill.getAttribute((Holder) REACH_ATTR);
+            if (inst == null) return -1.0;
+            double val = inst.getValue();
+            return val > 0.0 ? val : -1.0;
+        } catch (Throwable ignored) {
+            return -1.0;
+        }
     }
 
     private static boolean isShieldItem(ItemStack st) {
@@ -1409,6 +1579,10 @@ public final class VillagerCombatDirector {
         long eatNextFxAt = 0L;
         ItemStack eatPrevMain = ItemStack.EMPTY;
         ItemStack eatFoodUsed = ItemStack.EMPTY;
+
+        // Circling behavior (combat movement)
+        float circleDir = 0.0f;
+        long nextCircleSwitchAt = 0L;
 
         // --- eat use stability tracking ---
         long eatStartAt = -1L;

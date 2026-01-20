@@ -3,10 +3,14 @@ package org.z2six.villageroverhaul.server;
 
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.core.Holder;
+import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.entity.EntityAttributeModificationEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+
+import java.lang.reflect.Field;
 
 /**
  * Ensures villager-like entities actually HAVE the vanilla attributes we want to modify.
@@ -27,6 +31,9 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 public final class VillagerCombatAttributesBootstrap {
 
     private static volatile boolean registered = false;
+
+    private static volatile boolean REACH_SCANNED = false;
+    private static volatile Holder<Attribute> ENTITY_REACH_ATTR = null;
 
     private VillagerCombatAttributesBootstrap() {}
 
@@ -87,10 +94,47 @@ public final class VillagerCombatAttributesBootstrap {
             ensurePresent(e, type, Attributes.FLYING_SPEED, 0.0D, "FLYING_SPEED");
             ensurePresent(e, type, Attributes.JUMP_STRENGTH, 0.0D, "JUMP_STRENGTH");
 
+            // Optional: NeoForge reach attribute (lets weapons contribute reach).
+            Holder<Attribute> reach = tryGetNeoForgeEntityReachAttr();
+            if (reach != null) {
+                ensurePresent(e, type, reach, 0.0D, "ENTITY_REACH");
+            }
+
         } catch (Throwable t) {
             if (VillagerOverhaul.LOG().isDebugEnabled()) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] ensureFor failed (soft) type={} err={}", type, t.toString());
             }
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Holder<Attribute> tryGetNeoForgeEntityReachAttr() {
+        try {
+            if (!REACH_SCANNED) {
+                REACH_SCANNED = true;
+                try {
+                    Class<?> cls = Class.forName("net.neoforged.neoforge.common.NeoForgeMod");
+                    Field best = null;
+                    for (Field f : cls.getFields()) {
+                        String n = f.getName();
+                        if (n == null) continue;
+                        String ln = n.toLowerCase(java.util.Locale.ROOT);
+                        if (!ln.contains("reach")) continue;
+                        if (best == null) best = f;
+                        if (ln.contains("entity") && ln.contains("reach")) {
+                            best = f;
+                            break;
+                        }
+                    }
+                    if (best != null) {
+                        Object v = best.get(null);
+                        if (v instanceof Holder<?> h) ENTITY_REACH_ATTR = (Holder) h;
+                    }
+                } catch (Throwable ignored) {}
+            }
+            return ENTITY_REACH_ATTR;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
