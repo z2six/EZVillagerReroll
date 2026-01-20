@@ -820,6 +820,9 @@ public final class VillagerBrain {
             // Track for combat loadout enforcement.
             VillagerCombatLoadoutService.track(vill);
 
+            // Track history counters.
+            org.z2six.villageroverhaul.server.VillagerHistoryService.track(vill);
+
             // Combat has higher priority than movement (except FOLLOW which disables combat in canUse).
             if (!hasGoal(vill, VillagerCombatFleeGoal.class)) {
                 vill.goalSelector.addGoal(0, new VillagerCombatFleeGoal(vill));

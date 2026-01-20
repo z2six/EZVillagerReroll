@@ -140,6 +140,8 @@ public final class VillagerManualShieldBlocker {
             // Optional: log occasionally
             logBlock(vill, attacker, src, amount, shieldDamage, bs);
 
+            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addBlock(vill, 1); } catch (Throwable ignored) {}
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerManualShieldBlocker.onIncomingDamage failed (soft): {}", t.toString());
         }

@@ -64,6 +64,9 @@ public final class ServerEvents {
             // villager/merchant stat initialization
             VillagerStatsEvents.register(bus);
 
+            // Villager history counters
+            VillagerHistoryEvents.register(bus);
+
             // Villager brain/module attach (AI goals)
             bus.addListener(VillagerBrain::onEntityJoinLevel);
             
@@ -271,6 +274,10 @@ public final class ServerEvents {
 
             try {
                 VillagerCombatLoadoutService.tick(server);
+            } catch (Throwable ignored) {}
+
+            try {
+                VillagerHistoryService.tick(server);
             } catch (Throwable ignored) {}
 
             try {

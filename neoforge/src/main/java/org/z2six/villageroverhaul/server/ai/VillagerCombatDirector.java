@@ -845,6 +845,7 @@ public final class VillagerCombatDirector {
                 float after = vill.getHealth();
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=heal food={} heal={} hp {}->{}",
                         vill.getUUID(), safeItemId(st.eatFoodUsed), trim1(heal), trim1(before), trim1(after));
+                try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFoodEaten(vill, 1, heal); } catch (Throwable ignored) {}
             }
 
             // Restore previous mainhand.

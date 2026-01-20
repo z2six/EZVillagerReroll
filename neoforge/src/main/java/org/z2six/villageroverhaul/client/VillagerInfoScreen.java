@@ -15,6 +15,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -27,6 +28,9 @@ import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
 import org.z2six.villageroverhaul.network.PacketSyncConfigQuery;
 import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesData;
 import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesQuery;
+import org.z2six.villageroverhaul.network.history.ClientVillagerHistoryCache;
+import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryData;
+import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryQuery;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
@@ -62,12 +66,14 @@ public final class VillagerInfoScreen extends Screen {
 
     private long lastStatsQueryMs = 0L;
     private long lastAttrsQueryMs = 0L;
+    private long lastHistoryQueryMs = 0L;
 
     // Tabs
     private enum Tab {
         OVERVIEW("Overview"),
         MERCHANT("Merchant stats"),
-        COMBAT("Combat stats");
+        COMBAT("Combat stats"),
+        HISTORY("History");
 
         final String label;
         Tab(String label) { this.label = label; }
@@ -78,20 +84,28 @@ public final class VillagerInfoScreen extends Screen {
     private IconTabButton tabOverviewBtn;
     private IconTabButton tabMerchantBtn;
     private IconTabButton tabCombatBtn;
+    private IconTabButton tabHistoryBtn;
 
     // Overview scroll + cache
     private int overviewScrollRow = 0;
-    private List<Component> overviewLines = null;
+    private List<Component> overviewLinesRaw = null;
+    private List<FormattedCharSequence> overviewLinesWrapped = null;
     private long nextOverviewRebuildAtTick = 0L;
+    private int overviewLastWrapWidth = -1;
+    private boolean overviewDraggingScroll = false;
+
+    // History scroll + cache
+    private int historyScrollRow = 0;
+    private List<Component> historyLinesRaw = null;
+    private List<FormattedCharSequence> historyLinesWrapped = null;
+    private long nextHistoryRebuildAtTick = 0L;
+    private int historyLastWrapWidth = -1;
+    private boolean historyDraggingScroll = false;
 
     // Layout
     private static final int PANEL_W = 316;
     // Slightly taller so bottom icon buttons have breathing room.
     private static final int PANEL_H = 206;
-
-    // Overview needs more room (attribute lines can be long). Clamp to window with margin.
-    private static final int PANEL_W_OVERVIEW_TARGET = 500;
-    private static final int PANEL_SCREEN_MARGIN = 12;
 
     private static final int PAD = 10;
 
@@ -108,6 +122,11 @@ public final class VillagerInfoScreen extends Screen {
     private static final int TAB_BTN_GAP = 8;
     // More bottom padding so buttons don't hug the panel edge.
     private static final int TAB_BTN_BOTTOM_PAD = 8;
+
+    // Scroll list / scrollbar
+    private static final int LIST_INNER_PAD_Y = 4;
+    private static final int LIST_TEXT_PAD_X = 6;
+    private static final int SCROLLBAR_W = 6;
 
     // Colors (ARGB)
     private static final int PANEL_BG = 0xCC0B0B0B;
@@ -179,8 +198,8 @@ public final class VillagerInfoScreen extends Screen {
 
         resolveEntity();
 
-        int panelW = getPanelW();
-        int left = (this.width - panelW) / 2;
+        int panelW = PANEL_W;
+        int left = (this.width - PANEL_W) / 2;
         int top = (this.height - PANEL_H) / 2;
 
         // Ask server to resend config on open so this screen reflects live server config changes.
@@ -188,14 +207,14 @@ public final class VillagerInfoScreen extends Screen {
 
         // Back button (vanilla is fine)
         backBtn = Button.builder(Component.literal("Back"), b -> onClose())
-                .pos(left + panelW - 58 - PAD, top + PAD)
+                .pos(left + PANEL_W - 58 - PAD, top + PAD)
                 .size(58, 18)
                 .build();
         this.addRenderableWidget(backBtn);
 
         // Custom tab buttons centered at the bottom INSIDE the panel.
-        int groupW = TAB_BTN_SIZE * 3 + TAB_BTN_GAP * 2;
-        int tabsX = left + (panelW - groupW) / 2;
+        int groupW = TAB_BTN_SIZE * 4 + TAB_BTN_GAP * 3;
+        int tabsX = left + (PANEL_W - groupW) / 2;
         int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
 
         tabOverviewBtn = new IconTabButton(tabsX, tabsY, TAB_BTN_SIZE, "☰",
@@ -205,15 +224,21 @@ public final class VillagerInfoScreen extends Screen {
         tabCombatBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY, TAB_BTN_SIZE, "⚔",
                 Component.literal("Combat stats"), Tab.COMBAT);
 
+        tabHistoryBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY, TAB_BTN_SIZE, "\u231B",
+                Component.literal("History"), Tab.HISTORY);
+
         this.addRenderableWidget(tabOverviewBtn);
         this.addRenderableWidget(tabMerchantBtn);
         this.addRenderableWidget(tabCombatBtn);
+        this.addRenderableWidget(tabHistoryBtn);
 
         // Kick initial request immediately
         trySendStatsQuery(false);
         trySendAttributesQuery(false);
+        trySendHistoryQuery(false);
         tryApplyStatsFromCache();
         rebuildOverviewLinesIfNeeded(true);
+        rebuildHistoryLinesIfNeeded(true);
     }
 
     @Override
@@ -225,35 +250,154 @@ public final class VillagerInfoScreen extends Screen {
         resolveEntity();
         tryApplyStatsFromCache();
         rebuildOverviewLinesIfNeeded(false);
+        rebuildHistoryLinesIfNeeded(false);
 
         if (!hasStats && !statsUnavailable) {
             trySendStatsQuery(true);
         }
         trySendAttributesQuery(true);
+        trySendHistoryQuery(true);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         try {
-            if (this.currentTab == Tab.OVERVIEW && scrollY != 0.0) {
+            if (scrollY == 0.0) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+
+            if (this.currentTab == Tab.OVERVIEW || this.currentTab == Tab.HISTORY) {
                 int x = getOverviewListX();
                 int y = getOverviewListY();
                 int w = getOverviewListW();
                 int h = getOverviewListH();
 
                 boolean in = mouseX >= x && mouseX <= (x + w) && mouseY >= y && mouseY <= (y + h);
-                if (in) {
-                    int delta = (int) Math.signum(scrollY);
-                    this.overviewScrollRow -= delta;
+                if (!in) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
 
-                    int maxScroll = Math.max(0, (this.overviewLines == null ? 0 : this.overviewLines.size()) - getOverviewVisibleRows());
+                int delta = (int) Math.signum(scrollY);
+                if (this.currentTab == Tab.OVERVIEW) {
+                    this.overviewScrollRow -= delta;
+                    int total = this.overviewLinesWrapped == null ? 0 : this.overviewLinesWrapped.size();
+                    int maxScroll = Math.max(0, total - getOverviewVisibleRows());
                     if (this.overviewScrollRow < 0) this.overviewScrollRow = 0;
                     if (this.overviewScrollRow > maxScroll) this.overviewScrollRow = maxScroll;
+                } else {
+                    this.historyScrollRow -= delta;
+                    int total = this.historyLinesWrapped == null ? 0 : this.historyLinesWrapped.size();
+                    int maxScroll = Math.max(0, total - getHistoryVisibleRows());
+                    if (this.historyScrollRow < 0) this.historyScrollRow = 0;
+                    if (this.historyScrollRow > maxScroll) this.historyScrollRow = maxScroll;
+                }
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        try {
+            if (button == 0 && (this.currentTab == Tab.OVERVIEW || this.currentTab == Tab.HISTORY)) {
+                if (tryStartScrollDrag(mouseX, mouseY)) {
                     return true;
                 }
             }
         } catch (Throwable ignored) {}
-        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        try {
+            if (button == 0) {
+                if (this.currentTab == Tab.OVERVIEW && this.overviewDraggingScroll) {
+                    applyScrollFromMouseY(true, mouseY);
+                    return true;
+                }
+                if (this.currentTab == Tab.HISTORY && this.historyDraggingScroll) {
+                    applyScrollFromMouseY(false, mouseY);
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        try {
+            if (button == 0) {
+                this.overviewDraggingScroll = false;
+                this.historyDraggingScroll = false;
+            }
+        } catch (Throwable ignored) {}
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    private boolean tryStartScrollDrag(double mouseX, double mouseY) {
+        try {
+            int listX = getOverviewListX();
+            int listY = getOverviewListY();
+            int listW = getOverviewListW();
+            int listH = getOverviewListH();
+
+            int trackX = listX + listW - SCROLLBAR_W - 2;
+            int trackY = listY + 2;
+            int trackH = listH - 4;
+
+            boolean in = mouseX >= trackX && mouseX < (trackX + SCROLLBAR_W) && mouseY >= trackY && mouseY < (trackY + trackH);
+            if (!in) return false;
+
+            if (this.currentTab == Tab.OVERVIEW) {
+                this.overviewDraggingScroll = true;
+                applyScrollFromMouseY(true, mouseY);
+            } else if (this.currentTab == Tab.HISTORY) {
+                this.historyDraggingScroll = true;
+                applyScrollFromMouseY(false, mouseY);
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private void applyScrollFromMouseY(boolean overview, double mouseY) {
+        try {
+            Font font = Minecraft.getInstance().font;
+            int rowH = getOverviewRowH(font);
+
+            int listY = getOverviewListY();
+            int listH = getOverviewListH();
+
+            int trackY = listY + 2;
+            int trackH = listH - 4;
+
+            int total = overview
+                    ? (this.overviewLinesWrapped == null ? 0 : this.overviewLinesWrapped.size())
+                    : (this.historyLinesWrapped == null ? 0 : this.historyLinesWrapped.size());
+
+            int innerH = Math.max(1, listH - LIST_INNER_PAD_Y * 2);
+            int visible = Math.max(1, innerH / rowH);
+            if (total <= visible) {
+                if (overview) this.overviewScrollRow = 0;
+                else this.historyScrollRow = 0;
+                return;
+            }
+
+            int maxScroll = Math.max(1, total - visible);
+            int thumbH = Math.max(10, (int) Math.floor(trackH * (visible / (double) total)));
+            int travel = Math.max(1, trackH - thumbH);
+
+            double rel = (mouseY - trackY - thumbH / 2.0) / travel;
+            if (rel < 0.0) rel = 0.0;
+            if (rel > 1.0) rel = 1.0;
+
+            int row = (int) Math.round(rel * maxScroll);
+            if (row < 0) row = 0;
+            if (row > maxScroll) row = maxScroll;
+
+            if (overview) this.overviewScrollRow = row;
+            else this.historyScrollRow = row;
+        } catch (Throwable ignored) {}
     }
 
     private void tryApplyStatsFromCache() {
@@ -309,6 +453,16 @@ public final class VillagerInfoScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
+    private void trySendHistoryQuery(boolean debounced) {
+        try {
+            long now = System.currentTimeMillis();
+            if (debounced && (now - lastHistoryQueryMs) < STATS_QUERY_DEBOUNCE_MS) return;
+            lastHistoryQueryMs = now;
+
+            ClientNetwork.sendToServer(new PacketVillagerHistoryQuery(this.villagerEntityId));
+        } catch (Throwable ignored) {}
+    }
+
     private void resolveEntity() {
         try {
             Minecraft mc = Minecraft.getInstance();
@@ -352,8 +506,8 @@ public final class VillagerInfoScreen extends Screen {
             super.renderBackground(gg, mouseX, mouseY, partialTick);
         } catch (Throwable ignored) {}
 
-        int panelW = getPanelW();
-        int left = (this.width - panelW) / 2;
+        int panelW = PANEL_W;
+        int left = (this.width - PANEL_W) / 2;
         int top = (this.height - PANEL_H) / 2;
 
         drawPanel(gg, left, top, panelW, PANEL_H);
@@ -396,6 +550,8 @@ public final class VillagerInfoScreen extends Screen {
 
         if (currentTab == Tab.OVERVIEW) {
             tooltipDrawn |= renderOverview(gg, font, left, top, barsX, mouseX, mouseY);
+        } else if (currentTab == Tab.HISTORY) {
+            tooltipDrawn |= renderHistory(gg, font, left, top, barsX, mouseX, mouseY);
         } else if (currentTab == Tab.MERCHANT) {
             tooltipDrawn |= renderStatBar(gg, font, StatKind.GENEROSITY, this.hasStats ? this.generosity : null,
                     barsX, barsY + stepY * 0, BAR_W, BAR_H, C_GENEROSITY, mouseX, mouseY, !tooltipDrawn);
@@ -422,7 +578,7 @@ public final class VillagerInfoScreen extends Screen {
                     barsX, barsY + stepY * 3, BAR_W, BAR_H, C_ARMOR, mouseX, mouseY, !tooltipDrawn);
         }
 
-        if (!this.hasStats && currentTab != Tab.OVERVIEW) {
+        if (!this.hasStats && currentTab != Tab.OVERVIEW && currentTab != Tab.HISTORY) {
             if (this.statsUnavailable) {
                 gg.drawString(font, Component.literal("Stats: unavailable"),
                         barsX, barsY + stepY * 4 + 2, 0xFFFF7777, false);
@@ -444,6 +600,8 @@ public final class VillagerInfoScreen extends Screen {
                 gg.renderTooltip(font, Component.literal("Merchant stats"), mouseX, mouseY);
             } else if (isMouseOverWidget(tabCombatBtn, mouseX, mouseY)) {
                 gg.renderTooltip(font, Component.literal("Combat stats"), mouseX, mouseY);
+            } else if (isMouseOverWidget(tabHistoryBtn, mouseX, mouseY)) {
+                gg.renderTooltip(font, Component.literal("History"), mouseX, mouseY);
             }
         }
     }
@@ -473,31 +631,27 @@ public final class VillagerInfoScreen extends Screen {
     }
 
     private int getPanelW() {
-        int base = PANEL_W;
-        if (this.currentTab != Tab.OVERVIEW) return base;
-
-        int maxByWindow = Math.max(base, this.width - PANEL_SCREEN_MARGIN * 2);
-        int target = Math.max(base, PANEL_W_OVERVIEW_TARGET);
-        return Math.min(maxByWindow, target);
+        return PANEL_W;
     }
 
     private void relayoutIfNeeded() {
         try {
-            int panelW = getPanelW();
-            int left = (this.width - panelW) / 2;
+            int panelW = PANEL_W;
+            int left = (this.width - PANEL_W) / 2;
             int top = (this.height - PANEL_H) / 2;
 
             if (backBtn != null) {
-                backBtn.setPosition(left + panelW - 58 - PAD, top + PAD);
+                backBtn.setPosition(left + PANEL_W - 58 - PAD, top + PAD);
             }
 
-            int groupW = TAB_BTN_SIZE * 3 + TAB_BTN_GAP * 2;
-            int tabsX = left + (panelW - groupW) / 2;
+            int groupW = TAB_BTN_SIZE * 4 + TAB_BTN_GAP * 3;
+            int tabsX = left + (PANEL_W - groupW) / 2;
             int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
 
             if (tabOverviewBtn != null) tabOverviewBtn.setPosition(tabsX, tabsY);
             if (tabMerchantBtn != null) tabMerchantBtn.setPosition(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY);
             if (tabCombatBtn != null) tabCombatBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY);
+            if (tabHistoryBtn != null) tabHistoryBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY);
         } catch (Throwable ignored) {}
     }
 
@@ -522,15 +676,23 @@ public final class VillagerInfoScreen extends Screen {
             if (mc == null || mc.level == null) return;
 
             long now = mc.level.getGameTime();
-            if (!force && now < this.nextOverviewRebuildAtTick) return;
+            int wrapW = getOverviewWrapWidth();
+            if (!force && now < this.nextOverviewRebuildAtTick && wrapW == this.overviewLastWrapWidth) return;
 
-            this.overviewLines = buildOverviewLines();
+            this.overviewLinesRaw = buildOverviewLines();
+            this.overviewLinesWrapped = wrapComponents(mc.font, this.overviewLinesRaw, wrapW);
+            this.overviewLastWrapWidth = wrapW;
             this.nextOverviewRebuildAtTick = now + 10L;
 
-            int maxScroll = Math.max(0, (this.overviewLines == null ? 0 : this.overviewLines.size()) - getOverviewVisibleRows());
+            int maxScroll = Math.max(0, (this.overviewLinesWrapped == null ? 0 : this.overviewLinesWrapped.size()) - getOverviewVisibleRows());
             if (this.overviewScrollRow > maxScroll) this.overviewScrollRow = maxScroll;
             if (this.overviewScrollRow < 0) this.overviewScrollRow = 0;
         } catch (Throwable ignored) {}
+    }
+
+    private int getOverviewWrapWidth() {
+        int w = getOverviewListW();
+        return Math.max(40, w - LIST_TEXT_PAD_X * 2 - SCROLLBAR_W - 4);
     }
 
     private int getOverviewListX() {
@@ -549,7 +711,7 @@ public final class VillagerInfoScreen extends Screen {
 
     private int getOverviewListH() {
         int top = (this.height - PANEL_H) / 2;
-        int bottom = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE - 6;
+        int bottom = top + 28 + ENTITY_BOX_H; // align to bottom of villager renderer box
         int y = getOverviewListY();
         return Math.max(24, bottom - y);
     }
@@ -562,7 +724,8 @@ public final class VillagerInfoScreen extends Screen {
         try {
             Font font = Minecraft.getInstance().font;
             int rowH = getOverviewRowH(font);
-            return Math.max(1, getOverviewListH() / rowH);
+            int innerH = Math.max(1, getOverviewListH() - LIST_INNER_PAD_Y * 2);
+            return Math.max(1, innerH / rowH);
         } catch (Throwable ignored) {
             return 8;
         }
@@ -570,8 +733,8 @@ public final class VillagerInfoScreen extends Screen {
 
     private boolean renderOverview(GuiGraphics gg, Font font, int left, int top, int titleX, int mouseX, int mouseY) {
         try {
-            List<Component> lines = this.overviewLines;
-            if (lines == null) lines = List.of(Component.literal("Loading…").withStyle(ChatFormatting.GRAY));
+            List<FormattedCharSequence> lines = this.overviewLinesWrapped;
+            if (lines == null) lines = wrapComponents(font, List.of(Component.literal("Loading...").withStyle(ChatFormatting.GRAY)), getOverviewWrapWidth());
 
             int listX = getOverviewListX();
             int listY = getOverviewListY();
@@ -586,25 +749,30 @@ public final class VillagerInfoScreen extends Screen {
             gg.fill(listX + listW - 1, listY, listX + listW, listY + listH, 0xFF2E2E2E);
 
             int rowH = getOverviewRowH(font);
-            int visible = Math.max(1, listH / rowH);
+            int innerTop = listY + LIST_INNER_PAD_Y;
+            int innerBottom = listY + listH - LIST_INNER_PAD_Y;
+            int innerH = Math.max(1, innerBottom - innerTop);
+            int innerW = Math.max(1, listW - SCROLLBAR_W - 4);
+
+            int visible = Math.max(1, innerH / rowH);
 
             int maxScroll = Math.max(0, lines.size() - visible);
             if (overviewScrollRow > maxScroll) overviewScrollRow = maxScroll;
             if (overviewScrollRow < 0) overviewScrollRow = 0;
 
-            int y = listY + 4;
+            int y = innerTop;
             int start = overviewScrollRow;
             int end = Math.min(lines.size(), start + visible);
 
             boolean scissor = false;
             try {
-                gg.enableScissor(listX + 1, listY + 1, listX + listW - 1, listY + listH - 1);
+                gg.enableScissor(listX + 1, innerTop, listX + innerW, innerBottom);
                 scissor = true;
             } catch (Throwable ignored) {}
 
             try {
                 for (int i = start; i < end; i++) {
-                    gg.drawString(font, lines.get(i), listX + 6, y, 0xFFEAEAEA, false);
+                    gg.drawString(font, lines.get(i), listX + LIST_TEXT_PAD_X, y, 0xFFFFFFFF, false);
                     y += rowH;
                 }
             } finally {
@@ -613,10 +781,153 @@ public final class VillagerInfoScreen extends Screen {
                 }
             }
 
+            renderScrollbar(gg, listX, listY, listW, listH, lines.size(), visible, overviewScrollRow);
             return false;
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // History tab (scrollable)
+    // -----------------------------------------------------------------------------------------
+
+    private void rebuildHistoryLinesIfNeeded(boolean force) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.level == null) return;
+
+            long now = mc.level.getGameTime();
+            int wrapW = getHistoryWrapWidth();
+            if (!force && now < this.nextHistoryRebuildAtTick && wrapW == this.historyLastWrapWidth) return;
+
+            this.historyLinesRaw = buildHistoryLines();
+            this.historyLinesWrapped = wrapComponents(mc.font, this.historyLinesRaw, wrapW);
+            this.historyLastWrapWidth = wrapW;
+            this.nextHistoryRebuildAtTick = now + 10L;
+
+            int maxScroll = Math.max(0, (this.historyLinesWrapped == null ? 0 : this.historyLinesWrapped.size()) - getHistoryVisibleRows());
+            if (this.historyScrollRow > maxScroll) this.historyScrollRow = maxScroll;
+            if (this.historyScrollRow < 0) this.historyScrollRow = 0;
+        } catch (Throwable ignored) {}
+    }
+
+    private int getHistoryWrapWidth() {
+        int w = getOverviewListW();
+        return Math.max(40, w - LIST_TEXT_PAD_X * 2 - SCROLLBAR_W - 4);
+    }
+
+    private int getHistoryRowH(Font font) {
+        return getOverviewRowH(font);
+    }
+
+    private int getHistoryVisibleRows() {
+        try {
+            Font font = Minecraft.getInstance().font;
+            int rowH = getHistoryRowH(font);
+            int innerH = Math.max(1, getOverviewListH() - LIST_INNER_PAD_Y * 2);
+            return Math.max(1, innerH / rowH);
+        } catch (Throwable ignored) {
+            return 8;
+        }
+    }
+
+    private boolean renderHistory(GuiGraphics gg, Font font, int left, int top, int titleX, int mouseX, int mouseY) {
+        try {
+            List<FormattedCharSequence> lines = this.historyLinesWrapped;
+            if (lines == null) lines = wrapComponents(font, List.of(Component.literal("Loading...").withStyle(ChatFormatting.GRAY)), getHistoryWrapWidth());
+
+            int listX = getOverviewListX();
+            int listY = getOverviewListY();
+            int listW = getOverviewListW();
+            int listH = getOverviewListH();
+
+            // Frame
+            gg.fill(listX, listY, listX + listW, listY + listH, 0xFF101010);
+            gg.fill(listX, listY, listX + listW, listY + 1, 0xFF2E2E2E);
+            gg.fill(listX, listY + listH - 1, listX + listW, listY + listH, 0xFF2E2E2E);
+            gg.fill(listX, listY, listX + 1, listY + listH, 0xFF2E2E2E);
+            gg.fill(listX + listW - 1, listY, listX + listW, listY + listH, 0xFF2E2E2E);
+
+            int rowH = getHistoryRowH(font);
+            int innerTop = listY + LIST_INNER_PAD_Y;
+            int innerBottom = listY + listH - LIST_INNER_PAD_Y;
+            int innerH = Math.max(1, innerBottom - innerTop);
+            int innerW = Math.max(1, listW - SCROLLBAR_W - 4);
+            int visible = Math.max(1, innerH / rowH);
+
+            int maxScroll = Math.max(0, lines.size() - visible);
+            if (historyScrollRow > maxScroll) historyScrollRow = maxScroll;
+            if (historyScrollRow < 0) historyScrollRow = 0;
+
+            int y = innerTop;
+            int start = historyScrollRow;
+            int end = Math.min(lines.size(), start + visible);
+
+            boolean scissor = false;
+            try {
+                gg.enableScissor(listX + 1, innerTop, listX + innerW, innerBottom);
+                scissor = true;
+            } catch (Throwable ignored) {}
+
+            try {
+                for (int i = start; i < end; i++) {
+                    gg.drawString(font, lines.get(i), listX + LIST_TEXT_PAD_X, y, 0xFFFFFFFF, false);
+                    y += rowH;
+                }
+            } finally {
+                if (scissor) {
+                    try { gg.disableScissor(); } catch (Throwable ignored) {}
+                }
+            }
+
+            renderScrollbar(gg, listX, listY, listW, listH, lines.size(), visible, historyScrollRow);
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static List<FormattedCharSequence> wrapComponents(Font font, List<Component> raw, int maxWidth) {
+        try {
+            if (font == null) return List.of();
+            if (raw == null || raw.isEmpty()) return List.of();
+
+            int w = Math.max(10, maxWidth);
+            ArrayList<FormattedCharSequence> out = new ArrayList<>();
+            for (Component c : raw) {
+                if (c == null) continue;
+                List<FormattedCharSequence> split = font.split(c, w);
+                if (split == null || split.isEmpty()) {
+                    out.add(FormattedCharSequence.EMPTY);
+                } else {
+                    out.addAll(split);
+                }
+            }
+            return out;
+        } catch (Throwable ignored) {
+            return List.of();
+        }
+    }
+
+    private static void renderScrollbar(GuiGraphics gg, int listX, int listY, int listW, int listH, int total, int visible, int scrollRow) {
+        try {
+            if (gg == null) return;
+            if (total <= visible) return;
+
+            int trackX = listX + listW - SCROLLBAR_W - 2;
+            int trackY = listY + 2;
+            int trackH = listH - 4;
+
+            gg.fill(trackX, trackY, trackX + SCROLLBAR_W, trackY + trackH, 0xFF161616);
+
+            int maxScroll = Math.max(1, total - visible);
+            int thumbH = Math.max(10, (int) Math.floor(trackH * (visible / (double) total)));
+            int travel = Math.max(1, trackH - thumbH);
+            int thumbY = trackY + (int) Math.round((scrollRow / (double) maxScroll) * travel);
+
+            gg.fill(trackX, thumbY, trackX + SCROLLBAR_W, thumbY + thumbH, 0xFF6A6A6A);
+        } catch (Throwable ignored) {}
     }
 
     private List<Component> buildOverviewLines() {
@@ -748,6 +1059,67 @@ public final class VillagerInfoScreen extends Screen {
         }
 
         return out;
+    }
+
+    private List<Component> buildHistoryLines() {
+        List<Component> out = new ArrayList<>();
+        LivingEntity le = this.cachedEntity;
+
+        if (le == null) {
+            out.add(Component.literal("Entity: (not found)").withStyle(ChatFormatting.RED));
+            out.add(Component.literal("Id: " + this.villagerEntityId).withStyle(ChatFormatting.GRAY));
+            return out;
+        }
+
+        PacketVillagerHistoryData snap = ClientVillagerHistoryCache.get(this.villagerEntityId);
+        if (snap == null) {
+            out.add(Component.literal("(syncing...)").withStyle(ChatFormatting.GRAY));
+            return out;
+        }
+        if (!snap.ok()) {
+            out.add(Component.literal("(unavailable)").withStyle(ChatFormatting.GRAY));
+            return out;
+        }
+
+        out.add(Component.literal("Combat").withStyle(ChatFormatting.YELLOW));
+        out.add(Component.literal("Kills: ").append(Component.literal(String.valueOf(snap.kills())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Blocks: ").append(Component.literal(String.valueOf(snap.blocksSuccessful())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Hits taken: ").append(Component.literal(String.valueOf(snap.hitsTaken())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Damage taken: ").append(Component.literal(formatPlain1(snap.damageTakenTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Hits dealt: ").append(Component.literal(String.valueOf(snap.hitsDealt())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Damage dealt: ").append(Component.literal(formatPlain1(snap.damageDealtTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Food eaten: ").append(Component.literal(String.valueOf(snap.foodEaten())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Healing from food: ").append(Component.literal(formatPlain1(snap.foodHealTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+
+        out.add(Component.literal(""));
+        out.add(Component.literal("Trading").withStyle(ChatFormatting.YELLOW));
+        out.add(Component.literal("Trades completed: ").append(Component.literal(String.valueOf(snap.tradesCompleted())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Merchant menus opened: ").append(Component.literal(String.valueOf(snap.merchantMenuOpens())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Manual rerolls: ").append(Component.literal(String.valueOf(snap.manualRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Auto-search rerolls: ").append(Component.literal(String.valueOf(snap.autoRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Trade locks toggled: ").append(Component.literal(String.valueOf(snap.tradeLocksToggled())).withStyle(ChatFormatting.DARK_GRAY)));
+
+        out.add(Component.literal(""));
+        out.add(Component.literal("Travel & Time").withStyle(ChatFormatting.YELLOW));
+        double distBlocks = snap.distanceMilliBlocks() / 1000.0;
+        out.add(Component.literal("Distance traveled: ").append(Component.literal(formatPlain1(distBlocks) + " blocks").withStyle(ChatFormatting.DARK_GRAY)));
+        long ticks = snap.ticksAlive();
+        double minutes = ticks / 20.0 / 60.0;
+        out.add(Component.literal("Time alive: ").append(Component.literal(formatPlain1(minutes) + " min (" + ticks + " ticks)").withStyle(ChatFormatting.DARK_GRAY)));
+
+        out.add(Component.literal(""));
+        out.add(Component.literal("VillagerOverhaul").withStyle(ChatFormatting.YELLOW));
+        out.add(Component.literal("Combat loadout equipped: ").append(Component.literal("(tracked indirectly)").withStyle(ChatFormatting.DARK_GRAY)));
+        out.add(Component.literal("Patrol routes recorded: ").append(Component.literal(String.valueOf(snap.patrolRoutesRecorded())).withStyle(ChatFormatting.DARK_GRAY)));
+
+        return out;
+    }
+
+    private static String formatPlain1(double v) {
+        double x = safeFinite(v);
+        double r = Math.round(x * 10.0) / 10.0;
+        if (Math.abs(r) < 0.05) r = 0.0;
+        return String.valueOf(r);
     }
 
     private static String formatPlain3(double v) {
@@ -1296,6 +1668,9 @@ public final class VillagerInfoScreen extends Screen {
                     if (target == Tab.OVERVIEW) {
                         VillagerInfoScreen.this.overviewScrollRow = 0;
                         VillagerInfoScreen.this.rebuildOverviewLinesIfNeeded(true);
+                    } else if (target == Tab.HISTORY) {
+                        VillagerInfoScreen.this.historyScrollRow = 0;
+                        VillagerInfoScreen.this.rebuildHistoryLinesIfNeeded(true);
                     }
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen switched tab -> {}", target.name());
                 }

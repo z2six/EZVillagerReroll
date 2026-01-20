@@ -181,6 +181,7 @@ public final class RerollExecutor {
             int offersAfter = vill.getOffers() != null ? vill.getOffers().size() : -1;
             RerollState.markRerolled(sp, vill);
             toast(sp, "ezvr.msg.success");
+            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addManualReroll(vill, 1); } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().info(
                     "[VillagerOverhaul] Reroll success: villager={}, offers {} -> {}, player={}, paid={}",

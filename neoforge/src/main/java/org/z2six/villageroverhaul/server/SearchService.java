@@ -685,6 +685,7 @@ public final class SearchService {
                     // This is a rebuild/replace type operation.
                     TradeUtil.rebuildOffersInternal(vill, null, false);
                     task.rerollCount = Math.max(0, task.rerollCount + 1);
+                    try { org.z2six.villageroverhaul.server.VillagerHistoryService.addAutoReroll(vill, 1); } catch (Throwable ignored) {}
 
                     // auto-reroll hook:
                     // - updates cooldown tracking (RerollState.lastTick)

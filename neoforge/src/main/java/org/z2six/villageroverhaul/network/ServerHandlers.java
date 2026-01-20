@@ -143,6 +143,7 @@ public final class ServerHandlers {
             long next = TradeLockState.toggle(vill, idx);
             long sanitized = TradeLockState.sanitizeMaskForSize(next, vill.getOffers().size());
             TradeLockState.setMask(vill, sanitized);
+            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addTradeLockToggle(vill, 1); } catch (Throwable ignored) {}
 
             ctx.reply(new PacketTradeLocks(menu.containerId, sanitized));
             ctx.reply(org.z2six.villageroverhaul.server.TooltipService.computeSnapshot(sp, vill.getId()));
@@ -520,6 +521,7 @@ public final class ServerHandlers {
             }
 
             VillagerBrain.setPatrolRouteTypeAndStart(vill, msg.routeType());
+            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addPatrolRouteRecorded(vill, 1); } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolRouteType: start patrol (type={} player={} villager={})",
                     msg.routeType(), sp.getGameProfile().getName(), vill.getUUID());
