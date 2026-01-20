@@ -126,13 +126,16 @@ public final class VillagerCombatDirector {
             if (VillagerBrain.isUiPaused(vill)) return;
 
             // If we're actively running combat AI, let combat-eat handle itself.
-            if (VillagerBrain.shouldCombatActNow(vill)) return;
+            // NOTE: combat mode can be set even when no threat is present; that should NOT block passive eating.
             if (VillagerBrain.isCombatEngaged(vill)) return;
 
             float max = vill.getMaxHealth();
             if (max <= 0.0f) return;
             float frac = vill.getHealth() / max;
             if (frac > PASSIVE_EAT_HP_THRESHOLD) return;
+
+            CombatSettings.AiSettings ai = getAiSettings(vill);
+            if (!ai.enableEating) return;
 
             if (!hasAnyFoodInPickupInv(vill)) return;
 

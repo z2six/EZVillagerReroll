@@ -21,6 +21,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.WanderingTrader;
+import net.minecraft.world.item.ItemStack;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientVillagerAttributesCache;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
@@ -33,6 +34,9 @@ import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryData;
 import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryQuery;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
+import org.z2six.villageroverhaul.network.trades.ClientVillagerTradesCache;
+import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesData;
+import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 import java.util.ArrayList;
@@ -67,6 +71,7 @@ public final class VillagerInfoScreen extends Screen {
     private long lastStatsQueryMs = 0L;
     private long lastAttrsQueryMs = 0L;
     private long lastHistoryQueryMs = 0L;
+    private long lastTradesQueryMs = 0L;
 
     // Tabs
     private enum Tab {
@@ -90,6 +95,7 @@ public final class VillagerInfoScreen extends Screen {
     private int overviewScrollRow = 0;
     private List<Component> overviewLinesRaw = null;
     private List<FormattedCharSequence> overviewLinesWrapped = null;
+    private List<TradeRow> overviewTradeRowsWrapped = null;
     private long nextOverviewRebuildAtTick = 0L;
     private int overviewLastWrapWidth = -1;
     private boolean overviewDraggingScroll = false;
@@ -127,6 +133,11 @@ public final class VillagerInfoScreen extends Screen {
     private static final int LIST_INNER_PAD_Y = 4;
     private static final int LIST_TEXT_PAD_X = 6;
     private static final int SCROLLBAR_W = 6;
+
+    private static final int TRADE_ICON_SIZE = 16;
+    private static final int TRADE_ICON_GAP = 2;
+    private static final int TRADE_ICON_ROW_H = 18;
+    private static final String OVERVIEW_TRADE_ROW_PREFIX = "\u0001ezvr_trade_row:";
 
     // Colors (ARGB)
     private static final int PANEL_BG = 0xCC0B0B0B;
@@ -236,6 +247,7 @@ public final class VillagerInfoScreen extends Screen {
         trySendStatsQuery(false);
         trySendAttributesQuery(false);
         trySendHistoryQuery(false);
+        trySendTradesQuery(false);
         tryApplyStatsFromCache();
         rebuildOverviewLinesIfNeeded(true);
         rebuildHistoryLinesIfNeeded(true);
@@ -257,6 +269,7 @@ public final class VillagerInfoScreen extends Screen {
         }
         trySendAttributesQuery(true);
         trySendHistoryQuery(true);
+        trySendTradesQuery(true);
     }
 
     @Override
@@ -460,6 +473,16 @@ public final class VillagerInfoScreen extends Screen {
             lastHistoryQueryMs = now;
 
             ClientNetwork.sendToServer(new PacketVillagerHistoryQuery(this.villagerEntityId));
+        } catch (Throwable ignored) {}
+    }
+
+    private void trySendTradesQuery(boolean debounced) {
+        try {
+            long now = System.currentTimeMillis();
+            if (debounced && (now - lastTradesQueryMs) < STATS_QUERY_DEBOUNCE_MS) return;
+            lastTradesQueryMs = now;
+
+            ClientNetwork.sendToServer(new PacketVillagerTradesQuery(this.villagerEntityId));
         } catch (Throwable ignored) {}
     }
 
@@ -680,7 +703,9 @@ public final class VillagerInfoScreen extends Screen {
             if (!force && now < this.nextOverviewRebuildAtTick && wrapW == this.overviewLastWrapWidth) return;
 
             this.overviewLinesRaw = buildOverviewLines();
-            this.overviewLinesWrapped = wrapComponents(mc.font, this.overviewLinesRaw, wrapW);
+            OverviewWrap wrap = wrapOverview(mc.font, this.overviewLinesRaw, wrapW, this.villagerEntityId);
+            this.overviewLinesWrapped = wrap.lines;
+            this.overviewTradeRowsWrapped = wrap.tradeRows;
             this.overviewLastWrapWidth = wrapW;
             this.nextOverviewRebuildAtTick = now + 10L;
 
@@ -717,7 +742,7 @@ public final class VillagerInfoScreen extends Screen {
     }
 
     private int getOverviewRowH(Font font) {
-        return Math.max(10, font.lineHeight + 2);
+        return Math.max(TRADE_ICON_ROW_H, font.lineHeight + 2);
     }
 
     private int getOverviewVisibleRows() {
@@ -735,6 +760,8 @@ public final class VillagerInfoScreen extends Screen {
         try {
             List<FormattedCharSequence> lines = this.overviewLinesWrapped;
             if (lines == null) lines = wrapComponents(font, List.of(Component.literal("Loading...").withStyle(ChatFormatting.GRAY)), getOverviewWrapWidth());
+            List<TradeRow> tradeRows = this.overviewTradeRowsWrapped;
+            boolean tooltipDrawn = false;
 
             int listX = getOverviewListX();
             int listY = getOverviewListY();
@@ -772,7 +799,14 @@ public final class VillagerInfoScreen extends Screen {
 
             try {
                 for (int i = start; i < end; i++) {
-                    gg.drawString(font, lines.get(i), listX + LIST_TEXT_PAD_X, y, 0xFFFFFFFF, false);
+                    TradeRow tr = (tradeRows == null || i < 0 || i >= tradeRows.size()) ? null : tradeRows.get(i);
+                    if (tr == null) {
+                        gg.drawString(font, lines.get(i), listX + LIST_TEXT_PAD_X, y, 0xFFFFFFFF, false);
+                    } else {
+                        if (renderTradeRow(gg, font, tr, listX + LIST_TEXT_PAD_X, y + 1, mouseX, mouseY)) {
+                            tooltipDrawn = true;
+                        }
+                    }
                     y += rowH;
                 }
             } finally {
@@ -782,7 +816,7 @@ public final class VillagerInfoScreen extends Screen {
             }
 
             renderScrollbar(gg, listX, listY, listW, listH, lines.size(), visible, overviewScrollRow);
-            return false;
+            return tooltipDrawn;
         } catch (Throwable ignored) {
             return false;
         }
@@ -883,6 +917,116 @@ public final class VillagerInfoScreen extends Screen {
 
             renderScrollbar(gg, listX, listY, listW, listH, lines.size(), visible, historyScrollRow);
             return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static final class TradeRow {
+        final int villagerEntityId;
+        final int startIndex;
+
+        TradeRow(int villagerEntityId, int startIndex) {
+            this.villagerEntityId = villagerEntityId;
+            this.startIndex = startIndex;
+        }
+    }
+
+    private record OverviewWrap(List<FormattedCharSequence> lines, List<TradeRow> tradeRows) {}
+
+    private static OverviewWrap wrapOverview(Font font, List<Component> raw, int maxWidth, int villagerEntityId) {
+        try {
+            if (font == null) return new OverviewWrap(List.of(), List.of());
+            if (raw == null || raw.isEmpty()) return new OverviewWrap(List.of(), List.of());
+
+            int w = Math.max(10, maxWidth);
+            ArrayList<FormattedCharSequence> out = new ArrayList<>();
+            ArrayList<TradeRow> meta = new ArrayList<>();
+
+            for (Component c : raw) {
+                if (c == null) continue;
+
+                String s = null;
+                try { s = c.getString(); } catch (Throwable ignored) { s = null; }
+
+                if (s != null && s.startsWith(OVERVIEW_TRADE_ROW_PREFIX)) {
+                    int start = 0;
+                    try { start = Integer.parseInt(s.substring(OVERVIEW_TRADE_ROW_PREFIX.length()).trim()); } catch (Throwable ignored) { start = 0; }
+
+                    out.add(FormattedCharSequence.EMPTY);
+                    meta.add(new TradeRow(villagerEntityId, start));
+                    continue;
+                }
+
+                List<FormattedCharSequence> split = font.split(c, w);
+                if (split == null || split.isEmpty()) {
+                    out.add(FormattedCharSequence.EMPTY);
+                    meta.add(null);
+                } else {
+                    for (FormattedCharSequence fcs : split) {
+                        out.add(fcs);
+                        meta.add(null);
+                    }
+                }
+            }
+
+            return new OverviewWrap(out, meta);
+        } catch (Throwable ignored) {
+            return new OverviewWrap(List.of(), List.of());
+        }
+    }
+
+    private static boolean renderTradeRow(GuiGraphics gg, Font font, TradeRow tr, int x, int y, int mouseX, int mouseY) {
+        try {
+            if (gg == null || tr == null) return false;
+
+            PacketVillagerTradesData snap = ClientVillagerTradesCache.get(tr.villagerEntityId);
+            if (snap == null || !snap.ok()) return false;
+
+            List<ItemStack> results = snap.results();
+            if (results == null || results.isEmpty()) return false;
+
+            long mask = snap.lockMask();
+            int idx = Math.max(0, tr.startIndex);
+
+            int drawn = 0;
+            boolean tooltip = false;
+
+            int max = Math.min(results.size(), idx + 64);
+            for (int i = idx; i < max; i++) {
+                ItemStack stack = results.get(i);
+                if (stack == null || stack.isEmpty()) continue;
+
+                int ix = x + drawn * (TRADE_ICON_SIZE + TRADE_ICON_GAP);
+                int iy = y;
+
+                gg.renderItem(stack, ix, iy);
+
+                boolean locked = i >= 0 && i <= 63 && (mask & (1L << i)) != 0L;
+                if (locked) {
+                    int c = 0xFF66FF66;
+                    try {
+                        gg.renderOutline(ix, iy, TRADE_ICON_SIZE, TRADE_ICON_SIZE, c);
+                    } catch (Throwable t) {
+                        gg.fill(ix, iy, ix + TRADE_ICON_SIZE, iy + 1, c);
+                        gg.fill(ix, iy + TRADE_ICON_SIZE - 1, ix + TRADE_ICON_SIZE, iy + TRADE_ICON_SIZE, c);
+                        gg.fill(ix, iy, ix + 1, iy + TRADE_ICON_SIZE, c);
+                        gg.fill(ix + TRADE_ICON_SIZE - 1, iy, ix + TRADE_ICON_SIZE, iy + TRADE_ICON_SIZE, c);
+                    }
+                }
+
+                if (mouseX >= ix && mouseX < ix + TRADE_ICON_SIZE && mouseY >= iy && mouseY < iy + TRADE_ICON_SIZE) {
+                    try {
+                        gg.renderTooltip(font, stack, mouseX, mouseY);
+                        tooltip = true;
+                    } catch (Throwable ignored) {}
+                }
+
+                drawn++;
+                if (drawn >= 12) break;
+            }
+
+            return tooltip;
         } catch (Throwable ignored) {
             return false;
         }
@@ -1017,48 +1161,80 @@ public final class VillagerInfoScreen extends Screen {
             PacketVillagerAttributesData snap = ClientVillagerAttributesCache.get(this.villagerEntityId);
             if (snap == null) {
                 out.add(Component.literal("(syncing…)").withStyle(ChatFormatting.GRAY));
-                return out;
-            }
-
-            if (!snap.ok()) {
+            } else if (!snap.ok()) {
                 out.add(Component.literal("(unavailable)").withStyle(ChatFormatting.GRAY));
-                return out;
-            }
+            } else {
+                List<PacketVillagerAttributesData.Entry> entries = snap.entries() == null ? List.of() : snap.entries();
+                if (entries.isEmpty()) {
+                    out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
+                } else {
+                    // Sort by display id for stable output
+                    entries = new ArrayList<>(entries);
+                    entries.sort(Comparator.comparing(e -> e.id() == null ? "" : e.id().toString()));
 
-            List<PacketVillagerAttributesData.Entry> entries = snap.entries() == null ? List.of() : snap.entries();
-            if (entries.isEmpty()) {
-                out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
-                return out;
-            }
+                    for (PacketVillagerAttributesData.Entry e : entries) {
+                        ResourceLocation id = e.id();
+                        if (id == null) continue;
 
-            // Sort by display id for stable output
-            entries = new ArrayList<>(entries);
-            entries.sort(Comparator.comparing(e -> e.id() == null ? "" : e.id().toString()));
+                        // Try to use a localized attribute name; fallback to id.
+                        Component name;
+                        try {
+                            var attr = BuiltInRegistries.ATTRIBUTE.get(id);
+                            if (attr != null) name = Component.translatable(attr.getDescriptionId());
+                            else name = Component.literal(id.toString());
+                        } catch (Throwable ignored) {
+                            name = Component.literal(id.toString());
+                        }
 
-            for (PacketVillagerAttributesData.Entry e : entries) {
-                ResourceLocation id = e.id();
-                if (id == null) continue;
-
-                // Try to use a localized attribute name; fallback to id.
-                Component name;
-                try {
-                    var attr = BuiltInRegistries.ATTRIBUTE.get(id);
-                    if (attr != null) name = Component.translatable(attr.getDescriptionId());
-                    else name = Component.literal(id.toString());
-                } catch (Throwable ignored) {
-                    name = Component.literal(id.toString());
+                        double base = e.base();
+                        double val = e.value();
+                        out.add(Component.literal("• ").append(name).append(Component.literal(": " + formatPlain3(val) + " (base " + formatPlain3(base) + ")").withStyle(ChatFormatting.DARK_GRAY)));
+                    }
                 }
-
-                double base = e.base();
-                double val = e.value();
-                out.add(Component.literal("• ").append(name).append(Component.literal(": " + formatPlain3(val) + " (base " + formatPlain3(base) + ")").withStyle(ChatFormatting.DARK_GRAY)));
             }
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen attribute scan failed (soft): {}", t.toString());
             out.add(Component.literal("(attribute scan failed)").withStyle(ChatFormatting.RED));
         }
 
+        out.add(Component.literal(""));
+        out.add(Component.literal("Trades").withStyle(ChatFormatting.YELLOW));
+        appendTradesOverview(out);
+
         return out;
+    }
+
+    private void appendTradesOverview(List<Component> out) {
+        try {
+            if (out == null) return;
+
+            PacketVillagerTradesData snap = ClientVillagerTradesCache.get(this.villagerEntityId);
+            if (snap == null) {
+                out.add(Component.literal("(syncing...)").withStyle(ChatFormatting.GRAY));
+                return;
+            }
+            if (!snap.ok()) {
+                out.add(Component.literal("(unavailable)").withStyle(ChatFormatting.GRAY));
+                return;
+            }
+
+            List<ItemStack> results = snap.results();
+            if (results == null || results.isEmpty()) {
+                out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
+                return;
+            }
+
+            int listW = getOverviewListW();
+            int innerW = Math.max(1, listW - SCROLLBAR_W - 4 - LIST_TEXT_PAD_X * 2);
+            int perRow = Math.max(1, (innerW + TRADE_ICON_GAP) / (TRADE_ICON_SIZE + TRADE_ICON_GAP));
+
+            int n = Math.min(64, results.size());
+            for (int start = 0; start < n; start += perRow) {
+                out.add(Component.literal(OVERVIEW_TRADE_ROW_PREFIX + start));
+            }
+        } catch (Throwable ignored) {
+            try { out.add(Component.literal("(trade list failed)").withStyle(ChatFormatting.RED)); } catch (Throwable ignored2) {}
+        }
     }
 
     private List<Component> buildHistoryLines() {

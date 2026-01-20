@@ -40,6 +40,9 @@ import org.z2six.villageroverhaul.network.tooltip.PacketTooltipQuery;
 import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocksQuery;
+import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesData;
+import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
+import org.z2six.villageroverhaul.network.trades.ClientVillagerTradesCache;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
@@ -86,6 +89,10 @@ public final class Network {
             // villager history query
             r.playToServer(PacketVillagerHistoryQuery.TYPE, PacketVillagerHistoryQuery.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerHistoryQueryServer(msg, ctx));
+
+            // villager trades (offers + lock mask) query
+            r.playToServer(PacketVillagerTradesQuery.TYPE, PacketVillagerTradesQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerTradesQueryServer(msg, ctx));
 
             // settlement payment actions
             r.playToServer(PacketPayAutoSearchSettlement.TYPE, PacketPayAutoSearchSettlement.STREAM_CODEC,
@@ -155,6 +162,10 @@ public final class Network {
             // villager history data (we update cache directly; no client-only class refs)
             r.playToClient(PacketVillagerHistoryData.TYPE, PacketVillagerHistoryData.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerHistoryDataClient(msg, ctx));
+
+            // villager trades data (we update cache directly; no client-only class refs)
+            r.playToClient(PacketVillagerTradesData.TYPE, PacketVillagerTradesData.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerTradesDataClient(msg, ctx));
 
             // ============================
             // Recruit clientbound
@@ -279,6 +290,18 @@ public final class Network {
                     ClientVillagerHistoryCache.accept(msg);
                 } catch (Throwable t) {
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerHistoryDataClient failed (soft): {}", t.toString());
+                }
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    private static void handleVillagerTradesDataClient(PacketVillagerTradesData msg, IPayloadContext ctx) {
+        try {
+            ctx.enqueueWork(() -> {
+                try {
+                    ClientVillagerTradesCache.accept(msg);
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerTradesDataClient failed (soft): {}", t.toString());
                 }
             });
         } catch (Throwable ignored) {}
@@ -676,6 +699,60 @@ public final class Network {
                 ctx.reply(org.z2six.villageroverhaul.server.VillagerHistoryService.snapshot(vill));
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerHistoryQuery handler error", t);
+            }
+        });
+    }
+
+    private static void handleVillagerTradesQueryServer(PacketVillagerTradesQuery msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+
+                int id = msg.villagerEntityId();
+                var level = sp.serverLevel();
+                if (level == null) {
+                    ctx.reply(PacketVillagerTradesData.missing(id));
+                    return;
+                }
+
+                var ent = level.getEntity(id);
+                if (!(ent instanceof net.minecraft.world.entity.npc.AbstractVillager av)) {
+                    ctx.reply(PacketVillagerTradesData.missing(id));
+                    return;
+                }
+
+                var offers = av.getOffers();
+                int offerCount = offers == null ? 0 : offers.size();
+                int n = Math.max(0, Math.min(64, offerCount));
+
+                java.util.ArrayList<ItemStack> results = new java.util.ArrayList<>(n);
+                for (int i = 0; i < n; i++) {
+                    try {
+                        var offer = offers.get(i);
+                        if (offer == null) {
+                            results.add(ItemStack.EMPTY);
+                            continue;
+                        }
+                        results.add(offer.getResult().copy());
+                    } catch (Throwable ignored) {
+                        results.add(ItemStack.EMPTY);
+                    }
+                }
+
+                long mask = 0L;
+                if (ent instanceof Villager vill) {
+                    try {
+                        long raw = org.z2six.villageroverhaul.logic.TradeLockState.getMask(vill);
+                        mask = org.z2six.villageroverhaul.logic.TradeLockState.sanitizeMaskForSize(raw, n);
+                    } catch (Throwable ignored) {
+                        mask = 0L;
+                    }
+                }
+
+                ctx.reply(new PacketVillagerTradesData(id, true, mask, results));
+
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerTradesQuery handler error", t);
             }
         });
     }
