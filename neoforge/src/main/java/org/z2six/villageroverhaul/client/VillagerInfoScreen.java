@@ -21,13 +21,18 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.WanderingTrader;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.network.ClientVillagerAttributesCache;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
+import org.z2six.villageroverhaul.network.PacketSyncConfigQuery;
+import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesData;
+import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesQuery;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public final class VillagerInfoScreen extends Screen {
@@ -38,6 +43,7 @@ public final class VillagerInfoScreen extends Screen {
     private final int villagerEntityId;
 
     private LivingEntity cachedEntity;
+    private Button backBtn;
 
     private boolean hasStats = false;
     private boolean statsUnavailable = false;
@@ -55,9 +61,11 @@ public final class VillagerInfoScreen extends Screen {
     private int armor    = 0;
 
     private long lastStatsQueryMs = 0L;
+    private long lastAttrsQueryMs = 0L;
 
     // Tabs
     private enum Tab {
+        OVERVIEW("Overview"),
         MERCHANT("Merchant stats"),
         COMBAT("Combat stats");
 
@@ -65,15 +73,25 @@ public final class VillagerInfoScreen extends Screen {
         Tab(String label) { this.label = label; }
     }
 
-    private Tab currentTab = Tab.MERCHANT;
+    private Tab currentTab = Tab.OVERVIEW;
 
+    private IconTabButton tabOverviewBtn;
     private IconTabButton tabMerchantBtn;
     private IconTabButton tabCombatBtn;
+
+    // Overview scroll + cache
+    private int overviewScrollRow = 0;
+    private List<Component> overviewLines = null;
+    private long nextOverviewRebuildAtTick = 0L;
 
     // Layout
     private static final int PANEL_W = 316;
     // Slightly taller so bottom icon buttons have breathing room.
     private static final int PANEL_H = 206;
+
+    // Overview needs more room (attribute lines can be long). Clamp to window with margin.
+    private static final int PANEL_W_OVERVIEW_TARGET = 500;
+    private static final int PANEL_SCREEN_MARGIN = 12;
 
     private static final int PAD = 10;
 
@@ -161,45 +179,81 @@ public final class VillagerInfoScreen extends Screen {
 
         resolveEntity();
 
-        int left = (this.width - PANEL_W) / 2;
+        int panelW = getPanelW();
+        int left = (this.width - panelW) / 2;
         int top = (this.height - PANEL_H) / 2;
 
+        // Ask server to resend config on open so this screen reflects live server config changes.
+        try { ClientNetwork.sendToServer(new PacketSyncConfigQuery()); } catch (Throwable ignored) {}
+
         // Back button (vanilla is fine)
-        this.addRenderableWidget(
-                Button.builder(Component.literal("Back"), b -> onClose())
-                        .pos(left + PANEL_W - 58 - PAD, top + PAD)
-                        .size(58, 18)
-                        .build()
-        );
+        backBtn = Button.builder(Component.literal("Back"), b -> onClose())
+                .pos(left + panelW - 58 - PAD, top + PAD)
+                .size(58, 18)
+                .build();
+        this.addRenderableWidget(backBtn);
 
         // Custom tab buttons centered at the bottom INSIDE the panel.
-        int groupW = TAB_BTN_SIZE * 2 + TAB_BTN_GAP;
-        int tabsX = left + (PANEL_W - groupW) / 2;
+        int groupW = TAB_BTN_SIZE * 3 + TAB_BTN_GAP * 2;
+        int tabsX = left + (panelW - groupW) / 2;
         int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
 
-        tabMerchantBtn = new IconTabButton(tabsX, tabsY, TAB_BTN_SIZE, "¤",
+        tabOverviewBtn = new IconTabButton(tabsX, tabsY, TAB_BTN_SIZE, "☰",
+                Component.literal("Overview"), Tab.OVERVIEW);
+        tabMerchantBtn = new IconTabButton(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY, TAB_BTN_SIZE, "¤",
                 Component.literal("Merchant stats"), Tab.MERCHANT);
-        tabCombatBtn = new IconTabButton(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY, TAB_BTN_SIZE, "⚔",
+        tabCombatBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY, TAB_BTN_SIZE, "⚔",
                 Component.literal("Combat stats"), Tab.COMBAT);
 
+        this.addRenderableWidget(tabOverviewBtn);
         this.addRenderableWidget(tabMerchantBtn);
         this.addRenderableWidget(tabCombatBtn);
 
         // Kick initial request immediately
         trySendStatsQuery(false);
+        trySendAttributesQuery(false);
         tryApplyStatsFromCache();
+        rebuildOverviewLinesIfNeeded(true);
     }
 
     @Override
     public void tick() {
         super.tick();
 
+        relayoutIfNeeded();
+
         resolveEntity();
         tryApplyStatsFromCache();
+        rebuildOverviewLinesIfNeeded(false);
 
         if (!hasStats && !statsUnavailable) {
             trySendStatsQuery(true);
         }
+        trySendAttributesQuery(true);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        try {
+            if (this.currentTab == Tab.OVERVIEW && scrollY != 0.0) {
+                int x = getOverviewListX();
+                int y = getOverviewListY();
+                int w = getOverviewListW();
+                int h = getOverviewListH();
+
+                boolean in = mouseX >= x && mouseX <= (x + w) && mouseY >= y && mouseY <= (y + h);
+                if (in) {
+                    int delta = (int) Math.signum(scrollY);
+                    this.overviewScrollRow -= delta;
+
+                    int maxScroll = Math.max(0, (this.overviewLines == null ? 0 : this.overviewLines.size()) - getOverviewVisibleRows());
+                    if (this.overviewScrollRow < 0) this.overviewScrollRow = 0;
+                    if (this.overviewScrollRow > maxScroll) this.overviewScrollRow = maxScroll;
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
     private void tryApplyStatsFromCache() {
@@ -245,6 +299,16 @@ public final class VillagerInfoScreen extends Screen {
         }
     }
 
+    private void trySendAttributesQuery(boolean debounced) {
+        try {
+            long now = System.currentTimeMillis();
+            if (debounced && (now - lastAttrsQueryMs) < STATS_QUERY_DEBOUNCE_MS) return;
+            lastAttrsQueryMs = now;
+
+            ClientNetwork.sendToServer(new PacketVillagerAttributesQuery(this.villagerEntityId));
+        } catch (Throwable ignored) {}
+    }
+
     private void resolveEntity() {
         try {
             Minecraft mc = Minecraft.getInstance();
@@ -288,10 +352,11 @@ public final class VillagerInfoScreen extends Screen {
             super.renderBackground(gg, mouseX, mouseY, partialTick);
         } catch (Throwable ignored) {}
 
-        int left = (this.width - PANEL_W) / 2;
+        int panelW = getPanelW();
+        int left = (this.width - panelW) / 2;
         int top = (this.height - PANEL_H) / 2;
 
-        drawPanel(gg, left, top, PANEL_W, PANEL_H);
+        drawPanel(gg, left, top, panelW, PANEL_H);
 
         Font font = Minecraft.getInstance().font;
 
@@ -329,7 +394,9 @@ public final class VillagerInfoScreen extends Screen {
 
         boolean tooltipDrawn = false;
 
-        if (currentTab == Tab.MERCHANT) {
+        if (currentTab == Tab.OVERVIEW) {
+            tooltipDrawn |= renderOverview(gg, font, left, top, barsX, mouseX, mouseY);
+        } else if (currentTab == Tab.MERCHANT) {
             tooltipDrawn |= renderStatBar(gg, font, StatKind.GENEROSITY, this.hasStats ? this.generosity : null,
                     barsX, barsY + stepY * 0, BAR_W, BAR_H, C_GENEROSITY, mouseX, mouseY, !tooltipDrawn);
 
@@ -355,7 +422,7 @@ public final class VillagerInfoScreen extends Screen {
                     barsX, barsY + stepY * 3, BAR_W, BAR_H, C_ARMOR, mouseX, mouseY, !tooltipDrawn);
         }
 
-        if (!this.hasStats) {
+        if (!this.hasStats && currentTab != Tab.OVERVIEW) {
             if (this.statsUnavailable) {
                 gg.drawString(font, Component.literal("Stats: unavailable"),
                         barsX, barsY + stepY * 4 + 2, 0xFFFF7777, false);
@@ -365,18 +432,20 @@ public final class VillagerInfoScreen extends Screen {
             }
         }
 
-        // If no stat bar tooltip was drawn this frame, allow tab-button tooltip.
-        // This prevents the “sticky overlay” you saw.
+        // Render widgets (tab icons + Back button)
+        super.render(gg, mouseX, mouseY, partialTick);
+
+        // Tooltips last so they draw above everything else.
+        // Never depend on focus state (only mouse bounds), otherwise tooltips can "stick" after click.
         if (!tooltipDrawn) {
-            if (tabMerchantBtn != null && tabMerchantBtn.isHoveredOrFocused()) {
+            if (isMouseOverWidget(tabOverviewBtn, mouseX, mouseY)) {
+                gg.renderTooltip(font, Component.literal("Overview"), mouseX, mouseY);
+            } else if (isMouseOverWidget(tabMerchantBtn, mouseX, mouseY)) {
                 gg.renderTooltip(font, Component.literal("Merchant stats"), mouseX, mouseY);
-            } else if (tabCombatBtn != null && tabCombatBtn.isHoveredOrFocused()) {
+            } else if (isMouseOverWidget(tabCombatBtn, mouseX, mouseY)) {
                 gg.renderTooltip(font, Component.literal("Combat stats"), mouseX, mouseY);
             }
         }
-
-        // Render widgets (tab icons + Back button)
-        super.render(gg, mouseX, mouseY, partialTick);
     }
 
     private static void drawPanel(GuiGraphics gg, int x, int y, int w, int h) {
@@ -390,6 +459,48 @@ public final class VillagerInfoScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
+    private static boolean isMouseOverWidget(AbstractWidget b, int mouseX, int mouseY) {
+        try {
+            if (b == null) return false;
+            int x = b.getX();
+            int y = b.getY();
+            int w = b.getWidth();
+            int h = b.getHeight();
+            return mouseX >= x && mouseX < (x + w) && mouseY >= y && mouseY < (y + h);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private int getPanelW() {
+        int base = PANEL_W;
+        if (this.currentTab != Tab.OVERVIEW) return base;
+
+        int maxByWindow = Math.max(base, this.width - PANEL_SCREEN_MARGIN * 2);
+        int target = Math.max(base, PANEL_W_OVERVIEW_TARGET);
+        return Math.min(maxByWindow, target);
+    }
+
+    private void relayoutIfNeeded() {
+        try {
+            int panelW = getPanelW();
+            int left = (this.width - panelW) / 2;
+            int top = (this.height - PANEL_H) / 2;
+
+            if (backBtn != null) {
+                backBtn.setPosition(left + panelW - 58 - PAD, top + PAD);
+            }
+
+            int groupW = TAB_BTN_SIZE * 3 + TAB_BTN_GAP * 2;
+            int tabsX = left + (panelW - groupW) / 2;
+            int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
+
+            if (tabOverviewBtn != null) tabOverviewBtn.setPosition(tabsX, tabsY);
+            if (tabMerchantBtn != null) tabMerchantBtn.setPosition(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY);
+            if (tabCombatBtn != null) tabCombatBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY);
+        } catch (Throwable ignored) {}
+    }
+
     private static void drawEntityBox(GuiGraphics gg, int x1, int y1, int x2, int y2) {
         try {
             gg.fill(x1, y1, x2, y2, 0xFF101010);
@@ -399,6 +510,251 @@ public final class VillagerInfoScreen extends Screen {
             gg.fill(x1, y1, x1 + 1, y2, 0xFF2E2E2E);
             gg.fill(x2 - 1, y1, x2, y2, 0xFF2E2E2E);
         } catch (Throwable ignored) {}
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Overview tab (scrollable)
+    // -----------------------------------------------------------------------------------------
+
+    private void rebuildOverviewLinesIfNeeded(boolean force) {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.level == null) return;
+
+            long now = mc.level.getGameTime();
+            if (!force && now < this.nextOverviewRebuildAtTick) return;
+
+            this.overviewLines = buildOverviewLines();
+            this.nextOverviewRebuildAtTick = now + 10L;
+
+            int maxScroll = Math.max(0, (this.overviewLines == null ? 0 : this.overviewLines.size()) - getOverviewVisibleRows());
+            if (this.overviewScrollRow > maxScroll) this.overviewScrollRow = maxScroll;
+            if (this.overviewScrollRow < 0) this.overviewScrollRow = 0;
+        } catch (Throwable ignored) {}
+    }
+
+    private int getOverviewListX() {
+        int left = (this.width - getPanelW()) / 2;
+        return left + PAD + ENTITY_BOX_W + PAD;
+    }
+
+    private int getOverviewListY() {
+        int top = (this.height - PANEL_H) / 2;
+        return top + 64;
+    }
+
+    private int getOverviewListW() {
+        return getPanelW() - ENTITY_BOX_W - PAD * 3;
+    }
+
+    private int getOverviewListH() {
+        int top = (this.height - PANEL_H) / 2;
+        int bottom = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE - 6;
+        int y = getOverviewListY();
+        return Math.max(24, bottom - y);
+    }
+
+    private int getOverviewRowH(Font font) {
+        return Math.max(10, font.lineHeight + 2);
+    }
+
+    private int getOverviewVisibleRows() {
+        try {
+            Font font = Minecraft.getInstance().font;
+            int rowH = getOverviewRowH(font);
+            return Math.max(1, getOverviewListH() / rowH);
+        } catch (Throwable ignored) {
+            return 8;
+        }
+    }
+
+    private boolean renderOverview(GuiGraphics gg, Font font, int left, int top, int titleX, int mouseX, int mouseY) {
+        try {
+            List<Component> lines = this.overviewLines;
+            if (lines == null) lines = List.of(Component.literal("Loading…").withStyle(ChatFormatting.GRAY));
+
+            int listX = getOverviewListX();
+            int listY = getOverviewListY();
+            int listW = getOverviewListW();
+            int listH = getOverviewListH();
+
+            // Scroll area frame
+            gg.fill(listX, listY, listX + listW, listY + listH, 0xFF101010);
+            gg.fill(listX, listY, listX + listW, listY + 1, 0xFF2E2E2E);
+            gg.fill(listX, listY + listH - 1, listX + listW, listY + listH, 0xFF2E2E2E);
+            gg.fill(listX, listY, listX + 1, listY + listH, 0xFF2E2E2E);
+            gg.fill(listX + listW - 1, listY, listX + listW, listY + listH, 0xFF2E2E2E);
+
+            int rowH = getOverviewRowH(font);
+            int visible = Math.max(1, listH / rowH);
+
+            int maxScroll = Math.max(0, lines.size() - visible);
+            if (overviewScrollRow > maxScroll) overviewScrollRow = maxScroll;
+            if (overviewScrollRow < 0) overviewScrollRow = 0;
+
+            int y = listY + 4;
+            int start = overviewScrollRow;
+            int end = Math.min(lines.size(), start + visible);
+
+            boolean scissor = false;
+            try {
+                gg.enableScissor(listX + 1, listY + 1, listX + listW - 1, listY + listH - 1);
+                scissor = true;
+            } catch (Throwable ignored) {}
+
+            try {
+                for (int i = start; i < end; i++) {
+                    gg.drawString(font, lines.get(i), listX + 6, y, 0xFFEAEAEA, false);
+                    y += rowH;
+                }
+            } finally {
+                if (scissor) {
+                    try { gg.disableScissor(); } catch (Throwable ignored) {}
+                }
+            }
+
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private List<Component> buildOverviewLines() {
+        List<Component> out = new ArrayList<>();
+        LivingEntity le = this.cachedEntity;
+
+        if (le == null) {
+            out.add(Component.literal("Entity: (not found)").withStyle(ChatFormatting.RED));
+            out.add(Component.literal("Id: " + this.villagerEntityId).withStyle(ChatFormatting.GRAY));
+            return out;
+        }
+
+        out.add(Component.literal("Stats").withStyle(ChatFormatting.YELLOW));
+
+        if (this.hasStats) {
+            // Merchant effects
+            Double gPct = pointsToPercentFromServerConfig(StatKind.GENEROSITY, this.generosity);
+            Double tPct = pointsToPercentFromServerConfig(StatKind.TIMELINESS, this.timeliness);
+            Double iPct = pointsToPercentFromServerConfig(StatKind.INTELLECT, this.intellect);
+
+            out.add(Component.literal("Generosity: ").append(Component.literal(
+                    gPct == null ? "(syncing...)" : ("Cost " + formatSignedPercent1(-gPct))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Timeliness: ").append(Component.literal(
+                    tPct == null ? "(syncing...)" : ("Cooldown " + formatSignedPercent1(-tPct))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Intellect: ").append(Component.literal(
+                    iPct == null ? "(syncing...)" : ("XP " + formatSignedPercent1(iPct))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            Integer hoard = pointsToHoarderDeltaFromServerConfig(this.hoarder);
+            out.add(Component.literal("Hoarder: ").append(Component.literal(
+                    hoard == null ? "(syncing...)" : ("Offers " + formatSignedInt(hoard))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            // Combat effects
+            Double hp = pointsToVitalityHpDeltaFromServerConfig(this.vitality);
+            out.add(Component.literal("Vitality: ").append(Component.literal(
+                    hp == null ? "(syncing...)" : ("Max health " + formatSigned1(hp) + " HP (" + formatSigned1(hp / 2.0) + "♥)")
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            Double spd = pointsToAgilityDeltaFromServerConfig(this.agility);
+            out.add(Component.literal("Agility: ").append(Component.literal(
+                    spd == null ? "(syncing...)" : ("Speed " + formatSigned3(spd))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            Double dmg = pointsToStrengthDeltaFromServerConfig(this.strength);
+            out.add(Component.literal("Strength: ").append(Component.literal(
+                    dmg == null ? "(syncing...)" : ("Damage " + formatSigned1(dmg))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            Double arm = pointsToArmorDeltaFromServerConfig(this.armor);
+            out.add(Component.literal("Armor: ").append(Component.literal(
+                    arm == null ? "(syncing...)" : ("Armor " + formatSigned1(arm))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            // Recruit cost estimate (same model as server, uses synced bounds if present)
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg != null) {
+                int sum = this.generosity + this.timeliness + this.intellect + this.hoarder + this.vitality + this.agility + this.strength + this.armor;
+                sum = Mth.clamp(sum, -800, 800);
+
+                int minCost = Math.max(0, cfg.recruitCostMin);
+                int maxCost = Math.max(0, cfg.recruitCostMax);
+                if (minCost > maxCost) { int tmp = minCost; minCost = maxCost; maxCost = tmp; }
+
+                if (minCost == maxCost) {
+                    out.add(Component.literal("Recruit cost: ").append(Component.literal(String.valueOf(minCost)).withStyle(ChatFormatting.DARK_GRAY)));
+                } else {
+                    double alpha = (sum + 800.0) / 1600.0;
+                    alpha = Mth.clamp((float) alpha, 0.0f, 1.0f);
+                    int cost = (int) Math.round(maxCost + (minCost - maxCost) * alpha);
+                    cost = Mth.clamp(cost, minCost, maxCost);
+                    out.add(Component.literal("Recruit cost: ").append(Component.literal(String.valueOf(cost)).withStyle(ChatFormatting.DARK_GRAY)));
+                }
+            } else {
+                out.add(Component.literal("Recruit cost: ").append(Component.literal("(syncing...)").withStyle(ChatFormatting.DARK_GRAY)));
+            }
+        } else {
+            out.add(Component.literal(this.statsUnavailable ? "Stats: unavailable" : "Stats: syncing…").withStyle(ChatFormatting.GRAY));
+        }
+
+        out.add(Component.literal(""));
+        out.add(Component.literal("Attributes").withStyle(ChatFormatting.YELLOW));
+
+        try {
+            PacketVillagerAttributesData snap = ClientVillagerAttributesCache.get(this.villagerEntityId);
+            if (snap == null) {
+                out.add(Component.literal("(syncing…)").withStyle(ChatFormatting.GRAY));
+                return out;
+            }
+
+            if (!snap.ok()) {
+                out.add(Component.literal("(unavailable)").withStyle(ChatFormatting.GRAY));
+                return out;
+            }
+
+            List<PacketVillagerAttributesData.Entry> entries = snap.entries() == null ? List.of() : snap.entries();
+            if (entries.isEmpty()) {
+                out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
+                return out;
+            }
+
+            // Sort by display id for stable output
+            entries = new ArrayList<>(entries);
+            entries.sort(Comparator.comparing(e -> e.id() == null ? "" : e.id().toString()));
+
+            for (PacketVillagerAttributesData.Entry e : entries) {
+                ResourceLocation id = e.id();
+                if (id == null) continue;
+
+                // Try to use a localized attribute name; fallback to id.
+                Component name;
+                try {
+                    var attr = BuiltInRegistries.ATTRIBUTE.get(id);
+                    if (attr != null) name = Component.translatable(attr.getDescriptionId());
+                    else name = Component.literal(id.toString());
+                } catch (Throwable ignored) {
+                    name = Component.literal(id.toString());
+                }
+
+                double base = e.base();
+                double val = e.value();
+                out.add(Component.literal("• ").append(name).append(Component.literal(": " + formatPlain3(val) + " (base " + formatPlain3(base) + ")").withStyle(ChatFormatting.DARK_GRAY)));
+            }
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen attribute scan failed (soft): {}", t.toString());
+            out.add(Component.literal("(attribute scan failed)").withStyle(ChatFormatting.RED));
+        }
+
+        return out;
+    }
+
+    private static String formatPlain3(double v) {
+        double x = safeFinite(v);
+        double r = Math.round(x * 1000.0) / 1000.0;
+        if (Math.abs(r) < 0.0005) r = 0.0;
+        return String.valueOf(r);
     }
 
     private void renderVillagerModel(GuiGraphics gg, int boxLeft, int boxTop, int boxRight, int boxBottom, int mouseX, int mouseY) {
@@ -908,7 +1264,7 @@ public final class VillagerInfoScreen extends Screen {
         protected void renderWidget(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
             try {
                 boolean selected = (VillagerInfoScreen.this.currentTab == target);
-                boolean hover = this.isHoveredOrFocused();
+                boolean hover = this.isHovered();
 
                 int x = getX();
                 int y = getY();
@@ -937,6 +1293,10 @@ public final class VillagerInfoScreen extends Screen {
             try {
                 if (VillagerInfoScreen.this.currentTab != target) {
                     VillagerInfoScreen.this.currentTab = target;
+                    if (target == Tab.OVERVIEW) {
+                        VillagerInfoScreen.this.overviewScrollRow = 0;
+                        VillagerInfoScreen.this.rebuildOverviewLinesIfNeeded(true);
+                    }
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen switched tab -> {}", target.name());
                 }
             } catch (Throwable t) {

@@ -62,6 +62,15 @@ public final class ServerHandlers {
 
     private ServerHandlers() {}
 
+    public static void handleSyncConfigQuery(PacketSyncConfigQuery msg, IPayloadContext ctx) {
+        try {
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            ServerSync.syncTo(sp);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleSyncConfigQuery failed", t);
+        }
+    }
+
     public static void handleReroll(PacketRequestReroll msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;

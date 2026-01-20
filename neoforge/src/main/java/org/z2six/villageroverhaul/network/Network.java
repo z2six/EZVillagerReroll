@@ -30,6 +30,8 @@ import org.z2six.villageroverhaul.network.patrol.*;
 import org.z2six.villageroverhaul.network.recruit.*;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
+import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesData;
+import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesQuery;
 import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.network.tooltip.PacketTooltipQuery;
 import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
@@ -73,6 +75,10 @@ public final class Network {
             // cooldown state query
             r.playToServer(PacketRerollCooldownQuery.TYPE, PacketRerollCooldownQuery.STREAM_CODEC,
                     (msg, ctx) -> handleRerollCooldownQueryServer(msg, ctx));
+
+            // villager attributes query (server authoritative values)
+            r.playToServer(PacketVillagerAttributesQuery.TYPE, PacketVillagerAttributesQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerAttributesQueryServer(msg, ctx));
 
             // settlement payment actions
             r.playToServer(PacketPayAutoSearchSettlement.TYPE, PacketPayAutoSearchSettlement.STREAM_CODEC,
@@ -135,6 +141,10 @@ public final class Network {
             r.playToClient(PacketVillagerStatsData.TYPE, PacketVillagerStatsData.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerStatsDataClient(msg, ctx));
 
+            // villager attributes data (we update cache directly; no client-only class refs)
+            r.playToClient(PacketVillagerAttributesData.TYPE, PacketVillagerAttributesData.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerAttributesDataClient(msg, ctx));
+
             // ============================
             // Recruit clientbound
             // ============================
@@ -169,6 +179,10 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerEatTest(msg, ctx)));
             r.playToServer(PacketVillagerUiPause.TYPE, PacketVillagerUiPause.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerUiPause(msg, ctx)));
+
+            // Config resync (client requests server to resend PacketSyncConfig)
+            r.playToServer(PacketSyncConfigQuery.TYPE, PacketSyncConfigQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleSyncConfigQuery(msg, ctx)));
 
             // ============================
             // Patrol serverbound
@@ -230,6 +244,18 @@ public final class Network {
                     ClientVillagerStatsCache.accept(msg);
                 } catch (Throwable t) {
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerStatsDataClient failed (soft): {}", t.toString());
+                }
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    private static void handleVillagerAttributesDataClient(PacketVillagerAttributesData msg, IPayloadContext ctx) {
+        try {
+            ctx.enqueueWork(() -> {
+                try {
+                    ClientVillagerAttributesCache.accept(msg);
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerAttributesDataClient failed (soft): {}", t.toString());
                 }
             });
         } catch (Throwable ignored) {}
@@ -532,6 +558,117 @@ public final class Network {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerStatsQuery handler error", t);
             }
         });
+    }
+
+    private static void handleVillagerAttributesQueryServer(PacketVillagerAttributesQuery msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+
+                int id = msg.villagerEntityId();
+                var level = sp.serverLevel();
+                if (level == null) {
+                    ctx.reply(PacketVillagerAttributesData.missing(id));
+                    return;
+                }
+
+                var ent = level.getEntity(id);
+                if (ent == null || !VillagerStatsService.isSupportedMerchantEntity(ent)) {
+                    ctx.reply(PacketVillagerAttributesData.missing(id));
+                    return;
+                }
+
+                if (!(ent instanceof net.minecraft.world.entity.LivingEntity le)) {
+                    ctx.reply(PacketVillagerAttributesData.missing(id));
+                    return;
+                }
+
+                // Ensure combat modifiers are applied before we snapshot attribute values.
+                // Otherwise, the stats delta section can disagree with the raw Attributes section.
+                try { org.z2six.villageroverhaul.server.VillagerCombatAttributeService.applyCombatModifiers(ent); } catch (Throwable ignored) {}
+
+                final double EPS = 1.0E-6;
+                java.util.ArrayList<PacketVillagerAttributesData.Entry> list = new java.util.ArrayList<>(32);
+
+                // Only send "instantiated" attributes and hide pure-zero noise (but always show core combat ones).
+                java.util.Set<net.minecraft.resources.ResourceLocation> always = java.util.Set.of(
+                        net.minecraft.resources.ResourceLocation.withDefaultNamespace("generic.max_health"),
+                        net.minecraft.resources.ResourceLocation.withDefaultNamespace("generic.movement_speed"),
+                        net.minecraft.resources.ResourceLocation.withDefaultNamespace("generic.attack_damage"),
+                        net.minecraft.resources.ResourceLocation.withDefaultNamespace("generic.armor")
+                );
+
+                var holders = net.minecraft.core.registries.BuiltInRegistries.ATTRIBUTE.holders().toList();
+                for (var holder : holders) {
+                    var inst = le.getAttribute(holder);
+                    if (inst == null) continue;
+
+                    var key = net.minecraft.core.registries.BuiltInRegistries.ATTRIBUTE.getKey(holder.value());
+                    if (key == null) continue;
+
+                    double base = inst.getBaseValue();
+                    // Some attributes (notably armor) can be clamped by vanilla in getValue().
+                    // We want the Overview tab to reflect the actual modifiers applied by our stats system,
+                    // so we compute the raw value from modifiers without any extra clamps.
+                    double val = rawAttributeValue(inst);
+
+                    boolean keep = always.contains(key) || Math.abs(base) > EPS || Math.abs(val) > EPS;
+                    if (!keep) continue;
+
+                    list.add(new PacketVillagerAttributesData.Entry(key, base, val));
+                    if (list.size() >= 128) break;
+                }
+
+                ctx.reply(new PacketVillagerAttributesData(id, true, list));
+
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerAttributesQuery handler error", t);
+            }
+        });
+    }
+
+    private static double rawAttributeValue(net.minecraft.world.entity.ai.attributes.AttributeInstance inst) {
+        try {
+            if (inst == null) return 0.0;
+
+            double base = inst.getBaseValue();
+            if (Double.isNaN(base) || Double.isInfinite(base)) base = 0.0;
+
+            double value = base;
+
+            // ADD_VALUE
+            for (var mod : inst.getModifiers()) {
+                if (mod == null) continue;
+                if (mod.operation() == net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE) {
+                    value += mod.amount();
+                }
+            }
+
+            // ADD_MULTIPLIED_BASE
+            for (var mod : inst.getModifiers()) {
+                if (mod == null) continue;
+                if (mod.operation() == net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_BASE) {
+                    value += base * mod.amount();
+                }
+            }
+
+            // ADD_MULTIPLIED_TOTAL
+            for (var mod : inst.getModifiers()) {
+                if (mod == null) continue;
+                if (mod.operation() == net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL) {
+                    value *= 1.0 + mod.amount();
+                }
+            }
+
+            if (Double.isNaN(value) || Double.isInfinite(value)) return 0.0;
+            return value;
+        } catch (Throwable ignored) {
+            try {
+                return inst == null ? 0.0 : inst.getValue();
+            } catch (Throwable ignored2) {
+                return 0.0;
+            }
+        }
     }
 
     // =========================================================================================
