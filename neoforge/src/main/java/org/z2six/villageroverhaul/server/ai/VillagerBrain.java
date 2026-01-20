@@ -282,14 +282,12 @@ public final class VillagerBrain {
     }
 
     /**
-     * Helper: combat AI should do nothing during FOLLOW.
-     * (We still allow combat mode to be set while following; it just won't act.)
+     * Helper: whether combat AI should run this tick.
      */
     public static boolean shouldCombatActNow(Villager vill) {
         try {
             if (vill == null) return false;
             if (!isControllable(vill)) return false;
-            if (getMode(vill) == Mode.FOLLOW) return false;
             return getCombatMode(vill) != CombatMode.OFF;
         } catch (Throwable t) {
             return false;
@@ -823,7 +821,7 @@ public final class VillagerBrain {
             // Track history counters.
             org.z2six.villageroverhaul.server.VillagerHistoryService.track(vill);
 
-            // Combat has higher priority than movement (except FOLLOW which disables combat in canUse).
+            // Combat has higher priority than movement.
             if (!hasGoal(vill, VillagerCombatFleeGoal.class)) {
                 vill.goalSelector.addGoal(0, new VillagerCombatFleeGoal(vill));
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatFleeGoal (villager={})", vill.getUUID());
