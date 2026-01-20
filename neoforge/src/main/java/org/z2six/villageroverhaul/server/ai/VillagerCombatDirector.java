@@ -184,6 +184,7 @@ public final class VillagerCombatDirector {
             if (wantSwing && canSwingNow) {
                 performSwing(vill, target, st, now, swingReason);
                 faceTargetHard(vill, target);
+                lockYaw(vill, now, vill.getYRot());
                 return;
             }
 
@@ -205,6 +206,7 @@ public final class VillagerCombatDirector {
 
             // Body facing
             faceTargetHard(vill, target);
+            lockYaw(vill, now, vill.getYRot());
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatDirector.tickAttack failed (soft): {}", t.toString());
@@ -218,6 +220,13 @@ public final class VillagerCombatDirector {
             if (st != null) cancelEatProcess(vill, st, "stop");
             try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+            try {
+                CompoundTag pd = vill.getPersistentData();
+                pd.remove(PD_LOCK_YAW_UNTIL);
+                pd.remove(PD_LOCK_YAW);
+                pd.remove(PD_BACKPEDAL_UNTIL);
+                pd.remove(PD_BACKPEDAL_SPEED);
+            } catch (Throwable ignored) {}
             VillagerBrain.setCombatEngaged(vill, false);
         } catch (Throwable ignored) {}
     }
@@ -405,6 +414,7 @@ public final class VillagerCombatDirector {
                     try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                     faceTargetHard(vill, target);
                     try { vill.getLookControl().setLookAt(target, 30.0f, 30.0f); } catch (Throwable ignored) {}
+                    lockYaw(vill, now, vill.getYRot());
 
                     if (st.eatFinishAt <= 0L) {
                         if (!startEatFromPickupInv(vill, st, now, st.eatPhase == EatPhase.FORCE_EAT ? "force" : "normal")) {
@@ -1023,7 +1033,8 @@ public final class VillagerCombatDirector {
         try {
             if (vill == null) return;
             CompoundTag pd = vill.getPersistentData();
-            pd.putLong(PD_LOCK_YAW_UNTIL, now + 2L);
+            // Keep this refreshed every combat tick so vanilla movement/hurt logic can't rotate the villager away.
+            pd.putLong(PD_LOCK_YAW_UNTIL, now + 5L);
             pd.putFloat(PD_LOCK_YAW, yaw);
         } catch (Throwable ignored) {}
     }
