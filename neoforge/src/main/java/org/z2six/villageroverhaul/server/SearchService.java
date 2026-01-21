@@ -8,11 +8,17 @@ import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
+import net.minecraft.resources.ResourceLocation;
+import org.z2six.villageroverhaul.Constants;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.logic.TradeLockState;
@@ -35,6 +41,16 @@ public final class SearchService {
 
     private static final int AUTO_HOURLY_BASE_MULTIPLIER = 10;
 
+    // Freeze villager movement while auto-searching.
+    private static final ResourceLocation MOD_BUSY_FREEZE_SPEED =
+            ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "autosearch_freeze_speed");
+
+    // Glowing outline team for busy villagers. (Team colors are limited to vanilla formatting colors; we choose GREEN ~ #55FF55)
+    private static final String TEAM_BUSY_GLOW = "vo_busy_search";
+
+    // Particle cadence (keep subtle).
+    private static final int BUSY_PARTICLE_PERIOD_TICKS = 12;
+
     private static final class Task {
         final UUID villagerUuid;
         final int villagerEntityId;
@@ -53,6 +69,9 @@ public final class SearchService {
 
         // number of successful rerolls performed during this task
         int rerollCount = 0;
+
+        // For outline/team restoration
+        String teamAtStart = null;
 
         long startedAtGameTime;
         long nextRerollGameTime;
@@ -465,6 +484,7 @@ public final class SearchService {
             }
 
             TASKS.put(vill.getUUID(), t);
+            try { applyBusyMovementFreeze(vill); } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicksAuto={} baseCd={} timelinessPct={} effectiveCd={} lockMaskBefore={} offersBefore={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={}",
                     sp.getGameProfile().getName(),
@@ -487,9 +507,8 @@ public final class SearchService {
             if (containsAnyRequested(vill, t.requestedKeys)) {
                 VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
                         vill.getUUID(), vill.getId(), t.requestedKeys.size());
+                clearBusyState(vill, serverOf(sp), t);
                 TASKS.remove(vill.getUUID());
-
-                trySetVillagerGlow(vill, false);
                 createSettlementAndNotify(serverOf(sp), vill, t, now);
             }
 
@@ -546,7 +565,7 @@ public final class SearchService {
                 }
             } catch (Throwable ignored) {}
 
-            trySetVillagerGlow(vill, false);
+            clearBusyState(vill, serverOf(sp), removed);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] cancelByEntityId failed", t);
@@ -613,7 +632,11 @@ public final class SearchService {
 
             try {
                 sp.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
-                        new PacketOpenBusyScreen(vill.getId(), t.requested)
+                        new PacketOpenBusyScreen(
+                                vill.getId(),
+                                t.requested,
+                                org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)
+                        )
                 ));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] openBusyScreen: sent PacketOpenBusyScreen (player={} villagerEntityId={} req={} rerollCount={})",
                         sp.getGameProfile().getName(), vill.getId(), t.requestedKeys.size(), t.rerollCount);
@@ -646,6 +669,7 @@ public final class SearchService {
 
                 if (SETTLEMENTS.containsKey(vill.getUUID())) {
                     VillagerOverhaul.LOG().warn("[VillagerOverhaul] SearchService.tick: task exists but settlement pending; removing task (villager={})", vill.getUUID());
+                    try { clearBusyState(vill, server, task); } catch (Throwable ignored) {}
                     it.remove();
                     continue;
                 }
@@ -653,8 +677,13 @@ public final class SearchService {
                 try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
 
                 try { updateGlowForBusyVillager(vill, server); } catch (Throwable ignored) {}
+                try { applyBusyMovementFreeze(vill); } catch (Throwable ignored) {}
 
                 long now = vill.level().getGameTime();
+
+                if ((now % BUSY_PARTICLE_PERIOD_TICKS) == 0L) {
+                    try { emitBusyParticles(vill); } catch (Throwable ignored) {}
+                }
                 if (now < task.nextRerollGameTime) continue;
 
                 int baseCd = Math.max(1, ServerConfig.cooldownTicksAuto);
@@ -674,9 +703,8 @@ public final class SearchService {
                 if (containsAnyRequested(vill, task.requestedKeys)) {
                     VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={} rerollCount={}",
                             vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
+                    clearBusyState(vill, server, task);
                     it.remove();
-
-                    trySetVillagerGlow(vill, false);
                     createSettlementAndNotify(server, vill, task, now);
                     continue;
                 }
@@ -711,9 +739,8 @@ public final class SearchService {
                 if (containsAnyRequested(vill, task.requestedKeys)) {
                     VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search FOUND match: villager={} entityId={} requestedKeys={} rerollCount={}",
                             vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
+                    clearBusyState(vill, server, task);
                     it.remove();
-
-                    trySetVillagerGlow(vill, false);
                     createSettlementAndNotify(server, vill, task, now);
                 }
             }
@@ -1018,16 +1045,22 @@ public final class SearchService {
                 anyNear = false;
             }
 
-            trySetVillagerGlow(vill, anyNear);
+            setBusyGlowState(vill, server, anyNear);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] updateGlowForBusyVillager failed (soft): {}", t.toString());
         }
     }
 
-    private static void trySetVillagerGlow(Villager vill, boolean glow) {
+    private static void setBusyGlowState(Villager vill, MinecraftServer server, boolean glow) {
         try {
-            if (vill == null) return;
+            if (vill == null || server == null) return;
+
+            // Ensure team membership for green outline while glowing.
+            try {
+                if (glow) ensureBusyTeam(vill, server);
+                else clearBusyTeam(vill, server, null);
+            } catch (Throwable ignored) {}
 
             boolean prev;
             try {
@@ -1044,8 +1077,202 @@ public final class SearchService {
                     vill.getUUID(), vill.getId(), glow);
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] trySetVillagerGlow failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] setBusyGlowState failed (soft): {}", t.toString());
         }
+    }
+
+    private static void ensureBusyTeam(Villager vill, MinecraftServer server) {
+        try {
+            if (vill == null || server == null) return;
+
+            Task task = TASKS.get(vill.getUUID());
+            String entry = vill.getScoreboardName();
+
+            Object scoreboard;
+            try { scoreboard = server.getScoreboard(); } catch (Throwable ignored) { return; }
+
+            // Capture current team (for restore) once per task.
+            if (task != null && task.teamAtStart == null) {
+                try {
+                    java.lang.reflect.Method mGetPlayersTeam = scoreboard.getClass().getMethod("getPlayersTeam", String.class);
+                    Object curTeam = mGetPlayersTeam.invoke(scoreboard, entry);
+                    if (curTeam != null) {
+                        try {
+                            java.lang.reflect.Method mGetName = curTeam.getClass().getMethod("getName");
+                            Object n = mGetName.invoke(curTeam);
+                            if (n instanceof String s && !s.isBlank()) task.teamAtStart = s;
+                        } catch (Throwable ignored) {}
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            Object busyTeam = null;
+            try {
+                java.lang.reflect.Method mGetTeam = scoreboard.getClass().getMethod("getPlayerTeam", String.class);
+                busyTeam = mGetTeam.invoke(scoreboard, TEAM_BUSY_GLOW);
+            } catch (Throwable ignored) { busyTeam = null; }
+
+            if (busyTeam == null) {
+                try {
+                    java.lang.reflect.Method mAddTeam = scoreboard.getClass().getMethod("addPlayerTeam", String.class);
+                    busyTeam = mAddTeam.invoke(scoreboard, TEAM_BUSY_GLOW);
+                } catch (Throwable ignored) { busyTeam = null; }
+
+                // Set team color to green (best available match for #58e766).
+                try {
+                    if (busyTeam != null) {
+                        Class<?> fmt = Class.forName("net.minecraft.ChatFormatting");
+                        Object green = null;
+                        try { green = fmt.getField("GREEN").get(null); } catch (Throwable ignored) { green = null; }
+                        if (green != null) {
+                            try {
+                                java.lang.reflect.Method mSetColor = busyTeam.getClass().getMethod("setColor", fmt);
+                                mSetColor.invoke(busyTeam, green);
+                            } catch (Throwable ignored) {}
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            if (busyTeam != null) {
+                try {
+                    for (java.lang.reflect.Method m : scoreboard.getClass().getMethods()) {
+                        if (!m.getName().equals("addPlayerToTeam")) continue;
+                        Class<?>[] p = m.getParameterTypes();
+                        if (p.length == 2 && p[0] == String.class) {
+                            m.invoke(scoreboard, entry, busyTeam);
+                            break;
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void clearBusyTeam(Villager vill, MinecraftServer server, String restoreTeamName) {
+        try {
+            if (vill == null || server == null) return;
+
+            String entry = vill.getScoreboardName();
+            Object scoreboard;
+            try { scoreboard = server.getScoreboard(); } catch (Throwable ignored) { return; }
+
+            Object busyTeam = null;
+            try {
+                java.lang.reflect.Method mGetTeam = scoreboard.getClass().getMethod("getPlayerTeam", String.class);
+                busyTeam = mGetTeam.invoke(scoreboard, TEAM_BUSY_GLOW);
+            } catch (Throwable ignored) { busyTeam = null; }
+
+            if (busyTeam != null) {
+                try {
+                    for (java.lang.reflect.Method m : scoreboard.getClass().getMethods()) {
+                        if (!m.getName().equals("removePlayerFromTeam")) continue;
+                        Class<?>[] p = m.getParameterTypes();
+                        if (p.length == 2 && p[0] == String.class) {
+                            m.invoke(scoreboard, entry, busyTeam);
+                            break;
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            // Restore original team if we captured one.
+            String prevName = restoreTeamName;
+            if (prevName != null && !prevName.isBlank()) {
+                try {
+                    java.lang.reflect.Method mGetTeam = scoreboard.getClass().getMethod("getPlayerTeam", String.class);
+                    Object prevTeam = mGetTeam.invoke(scoreboard, prevName);
+                    if (prevTeam != null) {
+                        for (java.lang.reflect.Method m : scoreboard.getClass().getMethods()) {
+                            if (!m.getName().equals("addPlayerToTeam")) continue;
+                            Class<?>[] p = m.getParameterTypes();
+                            if (p.length == 2 && p[0] == String.class) {
+                                m.invoke(scoreboard, entry, prevTeam);
+                                break;
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+        } catch (Throwable ignored) {}
+    }
+
+    private static void applyBusyMovementFreeze(Villager vill) {
+        try {
+            if (vill == null) return;
+
+            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+
+            try {
+                var dm = vill.getDeltaMovement();
+                vill.setDeltaMovement(0.0, dm == null ? 0.0 : dm.y, 0.0);
+            } catch (Throwable ignored) {}
+
+            AttributeInstance inst;
+            try { inst = vill.getAttribute(Attributes.MOVEMENT_SPEED); } catch (Throwable ignored) { return; }
+            if (inst == null) return;
+
+            try {
+                if (inst.getModifier(MOD_BUSY_FREEZE_SPEED) != null) return;
+            } catch (Throwable ignored) {}
+
+            AttributeModifier mod = new AttributeModifier(MOD_BUSY_FREEZE_SPEED, -1.0D, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+            try {
+                inst.addTransientModifier(mod);
+            } catch (Throwable t) {
+                try { inst.addPermanentModifier(mod); } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void clearBusyMovementFreeze(Villager vill) {
+        try {
+            if (vill == null) return;
+            AttributeInstance inst;
+            try { inst = vill.getAttribute(Attributes.MOVEMENT_SPEED); } catch (Throwable ignored) { return; }
+            if (inst == null) return;
+            try { inst.removeModifier(MOD_BUSY_FREEZE_SPEED); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    private static void emitBusyParticles(Villager vill) {
+        try {
+            if (vill == null) return;
+            if (!(vill.level() instanceof ServerLevel sl)) return;
+
+            boolean anyNear = false;
+            try {
+                for (ServerPlayer sp : sl.players()) {
+                    if (sp == null) continue;
+                    if (sp.isSpectator()) continue;
+                    if (sp.distanceToSqr(vill) <= 32.0 * 32.0) { anyNear = true; break; }
+                }
+            } catch (Throwable ignored) { anyNear = true; }
+            if (!anyNear) return;
+
+            sl.sendParticles(
+                    ParticleTypes.HAPPY_VILLAGER,
+                    vill.getX(), vill.getY() + 1.0, vill.getZ(),
+                    1,
+                    0.25, 0.25, 0.25,
+                    0.0
+            );
+        } catch (Throwable ignored) {}
+    }
+
+    private static void clearBusyState(Villager vill, MinecraftServer server) {
+        clearBusyState(vill, server, null);
+    }
+
+    private static void clearBusyState(Villager vill, MinecraftServer server, Task task) {
+        try {
+            clearBusyMovementFreeze(vill);
+            if (vill != null && server != null) {
+                try { clearBusyTeam(vill, server, task == null ? null : task.teamAtStart); } catch (Throwable ignored) {}
+                try { vill.setGlowingTag(false); } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
     }
 
     // -----------------------------------------------------------------------------------------

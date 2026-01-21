@@ -12,7 +12,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import java.util.ArrayList;
 import java.util.List;
 
-public record PacketOpenBusyScreen(int villagerEntityId, List<ItemStack> requested) implements CustomPacketPayload {
+public record PacketOpenBusyScreen(int villagerEntityId, List<ItemStack> requested, boolean canCancel) implements CustomPacketPayload {
 
     public static final Type<PacketOpenBusyScreen> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "open_busy_screen"));
@@ -29,6 +29,8 @@ public record PacketOpenBusyScreen(int villagerEntityId, List<ItemStack> request
         public PacketOpenBusyScreen decode(RegistryFriendlyByteBuf buf) {
             try {
                 int id = buf.readVarInt();
+                boolean canCancel = false;
+                try { canCancel = buf.readBoolean(); } catch (Throwable ignored) { canCancel = false; }
                 int n = buf.readVarInt();
                 if (n < 0) n = 0;
                 if (n > 512) n = 512;
@@ -38,10 +40,10 @@ public record PacketOpenBusyScreen(int villagerEntityId, List<ItemStack> request
                     ItemStack s = ItemStack.STREAM_CODEC.decode(buf);
                     list.add(s == null ? ItemStack.EMPTY : s);
                 }
-                return new PacketOpenBusyScreen(id, list);
+                return new PacketOpenBusyScreen(id, list, canCancel);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] PacketOpenBusyScreen decode failed", t);
-                return new PacketOpenBusyScreen(-1, List.of());
+                return new PacketOpenBusyScreen(-1, List.of(), false);
             }
         }
 
@@ -49,6 +51,7 @@ public record PacketOpenBusyScreen(int villagerEntityId, List<ItemStack> request
         public void encode(RegistryFriendlyByteBuf buf, PacketOpenBusyScreen msg) {
             try {
                 buf.writeVarInt(msg.villagerEntityId());
+                buf.writeBoolean(msg.canCancel());
                 List<ItemStack> list = msg.requested() == null ? List.of() : msg.requested();
                 int n = Math.min(512, list.size());
                 buf.writeVarInt(n);

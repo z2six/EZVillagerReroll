@@ -9,6 +9,7 @@ import net.minecraft.world.item.ItemStack;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.autoReroll.PacketCancelAutoSearch;
 import org.z2six.villageroverhaul.network.autoReroll.PacketContinueAutoSearch;
+import org.z2six.villageroverhaul.network.autoReroll.PacketOpenBusyScreen;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,7 @@ public final class BusyVillagerScreen extends Screen {
 
     private final int villagerEntityId;
     private final List<ItemStack> requested;
+    private final boolean canCancel;
 
     private Button btnCancel;
     private Button btnContinue;
@@ -30,10 +32,19 @@ public final class BusyVillagerScreen extends Screen {
 
     private SimpleScrollBar scrollBar;
 
+    public BusyVillagerScreen(PacketOpenBusyScreen msg) {
+        this(msg == null ? -1 : msg.villagerEntityId(), msg == null ? List.of() : msg.requested(), msg != null && msg.canCancel());
+    }
+
     public BusyVillagerScreen(int villagerEntityId, List<ItemStack> requested) {
+        this(villagerEntityId, requested, true);
+    }
+
+    public BusyVillagerScreen(int villagerEntityId, List<ItemStack> requested, boolean canCancel) {
         super(Component.translatable("ezvr.busy.title"));
         this.villagerEntityId = villagerEntityId;
         this.requested = requested == null ? List.of() : new ArrayList<>(requested);
+        this.canCancel = canCancel;
     }
 
     public int getVillagerEntityIdSafe() {
@@ -60,6 +71,7 @@ public final class BusyVillagerScreen extends Screen {
                     .pos(cx - 110, y)
                     .size(100, 20)
                     .build();
+            btnCancel.active = canCancel;
 
             btnContinue = Button.builder(Component.translatable("ezvr.busy.continue"), b -> {
                         try {
