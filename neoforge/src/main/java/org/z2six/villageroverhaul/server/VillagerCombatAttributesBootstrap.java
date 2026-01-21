@@ -46,7 +46,7 @@ public final class VillagerCombatAttributesBootstrap {
         registered = true;
 
         modBus.addListener(VillagerCombatAttributesBootstrap::onEntityAttributeModification);
-        VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatAttributesBootstrap registered (mod bus).");
+        VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatAttributesBootstrap registered (mod bus).");
     }
 
     private static void onEntityAttributeModification(EntityAttributeModificationEvent e) {

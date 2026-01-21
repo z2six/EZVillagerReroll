@@ -27,14 +27,14 @@ public final class RerollExecutor {
 
             if (menu.getSlot(2).hasItem()) {
                 toast(sp, "ezvr.msg.mid_trade");
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Reroll refused: result slot occupied (player={})", sp.getGameProfile().getName());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: result slot occupied (player={})", sp.getGameProfile().getName());
                 return;
             }
 
             Merchant trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
             if (!(trader instanceof Villager vill)) {
                 toast(sp, "ezvr.msg.not_villager");
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Reroll refused: trader is not a Villager (player={}, traderType={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: trader is not a Villager (player={}, traderType={})",
                         sp.getGameProfile().getName(),
                         trader == null ? "null" : trader.getClass().getName()
                 );
@@ -50,14 +50,14 @@ public final class RerollExecutor {
 
             if (!RerollState.canReroll(sp, vill)) {
                 toast(sp, "ezvr.msg.cooldown_or_cap");
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Reroll refused: cooldown/cap (player={}, villager={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: cooldown/cap (player={}, villager={})",
                         sp.getGameProfile().getName(), vill.getUUID());
                 return;
             }
 
             if (!ServerConfig.allowAfterTradeUsed && xp > 0) {
                 toast(sp, "ezvr.msg.after_used_disabled");
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Reroll refused: allowAfterTradeUsed=false (player={}, villager={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: allowAfterTradeUsed=false (player={}, villager={})",
                         sp.getGameProfile().getName(), vill.getUUID());
                 return;
             }
@@ -108,7 +108,7 @@ public final class RerollExecutor {
                 generosityPct = 0.0;
             }
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, offersRerolled={}, deductibleLocks={}, effectiveOffers={}, freeOffers={}, paidOffers={}, costPerOffer={}, baseCost={}, generosityPct={}, cost={}, costSpec='{}' (preferWallet={})",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
@@ -131,20 +131,20 @@ public final class RerollExecutor {
                 if (ServerConfig.preferWallet && isExactItem && MoneyBridge.isLCPresent()) {
                     boolean apiPaid = MoneyBridge.tryExtract(sp, itemId, cost);
                     if (apiPaid) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Cost paid via LC MoneyAPI: {} x {}", cost, itemId);
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost paid via LC MoneyAPI: {} x {}", cost, itemId);
                         paid = true;
                     } else {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] LC MoneyAPI extraction failed; trying direct wallet next: {} x {}", cost, itemId);
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC MoneyAPI extraction failed; trying direct wallet next: {} x {}", cost, itemId);
                     }
                 }
 
                 if (!paid && ServerConfig.preferWallet && isExactItem && WalletBridge.isLCPresent()) {
                     boolean walletPaid = WalletBridge.tryWithdrawFromWallet(sp, itemId, cost);
                     if (walletPaid) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Cost paid via LC wallet (direct): {} x {}", cost, itemId);
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost paid via LC wallet (direct): {} x {}", cost, itemId);
                         paid = true;
                     } else {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] LC direct wallet failed; falling back to inventory: {} x {}", cost, itemId);
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC direct wallet failed; falling back to inventory: {} x {}", cost, itemId);
                     }
                 }
 
@@ -152,14 +152,14 @@ public final class RerollExecutor {
                     Ingredient ing = CostUtil.parseIngredient(ServerConfig.costSpec);
                     if (ing == Ingredient.EMPTY || !CostUtil.consume(sp, ing, cost)) {
                         toast(sp, "ezvr.msg.not_enough");
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Reroll refused: insufficient inventory for {} x {}", cost, ServerConfig.costSpec);
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: insufficient inventory for {} x {}", cost, ServerConfig.costSpec);
                         return;
                     }
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Cost consumed from inventory: {} x {}", cost, ServerConfig.costSpec);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost consumed from inventory: {} x {}", cost, ServerConfig.costSpec);
                     paid = true;
                 }
             } else {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Cost is zero (free reroll per offer-based config).");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost is zero (free reroll per offer-based config).");
                 paid = true;
             }
 
@@ -183,7 +183,7 @@ public final class RerollExecutor {
             toast(sp, "ezvr.msg.success");
             try { org.z2six.villageroverhaul.server.VillagerHistoryService.addManualReroll(vill, 1); } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Reroll success: villager={}, offers {} -> {}, player={}, paid={}",
                     vill.getUUID(), offersBefore, offersAfter, sp.getGameProfile().getName(),
                     (cost <= 0) ? "free" : (paid ? "yes" : "no")
@@ -271,7 +271,7 @@ public final class RerollExecutor {
             // Next tick we re-apply Hoarder+Generosity and re-sync if still open.
             scheduleNextTickOfferRecheck(vill, sp, menu);
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Manual reroll XP granted: villager={} offersRerolled={} perOffer={} baseRaw={} intellectPct={} add={} scheduledVanillaLevelUp={} xp {}->{} level {}->{} offersNow={}",
                     vill.getUUID(), rerolled, perOffer, baseRaw, iPct, add, scheduledVanillaLevelUp,
                     xpBefore, xpAfter, lvlBefore, lvlAfter,

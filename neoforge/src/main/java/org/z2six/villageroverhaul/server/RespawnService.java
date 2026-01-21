@@ -120,7 +120,7 @@ public final class RespawnService {
 
             data.setDirty();
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [respawn] captured death snapshot owner={} rid={} recruitCost={} deaths={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [respawn] captured death snapshot owner={} rid={} recruitCost={} deaths={}",
                     owner, rid, snap.recruitCostAtDeath, snap.deaths);
 
         } catch (Throwable t) {
@@ -305,7 +305,7 @@ public final class RespawnService {
                 }
             } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [respawn] respawned villager rid={} for player={} cost={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [respawn] respawned villager rid={} for player={} cost={}",
                     snap.respawnId, sp.getGameProfile().getName(), cost);
 
             return v;

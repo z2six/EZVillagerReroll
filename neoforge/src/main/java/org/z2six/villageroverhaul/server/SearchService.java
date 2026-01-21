@@ -342,7 +342,7 @@ public final class SearchService {
                 }
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] SearchService.importFromSavedData: importedTasks={} skippedTasks={} importedSettlements={} skippedSettlements={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] SearchService.importFromSavedData: importedTasks={} skippedTasks={} importedSettlements={} skippedSettlements={}",
                     imported, skipped, settleImported, settleSkipped);
 
         } catch (Throwable t) {
@@ -436,7 +436,7 @@ public final class SearchService {
                 } catch (Throwable ignored) {}
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] SearchService.exportToSavedData: exportedTasks={} exportedSettlements={}", exported, settleExported);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] SearchService.exportToSavedData: exportedTasks={} exportedSettlements={}", exported, settleExported);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] SearchService.exportToSavedData failed", t);
@@ -486,7 +486,7 @@ public final class SearchService {
             TASKS.put(vill.getUUID(), t);
             try { applyBusyMovementFreeze(vill); } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicksAuto={} baseCd={} timelinessPct={} effectiveCd={} lockMaskBefore={} offersBefore={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search START: player={} villager={} entityId={} requested={} cooldownTicksAuto={} baseCd={} timelinessPct={} effectiveCd={} lockMaskBefore={} offersBefore={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={}",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getId(),
@@ -505,7 +505,7 @@ public final class SearchService {
             try { updateGlowForBusyVillager(vill, sp.server); } catch (Throwable ignored) {}
 
             if (containsAnyRequested(vill, t.requestedKeys)) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
                         vill.getUUID(), vill.getId(), t.requestedKeys.size());
                 clearBusyState(vill, serverOf(sp), t);
                 TASKS.remove(vill.getUUID());
@@ -535,7 +535,7 @@ public final class SearchService {
                 return;
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search CANCEL: player={} villager={} entityId={} rerollCount={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search CANCEL: player={} villager={} entityId={} rerollCount={}",
                     sp.getGameProfile().getName(), vill.getUUID(), vill.getId(), removed.rerollCount);
 
             // ✅ RULE: cancel reverts to SNAPSHOT trades
@@ -701,7 +701,7 @@ public final class SearchService {
                 task.nextRerollGameTime = now + cooldown;
 
                 if (containsAnyRequested(vill, task.requestedKeys)) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={} rerollCount={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={} rerollCount={}",
                             vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
                     clearBusyState(vill, server, task);
                     it.remove();
@@ -737,7 +737,7 @@ public final class SearchService {
                 }
 
                 if (containsAnyRequested(vill, task.requestedKeys)) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-search FOUND match: villager={} entityId={} requestedKeys={} rerollCount={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search FOUND match: villager={} entityId={} requestedKeys={} rerollCount={}",
                             vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
                     clearBusyState(vill, server, task);
                     it.remove();
@@ -803,7 +803,7 @@ public final class SearchService {
             int offersNow = -1;
             try { offersNow = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} offersBeforeTag={} offersNow={} lockMaskBefore={} requestedTargets={} rerollCount={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={} totalVillagerXp={}",
                     vill.getUUID(), vill.getId(), hourly, elapsedTicks, finalCost, String.valueOf(task.ownerPlayerUuid),
                     beforeOffers == null ? -1 : beforeOffers.size(),
@@ -1535,7 +1535,7 @@ public final class SearchService {
             try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
             try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] awardSettlementVillagerXpIfAny: villager={} entityId={} addXp={} success={} scheduledVanillaLevelUp={} level {}->{} xp {}->{} offersNow={}",
                     vill.getUUID(), vill.getId(), xp, ok, scheduledVanillaLevelUp,
                     lvlBefore, lvlAfter, xpBefore, xpAfter,
@@ -1593,7 +1593,7 @@ public final class SearchService {
                     int after = (v.getOffers() == null ? -1 : v.getOffers().size());
 
                     if (changed || before != after) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] NextTick Hoarder recheck: villager={} entityId={} size {}->{}",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] NextTick Hoarder recheck: villager={} entityId={} size {}->{}",
                                 v.getUUID(), v.getId(), before, after);
                     } else if (VillagerOverhaul.LOG().isDebugEnabled()) {
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] NextTick Hoarder recheck: no change villager={} entityId={} size={}",

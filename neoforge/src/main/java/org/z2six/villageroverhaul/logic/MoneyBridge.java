@@ -43,16 +43,16 @@ public final class MoneyBridge {
             lcPresent = ModList.get().isLoaded("lightmanscurrency");
             lookedUp = true;
             if (lcPresent) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC present: binding MoneyAPI (factory path)...");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC present: binding MoneyAPI (factory path)...");
                 bind();
             } else {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC not present: MoneyAPI disabled.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC not present: MoneyAPI disabled.");
             }
         }
         if (lcPresent && !areBound()) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI not fully bound; retrying bind...");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI not fully bound; retrying bind...");
             bind();
-            if (!areBound()) VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI still not fully bound after retry.");
+            if (!areBound()) VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI still not fully bound after retry.");
         }
         return lcPresent;
     }
@@ -72,7 +72,7 @@ public final class MoneyBridge {
             Object remainderSim = mIMoneyHandler_extractMoney.invoke(handler, moneyValue, Boolean.TRUE);
             return isMoneyEmpty(remainderSim);
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI: canAfford simulate failed: {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI: canAfford simulate failed: {}", t.toString());
             return false;
         }
     }
@@ -80,20 +80,20 @@ public final class MoneyBridge {
     public static boolean tryExtract(ServerPlayer player, ResourceLocation coinId, int count) {
         try {
             if (!isLCPresent() || !areBound()) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI not bound; falling back.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI not bound; falling back.");
                 return false;
             }
             if (coinId == null || count <= 0) return true;
 
             Item coinItem = BuiltInRegistries.ITEM.get(coinId);
             if (coinItem == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI: item '{}' not found.", coinId);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI: item '{}' not found.", coinId);
                 return false;
             }
 
             Object moneyValue = buildMoneyValue(coinItem, count);
             if (moneyValue == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI: failed to build MoneyValue for {} x {}", count, coinId);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI: failed to build MoneyValue for {} x {}", count, coinId);
                 return false;
             }
 
@@ -134,7 +134,7 @@ public final class MoneyBridge {
                         Object v = f.get(null);
                         if (v != null) {
                             moneyApiTarget = v;
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI bind: using MoneyAPI.API singleton -> {}", v.getClass().getName());
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI bind: using MoneyAPI.API singleton -> {}", v.getClass().getName());
                         }
                     }
                 } catch (NoSuchFieldException ignored) {}
@@ -142,20 +142,20 @@ public final class MoneyBridge {
                     resolveMoneyApiInstances(clsMoneyAPI);
                 }
             } else if (mMoneyAPI_getPlayersMoneyHandler != null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI bind: handler getter is STATIC");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI bind: handler getter is STATIC");
             }
 
             mIMoneyHandler_extractMoney = clsIMoneyHandler.getMethod("extractMoney", clsMoneyValue, boolean.class);
             mIMoneyHandler_extractMoney.setAccessible(true);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI bind: IMoneyHandler#extractMoney(...) OK");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI bind: IMoneyHandler#extractMoney(...) OK");
 
             mMoneyValue_isEmpty = clsMoneyValue.getMethod("isEmpty");
             mMoneyValue_isEmpty.setAccessible(true);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI bind: MoneyValue#isEmpty() OK");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI bind: MoneyValue#isEmpty() OK");
 
             bindCoinValueFactories();
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] MoneyAPI bound check: getter={}, static={}, hasAPIorInstance={}, hasCompanion={}, extractMoney={}, factories(item,long|int; stack,long|int)={}|{};{}|{}, isEmpty={}",
                     (mMoneyAPI_getPlayersMoneyHandler != null),
                     (mMoneyAPI_getPlayersMoneyHandler != null && Modifier.isStatic(mMoneyAPI_getPlayersMoneyHandler.getModifiers())),
@@ -207,18 +207,18 @@ public final class MoneyBridge {
                 try {
                     Method m = moneyAPI.getMethod(n, p);
                     m.setAccessible(true);
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI bind: MoneyAPI#{}({}) OK", n, p.getSimpleName());
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI bind: MoneyAPI#{}({}) OK", n, p.getSimpleName());
                     return m;
                 } catch (NoSuchMethodException ignored) {}
                 try {
                     Method m = moneyAPI.getDeclaredMethod(n, p);
                     m.setAccessible(true);
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI bind: MoneyAPI#declared {}({}) OK", n, p.getSimpleName());
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI bind: MoneyAPI#declared {}({}) OK", n, p.getSimpleName());
                     return m;
                 } catch (NoSuchMethodException ignored2) {}
             }
         }
-        VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI bind: handler getter not found (tried common names)");
+        VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI bind: handler getter not found (tried common names)");
         return null;
     }
 
@@ -228,7 +228,7 @@ public final class MoneyBridge {
                 Object[] constants = moneyAPI.getEnumConstants();
                 if (constants != null && constants.length > 0) {
                     moneyApiTarget = constants[0];
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI bind: using enum constant as instance.");
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI bind: using enum constant as instance.");
                     return;
                 }
             }
@@ -290,7 +290,7 @@ public final class MoneyBridge {
                 else if (p.length == 2 && p[0] == ItemStack.class && p[1] == long.class) mCoinValue_fromStack_long = m;
                 else if (p.length == 2 && p[0] == ItemStack.class && p[1] == int.class) mCoinValue_fromStack_int = m;
             }
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] MoneyAPI bind: CoinValue factories -> item,long={}, item,int={}, stack,long={}, stack,int={}",
                     (mCoinValue_fromItem_long != null),
                     (mCoinValue_fromItem_int != null),
@@ -355,7 +355,7 @@ public final class MoneyBridge {
 
             return null;
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] MoneyAPI: invoke handler getter failed: {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] MoneyAPI: invoke handler getter failed: {}", t.toString());
             return null;
         }
     }

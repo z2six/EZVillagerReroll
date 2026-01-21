@@ -194,7 +194,7 @@ public final class VillagerCombatDefendGoal extends Goal {
                 if (!check.ok) {
                     if ((now - lastRejectLogAt) > 40L) {
                         lastRejectLogAt = now;
-                        VillagerOverhaul.LOG().info(
+                        VillagerOverhaul.LOG().debug(
                                 "[VillagerOverhaul] DEFEND candidate rejected (villager={} attacker={} target={} reason={})",
                                 vill.getUUID(),
                                 attacker.getUUID(),
@@ -218,7 +218,7 @@ public final class VillagerCombatDefendGoal extends Goal {
             }
 
             if (best != null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] DEFEND threat set (villager={} target={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] DEFEND threat set (villager={} target={})",
                         vill.getUUID(), best.getUUID());
             }
             return best;
@@ -285,7 +285,7 @@ public final class VillagerCombatDefendGoal extends Goal {
             long now = vill.level().getGameTime();
             if ((now - lastNoThreatLogAt) < 40L) return;
             lastNoThreatLogAt = now;
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] DEFEND waiting (villager={} reason={})", vill.getUUID(), reason);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] DEFEND waiting (villager={} reason={})", vill.getUUID(), reason);
         } catch (Throwable ignored) {}
     }
 }

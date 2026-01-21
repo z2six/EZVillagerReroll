@@ -62,7 +62,7 @@ public final class BusyVillagerScreen extends Screen {
             btnCancel = Button.builder(Component.translatable("ezvr.busy.cancel"), b -> {
                         try {
                             ClientNetwork.sendToServer(new PacketCancelAutoSearch(villagerEntityId));
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] BusyVillagerScreen: sent cancel request (villagerEntityId={})", villagerEntityId);
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] BusyVillagerScreen: sent cancel request (villagerEntityId={})", villagerEntityId);
                         } catch (Throwable t) {
                             VillagerOverhaul.LOG().error("[VillagerOverhaul] BusyVillagerScreen: cancel send failed", t);
                         }
@@ -76,7 +76,7 @@ public final class BusyVillagerScreen extends Screen {
             btnContinue = Button.builder(Component.translatable("ezvr.busy.continue"), b -> {
                         try {
                             ClientNetwork.sendToServer(new PacketContinueAutoSearch(villagerEntityId));
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] BusyVillagerScreen: continue pressed (villagerEntityId={})", villagerEntityId);
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] BusyVillagerScreen: continue pressed (villagerEntityId={})", villagerEntityId);
                         } catch (Throwable t) {
                             VillagerOverhaul.LOG().error("[VillagerOverhaul] BusyVillagerScreen: continue send failed", t);
                         }

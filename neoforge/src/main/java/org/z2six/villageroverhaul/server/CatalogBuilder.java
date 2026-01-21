@@ -60,7 +60,7 @@ public final class CatalogBuilder {
             VillagerProfession prof = vd.getProfession();
             int level = Math.max(1, Math.min(5, vd.getLevel()));
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] CatalogBuilder.buildCatalog: villager={} prof={} level={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder.buildCatalog: villager={} prof={} level={}",
                     vill.getUUID(), prof == null ? "null" : String.valueOf(prof), level);
 
             // unique outputs by key (item + components patch)
@@ -91,7 +91,7 @@ public final class CatalogBuilder {
                 out = out.subList(0, MAX_TOTAL_ITEMS);
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] CatalogBuilder.buildCatalog: villager={} catalogSize={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder.buildCatalog: villager={} catalogSize={}",
                     vill.getUUID(), out.size());
 
             return out;
@@ -162,7 +162,7 @@ public final class CatalogBuilder {
                 }
             }
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] CatalogBuilder.addTradesFromVillagerTrades: prof={} level=1..{} listingsSeen={} offersRead={} bookListingsExpanded={} bookItemsAdded={} size {}->{}",
                     String.valueOf(prof), level, listingCount[0], offerCount[0], bookExpanded[0], bookAdded[0], before, unique.size()
             );
@@ -402,7 +402,7 @@ public final class CatalogBuilder {
             }
 
             if (VillagerOverhaul.LOG().isDebugEnabled() || added > 0) {
-                VillagerOverhaul.LOG().info(
+                VillagerOverhaul.LOG().debug(
                         "[VillagerOverhaul] CatalogBuilder: EnchantBookForEmeralds expansion scannedEnchants={} tradeable={} nonTreasureFiltered={} enumeratedBooks={} addedBooks={} capSkips={} errSkips={} size {}->{}",
                         scanned[0], tradeable[0], nonTreasureFiltered[0], enumeratedBooks[0], added, capSkips[0], errSkips[0],
                         before, unique.size()
@@ -445,7 +445,7 @@ public final class CatalogBuilder {
 
                 if (!LOGGED_TAG_LOOKUP) {
                     LOGGED_TAG_LOOKUP = true;
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] CatalogBuilder: tag lookup EnchantmentTags.TRADEABLE={} NON_TREASURE={} Holder#is(TagKey)={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder: tag lookup EnchantmentTags.TRADEABLE={} NON_TREASURE={} Holder#is(TagKey)={}",
                             TAG_TRADEABLE != null, TAG_NON_TREASURE != null, HOLDER_IS_TAGKEY != null);
                 }
 

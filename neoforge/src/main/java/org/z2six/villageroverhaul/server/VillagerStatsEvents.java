@@ -20,7 +20,7 @@ public final class VillagerStatsEvents {
         registered = true;
 
         bus.addListener(VillagerStatsEvents::onEntityJoinLevel);
-        VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerStatsEvents registered.");
+        VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerStatsEvents registered.");
     }
 
     private static void onEntityJoinLevel(EntityJoinLevelEvent e) {

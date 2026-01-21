@@ -575,13 +575,13 @@ public final class ServerConfig {
                     && ModList.get().isLoaded("lightmanscurrency")
                     && "minecraft:emerald".equals(costSpec)) {
                 costSpec = "lightmanscurrency:coin_emerald";
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Auto-switched cost to LC emerald coin");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-switched cost to LC emerald coin");
             }
 
             cfgVersion++;
             cfgHash = computeHash();
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,

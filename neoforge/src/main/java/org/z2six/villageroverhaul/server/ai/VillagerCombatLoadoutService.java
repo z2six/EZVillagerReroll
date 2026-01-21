@@ -240,7 +240,7 @@ public final class VillagerCombatLoadoutService {
                     if (!toEquip.isEmpty()) toEquip.setCount(1);
                     stamp(toEquip, mainId, SLOT_MAIN);
                     vill.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, toEquip);
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=active_equip_main reason={}", vill.getUUID(), safe(reason));
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_equip_main reason={}", vill.getUUID(), safe(reason));
                 } else if (isStamped(curMain, mainId, SLOT_MAIN)) {
                     // If the held item has changed (durability, etc), update the equipped record so we don't
                     // "self-heal" by duplicating.
@@ -258,14 +258,14 @@ public final class VillagerCombatLoadoutService {
                         ItemStack upd = curMain.copy();
                         if (!upd.isEmpty()) upd.setCount(1);
                         writeStack(root, K_EQ_MAIN, upd, lookup);
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=active_adopt_main reason={}", vill.getUUID(), safe(reason));
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_adopt_main reason={}", vill.getUUID(), safe(reason));
                     } else {
                         storeOrDrop(vill, curMain, "active_main_displace");
                         ItemStack toEquip = eqMain.copy();
                         if (!toEquip.isEmpty()) toEquip.setCount(1);
                         stamp(toEquip, mainId, SLOT_MAIN);
                         vill.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, toEquip);
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=active_equip_main reason={}", vill.getUUID(), safe(reason));
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_equip_main reason={}", vill.getUUID(), safe(reason));
                     }
                 }
             }
@@ -282,7 +282,7 @@ public final class VillagerCombatLoadoutService {
                         if (brokeAt > 0L && (brokeAt == now || brokeAt == (now - 1L))) {
                             writeStack(root, K_EQ_OFF, ItemStack.EMPTY, lookup);
                             writeStack(root, K_GUI_OFF, ItemStack.EMPTY, lookup);
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=off_broke_clear reason={}", vill.getUUID(), safe(reason));
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=off_broke_clear reason={}", vill.getUUID(), safe(reason));
                             return;
                         }
                     } catch (Throwable ignored) {}
@@ -291,7 +291,7 @@ public final class VillagerCombatLoadoutService {
                     if (!toEquip.isEmpty()) toEquip.setCount(1);
                     stamp(toEquip, offId, SLOT_OFF);
                     vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, toEquip);
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=active_equip_off reason={}", vill.getUUID(), safe(reason));
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_equip_off reason={}", vill.getUUID(), safe(reason));
                 } else if (isStamped(curOff, offId, SLOT_OFF)) {
                     if (!ItemStack.isSameItemSameComponents(curOff, eqOff)) {
                         ItemStack upd = curOff.copy();
@@ -306,20 +306,20 @@ public final class VillagerCombatLoadoutService {
                         ItemStack upd = curOff.copy();
                         if (!upd.isEmpty()) upd.setCount(1);
                         writeStack(root, K_EQ_OFF, upd, lookup);
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=active_adopt_off reason={}", vill.getUUID(), safe(reason));
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_adopt_off reason={}", vill.getUUID(), safe(reason));
                     } else {
                         storeOrDrop(vill, curOff, "active_off_displace");
                         ItemStack toEquip = eqOff.copy();
                         if (!toEquip.isEmpty()) toEquip.setCount(1);
                         stamp(toEquip, offId, SLOT_OFF);
                         vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, toEquip);
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=active_equip_off reason={}", vill.getUUID(), safe(reason));
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_equip_off reason={}", vill.getUUID(), safe(reason));
                     }
                 }
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatLoadoutService.enforceActiveTick failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatLoadoutService.enforceActiveTick failed (soft): {}", t.toString());
         }
     }
 
@@ -386,7 +386,7 @@ public final class VillagerCombatLoadoutService {
             } catch (Throwable ignored) {}
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatLoadoutService.enforceInactiveTick failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatLoadoutService.enforceInactiveTick failed (soft): {}", t.toString());
         }
     }
 
@@ -421,7 +421,7 @@ public final class VillagerCombatLoadoutService {
                 writeStack(root, K_GUI_OFF, ItemStack.EMPTY, lookup);
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=enter_active reason={}", vill.getUUID(), safe(reason));
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=enter_active reason={}", vill.getUUID(), safe(reason));
         } catch (Throwable ignored) {}
     }
 
@@ -480,7 +480,7 @@ public final class VillagerCombatLoadoutService {
             restoreStashToHandIfEmpty(vill, root, lookup, K_STASH_MAIN, net.minecraft.world.InteractionHand.MAIN_HAND, "restore_main_exit_active");
             restoreStashToHandIfEmpty(vill, root, lookup, K_STASH_OFF, net.minecraft.world.InteractionHand.OFF_HAND, "restore_off_exit_active");
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=exit_active reason={}", vill.getUUID(), safe(reason));
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=exit_active reason={}", vill.getUUID(), safe(reason));
         } catch (Throwable ignored) {}
     }
 
@@ -549,7 +549,7 @@ public final class VillagerCombatLoadoutService {
                 clearHand(vill, net.minecraft.world.InteractionHand.OFF_HAND, "menu_view_capture_off_unstamped");
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=menu_view_sync reason={}", vill.getUUID(), safe(reason));
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=menu_view_sync reason={}", vill.getUUID(), safe(reason));
         } catch (Throwable ignored) {}
     }
 
@@ -570,7 +570,7 @@ public final class VillagerCombatLoadoutService {
                 }
             }
             clearHand(vill, hand, why);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=hand_to_gui why={} reason={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=hand_to_gui why={} reason={}",
                     vill.getUUID(), safe(why), safe(reason));
         } catch (Throwable ignored) {}
     }
@@ -607,7 +607,7 @@ public final class VillagerCombatLoadoutService {
             super.setItem(index, toSet);
             try {
                 if (vill != null && vill.level() != null && !vill.level().isClientSide()) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=menu_set idx={} item={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=menu_set idx={} item={}",
                             vill.getUUID(), index, safeItem(toSet));
                 }
             } catch (Throwable ignored) {}
@@ -641,7 +641,7 @@ public final class VillagerCombatLoadoutService {
 
             try {
                 if (vill.level() != null && !vill.level().isClientSide()) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=menu_save_before main={} off={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=menu_save_before main={} off={}",
                             vill.getUUID(), safeItem(main), safeItem(off));
                 }
             } catch (Throwable ignored) {}
@@ -668,7 +668,7 @@ public final class VillagerCombatLoadoutService {
                 if (vill.level() != null && !vill.level().isClientSide()) {
                     ItemStack nowMain = readStack(root, K_GUI_MAIN, lookup);
                     ItemStack nowOff = readStack(root, K_GUI_OFF, lookup);
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=menu_save_after main={} off={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=menu_save_after main={} off={}",
                             vill.getUUID(), safeItem(nowMain), safeItem(nowOff));
                 }
             } catch (Throwable ignored) {}
@@ -687,7 +687,7 @@ public final class VillagerCombatLoadoutService {
             ItemStack existing = readStack(root, stashKey, lookup);
             if (existing.isEmpty()) {
                 writeStack(root, stashKey, displaced, lookup);
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=stash why={}", vill.getUUID(), safe(why));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=stash why={}", vill.getUUID(), safe(why));
             } else {
                 storeOrDrop(vill, displaced, why + "_stash_occupied");
             }
@@ -706,7 +706,7 @@ public final class VillagerCombatLoadoutService {
 
             vill.setItemInHand(hand, stashed);
             writeStack(root, stashKey, ItemStack.EMPTY, lookup);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=restore why={}", vill.getUUID(), safe(why));
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=restore why={}", vill.getUUID(), safe(why));
         } catch (Throwable ignored) {}
     }
 
@@ -735,14 +735,14 @@ public final class VillagerCombatLoadoutService {
             if (stack == null || stack.isEmpty()) return;
 
             if (tryStoreInVillagerPickupInventory(vill, stack.copy())) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=store why={}", vill.getUUID(), safe(why));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=store why={}", vill.getUUID(), safe(why));
                 return;
             }
 
             try {
                 vill.spawnAtLocation(stack.copy());
             } catch (Throwable ignored) {}
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [loadout] villager={} action=drop why={}", vill.getUUID(), safe(why));
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=drop why={}", vill.getUUID(), safe(why));
 
         } catch (Throwable ignored) {}
     }

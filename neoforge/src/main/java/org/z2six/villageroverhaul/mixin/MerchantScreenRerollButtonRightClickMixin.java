@@ -67,7 +67,7 @@ public abstract class MerchantScreenRerollButtonRightClickMixin {
             }
 
             int villagerEntityId = ClientUI.resolveTraderEntityId(ms);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] RMB on reroll button -> open catalog (villagerEntityId={})", villagerEntityId);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] RMB on reroll button -> open catalog (villagerEntityId={})", villagerEntityId);
 
             ClientUI.openSearchCatalogScreen(ms, villagerEntityId);
 

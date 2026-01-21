@@ -106,7 +106,7 @@ public final class SearchSavedData extends SavedData {
 
             try {
                 SearchService.importFromSavedData(server, data);
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] SearchSavedData.loadIntoSearchService: imported activeTasks={} settlements={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] SearchSavedData.loadIntoSearchService: imported activeTasks={} settlements={}",
                         data.activeTasks.size(), data.settlements.size());
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] SearchSavedData.loadIntoSearchService: import failed", t);
@@ -135,7 +135,7 @@ public final class SearchSavedData extends SavedData {
             try {
                 SearchService.exportToSavedData(server, data);
                 data.setDirty();
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] SearchSavedData.saveFromSearchService: exported activeTasks={} settlements={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] SearchSavedData.saveFromSearchService: exported activeTasks={} settlements={}",
                         data.activeTasks.size(), data.settlements.size());
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] SearchSavedData.saveFromSearchService: export failed", t);
@@ -208,7 +208,7 @@ public final class SearchSavedData extends SavedData {
                 }
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] SearchSavedData loaded: activeTasks={} settlements={} pendingDoneOwners={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] SearchSavedData loaded: activeTasks={} settlements={} pendingDoneOwners={}",
                     data.activeTasks.size(), data.settlements.size(), data.pendingDoneByOwner.size());
 
         } catch (Throwable t) {

@@ -143,7 +143,7 @@ public final class ClientNetworkHandlers {
                     Screen screen = tryCreateBusyVillagerScreen(msg);
                     if (screen != null) {
                         mc.setScreen(screen);
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Client opened BusyVillagerScreen for villagerEntityId={} (requested={}).",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client opened BusyVillagerScreen for villagerEntityId={} (requested={}).",
                                 msg.villagerEntityId(), msg.requested() == null ? -1 : msg.requested().size());
                         return;
                     }
@@ -171,7 +171,7 @@ public final class ClientNetworkHandlers {
 
                     if (isBusyScreenForVillager(mc.screen, msg.villagerEntityId())) {
                         mc.setScreen(null);
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Client auto-closed BusyVillagerScreen (auto-search done) for villagerEntityId={}.",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client auto-closed BusyVillagerScreen (auto-search done) for villagerEntityId={}.",
                                 msg.villagerEntityId());
                     } else {
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client received PacketAutoSearchDone for villagerEntityId={} (screen={}, no close).",
@@ -269,7 +269,7 @@ public final class ClientNetworkHandlers {
                     mc.setScreen(screen);
 
                     if (VillagerOverhaul.LOG().isInfoEnabled()) {
-                        VillagerOverhaul.LOG().info(
+                        VillagerOverhaul.LOG().debug(
                                 "[VillagerOverhaul] Client opened AutoSearchPaymentScreen villagerEntityId={} hourly={} final={} elapsedTicks={} payOffers={} declineOffers={} lockMask={} requestedTargets={}",
                                 msg.villagerEntityId(),
                                 msg.hourlyCost(),
@@ -310,14 +310,14 @@ public final class ClientNetworkHandlers {
                     Screen s = mc.screen;
                     if (s instanceof AutoSearchPaymentScreen pay && pay.getVillagerEntityId() == msg.villagerEntityId()) {
                         mc.setScreen(null);
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Client closed AutoSearchPaymentScreen (settlement cleared) villagerEntityId={}.",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client closed AutoSearchPaymentScreen (settlement cleared) villagerEntityId={}.",
                                 msg.villagerEntityId());
                         return;
                     }
 
                     if (isBusyScreenForVillager(s, msg.villagerEntityId())) {
                         mc.setScreen(null);
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Client closed BusyVillagerScreen (settlement cleared) villagerEntityId={}.",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client closed BusyVillagerScreen (settlement cleared) villagerEntityId={}.",
                                 msg.villagerEntityId());
                         return;
                     }
@@ -459,7 +459,7 @@ public final class ClientNetworkHandlers {
 
                     mc.setScreen(screen);
 
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Client opened RecruitVillagerScreen villagerEntityId={} eligible={} alreadyRecruited={} cost={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client opened RecruitVillagerScreen villagerEntityId={} eligible={} alreadyRecruited={} cost={}",
                             msg.villagerEntityId(), msg.eligible(), msg.alreadyRecruited(), msg.cost());
 
                 } catch (Throwable t) {
@@ -546,7 +546,7 @@ public final class ClientNetworkHandlers {
                     Screen s = mc.screen;
                     if (s instanceof RecruitVillagerScreen rvs && rvs.getVillagerEntityId() == msg.villagerEntityId()) {
                         rvs.applyResult(msg.success(), msg.nowRecruited(), msg.costPaid(), msg.message());
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Client applied PacketRecruitResult villagerEntityId={} success={} nowRecruited={} costPaid={}",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client applied PacketRecruitResult villagerEntityId={} success={} nowRecruited={} costPaid={}",
                                 msg.villagerEntityId(), msg.success(), msg.nowRecruited(), msg.costPaid());
                         return;
                     }

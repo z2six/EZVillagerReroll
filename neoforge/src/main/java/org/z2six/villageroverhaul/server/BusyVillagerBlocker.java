@@ -24,7 +24,7 @@ public final class BusyVillagerBlocker {
     public static void register(IEventBus bus) {
         try {
             bus.addListener(BusyVillagerBlocker::onEntityInteract);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] BusyVillagerBlocker registered.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] BusyVillagerBlocker registered.");
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] BusyVillagerBlocker.register failed", t);
         }

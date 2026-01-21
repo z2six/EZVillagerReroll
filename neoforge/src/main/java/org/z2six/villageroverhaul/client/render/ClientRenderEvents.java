@@ -29,7 +29,7 @@ public final class ClientRenderEvents {
 
             e.registerLayerDefinition(VillagerCombatArmsModel.LAYER_LOCATION, VillagerCombatArmsModel::createBodyLayer);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Registered VillagerCombatArmsModel layer definition.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Registered VillagerCombatArmsModel layer definition.");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ClientRenderEvents.onRegisterLayerDefinitions failed", t);
@@ -55,9 +55,9 @@ public final class ClientRenderEvents {
             // Wrap vanilla crossed-arms chest-item layer(s) with a per-villager flag gate.
             int wrapped = VillagerVanillaCrossedArmsItemLayerGate.install(villagerRenderer);
             if (wrapped > 0) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Wrapped {} vanilla crossed-arms item layer(s) with flag gate.", wrapped);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Wrapped {} vanilla crossed-arms item layer(s) with flag gate.", wrapped);
             } else {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] No vanilla crossed-arms item layer found to wrap (ok).");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] No vanilla crossed-arms item layer found to wrap (ok).");
             }
 
             // --- Armor layer (your existing working one) ---
@@ -81,7 +81,7 @@ public final class ClientRenderEvents {
             // --- Held items (renders mainhand + offhand anchored to the custom arms pose) ---
             villagerRenderer.addLayer(new VillagerHumanoidHeldItemLayer(villagerRenderer, armsModel));
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Added VillagerHumanoidArmorLayer + VillagerHumanoidArmsLayer + VillagerHumanoidHeldItemLayer to Villager renderer.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Added VillagerHumanoidArmorLayer + VillagerHumanoidArmsLayer + VillagerHumanoidHeldItemLayer to Villager renderer.");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ClientRenderEvents.onAddLayers failed", t);

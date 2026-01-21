@@ -83,7 +83,7 @@ public final class RespawnSavedData extends SavedData {
                 if (!map.isEmpty()) data.byOwner.put(owner, map);
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] RespawnSavedData loaded: owners={}", data.byOwner.size());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] RespawnSavedData loaded: owners={}", data.byOwner.size());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] RespawnSavedData.load failed", t);
         }

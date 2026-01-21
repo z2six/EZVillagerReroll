@@ -72,7 +72,7 @@ public final class VillagerManualShieldBlocker {
         NeoForge.EVENT_BUS.addListener(VillagerManualShieldBlocker::onIncomingDamage);
         NeoForge.EVENT_BUS.addListener(VillagerManualShieldBlocker::onKnockback);
 
-        VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerManualShieldBlocker registered on NeoForge EVENT_BUS.");
+        VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerManualShieldBlocker registered on NeoForge EVENT_BUS.");
     }
 
     // -------------------------------------------------------------------------
@@ -439,7 +439,7 @@ public final class VillagerManualShieldBlocker {
             String attackerId = safeEntityId(attacker);
             String srcId = safeSourceId(src);
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] [block] BLOCKED victim={} attacker={} src={} dmg={} shieldDmg={} usingHand={} usingItem={}",
                     vill.getUUID(),
                     attackerId,

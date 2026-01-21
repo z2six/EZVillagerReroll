@@ -58,7 +58,7 @@ public final class VillagerEatTestService {
                 break;
             }
             if (foodSlot < 0 || foodStack.isEmpty()) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [eat_test] villager={} no_food_found", vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [eat_test] villager={} no_food_found", vill.getUUID());
                 return false;
             }
 
@@ -104,7 +104,7 @@ public final class VillagerEatTestService {
                 vill.getPersistentData().putLong("ezvr_eat_pose_until", st.finishAt);
             } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [eat_test] villager={} action=start item={} durationTicks={} hpBefore={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [eat_test] villager={} action=start item={} durationTicks={} hpBefore={}",
                     vill.getUUID(), st.foodName, useDuration, trim1(st.hpBefore));
             return true;
 
@@ -156,10 +156,10 @@ public final class VillagerEatTestService {
                     float beforeHeal = vill.getHealth();
                     try { vill.heal(heal); } catch (Throwable ignored) {}
                     float afterHeal = vill.getHealth();
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [eat_test] villager={} action=heal food={} heal={} hp {}->{}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [eat_test] villager={} action=heal food={} heal={} hp {}->{}",
                             vill.getUUID(), safeItem(st.foodUsed), trim1(heal), trim1(beforeHeal), trim1(afterHeal));
                 } else {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [eat_test] villager={} action=heal_skip food={} (no_food_component?)",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [eat_test] villager={} action=heal_skip food={} (no_food_component?)",
                             vill.getUUID(), safeItem(st.foodUsed));
                 }
 
@@ -179,7 +179,7 @@ public final class VillagerEatTestService {
                 VillagerBrain.setUiPaused(vill, false);
 
                 float hpAfter = vill.getHealth();
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [eat_test] villager={} action=finish item={} hp {}->{} (mid={}) remainder={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [eat_test] villager={} action=finish item={} hp {}->{} (mid={}) remainder={}",
                         vill.getUUID(),
                         safe(st.foodName),
                         trim1(st.hpBefore),
@@ -230,7 +230,7 @@ public final class VillagerEatTestService {
             if (out instanceof ItemStack st) return st;
             return ItemStack.EMPTY;
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [eat_test] finishUsingItem reflection failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [eat_test] finishUsingItem reflection failed (soft): {}", t.toString());
             return ItemStack.EMPTY;
         }
     }
@@ -308,10 +308,10 @@ public final class VillagerEatTestService {
 
             if (!remaining.isEmpty()) {
                 try { vill.spawnAtLocation(remaining.copy()); } catch (Throwable ignored) {}
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [eat_test] villager={} action=drop why={} item={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [eat_test] villager={} action=drop why={} item={}",
                         vill.getUUID(), safe(why), safeItem(remaining));
             } else {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [eat_test] villager={} action=store why={} item={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [eat_test] villager={} action=store why={} item={}",
                         vill.getUUID(), safe(why), safeItem(stack));
             }
 

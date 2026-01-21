@@ -72,7 +72,7 @@ public abstract class VillagerRendererVisibilityMixin {
         try {
             if (!ezvr$initLogged) {
                 ezvr$initLogged = true;
-                VillagerOverhaul.LOG().info(
+                VillagerOverhaul.LOG().debug(
                         "[VillagerOverhaul] [client] VillagerRendererVisibilityMixin ACTIVE (rendererInstance={})",
                         System.identityHashCode(this)
                 );
@@ -115,7 +115,7 @@ public abstract class VillagerRendererVisibilityMixin {
                 // NEW: Hat resolve (root.head.hat)
                 ezvr$hatResolved = VillagerHatVisibilityEnforcer.resolve(root);
 
-                VillagerOverhaul.LOG().info(
+                VillagerOverhaul.LOG().debug(
                         "[VillagerOverhaul] [client] RendererVisibilityMixin resolved: crossedArmsFound={}, crossedArmsPath='{}', robeFound={}, robeKey='{}', robePath='{}', hatFound={}, hatPath='{}'",
                         (ezvr$crossedArmsPart != null), String.valueOf(ezvr$crossedArmsPath),
                         (ezvr$robePart != null), String.valueOf(ezvr$robeKey), String.valueOf(ezvr$robePath),

@@ -118,7 +118,7 @@ public final class VillagerStatsService {
                 int s = clampPoints(root.getInt(K_STRENGTH));
                 int ar = clampPoints(root.getInt(K_ARMOR));
 
-                VillagerOverhaul.LOG().info(
+                VillagerOverhaul.LOG().debug(
                         "[VillagerOverhaul] VillagerStats assigned/upgraded: type={} entityId={} uuid={} generosity={} timeliness={} intellect={} hoarder={} vitality={} agility={} strength={} armor={}",
                         String.valueOf(e.getType()),
                         e.getId(),

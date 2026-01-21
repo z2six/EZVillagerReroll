@@ -91,7 +91,7 @@ public final class VillagerCombatArmsModel extends EntityModel<Villager> {
                 this.leftArm.zRot = humanoidLeftArm.zRot;
             }
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatArmsModel.setArmRotationsFromHumanoid failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatArmsModel.setArmRotationsFromHumanoid failed (soft): {}", t.toString());
         }
     }
 
@@ -100,7 +100,7 @@ public final class VillagerCombatArmsModel extends EntityModel<Villager> {
             if (this.rightArm != null) this.rightArm.render(poseStack, consumer, packedLight, packedOverlay, packedColor);
             if (this.leftArm != null) this.leftArm.render(poseStack, consumer, packedLight, packedOverlay, packedColor);
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatArmsModel.renderArms failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatArmsModel.renderArms failed (soft): {}", t.toString());
         }
     }
 

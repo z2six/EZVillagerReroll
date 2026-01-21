@@ -179,7 +179,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
             if (!ezvr$initLogged) {
                 ezvr$initLogged = true;
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VillagerHumanoidArmsLayer ACTIVE (seq-driven swing)");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VillagerHumanoidArmsLayer ACTIVE (seq-driven swing)");
             }
 
             if (!shouldRenderCustomArms(villager)) return;
@@ -189,7 +189,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
             if (!ezvr$driverLogged) {
                 ezvr$driverLogged = true;
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] ArmsLayer driverModel={}", driver.getClass().getName());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] ArmsLayer driverModel={}", driver.getClass().getName());
             }
 
             float swingProg = computeSeqDrivenSwingProgress(villager, partialTick);
@@ -234,7 +234,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             logClientSwingProof(villager, swingProg);
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VillagerHumanoidArmsLayer.render failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VillagerHumanoidArmsLayer.render failed (soft): {}", t.toString());
         }
     }
 
@@ -254,7 +254,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
                 playerDriver = pd;
                 return pd;
             } catch (Throwable t) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] ArmsLayer PlayerModel init failed (soft): {}", t.toString());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] ArmsLayer PlayerModel init failed (soft): {}", t.toString());
                 return injectedDriverHumanoid;
             }
         } catch (Throwable ignored) {
@@ -369,7 +369,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] setupDriverState failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] setupDriverState failed (soft): {}", t.toString());
         }
     }
 
@@ -407,7 +407,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             else arm.zRot += twist;
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] applyManualSwingToDriverArms failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] applyManualSwingToDriverArms failed (soft): {}", t.toString());
         }
     }
 
@@ -467,7 +467,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             debugLogEatOverride(v, ctx, activeIsRight, activeArm, otherArm);
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] applyEatOverrideIfEating failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] applyEatOverrideIfEating failed (soft): {}", t.toString());
         }
     }
 
@@ -558,7 +558,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             float oy = otherArm == null ? 0 : otherArm.yRot;
             float oz = otherArm == null ? 0 : otherArm.zRot;
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] [client] eat_override vill={} tick={} hand={} activeIsRight={} prog={} aRot=({},{},{}) oRot=({},{},{})",
                     id,
                     tick,
@@ -600,7 +600,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             float ly = (l == null) ? 0 : l.yRot;
             float lz = (l == null) ? 0 : l.zRot;
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] [client] eat_driver_pose vill={} tick={} using={} forced={} rRot=({},{},{}) lRot=({},{},{})",
                     id, tick, using, forced,
                     fmt3(rx), fmt3(ry), fmt3(rz),
@@ -675,7 +675,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             arm.zRot += activeIsRight ? -0.16f : 0.16f;
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] applyManualEatPoseToDriverArms failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] applyManualEatPoseToDriverArms failed (soft): {}", t.toString());
         }
     }
 
@@ -794,7 +794,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
                 } catch (Throwable ignored) { activeNow = ItemStack.EMPTY; }
                 try { usingNow = v.isUsingItem(); } catch (Throwable ignored) { usingNow = false; }
 
-                VillagerOverhaul.LOG().info(
+                VillagerOverhaul.LOG().debug(
                         "[VillagerOverhaul] [client] eat_use_seed vill={} tick={} hand={} held={} activeUse={} remTicks={} forcedFlag={} usingNow={} note={}",
                         id,
                         tick,
@@ -887,7 +887,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             int seq = 0;
             if (v instanceof VillagerOverhaulSwingAccess acc) seq = acc.ezvr$getSwingSeq();
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] [client] swingStateSeq villager={} tick={} seq={} prog={} mainItem={}",
                     id,
                     tick,

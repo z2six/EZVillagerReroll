@@ -32,9 +32,9 @@ public final class ClientPartVisibilityRules {
             synchronized (LOCK) {
                 RULES.put(needle, visible);
             }
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] [partvis] rule set: needle='{}' visible={}", needle, visible);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] [partvis] rule set: needle='{}' visible={}", needle, visible);
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] [partvis] setRule failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] [partvis] setRule failed (soft): {}", t.toString());
         }
     }
 
@@ -43,9 +43,9 @@ public final class ClientPartVisibilityRules {
             synchronized (LOCK) {
                 RULES.clear();
             }
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] [partvis] cleared all rules.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] [partvis] cleared all rules.");
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] [partvis] clearAll failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] [partvis] clearAll failed (soft): {}", t.toString());
         }
     }
 
@@ -102,7 +102,7 @@ public final class ClientPartVisibilityRules {
 
             return applyAll(root, rules);
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] [partvis] applyToModel failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] [partvis] applyToModel failed (soft): {}", t.toString());
             return 0;
         }
     }
@@ -117,7 +117,7 @@ public final class ClientPartVisibilityRules {
             if (rules.isEmpty()) return 0;
             return applyAll(root, rules);
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] [partvis] applyToRoot failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] [partvis] applyToRoot failed (soft): {}", t.toString());
             return 0;
         }
     }

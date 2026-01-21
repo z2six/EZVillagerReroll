@@ -353,7 +353,7 @@ public final class ServerHandlers {
 
             SearchService.popSettlement(vill.getUUID());
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] handlePayAutoSearchSettlement: success (player={} villager={} cost={} awardedXp={} settlementXp={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePayAutoSearchSettlement: success (player={} villager={} cost={} awardedXp={} settlementXp={})",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     cost,
@@ -916,12 +916,12 @@ public final class ServerHandlers {
             if (vill == null) return;
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] handleVillagerCombatCommand denied (player={} villager={} cmd={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCombatCommand denied (player={} villager={} cmd={})",
                         sp.getGameProfile().getName(), vill.getUUID(), msg.command());
                 return;
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] handleVillagerCombatCommand received (player={} villager={} cmd={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCombatCommand received (player={} villager={} cmd={})",
                     sp.getGameProfile().getName(), vill.getUUID(), msg.command());
 
             switch (msg.command()) {
@@ -931,7 +931,7 @@ public final class ServerHandlers {
                 case AGGRESSIVE -> VillagerBrain.combatAggressive(vill);
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] handleVillagerCombatCommand applied (player={} villager={} cmd={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCombatCommand applied (player={} villager={} cmd={})",
                     sp.getGameProfile().getName(), vill.getUUID(), msg.command());
 
             try {
@@ -952,7 +952,7 @@ public final class ServerHandlers {
             if (msg.global()) {
                 CombatSettings settings = CombatSettingsService.getGlobal(sp.serverLevel());
                 ctx.reply(new PacketCombatSettingsData(0, true, settings.toTag()));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings query (global) by player={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatSettings query (global) by player={}",
                         sp.getGameProfile().getName());
                 return;
             }
@@ -968,7 +968,7 @@ public final class ServerHandlers {
             if (settings == null) settings = CombatSettingsService.getGlobal(sp.serverLevel());
 
             ctx.reply(new PacketCombatSettingsData(vill.getId(), false, settings.toTag()));
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings query (villager={}) by player={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatSettings query (villager={}) by player={}",
                     vill.getUUID(), sp.getGameProfile().getName());
 
         } catch (Throwable t) {
@@ -993,7 +993,7 @@ public final class ServerHandlers {
 
             ctx.reply(new PacketCombatSettingsData(vill.getId(), false, settings.toTag()));
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings synced from global (villager={} player={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatSettings synced from global (villager={} player={})",
                     vill.getUUID(), sp.getGameProfile().getName());
 
         } catch (Throwable t) {
@@ -1020,7 +1020,7 @@ public final class ServerHandlers {
             int ticks = Math.max(1, Math.min(20 * 30, msg.ticks()));
             org.z2six.villageroverhaul.server.ai.VillagerBrain.forceBlockFor(vill, ticks);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Force block requested (villager={} ticks={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Force block requested (villager={} ticks={})",
                     vill.getUUID(), ticks);
 
         } catch (Throwable t) {
@@ -1045,7 +1045,7 @@ public final class ServerHandlers {
             }
 
             boolean ok = VillagerEatTestService.requestEatNearestFood(vill);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Eat test requested (villager={} ok={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Eat test requested (villager={} ok={})",
                     vill.getUUID(), ok);
 
         } catch (Throwable t) {
@@ -1064,7 +1064,7 @@ public final class ServerHandlers {
                 if (!sp.hasPermissions(2)) return;
                 CombatSettingsService.setGlobal(sp.serverLevel(), settings);
                 ctx.reply(new PacketCombatSettingsData(0, true, settings.toTag()));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings updated (global) by player={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatSettings updated (global) by player={}",
                         sp.getGameProfile().getName());
                 return;
             }
@@ -1078,7 +1078,7 @@ public final class ServerHandlers {
 
             CombatSettingsService.setPerVillager(vill, settings);
             ctx.reply(new PacketCombatSettingsData(vill.getId(), false, settings.toTag()));
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettings updated (villager={}) by player={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatSettings updated (villager={}) by player={}",
                     vill.getUUID(), sp.getGameProfile().getName());
 
         } catch (Throwable t) {

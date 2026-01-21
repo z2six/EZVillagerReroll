@@ -52,7 +52,7 @@ public final class CombatBlockDiagnostics {
         NeoForge.EVENT_BUS.addListener(CombatBlockDiagnostics::onIncomingDamage);
         NeoForge.EVENT_BUS.addListener(CombatBlockDiagnostics::onShieldBlock);
 
-        VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatBlockDiagnostics registered on NeoForge EVENT_BUS.");
+        VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatBlockDiagnostics registered on NeoForge EVENT_BUS.");
         warmupDamageTypeReflection();
     }
 
@@ -82,7 +82,7 @@ public final class CombatBlockDiagnostics {
             ItemStack main = safeMain(vill);
             ItemStack off = safeOff(vill);
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] [blockdiag] INCOMING victim={} mode={} engaged={} using={} usedHand={} useItem={} main={} off={} attacker={} src={} amount={}",
                     vill.getUUID(),
                     safeMode(vill),
@@ -130,7 +130,7 @@ public final class CombatBlockDiagnostics {
             // getBlockedDamage() exists on your version (you compiled against it).
             float blocked = safeFloat(() -> e.getBlockedDamage());
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul.CombatBlockDiagnostics] [blockdiag] SHIELD_CHECK victim={} using={} usedHand={} useItem={} attacker={} src={} original={} blocked={} cancel={}",
                     vill.getUUID(),
                     using,

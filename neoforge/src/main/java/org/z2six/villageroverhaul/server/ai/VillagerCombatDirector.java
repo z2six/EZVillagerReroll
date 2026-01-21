@@ -311,7 +311,7 @@ public final class VillagerCombatDirector {
             lockYaw(vill, now, vill.getYRot());
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatDirector.tickAttack failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatDirector.tickAttack failed (soft): {}", t.toString());
         }
     }
 
@@ -379,7 +379,7 @@ public final class VillagerCombatDirector {
                     st.eatBackpedalHitCount++;
                     if (st.eatBackpedalHitCount >= forceHits) {
                         st.eatPhase = EatPhase.BACKPEDAL_EAT;
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=backpedal_force_eat hits={}",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] villager={} action=backpedal_force_eat hits={}",
                                 vill.getUUID(), st.eatBackpedalHitCount);
                     }
                 } else if (st.eatPhase != EatPhase.FORCE_EAT && st.eatPhase != EatPhase.BACKPEDAL_EAT) {
@@ -402,7 +402,7 @@ public final class VillagerCombatDirector {
                         st.eatBackpedalHitCount++;
                         if (st.eatBackpedalHitCount >= forceHits) {
                             st.eatPhase = EatPhase.BACKPEDAL_EAT;
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=backpedal_force_eat why=blocked hits={}",
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] villager={} action=backpedal_force_eat why=blocked hits={}",
                                     vill.getUUID(), st.eatBackpedalHitCount);
                         }
                     }
@@ -594,7 +594,7 @@ public final class VillagerCombatDirector {
             return true;
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatDirector.tickEatEscapeProcess failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatDirector.tickEatEscapeProcess failed (soft): {}", t.toString());
             return false;
         }
     }
@@ -614,7 +614,7 @@ public final class VillagerCombatDirector {
 
             if (st.lastSwingReasonLogAt <= 0L || (now - st.lastSwingReasonLogAt) >= 10L) {
                 st.lastSwingReasonLogAt = now;
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat SWING reason={} villager={} target={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat SWING reason={} villager={} target={}",
                         (reason == null ? "unknown" : reason),
                         vill.getUUID(),
                         target.getUUID());
@@ -656,7 +656,7 @@ public final class VillagerCombatDirector {
             try {
                 hit = vill.doHurtTarget(target);
             } catch (Throwable t) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] doHurtTarget threw (villager={} target={} err={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] doHurtTarget threw (villager={} target={} err={})",
                         safeUuid(vill), safeUuid(target), t.toString());
                 hit = false;
             }
@@ -667,7 +667,7 @@ public final class VillagerCombatDirector {
             st.nextSwingAt = now + SWING_COOLDOWN_TICKS;
             st.lastSwingAt = now;
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] SWING (villager={} target={} hit={} hp {}->{} atkBase={} atkVal={} mainItem={})",
                     safeUuid(vill),
                     safeUuid(target),
@@ -680,7 +680,7 @@ public final class VillagerCombatDirector {
             );
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] doSwingAndHit failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] doSwingAndHit failed (soft): {}", t.toString());
         }
     }
 
@@ -698,7 +698,7 @@ public final class VillagerCombatDirector {
 
                 if (st.lastHitLogAt <= 0L || (now - st.lastHitLogAt) >= 10L) {
                     st.lastHitLogAt = now;
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat HIT detected (villager={} hurtTime={} now={})",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat HIT detected (villager={} hurtTime={} now={})",
                             vill.getUUID(), ht, now);
                 }
             }
@@ -715,7 +715,7 @@ public final class VillagerCombatDirector {
 
                     if (st.lastHitLogAt <= 0L || (now - st.lastHitLogAt) >= 10L) {
                         st.lastHitLogAt = now;
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat HIT detected (villager={} blockedTick={} now={})",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat HIT detected (villager={} blockedTick={} now={})",
                                 vill.getUUID(), blockedTick, now);
                     }
                 }
@@ -856,12 +856,12 @@ public final class VillagerCombatDirector {
             // This helps if another system briefly interrupted use on the same tick.
             repairEatUseStateIfNeeded(vill, st, now, "start");
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=start kind={} item={} durationTicks={} hpBefore={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] villager={} action=start kind={} item={} durationTicks={} hpBefore={}",
                     vill.getUUID(), safe(kind), safeItemId(one), useDuration, trim1(vill.getHealth()));
             return true;
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] start failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] start failed (soft): {}", t.toString());
             return false;
         }
     }
@@ -885,7 +885,7 @@ public final class VillagerCombatDirector {
                 float before = vill.getHealth();
                 try { vill.heal(heal); } catch (Throwable ignored) {}
                 float after = vill.getHealth();
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=heal food={} heal={} hp {}->{}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] villager={} action=heal food={} heal={} hp {}->{}",
                         vill.getUUID(), safeItemId(st.eatFoodUsed), trim1(heal), trim1(before), trim1(after));
                 try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFoodEaten(vill, 1, heal); } catch (Throwable ignored) {}
             }
@@ -911,11 +911,11 @@ public final class VillagerCombatDirector {
                 pd.remove("ezvr_loadout_skip_main_until");
             } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=finish item={} hpAfter={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] villager={} action=finish item={} hpAfter={}",
                     vill.getUUID(), safeItemId(st.eatFoodUsed), trim1(vill.getHealth()));
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] finish failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] finish failed (soft): {}", t.toString());
         }
     }
 
@@ -956,7 +956,7 @@ public final class VillagerCombatDirector {
                     pd.remove(PD_CIRCLE_ZZA);
                 } catch (Throwable ignored) {}
 
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] villager={} action=cancel why={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] villager={} action=cancel why={}",
                         vill.getUUID(), safe(why));
             }
 
@@ -1108,7 +1108,7 @@ public final class VillagerCombatDirector {
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] repairEatUseStateIfNeeded failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] repairEatUseStateIfNeeded failed (soft): {}", t.toString());
         }
     }
 
@@ -1142,7 +1142,7 @@ public final class VillagerCombatDirector {
             int expected = (int) (st.eatFinishAt - now);
             if (expected < 0) expected = 0;
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] [combat_eat_use] villager={} now={} why={} using={} usedHand={} curRem={} expectedRem={} main={} active={} patched={} note={}",
                     vill.getUUID(),
                     now,
@@ -1179,7 +1179,7 @@ public final class VillagerCombatDirector {
             FIELD_USE_ITEM = fUse;
             FIELD_USE_ITEM_REMAINING = fRem;
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] [combat_eat] warmupUseFields done useItemField={} useItemRemainingField={}",
                     (FIELD_USE_ITEM != null),
                     (FIELD_USE_ITEM_REMAINING != null)
@@ -1343,7 +1343,7 @@ public final class VillagerCombatDirector {
             if (out instanceof ItemStack st) return st;
             return ItemStack.EMPTY;
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [combat_eat] finishUsingItem reflection failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_eat] finishUsingItem reflection failed (soft): {}", t.toString());
             return ItemStack.EMPTY;
         }
     }

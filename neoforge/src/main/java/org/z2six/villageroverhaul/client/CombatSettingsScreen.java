@@ -378,7 +378,7 @@ public final class CombatSettingsScreen extends Screen {
             storeWidgetsToTab();
             if (settings == null) return;
             ClientNetwork.sendToServer(new PacketCombatSettingsUpdate(villagerEntityId, global, settings.toTag()));
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettingsScreen saved (global={} villagerEntityId={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatSettingsScreen saved (global={} villagerEntityId={})",
                     global, villagerEntityId);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] CombatSettingsScreen.onSave failed", t);
@@ -390,7 +390,7 @@ public final class CombatSettingsScreen extends Screen {
             if (global) return;
             settings = null;
             ClientNetwork.sendToServer(new PacketCombatSettingsSync(villagerEntityId));
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatSettingsScreen sync requested (villagerEntityId={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatSettingsScreen sync requested (villagerEntityId={})",
                     villagerEntityId);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] CombatSettingsScreen.onSync failed", t);

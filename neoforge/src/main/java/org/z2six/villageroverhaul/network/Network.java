@@ -261,7 +261,7 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handlePatrolSaveRoute(msg, ctx)));
 
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Network payloads registered (handshake-safe). distClient={}", isClientDist());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Network payloads registered (handshake-safe). distClient={}", isClientDist());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Network payload registration failed.", t);
         }
@@ -1024,7 +1024,7 @@ public final class Network {
 
                 ctx.reply(new PacketRecruitResult(id, true, true, cost, "Recruited!"));
 
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Recruited villager: player={} villagerUuid={} cost={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Recruited villager: player={} villagerUuid={} cost={}",
                         sp.getGameProfile().getName(), vill.getUUID(), cost);
 
             } catch (Throwable t) {

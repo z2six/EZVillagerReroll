@@ -211,9 +211,9 @@ public final class VillagerBrain {
 
             root.putString(K_COMBAT_MODE, mode.id);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] CombatMode set (villager={}, mode={})", vill.getUUID(), mode.id);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatMode set (villager={}, mode={})", vill.getUUID(), mode.id);
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] setCombatMode failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] setCombatMode failed (soft): {}", t.toString());
         }
     }
 
@@ -338,12 +338,12 @@ public final class VillagerBrain {
                     acc.ezvr$setRenderFlags(flags);
 
                     // INFO so you see it by default
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] RenderFlags updated (villager={}, {} -> {})",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] RenderFlags updated (villager={}, {} -> {})",
                             vill.getUUID(), (int) prev, (int) flags);
                 }
             }
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerBrain.tickRenderDecisions failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerBrain.tickRenderDecisions failed (soft): {}", t.toString());
         }
     }
 
@@ -1076,41 +1076,41 @@ public final class VillagerBrain {
             // Combat has higher priority than movement.
             if (!hasGoal(vill, VillagerCombatFleeGoal.class)) {
                 vill.goalSelector.addGoal(0, new VillagerCombatFleeGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatFleeGoal (villager={})", vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCombatFleeGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerCombatDefendGoal.class)) {
                 vill.goalSelector.addGoal(1, new VillagerCombatDefendGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatDefendGoal (villager={})", vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCombatDefendGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerCombatAggressiveGoal.class)) {
                 vill.goalSelector.addGoal(2, new VillagerCombatAggressiveGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerCombatAggressiveGoal (villager={})", vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCombatAggressiveGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerIdleGoal.class)) {
                 vill.goalSelector.addGoal(3, new VillagerIdleGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
                 vill.goalSelector.addGoal(4, new VillagerPatrolSetupFollowGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerFollowGoal.class)) {
                 vill.goalSelector.addGoal(5, new VillagerFollowGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerFollowGoal (villager={})", vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerFollowGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerPatrolGoal.class)) {
                 vill.goalSelector.addGoal(6, new VillagerPatrolGoal(vill));
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Attached VillagerPatrolGoal (villager={})", vill.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerPatrolGoal (villager={})", vill.getUUID());
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerBrain.ensureAttached failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerBrain.ensureAttached failed (soft): {}", t.toString());
         }
     }
 

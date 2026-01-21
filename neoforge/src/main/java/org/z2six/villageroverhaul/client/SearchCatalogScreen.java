@@ -119,7 +119,7 @@ public final class SearchCatalogScreen extends Screen {
 
             this.awaitingServerData = false;
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] SearchCatalogScreen received catalog: villagerEntityId={} items={} offerCount={} lockedCount={} effectivePaidOffers={} manualCost={} hourlyCost={}",
                     villagerEntityId, this.catalogAll.size(), offerCount, lockedCount, effectivePaidOffers, manualCost, hourlyCost
             );
@@ -188,7 +188,7 @@ public final class SearchCatalogScreen extends Screen {
                             }
 
                             ClientNetwork.sendToServer(new PacketStartAutoSearch(villagerEntityId, req));
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] SearchCatalogScreen: sent PacketStartAutoSearch villagerEntityId={} items={}",
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] SearchCatalogScreen: sent PacketStartAutoSearch villagerEntityId={} items={}",
                                     villagerEntityId, req.size());
 
                             closeAllAndCloseContainer();

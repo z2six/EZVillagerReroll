@@ -52,7 +52,7 @@ public final class CostUtil {
                 if (remaining <= 0) break;
             }
             if (remaining > 0) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Not enough items: need {}, short by {}", count, remaining);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Not enough items: need {}, short by {}", count, remaining);
                 return false;
             }
             return true;

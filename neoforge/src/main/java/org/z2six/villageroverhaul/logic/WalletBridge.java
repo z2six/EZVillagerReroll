@@ -52,7 +52,7 @@ public final class WalletBridge {
             lcPresent = ModList.get().isLoaded("lightmanscurrency");
             lookedUp = true;
             if (lcPresent) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] Lightman's Currency detected (soft-integration active)");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Lightman's Currency detected (soft-integration active)");
                 bindReflectionHandles();
             }
         }
@@ -65,42 +65,42 @@ public final class WalletBridge {
             if (coinId == null || count <= 0) return false;
 
             if (!areBound()) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC wallet API not bound; falling back to inventory.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC wallet API not bound; falling back to inventory.");
                 return false;
             }
 
             Item targetItem = BuiltInRegistries.ITEM.get(coinId);
             if (targetItem == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC withdraw: item '{}' not found in registry.", coinId);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC withdraw: item '{}' not found in registry.", coinId);
                 return false;
             }
 
             Object handler = mWalletHandler_get.invoke(null, player);
             if (handler == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC withdraw: WalletHandler.get(player) returned null.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC withdraw: WalletHandler.get(player) returned null.");
                 return false;
             }
 
             Object walletStackObj = mWalletHandler_getWallet.invoke(handler);
             if (!(walletStackObj instanceof ItemStack walletStack)) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC withdraw: getWallet() did not return an ItemStack.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC withdraw: getWallet() did not return an ItemStack.");
                 return false;
             }
 
             if (walletStack.isEmpty() || !(Boolean) mWalletItem_isWallet.invoke(null, walletStack)) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC withdraw: no valid wallet equipped.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC withdraw: no valid wallet equipped.");
                 return false;
             }
 
             Object wrapper = mWalletItem_getDataWrapper.invoke(null, walletStack);
             if (wrapper == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC withdraw: getDataWrapper() returned null.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC withdraw: getDataWrapper() returned null.");
                 return false;
             }
 
             Object containerObj = mWrapper_getContents.invoke(wrapper);
             if (!(containerObj instanceof Container container)) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC withdraw: getContents() did not return a Container.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC withdraw: getContents() did not return a Container.");
                 return false;
             }
 
@@ -112,7 +112,7 @@ public final class WalletBridge {
                 if (available >= count) break;
             }
             if (available < count) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC withdraw: insufficient wallet coins. Need {}, have {}.", count, available);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC withdraw: insufficient wallet coins. Need {}, have {}.", count, available);
                 return false;
             }
 
@@ -129,7 +129,7 @@ public final class WalletBridge {
             mWrapper_setContents.invoke(wrapper, container, (LivingEntity) player);
             mWalletHandler_setChanged.invoke(handler);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] LC wallet: withdrew {} x {}", count, coinId);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC wallet: withdrew {} x {}", count, coinId);
             return true;
 
         } catch (Throwable t) {
@@ -155,7 +155,7 @@ public final class WalletBridge {
             clsWalletDataWrapper = tryLoadAny(WALLET_WRAPPER_CANDIDATES);
 
             if (clsWalletHandler == null || clsWalletItem == null || clsWalletDataWrapper == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC wallet classes not found. Candidates tried: {}, {}, {}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC wallet classes not found. Candidates tried: {}, {}, {}",
                         WALLET_HANDLER_CANDIDATES, WALLET_ITEM_CANDIDATES, WALLET_WRAPPER_CANDIDATES);
                 return;
             }
@@ -172,9 +172,9 @@ public final class WalletBridge {
                     net.minecraft.world.Container.class, net.minecraft.world.entity.LivingEntity.class);
 
             if (areBound()) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC wallet API bound successfully via reflection.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC wallet API bound successfully via reflection.");
             } else {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] LC wallet API binding incomplete (methods missing). Will fall back if used.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC wallet API binding incomplete (methods missing). Will fall back if used.");
             }
 
         } catch (Throwable t) {

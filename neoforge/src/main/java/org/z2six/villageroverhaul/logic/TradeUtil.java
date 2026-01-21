@@ -133,7 +133,7 @@ public final class TradeUtil {
                         vill.canRestock()
                 );
 
-                VillagerOverhaul.LOG().info(
+                VillagerOverhaul.LOG().debug(
                         "[VillagerOverhaul] Rebuilt offers (dedup attempts={}): villager={}, level={}, offers {} -> {}",
                         accepted ? attempt : MAX_DEDUP_ATTEMPTS,
                         vill.getUUID(), targetLevel, offersBefore, offersAfter

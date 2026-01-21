@@ -126,7 +126,7 @@ public final class VillagerCombatAttributeService {
             double armBase = readBase(le, Attributes.ARMOR);
             double armVal  = readValue(le, Attributes.ARMOR);
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Applied combat modifiers entityId={} uuid={} vitDelta={} agiDelta={} strDelta={} armDelta={} ok=[{},{},{},{}] atkBase={} atkVal={} armorBase={} armorVal={}",
                     e.getId(), e.getUUID(),
                     trim3(vitDelta), trim3(agiDelta), trim3(strDelta), trim3(armDelta),
@@ -136,7 +136,7 @@ public final class VillagerCombatAttributeService {
             );
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatAttributeService.applyCombatModifiers failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatAttributeService.applyCombatModifiers failed (soft): {}", t.toString());
         }
     }
 

@@ -83,7 +83,7 @@ public final class ServerEvents {
             // Villager's on spawn event for CombatInventory
             VillagerCombatInventoryProbeEvents.register(bus);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] ServerEvents registered on gameplay bus.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] ServerEvents registered on gameplay bus.");
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ServerEvents.register failed", t);
         }
@@ -367,7 +367,7 @@ public final class ServerEvents {
             MinecraftServer server = e.getServer();
             if (server == null) return;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] ServerStarted: loading persisted auto-search tasks.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] ServerStarted: loading persisted auto-search tasks.");
             try {
                 SearchSavedData.loadIntoSearchService(server);
             } catch (Throwable t) {
@@ -385,7 +385,7 @@ public final class ServerEvents {
             MinecraftServer server = e.getServer();
             if (server == null) return;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] ServerStopping: saving persisted auto-search tasks.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] ServerStopping: saving persisted auto-search tasks.");
             try {
                 SearchSavedData.saveFromSearchService(server);
             } catch (Throwable t) {

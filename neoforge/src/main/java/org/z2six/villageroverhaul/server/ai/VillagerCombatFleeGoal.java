@@ -75,7 +75,7 @@ public final class VillagerCombatFleeGoal extends Goal {
             // Still tick in FLEE mode even without a recent attacker so we can instantly exit FLEE on contact.
             return true;
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatFleeGoal.canUse failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatFleeGoal.canUse failed (soft): {}", t.toString());
             return false;
         }
     }
@@ -146,7 +146,7 @@ public final class VillagerCombatFleeGoal extends Goal {
                     fleeUntilTick = now + 20L * 30L;
                     VillagerBrain.setCombatEngaged(vill, true);
 
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Flee threat set (villager={} attacker={})",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Flee threat set (villager={} attacker={})",
                             vill.getUUID(), attacker.getUUID());
                 }
             }
@@ -193,7 +193,7 @@ public final class VillagerCombatFleeGoal extends Goal {
                         vill == null ? "null" : VillagerBrain.getMode(vill).id);
             }
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatFleeGoal.tick failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatFleeGoal.tick failed (soft): {}", t.toString());
         }
     }
 
@@ -263,7 +263,7 @@ public final class VillagerCombatFleeGoal extends Goal {
                     long now = vill.level().getGameTime();
                     if ((now - lastRejectLogAt) > 40L) {
                         lastRejectLogAt = now;
-                        VillagerOverhaul.LOG().info(
+                        VillagerOverhaul.LOG().debug(
                                 "[VillagerOverhaul] FLEE candidate rejected (villager={} attacker={} target={} reason={})",
                                 vill.getUUID(),
                                 attacker.getUUID(),
@@ -319,7 +319,7 @@ public final class VillagerCombatFleeGoal extends Goal {
             long now = vill.level().getGameTime();
             if ((now - lastNoThreatLogAt) < 40L) return;
             lastNoThreatLogAt = now;
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] FLEE waiting (villager={} reason={})", vill.getUUID(), reason);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] FLEE waiting (villager={} reason={})", vill.getUUID(), reason);
         } catch (Throwable ignored) {}
     }
 }

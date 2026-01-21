@@ -162,7 +162,7 @@ public final class ClientSyncedConfig {
 
             last = s;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Client received synced SERVER config: {}", s);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Client received synced SERVER config: {}", s);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Failed to apply synced config on client", t);
         }

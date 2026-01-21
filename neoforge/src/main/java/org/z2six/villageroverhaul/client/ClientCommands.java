@@ -41,7 +41,7 @@ public final class ClientCommands {
         try {
             if (bus == null) return;
             bus.addListener(ClientCommands::onRegisterClientCommands);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] ClientCommands registered on NeoForge EVENT bus.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] ClientCommands registered on NeoForge EVENT bus.");
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] [client] Failed to register ClientCommands.", t);
         }
@@ -103,7 +103,7 @@ public final class ClientCommands {
             d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_eat_test")
                     .executes(ctx -> eatTest()));
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest, /vo_eat_test");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest, /vo_eat_test");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] [client] RegisterClientCommandsEvent failed.", t);
@@ -123,40 +123,40 @@ public final class ClientCommands {
             Villager target = findTargetVillager();
             if (target == null) {
                 clientMsg("No villager targeted/found (look at one or stand near one).");
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_modeldump: no villager targeted/found.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] /vo_modeldump: no villager targeted/found.");
                 return 0;
             }
 
             VillagerModel<Villager> model = resolveVillagerModelFor(target);
             if (model == null) {
                 clientMsg("Failed to resolve VillagerModel for targeted villager (see log).");
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_modeldump: failed to resolve VillagerModel for villager={}", target.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] /vo_modeldump: failed to resolve VillagerModel for villager={}", target.getUUID());
                 return 0;
             }
 
             ModelPart root = tryCallRoot(model);
             if (root == null) {
                 clientMsg("Failed to call VillagerModel.root() (see log).");
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_modeldump: VillagerModel.root() returned null for villager={}", target.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] /vo_modeldump: VillagerModel.root() returned null for villager={}", target.getUUID());
                 return 0;
             }
 
-            VillagerOverhaul.LOG().info("================================================================================");
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VO MODEL DUMP for villager={} entityId={} depth={} maxLines={}",
+            VillagerOverhaul.LOG().debug("================================================================================");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VO MODEL DUMP for villager={} entityId={} depth={} maxLines={}",
                     target.getUUID(), target.getId(), maxDepth, maxLines);
-            VillagerOverhaul.LOG().info("================================================================================");
+            VillagerOverhaul.LOG().debug("================================================================================");
 
             int lines = dumpTree(root, maxDepth, maxLines);
 
-            VillagerOverhaul.LOG().info("================================================================================");
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VO MODEL DUMP END (lines={})", lines);
-            VillagerOverhaul.LOG().info("================================================================================");
+            VillagerOverhaul.LOG().debug("================================================================================");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VO MODEL DUMP END (lines={})", lines);
+            VillagerOverhaul.LOG().debug("================================================================================");
 
             clientMsg("Dumped villager model to log (" + lines + " lines). Search for \"VO MODEL DUMP\".");
             return 1;
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_modeldump failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] /vo_modeldump failed (soft): {}", t.toString());
             clientMsg("Model dump failed (see log).");
             return 0;
         }
@@ -211,11 +211,11 @@ public final class ClientCommands {
             }
 
             clientMsg("Rule set: " + needle + " -> visible=" + visible + " (enforced every frame). changedNow=" + changedNow);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_partvis rule needle='{}' visible={} changedNow={}", needle, visible, changedNow);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] /vo_partvis rule needle='{}' visible={} changedNow={}", needle, visible, changedNow);
             return 1;
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] /vo_partvis failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] /vo_partvis failed (soft): {}", t.toString());
             clientMsg("partvis failed (see log).");
             return 0;
         }
@@ -301,7 +301,7 @@ public final class ClientCommands {
                     f.setAccessible(true);
                     Object v = f.get(r);
                     if (v instanceof VillagerModel<?> vm) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] Resolved VillagerModel via rendererField={} in {}",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] Resolved VillagerModel via rendererField={} in {}",
                                 f.getName(), c.getName());
                         return (VillagerModel<Villager>) vm;
                     }
@@ -309,12 +309,12 @@ public final class ClientCommands {
                 c = c.getSuperclass();
             }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] Failed to resolve VillagerModel from renderer={} (class={})",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] Failed to resolve VillagerModel from renderer={} (class={})",
                     r, r.getClass().getName());
             return null;
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] resolveVillagerModelFor failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] resolveVillagerModelFor failed (soft): {}", t.toString());
             return null;
         }
     }
@@ -353,7 +353,7 @@ public final class ClientCommands {
                 Map<String, ModelPart> children = getChildrenMap(part);
                 int childCount = (children == null) ? -1 : children.size();
 
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] PART path='{}' visible={} childCount={} rot=({}, {}, {}) pos=({}, {}, {})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] PART path='{}' visible={} childCount={} rot=({}, {}, {}) pos=({}, {}, {})",
                         path,
                         safeVisible(part),
                         childCount,
@@ -374,11 +374,11 @@ public final class ClientCommands {
             }
 
             if (lines >= maxLines) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] (stopped: reached maxLines={})", maxLines);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] (stopped: reached maxLines={})", maxLines);
             }
 
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] dumpTree failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] dumpTree failed (soft): {}", t.toString());
         }
         return lines;
     }

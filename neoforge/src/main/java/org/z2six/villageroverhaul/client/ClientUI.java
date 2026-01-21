@@ -289,7 +289,7 @@ public final class ClientUI {
 
         NeoForge.EVENT_BUS.addListener(ClientUI::onClientTickPost);
 
-        VillagerOverhaul.LOG().info("[VillagerOverhaul] ClientUI.registerRuntimeClientEvents(): handlers added");
+        VillagerOverhaul.LOG().debug("[VillagerOverhaul] ClientUI.registerRuntimeClientEvents(): handlers added");
     }
 
     private static void onPlayerInteractEntity(final PlayerInteractEvent.EntityInteract e) {
@@ -387,7 +387,7 @@ public final class ClientUI {
             if (mc == null) return;
             if (parent == null) return;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Opening search catalog UI (villagerEntityId={})", villagerEntityId);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Opening search catalog UI (villagerEntityId={})", villagerEntityId);
 
             ClientNetwork.sendToServer(new PacketSearchCatalogQuery(villagerEntityId));
             mc.setScreen(new SearchCatalogScreen(parent));
@@ -401,7 +401,7 @@ public final class ClientUI {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null || parent == null) return;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Opening VillagerInfoScreen (villagerEntityId={})", villagerEntityId);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Opening VillagerInfoScreen (villagerEntityId={})", villagerEntityId);
             mc.setScreen(new VillagerInfoScreen(parent, villagerEntityId));
 
         } catch (Throwable t) {
@@ -602,7 +602,7 @@ public final class ClientUI {
 
                             updateCommandsMainButtonVisual(screen);
 
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] Commands palette toggled expanded={} (villagerEntityId={})",
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Commands palette toggled expanded={} (villagerEntityId={})",
                                     next, resolveTraderEntityId(screen));
 
                         } catch (Throwable t) {
@@ -757,7 +757,7 @@ public final class ClientUI {
                                             );
                                         }
 
-                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: NEUTRAL (villagerEntityId={})", villagerEntityId);
+                                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Movement command: NEUTRAL (villagerEntityId={})", villagerEntityId);
 
                                     } else if ("Idle".equalsIgnoreCase(label)) {
                                         ClientNetwork.sendToServer(new PacketVillagerCommand(
@@ -773,7 +773,7 @@ public final class ClientUI {
                                             );
                                         }
 
-                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: IDLE (villagerEntityId={})", villagerEntityId);
+                                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Movement command: IDLE (villagerEntityId={})", villagerEntityId);
 
                                     } else if ("Follow".equalsIgnoreCase(label)) {
                                         ClientNetwork.sendToServer(new PacketVillagerCommand(
@@ -789,7 +789,7 @@ public final class ClientUI {
                                             );
                                         }
 
-                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: FOLLOW (villagerEntityId={})", villagerEntityId);
+                                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Movement command: FOLLOW (villagerEntityId={})", villagerEntityId);
 
                                     } else if ("Patrol".equalsIgnoreCase(label)) {
                                         Minecraft mc = Minecraft.getInstance();
@@ -797,10 +797,10 @@ public final class ClientUI {
                                             mc.setScreen(new PatrolBeginPromptScreen(screen, villagerEntityId));
                                         }
 
-                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command: PATROL prompt opened (villagerEntityId={})", villagerEntityId);
+                                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Movement command: PATROL prompt opened (villagerEntityId={})", villagerEntityId);
 
                                     } else {
-                                        VillagerOverhaul.LOG().info("[VillagerOverhaul] Movement command clicked: {} (villagerEntityId={})",
+                                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Movement command clicked: {} (villagerEntityId={})",
                                                 label, villagerEntityId);
                                     }
 
@@ -876,7 +876,7 @@ public final class ClientUI {
                                         updateCombatButtonsVisual(screen);
                                     }
 
-                                    VillagerOverhaul.LOG().info("[VillagerOverhaul] Combat command clicked: {} (villagerEntityId={})",
+                                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat command clicked: {} (villagerEntityId={})",
                                             label, villagerEntityId);
                                 } catch (Throwable t) {
                                     VillagerOverhaul.LOG().error("[VillagerOverhaul] Combat command click failed: " + label, t);

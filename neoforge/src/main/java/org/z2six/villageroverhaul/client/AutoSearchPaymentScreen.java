@@ -232,7 +232,7 @@ public final class AutoSearchPaymentScreen extends Screen {
             // Set positions based on the requested vertical stack layout.
             layoutButtons();
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] AutoSearchPaymentScreen opened: villagerEntityId={} hourlyCost={} finalCost={} elapsedTicks={} totalVillagerXp={} rerollCount={} payOffersTag={} declineOffersTag={} lockMask={} requestedTargets={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoSearchPaymentScreen opened: villagerEntityId={} hourlyCost={} finalCost={} elapsedTicks={} totalVillagerXp={} rerollCount={} payOffersTag={} declineOffersTag={} lockMask={} requestedTargets={}",
                     villagerEntityId, hourlyCost, finalCost, elapsedTicks, totalVillagerXp, rerollCount,
                     offersIfPayTag == null ? -1 : offersIfPayTag.size(),
                     offersIfDeclineTag == null ? -1 : offersIfDeclineTag.size(),
@@ -523,7 +523,7 @@ public final class AutoSearchPaymentScreen extends Screen {
             sentAction = true;
             setButtonsActive(false);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] AutoSearchPaymentScreen: sending PacketPayAutoSearchSettlement(villagerEntityId={})", villagerEntityId);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoSearchPaymentScreen: sending PacketPayAutoSearchSettlement(villagerEntityId={})", villagerEntityId);
             Network.sendToServer(new PacketPayAutoSearchSettlement(villagerEntityId));
 
         } catch (Throwable t) {
@@ -547,7 +547,7 @@ public final class AutoSearchPaymentScreen extends Screen {
             sentAction = true;
             setButtonsActive(false);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] AutoSearchPaymentScreen: sending PacketDeclineAutoSearchSettlement(villagerEntityId={})", villagerEntityId);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoSearchPaymentScreen: sending PacketDeclineAutoSearchSettlement(villagerEntityId={})", villagerEntityId);
             Network.sendToServer(new PacketDeclineAutoSearchSettlement(villagerEntityId));
 
         } catch (Throwable t) {

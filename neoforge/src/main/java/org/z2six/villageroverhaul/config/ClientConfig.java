@@ -56,7 +56,7 @@ public final class ClientConfig {
             statsButtonOffsetX = STATS_BUTTON_OFFSET_X.get();
             statsButtonOffsetY = STATS_BUTTON_OFFSET_Y.get();
 
-            VillagerOverhaul.LOG().info(
+            VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] ClientConfig baked: rerollOffset=({},{}), statsOffset=({}, {})",
                     buttonOffsetX, buttonOffsetY,
                     statsButtonOffsetX, statsButtonOffsetY
