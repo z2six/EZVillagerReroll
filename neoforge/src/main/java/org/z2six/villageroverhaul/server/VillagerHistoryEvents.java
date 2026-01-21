@@ -95,6 +95,14 @@ public final class VillagerHistoryEvents {
             if (dead == null) return;
             if (dead.level() == null || dead.level().isClientSide()) return;
 
+            // If a recruited villager died, snapshot it for respawn.
+            try {
+                if (dead instanceof Villager dv && RecruitService.isRecruited(dv)) {
+                    VillagerHistoryService.addDeath(dv, 1);
+                    RespawnService.captureOnDeath(dv);
+                }
+            } catch (Throwable ignored) {}
+
             var src = e.getSource();
             Entity killer = src == null ? null : src.getEntity();
             if (!(killer instanceof Villager vill)) return;

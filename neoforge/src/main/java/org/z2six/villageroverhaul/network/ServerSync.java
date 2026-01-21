@@ -53,6 +53,8 @@ public final class ServerSync {
 
             pkt.recruitCostMin = ServerConfig.recruitCostMin;
             pkt.recruitCostMax = ServerConfig.recruitCostMax;
+            pkt.respawnCostMultiplier = ServerConfig.respawnCostMultiplier;
+            pkt.respawnKeepEquipment = ServerConfig.respawnKeepEquipment;
 
             // combat bounds
             pkt.vitalityMinHealth = ServerConfig.vitalityMinHealth;

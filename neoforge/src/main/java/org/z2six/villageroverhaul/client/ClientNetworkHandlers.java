@@ -24,6 +24,8 @@ import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
+import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
+import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -348,6 +350,72 @@ public final class ClientNetworkHandlers {
     // -----------------------------------------------------------------------------------------
     // Recruit screens + packets
     // -----------------------------------------------------------------------------------------
+
+    public static void onOpenRespawnAnchorScreen(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketOpenRespawnAnchorScreen p) {
+                onOpenRespawnAnchorScreen(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onOpenRespawnAnchorScreen(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRespawnAnchorScreen(Object) failed", t);
+        }
+    }
+
+    public static void onOpenRespawnAnchorScreen(PacketOpenRespawnAnchorScreen msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    var pos = new net.minecraft.core.BlockPos(msg.anchorX(), msg.anchorY(), msg.anchorZ());
+                    mc.setScreen(new RespawnAnchorScreen(pos, msg.entries()));
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRespawnAnchorScreen failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRespawnAnchorScreen enqueue failed", t);
+        }
+    }
+
+    public static void onOpenRespawnInfoScreen(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketOpenRespawnInfoScreen p) {
+                onOpenRespawnInfoScreen(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onOpenRespawnInfoScreen(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRespawnInfoScreen(Object) failed", t);
+        }
+    }
+
+    public static void onOpenRespawnInfoScreen(PacketOpenRespawnInfoScreen msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    Screen parent = mc.screen;
+                    mc.setScreen(VillagerInfoScreen.forRespawn(parent, msg));
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRespawnInfoScreen failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRespawnInfoScreen enqueue failed", t);
+        }
+    }
 
     public static void onOpenRecruitScreen(Object msg, IPayloadContext ctx) {
         try {

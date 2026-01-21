@@ -39,6 +39,7 @@ public final class VillagerHistoryService {
 
     private static final String K_MERCHANT_MENU_OPENS = "merchant_menu_opens";
     private static final String K_TRADES_COMPLETED = "trades_completed";
+    private static final String K_DEATHS = "deaths";
 
     private static final String K_LAST_X = "last_x";
     private static final String K_LAST_Y = "last_y";
@@ -234,6 +235,16 @@ public final class VillagerHistoryService {
         } catch (Throwable ignored) {}
     }
 
+    public static void addDeath(Villager vill, int count) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            CompoundTag root = getOrCreate(vill);
+            root.putInt(K_DEATHS, safeInt(root.getInt(K_DEATHS)) + Math.max(0, count));
+        } catch (Throwable ignored) {}
+    }
+
     public static PacketVillagerHistoryData snapshot(Villager vill) {
         try {
             if (vill == null) return PacketVillagerHistoryData.missing(-1);
@@ -256,7 +267,8 @@ public final class VillagerHistoryService {
                     safeInt(root.getInt(K_TRADE_LOCK_TOGGLES)),
                     safeInt(root.getInt(K_PATROL_ROUTES_RECORDED)),
                     safeInt(root.getInt(K_MERCHANT_MENU_OPENS)),
-                    safeInt(root.getInt(K_TRADES_COMPLETED))
+                    safeInt(root.getInt(K_TRADES_COMPLETED)),
+                    safeInt(root.getInt(K_DEATHS))
             );
         } catch (Throwable ignored) {
             return PacketVillagerHistoryData.missing(vill == null ? -1 : vill.getId());

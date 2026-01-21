@@ -43,6 +43,10 @@ import org.z2six.villageroverhaul.network.trades.PacketTradeLocksQuery;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesData;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
 import org.z2six.villageroverhaul.network.trades.ClientVillagerTradesCache;
+import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
+import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
+import org.z2six.villageroverhaul.network.respawn.PacketRespawnExecute;
+import org.z2six.villageroverhaul.network.respawn.PacketRespawnInfoQuery;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
@@ -93,6 +97,12 @@ public final class Network {
             // villager trades (offers + lock mask) query
             r.playToServer(PacketVillagerTradesQuery.TYPE, PacketVillagerTradesQuery.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerTradesQueryServer(msg, ctx));
+
+            // respawn UI / actions
+            r.playToServer(PacketRespawnInfoQuery.TYPE, PacketRespawnInfoQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleRespawnInfoQueryServer(msg, ctx));
+            r.playToServer(PacketRespawnExecute.TYPE, PacketRespawnExecute.STREAM_CODEC,
+                    (msg, ctx) -> handleRespawnExecuteServer(msg, ctx));
 
             // settlement payment actions
             r.playToServer(PacketPayAutoSearchSettlement.TYPE, PacketPayAutoSearchSettlement.STREAM_CODEC,
@@ -166,6 +176,12 @@ public final class Network {
             // villager trades data (we update cache directly; no client-only class refs)
             r.playToClient(PacketVillagerTradesData.TYPE, PacketVillagerTradesData.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerTradesDataClient(msg, ctx));
+
+            // respawn screens are opened client-side via ClientNetworkHandlers
+            r.playToClient(PacketOpenRespawnAnchorScreen.TYPE, PacketOpenRespawnAnchorScreen.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onOpenRespawnAnchorScreen", msg, ctx));
+            r.playToClient(PacketOpenRespawnInfoScreen.TYPE, PacketOpenRespawnInfoScreen.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onOpenRespawnInfoScreen", msg, ctx));
 
             // ============================
             // Recruit clientbound
@@ -753,6 +769,80 @@ public final class Network {
 
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerTradesQuery handler error", t);
+            }
+        });
+    }
+
+    private static void handleRespawnInfoQueryServer(PacketRespawnInfoQuery msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+                var level = sp.serverLevel();
+                if (level == null) return;
+
+                java.util.UUID rid = msg == null ? null : msg.respawnId();
+                if (rid == null) return;
+
+                var snap = org.z2six.villageroverhaul.server.RespawnService.getForOwner(sp, level, rid);
+                if (snap == null) return;
+
+                int respawnCost = org.z2six.villageroverhaul.server.RespawnService.computeRespawnCost(snap.recruitCostAtDeath);
+
+                ctx.reply(new PacketOpenRespawnInfoScreen(
+                        msg.anchorX(), msg.anchorY(), msg.anchorZ(),
+                        rid.getMostSignificantBits(), rid.getLeastSignificantBits(),
+                        snap.recruitCostAtDeath,
+                        respawnCost,
+                        snap.deaths,
+                        snap.villagerNbt == null ? new net.minecraft.nbt.CompoundTag() : snap.villagerNbt
+                ));
+
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] RespawnInfoQuery handler error", t);
+            }
+        });
+    }
+
+    private static void handleRespawnExecuteServer(PacketRespawnExecute msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+                var level = sp.serverLevel();
+                if (level == null) return;
+
+                java.util.UUID rid = msg == null ? null : msg.respawnId();
+                if (rid == null) return;
+
+                var snap = org.z2six.villageroverhaul.server.RespawnService.getForOwner(sp, level, rid);
+                if (snap == null) return;
+
+                net.minecraft.core.BlockPos pos = new net.minecraft.core.BlockPos(msg.anchorX(), msg.anchorY(), msg.anchorZ());
+                var spawned = org.z2six.villageroverhaul.server.RespawnService.respawn(sp, level, snap, pos);
+                if (spawned != null) {
+                    try {
+                        java.util.List<org.z2six.villageroverhaul.server.RespawnSavedData.Snapshot> snaps =
+                                org.z2six.villageroverhaul.server.RespawnService.listForOwner(sp, level);
+                        java.util.ArrayList<org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen.Entry> entries =
+                                new java.util.ArrayList<>();
+                        for (org.z2six.villageroverhaul.server.RespawnSavedData.Snapshot s : snaps) {
+                            if (s == null || s.respawnId == null) continue;
+                            int c = org.z2six.villageroverhaul.server.RespawnService.computeRespawnCost(s.recruitCostAtDeath);
+                            entries.add(new org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen.Entry(
+                                    s.respawnId,
+                                    s.nameJson == null ? "" : s.nameJson,
+                                    s.professionId == null ? "" : s.professionId,
+                                    c,
+                                    Math.max(0, s.deaths)
+                            ));
+                        }
+                        ctx.reply(new org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen(
+                                pos.getX(), pos.getY(), pos.getZ(), entries
+                        ));
+                    } catch (Throwable ignored) {}
+                }
+
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] RespawnExecute handler error", t);
             }
         });
     }

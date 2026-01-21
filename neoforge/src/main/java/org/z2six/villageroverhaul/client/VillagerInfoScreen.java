@@ -10,7 +10,10 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
-import net.minecraft.client.gui.screens.inventory.MerchantScreen;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
@@ -22,6 +25,10 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.WanderingTrader;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.trading.MerchantOffer;
+import net.minecraft.world.item.trading.MerchantOffers;
+import net.minecraft.resources.RegistryOps;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientVillagerAttributesCache;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
@@ -37,6 +44,8 @@ import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.network.trades.ClientVillagerTradesCache;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesData;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
+import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
+import org.z2six.villageroverhaul.network.respawn.PacketRespawnExecute;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 import java.util.ArrayList;
@@ -47,11 +56,24 @@ public final class VillagerInfoScreen extends Screen {
 
     private static final long STATS_QUERY_DEBOUNCE_MS = 750;
 
-    private final MerchantScreen parent;
+    private final Screen parent;
     private final int villagerEntityId;
+
+    // Respawn snapshot view (no live entity on server)
+    private final boolean respawnMode;
+    private final BlockPos respawnAnchorPos;
+    private final long respawnIdMsb;
+    private final long respawnIdLsb;
+    private final int respawnRecruitCostAtDeath;
+    private final int respawnCost;
+    private final int respawnDeaths;
+    private final CompoundTag respawnVillagerNbt;
+
+    private PacketVillagerTradesData respawnTrades = null;
 
     private LivingEntity cachedEntity;
     private Button backBtn;
+    private Button respawnBtn;
 
     private boolean hasStats = false;
     private boolean statsUnavailable = false;
@@ -180,10 +202,18 @@ public final class VillagerInfoScreen extends Screen {
         }
     }
 
-    public VillagerInfoScreen(MerchantScreen parent, int villagerEntityId) {
+    public VillagerInfoScreen(Screen parent, int villagerEntityId) {
         super(Component.literal("Villager Info"));
         this.parent = parent;
         this.villagerEntityId = villagerEntityId;
+        this.respawnMode = false;
+        this.respawnAnchorPos = BlockPos.ZERO;
+        this.respawnIdMsb = 0L;
+        this.respawnIdLsb = 0L;
+        this.respawnRecruitCostAtDeath = 0;
+        this.respawnCost = 0;
+        this.respawnDeaths = 0;
+        this.respawnVillagerNbt = null;
 
         try {
             Minecraft mc = Minecraft.getInstance();
@@ -192,6 +222,49 @@ public final class VillagerInfoScreen extends Screen {
                         villagerEntityId);
             }
         } catch (Throwable ignored) {}
+    }
+
+    private VillagerInfoScreen(Screen parent, PacketOpenRespawnInfoScreen msg) {
+        super(Component.literal("Villager Info"));
+        this.parent = parent;
+        this.villagerEntityId = -1;
+        this.respawnMode = true;
+
+        BlockPos ap = BlockPos.ZERO;
+        long msb = 0L, lsb = 0L;
+        int rc = 0, cost = 0, deaths = 0;
+        CompoundTag nbt = null;
+
+        try {
+            if (msg != null) {
+                ap = new BlockPos(msg.anchorX(), msg.anchorY(), msg.anchorZ());
+                msb = msg.respawnMsb();
+                lsb = msg.respawnLsb();
+                rc = Math.max(0, msg.recruitCostAtDeath());
+                cost = Math.max(0, msg.respawnCost());
+                deaths = Math.max(0, msg.deaths());
+                nbt = msg.villagerNbt();
+            }
+        } catch (Throwable ignored) {}
+
+        this.respawnAnchorPos = ap == null ? BlockPos.ZERO : ap;
+        this.respawnIdMsb = msb;
+        this.respawnIdLsb = lsb;
+        this.respawnRecruitCostAtDeath = rc;
+        this.respawnCost = cost;
+        this.respawnDeaths = deaths;
+        this.respawnVillagerNbt = nbt == null ? new CompoundTag() : nbt.copy();
+
+        // Precompute trades icon list from the NBT so Overview "Trades" can render without server queries.
+        try {
+            this.respawnTrades = decodeTradesFromNbt(this.respawnVillagerNbt);
+        } catch (Throwable ignored) {
+            this.respawnTrades = new PacketVillagerTradesData(-1, false, 0L, List.of());
+        }
+    }
+
+    public static VillagerInfoScreen forRespawn(Screen parent, PacketOpenRespawnInfoScreen msg) {
+        return new VillagerInfoScreen(parent, msg);
     }
 
     /**
@@ -223,6 +296,22 @@ public final class VillagerInfoScreen extends Screen {
                 .build();
         this.addRenderableWidget(backBtn);
 
+        if (respawnMode) {
+            final int respawnW = 100;
+            respawnBtn = Button.builder(Component.literal("Respawn (" + respawnCost + ")"), b -> {
+                        try {
+                            ClientNetwork.sendToServer(new PacketRespawnExecute(
+                                    respawnAnchorPos.getX(), respawnAnchorPos.getY(), respawnAnchorPos.getZ(),
+                                    respawnIdMsb, respawnIdLsb
+                            ));
+                        } catch (Throwable ignored) {}
+                    })
+                    .pos(left + PANEL_W - PAD - 58 - 4 - respawnW, top + PAD)
+                    .size(respawnW, 18)
+                    .build();
+            this.addRenderableWidget(respawnBtn);
+        }
+
         // Custom tab buttons centered at the bottom INSIDE the panel.
         int groupW = TAB_BTN_SIZE * 4 + TAB_BTN_GAP * 3;
         int tabsX = left + (PANEL_W - groupW) / 2;
@@ -243,12 +332,16 @@ public final class VillagerInfoScreen extends Screen {
         this.addRenderableWidget(tabCombatBtn);
         this.addRenderableWidget(tabHistoryBtn);
 
-        // Kick initial request immediately
-        trySendStatsQuery(false);
-        trySendAttributesQuery(false);
-        trySendHistoryQuery(false);
-        trySendTradesQuery(false);
-        tryApplyStatsFromCache();
+        // Kick initial request immediately (snapshot mode does not query server)
+        if (!respawnMode) {
+            trySendStatsQuery(false);
+            trySendAttributesQuery(false);
+            trySendHistoryQuery(false);
+            trySendTradesQuery(false);
+            tryApplyStatsFromCache();
+        } else {
+            tryApplyStatsFromSnapshotNbt();
+        }
         rebuildOverviewLinesIfNeeded(true);
         rebuildHistoryLinesIfNeeded(true);
     }
@@ -260,16 +353,20 @@ public final class VillagerInfoScreen extends Screen {
         relayoutIfNeeded();
 
         resolveEntity();
-        tryApplyStatsFromCache();
+        if (!respawnMode) {
+            tryApplyStatsFromCache();
+        }
         rebuildOverviewLinesIfNeeded(false);
         rebuildHistoryLinesIfNeeded(false);
 
-        if (!hasStats && !statsUnavailable) {
-            trySendStatsQuery(true);
+        if (!respawnMode) {
+            if (!hasStats && !statsUnavailable) {
+                trySendStatsQuery(true);
+            }
+            trySendAttributesQuery(true);
+            trySendHistoryQuery(true);
+            trySendTradesQuery(true);
         }
-        trySendAttributesQuery(true);
-        trySendHistoryQuery(true);
-        trySendTradesQuery(true);
     }
 
     @Override
@@ -442,6 +539,50 @@ public final class VillagerInfoScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
+    private void tryApplyStatsFromSnapshotNbt() {
+        try {
+            if (!respawnMode) return;
+            if (this.respawnVillagerNbt == null) return;
+
+            CompoundTag pd = getPersistentDataFromSnapshot();
+            if (pd == null || !pd.contains(VillagerStatsService.TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
+                this.hasStats = false;
+                this.statsUnavailable = true;
+                return;
+            }
+
+            CompoundTag root = pd.getCompound(VillagerStatsService.TAG_ROOT);
+
+            this.generosity = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_GENEROSITY));
+            this.timeliness = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_TIMELINESS));
+            this.intellect  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_INTELLECT));
+            this.hoarder    = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_HOARDER));
+
+            this.vitality = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_VITALITY));
+            this.agility  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_AGILITY));
+            this.strength = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_STRENGTH));
+            this.armor    = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_ARMOR));
+
+            this.hasStats = true;
+            this.statsUnavailable = false;
+        } catch (Throwable ignored) {
+            this.hasStats = false;
+            this.statsUnavailable = true;
+        }
+    }
+
+    private CompoundTag getPersistentDataFromSnapshot() {
+        try {
+            if (this.respawnVillagerNbt == null) return null;
+            if (this.respawnVillagerNbt.contains("ForgeData", CompoundTag.TAG_COMPOUND)) return this.respawnVillagerNbt.getCompound("ForgeData");
+            if (this.respawnVillagerNbt.contains("NeoForgeData", CompoundTag.TAG_COMPOUND)) return this.respawnVillagerNbt.getCompound("NeoForgeData");
+            if (this.respawnVillagerNbt.contains("PersistentData", CompoundTag.TAG_COMPOUND)) return this.respawnVillagerNbt.getCompound("PersistentData");
+            return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     private void trySendStatsQuery(boolean debounced) {
         try {
             long now = System.currentTimeMillis();
@@ -491,10 +632,27 @@ public final class VillagerInfoScreen extends Screen {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null || mc.level == null) return;
 
-            Entity e = mc.level.getEntity(this.villagerEntityId);
-            if (e instanceof LivingEntity le) {
-                this.cachedEntity = le;
+            if (respawnMode) {
+                // Build a client-side dummy entity from the snapshot NBT for rendering.
+                if (this.cachedEntity == null && this.respawnVillagerNbt != null) {
+                    try {
+                        Villager v = net.minecraft.world.entity.EntityType.VILLAGER.create(mc.level);
+                        if (v != null) {
+                            CompoundTag tag = this.respawnVillagerNbt.copy();
+                            tag.remove("UUID");
+                            tag.remove("Pos");
+                            tag.remove("Motion");
+                            tag.remove("Rotation");
+                            v.load(tag);
+                            this.cachedEntity = v;
+                        }
+                    } catch (Throwable ignored) {}
+                }
+                return;
             }
+
+            Entity e = mc.level.getEntity(this.villagerEntityId);
+            if (e instanceof LivingEntity le) this.cachedEntity = le;
         } catch (Throwable t) {
             // soft
         }
@@ -614,6 +772,15 @@ public final class VillagerInfoScreen extends Screen {
         // Render widgets (tab icons + Back button)
         super.render(gg, mouseX, mouseY, partialTick);
 
+        // Respawn button emerald icon
+        if (respawnMode && respawnBtn != null) {
+            try {
+                int ix = respawnBtn.getX() + respawnBtn.getWidth() - 16 - 3;
+                int iy = respawnBtn.getY() + 1;
+                gg.renderItem(new ItemStack(Items.EMERALD), ix, iy);
+            } catch (Throwable ignored) {}
+        }
+
         // Tooltips last so they draw above everything else.
         // Never depend on focus state (only mouse bounds), otherwise tooltips can "stick" after click.
         if (!tooltipDrawn) {
@@ -666,6 +833,15 @@ public final class VillagerInfoScreen extends Screen {
             if (backBtn != null) {
                 backBtn.setPosition(left + PANEL_W - 58 - PAD, top + PAD);
             }
+            if (respawnBtn != null) {
+                int respawnW = respawnBtn.getWidth();
+                int backX = left + PANEL_W - 58 - PAD;
+                int respawnX = backX - 4 - respawnW;
+                if (respawnX < left + PAD) {
+                    respawnX = left + PAD;
+                }
+                respawnBtn.setPosition(respawnX, top + PAD);
+            }
 
             int groupW = TAB_BTN_SIZE * 4 + TAB_BTN_GAP * 3;
             int tabsX = left + (PANEL_W - groupW) / 2;
@@ -703,7 +879,7 @@ public final class VillagerInfoScreen extends Screen {
             if (!force && now < this.nextOverviewRebuildAtTick && wrapW == this.overviewLastWrapWidth) return;
 
             this.overviewLinesRaw = buildOverviewLines();
-            OverviewWrap wrap = wrapOverview(mc.font, this.overviewLinesRaw, wrapW, this.villagerEntityId);
+            OverviewWrap wrap = wrapOverview(mc.font, this.overviewLinesRaw, wrapW, this.villagerEntityId, this.respawnMode ? this.respawnTrades : null);
             this.overviewLinesWrapped = wrap.lines;
             this.overviewTradeRowsWrapped = wrap.tradeRows;
             this.overviewLastWrapWidth = wrapW;
@@ -925,16 +1101,18 @@ public final class VillagerInfoScreen extends Screen {
     private static final class TradeRow {
         final int villagerEntityId;
         final int startIndex;
+        final PacketVillagerTradesData inlineTrades;
 
-        TradeRow(int villagerEntityId, int startIndex) {
+        TradeRow(int villagerEntityId, int startIndex, PacketVillagerTradesData inlineTrades) {
             this.villagerEntityId = villagerEntityId;
             this.startIndex = startIndex;
+            this.inlineTrades = inlineTrades;
         }
     }
 
     private record OverviewWrap(List<FormattedCharSequence> lines, List<TradeRow> tradeRows) {}
 
-    private static OverviewWrap wrapOverview(Font font, List<Component> raw, int maxWidth, int villagerEntityId) {
+    private static OverviewWrap wrapOverview(Font font, List<Component> raw, int maxWidth, int villagerEntityId, PacketVillagerTradesData inlineTrades) {
         try {
             if (font == null) return new OverviewWrap(List.of(), List.of());
             if (raw == null || raw.isEmpty()) return new OverviewWrap(List.of(), List.of());
@@ -954,7 +1132,7 @@ public final class VillagerInfoScreen extends Screen {
                     try { start = Integer.parseInt(s.substring(OVERVIEW_TRADE_ROW_PREFIX.length()).trim()); } catch (Throwable ignored) { start = 0; }
 
                     out.add(FormattedCharSequence.EMPTY);
-                    meta.add(new TradeRow(villagerEntityId, start));
+                    meta.add(new TradeRow(villagerEntityId, start, inlineTrades));
                     continue;
                 }
 
@@ -980,7 +1158,7 @@ public final class VillagerInfoScreen extends Screen {
         try {
             if (gg == null || tr == null) return false;
 
-            PacketVillagerTradesData snap = ClientVillagerTradesCache.get(tr.villagerEntityId);
+            PacketVillagerTradesData snap = tr.inlineTrades != null ? tr.inlineTrades : ClientVillagerTradesCache.get(tr.villagerEntityId);
             if (snap == null || !snap.ok()) return false;
 
             List<ItemStack> results = snap.results();
@@ -1158,6 +1336,9 @@ public final class VillagerInfoScreen extends Screen {
         out.add(Component.literal("Attributes").withStyle(ChatFormatting.YELLOW));
 
         try {
+            if (respawnMode) {
+                appendAttributesFromSnapshotNbt(out);
+            } else {
             PacketVillagerAttributesData snap = ClientVillagerAttributesCache.get(this.villagerEntityId);
             if (snap == null) {
                 out.add(Component.literal("(syncing…)").withStyle(ChatFormatting.GRAY));
@@ -1192,6 +1373,7 @@ public final class VillagerInfoScreen extends Screen {
                     }
                 }
             }
+            }
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen attribute scan failed (soft): {}", t.toString());
             out.add(Component.literal("(attribute scan failed)").withStyle(ChatFormatting.RED));
@@ -1208,7 +1390,7 @@ public final class VillagerInfoScreen extends Screen {
         try {
             if (out == null) return;
 
-            PacketVillagerTradesData snap = ClientVillagerTradesCache.get(this.villagerEntityId);
+            PacketVillagerTradesData snap = respawnMode ? this.respawnTrades : ClientVillagerTradesCache.get(this.villagerEntityId);
             if (snap == null) {
                 out.add(Component.literal("(syncing...)").withStyle(ChatFormatting.GRAY));
                 return;
@@ -1237,6 +1419,181 @@ public final class VillagerInfoScreen extends Screen {
         }
     }
 
+    private void appendAttributesFromSnapshotNbt(List<Component> out) {
+        try {
+            if (out == null) return;
+            if (this.respawnVillagerNbt == null) {
+                out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
+                return;
+            }
+
+            String attrKey = null;
+            if (this.respawnVillagerNbt.contains("Attributes", net.minecraft.nbt.Tag.TAG_LIST)) attrKey = "Attributes";
+            else if (this.respawnVillagerNbt.contains("attributes", net.minecraft.nbt.Tag.TAG_LIST)) attrKey = "attributes";
+
+            ListTag attrs = (attrKey == null) ? null : this.respawnVillagerNbt.getList(attrKey, CompoundTag.TAG_COMPOUND);
+            if (attrs == null || attrs.isEmpty()) {
+                if (this.hasStats) {
+                    appendDerivedAttributesFromStats(out);
+                } else {
+                    out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
+                }
+                return;
+            }
+
+            for (int i = 0; i < attrs.size() && i < 128; i++) {
+                CompoundTag a = attrs.getCompound(i);
+                if (a == null) continue;
+                String nameId = a.getString("Name");
+                if (nameId == null || nameId.isEmpty()) continue;
+
+                ResourceLocation id = ResourceLocation.tryParse(nameId);
+                Component name;
+                try {
+                    var attr = (id == null) ? null : BuiltInRegistries.ATTRIBUTE.get(id);
+                    if (attr != null) name = Component.translatable(attr.getDescriptionId());
+                    else name = Component.literal(nameId);
+                } catch (Throwable ignored) {
+                    name = Component.literal(nameId);
+                }
+
+                double base = a.getDouble("Base");
+                double val = computeAttributeValueFromNbt(a);
+                out.add(Component.literal("• ").append(name).append(Component.literal(": " + formatPlain3(val) + " (base " + formatPlain3(base) + ")").withStyle(ChatFormatting.DARK_GRAY)));
+            }
+        } catch (Throwable ignored) {
+            try { out.add(Component.literal("(attribute scan failed)").withStyle(ChatFormatting.RED)); } catch (Throwable ignored2) {}
+        }
+    }
+
+    private void appendDerivedAttributesFromStats(List<Component> out) {
+        try {
+            if (out == null) return;
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg == null) {
+                out.add(Component.literal("(syncing...)").withStyle(ChatFormatting.GRAY));
+                return;
+            }
+
+            Double hp = pointsToVitalityHpDeltaFromServerConfig(this.vitality);
+            Double spd = pointsToAgilityDeltaFromServerConfig(this.agility);
+            Double dmg = pointsToStrengthDeltaFromServerConfig(this.strength);
+            Double arm = pointsToArmorDeltaFromServerConfig(this.armor);
+
+            if (hp != null) out.add(Component.literal("• ").append(Component.translatable("attribute.name.generic.max_health"))
+                    .append(Component.literal(": " + formatPlain3(20.0 + hp) + " (base 20.0)").withStyle(ChatFormatting.DARK_GRAY)));
+            if (spd != null) out.add(Component.literal("• ").append(Component.translatable("attribute.name.generic.movement_speed"))
+                    .append(Component.literal(": " + formatPlain3(0.5 + spd) + " (base 0.5)").withStyle(ChatFormatting.DARK_GRAY)));
+            if (dmg != null) out.add(Component.literal("• ").append(Component.translatable("attribute.name.generic.attack_damage"))
+                    .append(Component.literal(": " + formatPlain3(1.0 + dmg) + " (base 1.0)").withStyle(ChatFormatting.DARK_GRAY)));
+            if (arm != null) out.add(Component.literal("• ").append(Component.translatable("attribute.name.generic.armor"))
+                    .append(Component.literal(": " + formatPlain3(0.0 + arm) + " (base 0.0)").withStyle(ChatFormatting.DARK_GRAY)));
+        } catch (Throwable ignored) {
+            out.add(Component.literal("(derived attributes failed)").withStyle(ChatFormatting.GRAY));
+        }
+    }
+
+    private static double computeAttributeValueFromNbt(CompoundTag attrTag) {
+        try {
+            if (attrTag == null) return 0.0;
+            double base = attrTag.getDouble("Base");
+            if (Double.isNaN(base) || Double.isInfinite(base)) base = 0.0;
+            double value = base;
+
+            if (!attrTag.contains("Modifiers", CompoundTag.TAG_LIST)) return value;
+            ListTag mods = attrTag.getList("Modifiers", CompoundTag.TAG_COMPOUND);
+
+            // operation: 0 ADD_VALUE, 1 ADD_MULTIPLIED_BASE, 2 ADD_MULTIPLIED_TOTAL
+            for (int i = 0; i < mods.size(); i++) {
+                CompoundTag m = mods.getCompound(i);
+                if (m == null) continue;
+                if (m.getInt("Operation") != 0) continue;
+                double amt = m.getDouble("Amount");
+                if (Double.isNaN(amt) || Double.isInfinite(amt)) continue;
+                value += amt;
+            }
+            for (int i = 0; i < mods.size(); i++) {
+                CompoundTag m = mods.getCompound(i);
+                if (m == null) continue;
+                if (m.getInt("Operation") != 1) continue;
+                double amt = m.getDouble("Amount");
+                if (Double.isNaN(amt) || Double.isInfinite(amt)) continue;
+                value += base * amt;
+            }
+            for (int i = 0; i < mods.size(); i++) {
+                CompoundTag m = mods.getCompound(i);
+                if (m == null) continue;
+                if (m.getInt("Operation") != 2) continue;
+                double amt = m.getDouble("Amount");
+                if (Double.isNaN(amt) || Double.isInfinite(amt)) continue;
+                value *= 1.0 + amt;
+            }
+
+            if (Double.isNaN(value) || Double.isInfinite(value)) return 0.0;
+            return value;
+        } catch (Throwable ignored) {
+            return 0.0;
+        }
+    }
+
+    private static PacketVillagerTradesData decodeTradesFromNbt(CompoundTag villagerNbt) {
+        try {
+            if (villagerNbt == null) return new PacketVillagerTradesData(-1, false, 0L, List.of());
+
+            // lock mask is in persistent data: (ForgeData|NeoForgeData) -> villageroverhaul -> locked_trade_mask
+            long mask = 0L;
+            try {
+                CompoundTag pd = null;
+                if (villagerNbt.contains("ForgeData", CompoundTag.TAG_COMPOUND)) pd = villagerNbt.getCompound("ForgeData");
+                else if (villagerNbt.contains("NeoForgeData", CompoundTag.TAG_COMPOUND)) pd = villagerNbt.getCompound("NeoForgeData");
+                else if (villagerNbt.contains("PersistentData", CompoundTag.TAG_COMPOUND)) pd = villagerNbt.getCompound("PersistentData");
+
+                if (pd != null && pd.contains("villageroverhaul", CompoundTag.TAG_COMPOUND)) {
+                    CompoundTag root = pd.getCompound("villageroverhaul");
+                    if (root.contains("locked_trade_mask", CompoundTag.TAG_LONG)) mask = root.getLong("locked_trade_mask");
+                }
+            } catch (Throwable ignored) {}
+
+            if (!villagerNbt.contains("Offers", CompoundTag.TAG_COMPOUND)) {
+                return new PacketVillagerTradesData(-1, true, mask, List.of());
+            }
+
+            CompoundTag offersTag = villagerNbt.getCompound("Offers");
+            ListTag recipes = offersTag.contains("Recipes", CompoundTag.TAG_LIST)
+                    ? offersTag.getList("Recipes", CompoundTag.TAG_COMPOUND)
+                    : new ListTag();
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.level == null) return new PacketVillagerTradesData(-1, true, mask, List.of());
+
+            MerchantOffers offers = new MerchantOffers();
+            try {
+                var ops = RegistryOps.create(NbtOps.INSTANCE, mc.level.registryAccess());
+                int n = Math.min(64, recipes.size());
+                for (int i = 0; i < n; i++) {
+                    CompoundTag recipeWrap = recipes.getCompound(i);
+                    if (recipeWrap == null) continue;
+                    var res = MerchantOffer.CODEC.parse(ops, recipeWrap);
+                    res.result().ifPresent(offers::add);
+                }
+            } catch (Throwable ignored) {}
+
+            List<ItemStack> results = new ArrayList<>();
+            int n = Math.min(64, offers.size());
+            for (int i = 0; i < n; i++) {
+                try {
+                    MerchantOffer o = offers.get(i);
+                    if (o == null) continue;
+                    results.add(o.getResult().copy());
+                } catch (Throwable ignored) {}
+            }
+
+            return new PacketVillagerTradesData(-1, true, mask, results);
+        } catch (Throwable ignored) {
+            return new PacketVillagerTradesData(-1, false, 0L, List.of());
+        }
+    }
+
     private List<Component> buildHistoryLines() {
         List<Component> out = new ArrayList<>();
         LivingEntity le = this.cachedEntity;
@@ -1247,48 +1604,99 @@ public final class VillagerInfoScreen extends Screen {
             return out;
         }
 
-        PacketVillagerHistoryData snap = ClientVillagerHistoryCache.get(this.villagerEntityId);
-        if (snap == null) {
-            out.add(Component.literal("(syncing...)").withStyle(ChatFormatting.GRAY));
-            return out;
-        }
-        if (!snap.ok()) {
-            out.add(Component.literal("(unavailable)").withStyle(ChatFormatting.GRAY));
-            return out;
+        PacketVillagerHistoryData snap = null;
+        if (!respawnMode) {
+            snap = ClientVillagerHistoryCache.get(this.villagerEntityId);
+            if (snap == null) {
+                out.add(Component.literal("(syncing...)").withStyle(ChatFormatting.GRAY));
+                return out;
+            }
+            if (!snap.ok()) {
+                out.add(Component.literal("(unavailable)").withStyle(ChatFormatting.GRAY));
+                return out;
+            }
         }
 
         out.add(Component.literal("Combat").withStyle(ChatFormatting.YELLOW));
-        out.add(Component.literal("Kills: ").append(Component.literal(String.valueOf(snap.kills())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Blocks: ").append(Component.literal(String.valueOf(snap.blocksSuccessful())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Hits taken: ").append(Component.literal(String.valueOf(snap.hitsTaken())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Damage taken: ").append(Component.literal(formatPlain1(snap.damageTakenTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Hits dealt: ").append(Component.literal(String.valueOf(snap.hitsDealt())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Damage dealt: ").append(Component.literal(formatPlain1(snap.damageDealtTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Food eaten: ").append(Component.literal(String.valueOf(snap.foodEaten())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Healing from food: ").append(Component.literal(formatPlain1(snap.foodHealTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+        if (respawnMode) {
+            CompoundTag hist = getHistoryTagFromSnapshot();
+            out.add(Component.literal("Died: ").append(Component.literal(String.valueOf(Math.max(0, respawnDeaths))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Kills: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("kills")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Blocks: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("blocks")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Hits taken: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("hits_taken")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Damage taken: ").append(Component.literal(formatPlain1(hist.getFloat("damage_taken_total")) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Hits dealt: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("hits_dealt")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Damage dealt: ").append(Component.literal(formatPlain1(hist.getFloat("damage_dealt_total")) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Food eaten: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("food_eaten")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Healing from food: ").append(Component.literal(formatPlain1(hist.getFloat("food_heal_total")) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+        } else {
+            out.add(Component.literal("Kills: ").append(Component.literal(String.valueOf(snap.kills())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Blocks: ").append(Component.literal(String.valueOf(snap.blocksSuccessful())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Died: ").append(Component.literal(String.valueOf(snap.deaths())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Hits taken: ").append(Component.literal(String.valueOf(snap.hitsTaken())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Damage taken: ").append(Component.literal(formatPlain1(snap.damageTakenTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Hits dealt: ").append(Component.literal(String.valueOf(snap.hitsDealt())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Damage dealt: ").append(Component.literal(formatPlain1(snap.damageDealtTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Food eaten: ").append(Component.literal(String.valueOf(snap.foodEaten())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Healing from food: ").append(Component.literal(formatPlain1(snap.foodHealTotal()) + " HP").withStyle(ChatFormatting.DARK_GRAY)));
+        }
 
         out.add(Component.literal(""));
         out.add(Component.literal("Trading").withStyle(ChatFormatting.YELLOW));
-        out.add(Component.literal("Trades completed: ").append(Component.literal(String.valueOf(snap.tradesCompleted())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Merchant menus opened: ").append(Component.literal(String.valueOf(snap.merchantMenuOpens())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Manual rerolls: ").append(Component.literal(String.valueOf(snap.manualRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Auto-search rerolls: ").append(Component.literal(String.valueOf(snap.autoRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Trade locks toggled: ").append(Component.literal(String.valueOf(snap.tradeLocksToggled())).withStyle(ChatFormatting.DARK_GRAY)));
+        if (respawnMode) {
+            CompoundTag hist = getHistoryTagFromSnapshot();
+            out.add(Component.literal("Trades completed: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("trades_completed")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Merchant menus opened: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("merchant_menu_opens")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Manual rerolls: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("manual_rerolls")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Auto-search rerolls: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("auto_rerolls")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Trade locks toggled: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("trade_lock_toggles")))).withStyle(ChatFormatting.DARK_GRAY)));
+        } else {
+            out.add(Component.literal("Trades completed: ").append(Component.literal(String.valueOf(snap.tradesCompleted())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Merchant menus opened: ").append(Component.literal(String.valueOf(snap.merchantMenuOpens())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Manual rerolls: ").append(Component.literal(String.valueOf(snap.manualRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Auto-search rerolls: ").append(Component.literal(String.valueOf(snap.autoRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Trade locks toggled: ").append(Component.literal(String.valueOf(snap.tradeLocksToggled())).withStyle(ChatFormatting.DARK_GRAY)));
+        }
 
         out.add(Component.literal(""));
         out.add(Component.literal("Travel & Time").withStyle(ChatFormatting.YELLOW));
-        double distBlocks = snap.distanceMilliBlocks() / 1000.0;
-        out.add(Component.literal("Distance traveled: ").append(Component.literal(formatPlain1(distBlocks) + " blocks").withStyle(ChatFormatting.DARK_GRAY)));
-        long ticks = snap.ticksAlive();
-        double minutes = ticks / 20.0 / 60.0;
-        out.add(Component.literal("Time alive: ").append(Component.literal(formatPlain1(minutes) + " min (" + ticks + " ticks)").withStyle(ChatFormatting.DARK_GRAY)));
+        if (respawnMode) {
+            CompoundTag hist = getHistoryTagFromSnapshot();
+            double distBlocks = safeLong(hist.getLong("distance_milliblocks")) / 1000.0;
+            out.add(Component.literal("Distance traveled: ").append(Component.literal(formatPlain1(distBlocks) + " blocks").withStyle(ChatFormatting.DARK_GRAY)));
+            long ticks = safeLong(hist.getLong("ticks_alive"));
+            double minutes = ticks / 20.0 / 60.0;
+            out.add(Component.literal("Time alive: ").append(Component.literal(formatPlain1(minutes) + " min (" + ticks + " ticks)").withStyle(ChatFormatting.DARK_GRAY)));
+        } else {
+            double distBlocks = snap.distanceMilliBlocks() / 1000.0;
+            out.add(Component.literal("Distance traveled: ").append(Component.literal(formatPlain1(distBlocks) + " blocks").withStyle(ChatFormatting.DARK_GRAY)));
+            long ticks = snap.ticksAlive();
+            double minutes = ticks / 20.0 / 60.0;
+            out.add(Component.literal("Time alive: ").append(Component.literal(formatPlain1(minutes) + " min (" + ticks + " ticks)").withStyle(ChatFormatting.DARK_GRAY)));
+        }
 
         out.add(Component.literal(""));
         out.add(Component.literal("VillagerOverhaul").withStyle(ChatFormatting.YELLOW));
         out.add(Component.literal("Combat loadout equipped: ").append(Component.literal("(tracked indirectly)").withStyle(ChatFormatting.DARK_GRAY)));
-        out.add(Component.literal("Patrol routes recorded: ").append(Component.literal(String.valueOf(snap.patrolRoutesRecorded())).withStyle(ChatFormatting.DARK_GRAY)));
+        if (respawnMode) {
+            CompoundTag hist = getHistoryTagFromSnapshot();
+            out.add(Component.literal("Patrol routes recorded: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("patrol_routes_recorded")))).withStyle(ChatFormatting.DARK_GRAY)));
+        } else {
+            out.add(Component.literal("Patrol routes recorded: ").append(Component.literal(String.valueOf(snap.patrolRoutesRecorded())).withStyle(ChatFormatting.DARK_GRAY)));
+        }
 
         return out;
+    }
+
+    private CompoundTag getHistoryTagFromSnapshot() {
+        try {
+            if (this.respawnVillagerNbt == null) return new CompoundTag();
+            CompoundTag pd = getPersistentDataFromSnapshot();
+            if (pd == null || !pd.contains("ezvr_history", CompoundTag.TAG_COMPOUND)) return new CompoundTag();
+            return pd.getCompound("ezvr_history");
+        } catch (Throwable ignored) {
+            return new CompoundTag();
+        }
     }
 
     private static String formatPlain1(double v) {
@@ -1296,6 +1704,14 @@ public final class VillagerInfoScreen extends Screen {
         double r = Math.round(x * 10.0) / 10.0;
         if (Math.abs(r) < 0.05) r = 0.0;
         return String.valueOf(r);
+    }
+
+    private static int safeInt(int v) {
+        return v < 0 ? 0 : v;
+    }
+
+    private static long safeLong(long v) {
+        return v < 0L ? 0L : v;
     }
 
     private static String formatPlain3(double v) {

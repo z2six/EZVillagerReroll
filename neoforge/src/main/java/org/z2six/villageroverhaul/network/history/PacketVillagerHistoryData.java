@@ -29,7 +29,8 @@ public record PacketVillagerHistoryData(
         int tradeLocksToggled,
         int patrolRoutesRecorded,
         int merchantMenuOpens,
-        int tradesCompleted
+        int tradesCompleted,
+        int deaths
 ) implements CustomPacketPayload {
 
     public static final Type<PacketVillagerHistoryData> TYPE =
@@ -57,6 +58,7 @@ public record PacketVillagerHistoryData(
                     int patrolRoutesRecorded = 0;
                     int opens = 0;
                     int trades = 0;
+                    int deaths = 0;
 
                     try { id = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { ok = buf.readBoolean(); } catch (Throwable ignored) {}
@@ -77,8 +79,9 @@ public record PacketVillagerHistoryData(
                     try { patrolRoutesRecorded = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { opens = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { trades = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { deaths = buf.readVarInt(); } catch (Throwable ignored) {}
 
-                    return new PacketVillagerHistoryData(id, ok, ticksAlive, dist, foodEaten, heal, blocks, hitsTaken, damageTakenTotal, hitsDealt, damageDealtTotal, kills, manualRerolls, autoRerolls, tradeLocksToggled, patrolRoutesRecorded, opens, trades);
+                    return new PacketVillagerHistoryData(id, ok, ticksAlive, dist, foodEaten, heal, blocks, hitsTaken, damageTakenTotal, hitsDealt, damageDealtTotal, kills, manualRerolls, autoRerolls, tradeLocksToggled, patrolRoutesRecorded, opens, trades, deaths);
                 }
 
                 @Override
@@ -102,11 +105,12 @@ public record PacketVillagerHistoryData(
                     buf.writeVarInt(d.patrolRoutesRecorded());
                     buf.writeVarInt(d.merchantMenuOpens());
                     buf.writeVarInt(d.tradesCompleted());
+                    buf.writeVarInt(d.deaths());
                 }
             };
 
     public static PacketVillagerHistoryData missing(int entityId) {
-        return new PacketVillagerHistoryData(entityId, false, 0L, 0L, 0, 0.0f, 0, 0, 0.0f, 0, 0.0f, 0, 0, 0, 0, 0, 0, 0);
+        return new PacketVillagerHistoryData(entityId, false, 0L, 0L, 0, 0.0f, 0, 0, 0.0f, 0, 0.0f, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     @Override

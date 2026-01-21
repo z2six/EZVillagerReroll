@@ -44,6 +44,8 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
     public int recruitCostMin;
     public int recruitCostMax;
+    public double respawnCostMultiplier;
+    public boolean respawnKeepEquipment;
 
     // combat bounds
     public double vitalityMinHealth;
@@ -113,6 +115,8 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
             p.recruitCostMin = 8;
             p.recruitCostMax = 64;
+            p.respawnCostMultiplier = 2.0;
+            p.respawnKeepEquipment = false;
 
             // combat defaults
             p.vitalityMinHealth = -6.0;
@@ -145,6 +149,11 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.recruitCostMin = Math.max(0, buf.readVarInt()); } catch (Throwable ignored) {}
             try { p.recruitCostMax = Math.max(0, buf.readVarInt()); } catch (Throwable ignored) {}
 
+            // respawn multiplier (append-only, safe to be missing)
+            try { p.respawnCostMultiplier = buf.readDouble(); } catch (Throwable ignored) { p.respawnCostMultiplier = 2.0; }
+            if (Double.isNaN(p.respawnCostMultiplier) || Double.isInfinite(p.respawnCostMultiplier) || p.respawnCostMultiplier < 0.0) {
+                p.respawnCostMultiplier = 0.0;
+            }
             // combat bounds (append-only, safe to be missing)
             try { p.vitalityMinHealth = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.vitalityMaxHealth = buf.readDouble(); } catch (Throwable ignored) {}
@@ -157,6 +166,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
             try { p.armorMin = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.armorMax = buf.readDouble(); } catch (Throwable ignored) {}
+
+            // respawn keep-equipment toggle (append-only)
+            try { p.respawnKeepEquipment = buf.readBoolean(); } catch (Throwable ignored) { p.respawnKeepEquipment = false; }
 
             return p;
         }
@@ -202,6 +214,8 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeVarInt(Math.max(0, p.recruitCostMin));
             buf.writeVarInt(Math.max(0, p.recruitCostMax));
 
+            buf.writeDouble(Math.max(0.0, p.respawnCostMultiplier));
+
             // combat bounds (append-only)
             buf.writeDouble(p.vitalityMinHealth);
             buf.writeDouble(p.vitalityMaxHealth);
@@ -214,6 +228,9 @@ public final class PacketSyncConfig implements CustomPacketPayload {
 
             buf.writeDouble(p.armorMin);
             buf.writeDouble(p.armorMax);
+
+            // respawn keep-equipment toggle (append-only)
+            buf.writeBoolean(p.respawnKeepEquipment);
         }
     };
 

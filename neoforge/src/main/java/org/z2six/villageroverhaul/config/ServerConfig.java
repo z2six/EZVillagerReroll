@@ -44,6 +44,8 @@ public final class ServerConfig {
 
     public static final ModConfigSpec.IntValue RECRUIT_COST_MIN;
     public static final ModConfigSpec.IntValue RECRUIT_COST_MAX;
+    public static final ModConfigSpec.DoubleValue RESPAWN_COST_MULTIPLIER;
+    public static final ModConfigSpec.BooleanValue RESPAWN_KEEP_EQUIPMENT;
 
     // ---------------------------------------------------------------------
     // LIMITS
@@ -221,6 +223,21 @@ public final class ServerConfig {
                         Cost is computed from villager stats and then normalized into [min..max].
                         """)
                         .defineInRange("recruitCostMax", 64, 0, 64_000);
+
+        RESPAWN_COST_MULTIPLIER =
+                B.comment("""
+                        Respawn cost multiplier applied to the villager's recruit cost at death.
+                        respawnCost = recruitCost * respawnCostMultiplier
+                        """)
+                        .defineInRange("respawnCostMultiplier", 2.0, 0.0, 1_000.0);
+
+        RESPAWN_KEEP_EQUIPMENT =
+                B.comment("""
+                        If true, respawned villagers keep their equipped items (hands + armor) from the snapshot.
+                        If false, equipped items are cleared on respawn (default).
+                        Note: inventory and internal mod data is still restored.
+                        """)
+                        .define("respawnKeepEquipment", false);
 
         B.pop();
 
@@ -416,6 +433,8 @@ public final class ServerConfig {
 
     public static int recruitCostMin = 8;
     public static int recruitCostMax = 64;
+    public static double respawnCostMultiplier = 2.0;
+    public static boolean respawnKeepEquipment = false;
 
     public static int cooldownTicks = 100;
     public static int cooldownTicksAuto = 600;
@@ -485,6 +504,15 @@ public final class ServerConfig {
             recruitCostMin = rMin;
             recruitCostMax = rMax;
 
+            double mult = 2.0;
+            try { mult = RESPAWN_COST_MULTIPLIER.get(); } catch (Throwable ignored) { mult = 2.0; }
+            if (Double.isNaN(mult) || Double.isInfinite(mult) || mult < 0.0) mult = 0.0;
+            respawnCostMultiplier = mult;
+
+            boolean keepEq = false;
+            try { keepEq = RESPAWN_KEEP_EQUIPMENT.get(); } catch (Throwable ignored) { keepEq = false; }
+            respawnKeepEquipment = keepEq;
+
             cooldownTicks = Math.max(0, COOLDOWN_TICKS.get());
             cooldownTicksAuto = Math.max(0, COOLDOWN_TICKS_AUTO.get());
             perVillagerDaily = Math.max(0, PER_VILLAGER_DAILY.get());
@@ -547,6 +575,7 @@ public final class ServerConfig {
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
                     recruitCostMin, recruitCostMax,
+                    respawnCostMultiplier,
                     cooldownTicks, cooldownTicksAuto, perVillagerDaily, allowAfterTradeUsed,
                     manualRerollXpPerOffer, autoSearchXpPerOffer,
                     generosityMinPct, generosityMaxPct,
@@ -612,6 +641,7 @@ public final class ServerConfig {
 
         h = 31 * h + recruitCostMin;
         h = 31 * h + recruitCostMax;
+        h = 31 * h + Double.hashCode(respawnCostMultiplier);
 
         h = 31 * h + cooldownTicks;
         h = 31 * h + cooldownTicksAuto;

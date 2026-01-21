@@ -33,6 +33,8 @@ public final class ClientSyncedConfig {
         public int hoarderExtraOffersMin, hoarderExtraOffersMax;
 
         public int recruitCostMin, recruitCostMax;
+        public double respawnCostMultiplier;
+        public boolean respawnKeepEquipment;
 
         // combat bounds
         public double vitalityMinHealth, vitalityMaxHealth;
@@ -62,6 +64,8 @@ public final class ClientSyncedConfig {
                     ", intellect=[" + intellectMinPct + "," + intellectMaxPct + "]" +
                     ", hoarderClamp=[" + hoarderExtraOffersMin + "," + hoarderExtraOffersMax + "]" +
                     ", recruitCost=[" + recruitCostMin + "," + recruitCostMax + "]" +
+                    ", respawnCostMultiplier=" + respawnCostMultiplier +
+                    ", respawnKeepEquipment=" + respawnKeepEquipment +
                     ", vitalityHealth=[" + vitalityMinHealth + "," + vitalityMaxHealth + "]" +
                     ", agilitySpeed=[" + agilityMinSpeed + "," + agilityMaxSpeed + "]" +
                     ", strengthDamage=[" + strengthMinDamage + "," + strengthMaxDamage + "]" +
@@ -118,6 +122,11 @@ public final class ClientSyncedConfig {
             if (rMin > rMax) { int tmp = rMin; rMin = rMax; rMax = tmp; }
             s.recruitCostMin = rMin;
             s.recruitCostMax = rMax;
+
+            double mult = msg.respawnCostMultiplier;
+            if (Double.isNaN(mult) || Double.isInfinite(mult) || mult < 0.0) mult = 0.0;
+            s.respawnCostMultiplier = mult;
+            s.respawnKeepEquipment = msg.respawnKeepEquipment;
 
             // combat bounds (normalize each pair)
             double vMin = msg.vitalityMinHealth, vMax = msg.vitalityMaxHealth;

@@ -5,12 +5,14 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.inventory.MerchantMenu;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -21,17 +23,22 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.recruit.PacketOpenRecruitScreen;
+import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.ServerSync;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
+import org.z2six.villageroverhaul.server.RespawnService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
+
+import java.util.List;
 
 public final class ServerEvents {
 
     private static volatile boolean registered = false;
     private static volatile long lastTickDebugGameTime = -1;
+    private static volatile int lastSyncedCfgHash = Integer.MIN_VALUE;
 
     private ServerEvents() {}
 
@@ -60,6 +67,9 @@ public final class ServerEvents {
 
             // recruit RMB handler
             bus.addListener(ServerEvents::onEntityInteract);
+
+            // respawn anchor RMB handler
+            bus.addListener(ServerEvents::onRightClickBlock);
 
             // villager/merchant stat initialization
             VillagerStatsEvents.register(bus);
@@ -205,6 +215,49 @@ public final class ServerEvents {
         }
     }
 
+    private static void onRightClickBlock(PlayerInteractEvent.RightClickBlock e) {
+        try {
+            if (e == null) return;
+            if (!(e.getEntity() instanceof ServerPlayer sp)) return;
+            if (sp.connection == null) return;
+            if (e.getHand() != InteractionHand.MAIN_HAND) return;
+
+            var level = sp.serverLevel();
+            if (level == null || level.isClientSide()) return;
+
+            var pos = e.getPos();
+            if (pos == null) return;
+            if (level.getBlockState(pos).getBlock() != Blocks.RESPAWN_ANCHOR) return;
+
+            // Require holding an emerald (as requested).
+            ItemStack held = sp.getMainHandItem();
+            if (held == null || held.isEmpty() || !held.is(net.minecraft.world.item.Items.EMERALD)) return;
+
+            List<RespawnSavedData.Snapshot> snaps = RespawnService.listForOwner(sp, level);
+            List<PacketOpenRespawnAnchorScreen.Entry> entries = new java.util.ArrayList<>();
+            for (RespawnSavedData.Snapshot s : snaps) {
+                if (s == null || s.respawnId == null) continue;
+                int cost = RespawnService.computeRespawnCost(s.recruitCostAtDeath);
+                entries.add(new PacketOpenRespawnAnchorScreen.Entry(
+                        s.respawnId,
+                        s.nameJson == null ? "" : s.nameJson,
+                        s.professionId == null ? "" : s.professionId,
+                        cost,
+                        Math.max(0, s.deaths)
+                ));
+            }
+
+            sp.connection.send(new ClientboundCustomPayloadPacket(
+                    new PacketOpenRespawnAnchorScreen(pos.getX(), pos.getY(), pos.getZ(), entries)
+            ));
+
+            e.setCanceled(true);
+            e.setCancellationResult(InteractionResult.SUCCESS);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] onRightClickBlock failed (soft): {}", t.toString());
+        }
+    }
+
     private static void trySendVillagerStatsSnapshot(ServerPlayer sp, AbstractVillager merchant) {
         try {
             if (sp == null || sp.connection == null) return;
@@ -255,6 +308,17 @@ public final class ServerEvents {
                 return;
             }
             if (server == null) return;
+
+            // Hot-sync server config changes to all players (covers server config reload while clients are connected).
+            try {
+                int h = org.z2six.villageroverhaul.config.ServerConfig.cfgHash();
+                if (h != lastSyncedCfgHash) {
+                    lastSyncedCfgHash = h;
+                    for (ServerPlayer sp : server.getPlayerList().getPlayers()) {
+                        try { ServerSync.syncTo(sp); } catch (Throwable ignored) {}
+                    }
+                }
+            } catch (Throwable ignored) {}
 
             try {
                 SearchService.tick(server);
