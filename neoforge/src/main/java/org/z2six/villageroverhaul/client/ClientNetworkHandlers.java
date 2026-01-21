@@ -26,6 +26,7 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
+import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeState;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -721,6 +722,41 @@ public final class ClientNetworkHandlers {
             });
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onRecruitGateData enqueue failed", t);
+        }
+    }
+
+    // ====================
+    // Auto-trade state
+    // ====================
+
+    public static void onAutoTradeState(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketAutoTradeState p) {
+                onAutoTradeState(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onAutoTradeState(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoTradeState(Object) failed", t);
+        }
+    }
+
+    public static void onAutoTradeState(PacketAutoTradeState msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    AutoTradeService.acceptServerState(msg.containerId(), msg.active(), msg.reason());
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] client_state containerId={} active={} reason={}",
+                            msg.containerId(), msg.active(), msg.reason());
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoTradeState failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoTradeState enqueue failed", t);
         }
     }
 

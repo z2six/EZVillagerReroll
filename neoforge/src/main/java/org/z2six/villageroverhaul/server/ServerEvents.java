@@ -31,6 +31,7 @@ import org.z2six.villageroverhaul.server.RespawnService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
+import org.z2six.villageroverhaul.server.AutoTradeServerService;
 
 import java.util.List;
 
@@ -347,6 +348,12 @@ public final class ServerEvents {
             try {
                 VillagerEatTestService.tick(server);
             } catch (Throwable ignored) {}
+
+            try {
+                AutoTradeServerService.tick(server);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] ServerEvents: AutoTradeServerService.tick failed", t);
+            }
 
             try {
                 long gt = server.overworld().getGameTime();

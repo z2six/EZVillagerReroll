@@ -43,6 +43,9 @@ import org.z2six.villageroverhaul.network.trades.PacketTradeLocksQuery;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesData;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
 import org.z2six.villageroverhaul.network.trades.ClientVillagerTradesCache;
+import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStart;
+import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStop;
+import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeState;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnExecute;
@@ -72,6 +75,12 @@ public final class Network {
                     (msg, ctx) -> handleTradeLocksQueryServer(msg, ctx));
             r.playToServer(PacketToggleTradeLock.TYPE, PacketToggleTradeLock.STREAM_CODEC,
                     (msg, ctx) -> handleToggleTradeLockServer(msg, ctx));
+
+            // auto-trade (server-driven)
+            r.playToServer(PacketAutoTradeStart.TYPE, PacketAutoTradeStart.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleAutoTradeStart(msg, ctx)));
+            r.playToServer(PacketAutoTradeStop.TYPE, PacketAutoTradeStop.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleAutoTradeStop(msg, ctx)));
 
             r.playToServer(PacketSearchCatalogQuery.TYPE, PacketSearchCatalogQuery.STREAM_CODEC,
                     (msg, ctx) -> handleSearchCatalogQueryServer(msg, ctx));
@@ -141,6 +150,9 @@ public final class Network {
                     (msg, ctx) -> dispatchToClientHandler("onSyncConfig", msg, ctx));
             r.playToClient(PacketTradeLocks.TYPE, PacketTradeLocks.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTradeLocks", msg, ctx));
+
+            r.playToClient(PacketAutoTradeState.TYPE, PacketAutoTradeState.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onAutoTradeState", msg, ctx));
 
             r.playToClient(PacketSearchCatalogData.TYPE, PacketSearchCatalogData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onSearchCatalogData", msg, ctx));

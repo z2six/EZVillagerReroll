@@ -42,8 +42,11 @@ import org.z2six.villageroverhaul.network.patrol.*;
 import org.z2six.villageroverhaul.network.recruit.*;
 import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
+import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStart;
+import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStop;
 import org.z2six.villageroverhaul.server.CatalogBuilder;
 import org.z2six.villageroverhaul.server.CombatSettingsService;
+import org.z2six.villageroverhaul.server.AutoTradeServerService;
 import org.z2six.villageroverhaul.server.SearchService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 import org.z2six.villageroverhaul.server.RecruitService;
@@ -61,6 +64,34 @@ import java.util.UUID;
 public final class ServerHandlers {
 
     private ServerHandlers() {}
+
+    public static void handleAutoTradeStart(PacketAutoTradeStart msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] start_req player={} containerId={} offerIdx={}",
+                    sp.getGameProfile().getName(), msg.containerId(), msg.offerIndex());
+
+            AutoTradeServerService.start(sp, msg.containerId(), msg.offerIndex());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleAutoTradeStart failed", t);
+        }
+    }
+
+    public static void handleAutoTradeStop(PacketAutoTradeStop msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] stop_req player={} containerId={}",
+                    sp.getGameProfile().getName(), msg.containerId());
+
+            AutoTradeServerService.stop(sp, msg.containerId(), "client_stop");
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleAutoTradeStop failed", t);
+        }
+    }
 
     public static void handleSyncConfigQuery(PacketSyncConfigQuery msg, IPayloadContext ctx) {
         try {

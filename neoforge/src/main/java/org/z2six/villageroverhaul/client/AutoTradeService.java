@@ -6,15 +6,15 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.villageroverhaul.VillagerOverhaul;
-
-import java.lang.reflect.Method;
+import org.z2six.villageroverhaul.client.ClientNetwork;
+import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStart;
+import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStop;
 
 /**
  * Client-only “spam sell” automation for MerchantScreen.
@@ -28,16 +28,9 @@ import java.lang.reflect.Method;
  */
 public final class AutoTradeService {
 
-    private static final int RESULT_SLOT_INDEX = 2; // MerchantMenu output slot
-    private static final int CLICK_EVERY_TICKS = 1; // 20 TPS => 20 trades/sec
-    private static final int STALL_TICKS = 40; // stop after 2s with no progress
     private static final int MAX_RUNTIME_TICKS = 20 * 30; // safety: 30s
 
     private static State ACTIVE;
-
-    private static Method HANDLE_BUTTON_CLICK;
-    private static Method MENU_SET_SELECTION_HINT;
-    private static Method MENU_TRY_MOVE_ITEMS;
 
     private static final class State {
         final int containerId;
@@ -45,11 +38,7 @@ public final class AutoTradeService {
         final long startedAtMs;
 
         int ticks;
-        int ticksSinceProgress;
-        int tradesObserved;
-        int lastOfferUses = -1;
-        int lastInvHash = 0;
-        String stopReason = "";
+        String lastReason = "";
 
         private State(int containerId, int offerIndex) {
             this.containerId = containerId;
@@ -95,11 +84,12 @@ public final class AutoTradeService {
             }
 
             ACTIVE = new State(cid, absoluteOfferIndex);
+            ACTIVE.lastReason = "start_client";
 
-            // Try selecting once immediately.
-            ensureOfferSelected(menu, absoluteOfferIndex);
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] client_start containerId={} offerIdx={}", cid, absoluteOfferIndex);
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoTrade started (containerId={} offerIdx={})", cid, absoluteOfferIndex);
+            // Server-driven execution.
+            ClientNetwork.sendToServer(new PacketAutoTradeStart(cid, absoluteOfferIndex));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] AutoTrade start failed", t);
             ACTIVE = null;
@@ -109,8 +99,12 @@ public final class AutoTradeService {
     public static void stop(String reason) {
         try {
             if (ACTIVE == null) return;
-            ACTIVE.stopReason = reason == null ? "" : reason;
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoTrade stopped (reason={})", ACTIVE.stopReason);
+            String r = reason == null ? "" : reason;
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] client_stop_req containerId={} reason={}", ACTIVE.containerId, r);
+
+            try {
+                ClientNetwork.sendToServer(new PacketAutoTradeStop(ACTIVE.containerId));
+            } catch (Throwable ignored) {}
         } catch (Throwable ignored) {
         } finally {
             ACTIVE = null;
@@ -150,64 +144,6 @@ public final class AutoTradeService {
                 return;
             }
 
-            MerchantOffer offer = safeGetOffer(menu.getOffers(), st.offerIndex);
-            if (offer == null) {
-                stop("offer_missing");
-                return;
-            }
-
-            ItemStack out = ItemStack.EMPTY;
-            try { out = offer.getResult(); } catch (Throwable ignored) {}
-            if (out == null) out = ItemStack.EMPTY;
-            if (!out.is(Items.EMERALD)) {
-                stop("not_sell_offer");
-                return;
-            }
-
-            // Stop if offer cannot be used anymore.
-            try {
-                Boolean outOfStock = ezvr$invokeBoolean(offer, "isOutOfStock");
-                if (Boolean.TRUE.equals(outOfStock)) {
-                    stop("out_of_stock");
-                    return;
-                }
-            } catch (Throwable ignored) {}
-
-            // Progress detection (best-effort): offer uses or inventory hash changes.
-            boolean progressed = false;
-            int usesNow = -1;
-            try { usesNow = offer.getUses(); } catch (Throwable ignored) {}
-            if (usesNow >= 0 && st.lastOfferUses >= 0 && usesNow != st.lastOfferUses) {
-                progressed = true;
-                st.tradesObserved++;
-            }
-            st.lastOfferUses = usesNow;
-
-            int invHashNow = computeMenuInvHash(menu);
-            if (st.lastInvHash != 0 && invHashNow != st.lastInvHash) {
-                progressed = true;
-            }
-            st.lastInvHash = invHashNow;
-
-            if (progressed) {
-                st.ticksSinceProgress = 0;
-            } else {
-                st.ticksSinceProgress++;
-            }
-
-            if (st.ticksSinceProgress > STALL_TICKS) {
-                stop("stalled");
-                return;
-            }
-
-            if ((st.ticks % CLICK_EVERY_TICKS) != 0) return;
-
-            // Ensure offer selection + inputs.
-            ensureOfferSelected(menu, st.offerIndex);
-
-            // Execute trade by shift-clicking output slot.
-            mc.gameMode.handleInventoryMouseClick(menu.containerId, RESULT_SLOT_INDEX, 0, ClickType.QUICK_MOVE, mc.player);
-
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] AutoTrade tick failed", t);
             stop("error");
@@ -241,86 +177,6 @@ public final class AutoTradeService {
             if (offers == null) return null;
             if (idx < 0 || idx >= offers.size()) return null;
             return offers.get(idx);
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static void ensureOfferSelected(MerchantMenu menu, int offerIdx) {
-        try {
-            if (menu == null) return;
-
-            // Client-side selection hint so UI highlights correct offer.
-            tryInvoke(menu, "setSelectionHint", new Class<?>[]{int.class}, new Object[]{offerIdx}, /*cache=*/1);
-
-            // Move inputs from inventory into input slots (vanilla behavior).
-            tryInvoke(menu, "tryMoveItems", new Class<?>[]{int.class}, new Object[]{offerIdx}, /*cache=*/2);
-
-            // Notify server using the vanilla container button click packet.
-            Minecraft mc = Minecraft.getInstance();
-            if (mc == null || mc.gameMode == null) return;
-            tryInvoke(mc.gameMode, "handleInventoryButtonClick", new Class<?>[]{int.class, int.class}, new Object[]{menu.containerId, offerIdx}, /*cache=*/0);
-        } catch (Throwable ignored) {}
-    }
-
-    /**
-     * cacheId: 0=gameMode.handleInventoryButtonClick, 1=menu.setSelectionHint, 2=menu.tryMoveItems
-     */
-    private static void tryInvoke(Object target, String name, Class<?>[] paramTypes, Object[] args, int cacheId) {
-        try {
-            if (target == null) return;
-
-            Method m;
-            if (cacheId == 0) m = HANDLE_BUTTON_CLICK;
-            else if (cacheId == 1) m = MENU_SET_SELECTION_HINT;
-            else m = MENU_TRY_MOVE_ITEMS;
-
-            if (m == null || m.getDeclaringClass() != target.getClass()) {
-                m = target.getClass().getMethod(name, paramTypes);
-                m.setAccessible(true);
-                if (cacheId == 0) HANDLE_BUTTON_CLICK = m;
-                else if (cacheId == 1) MENU_SET_SELECTION_HINT = m;
-                else MENU_TRY_MOVE_ITEMS = m;
-            }
-
-            m.invoke(target, args);
-        } catch (Throwable ignored) {}
-    }
-
-    private static int computeMenuInvHash(MerchantMenu menu) {
-        try {
-            // Hash of input slots (0,1) + result slot (2)
-            ItemStack a = ItemStack.EMPTY, b = ItemStack.EMPTY, c = ItemStack.EMPTY;
-            try { a = menu.getSlot(0).getItem(); } catch (Throwable ignored) {}
-            try { b = menu.getSlot(1).getItem(); } catch (Throwable ignored) {}
-            try { c = menu.getSlot(2).getItem(); } catch (Throwable ignored) {}
-
-            int h = 17;
-            h = 31 * h + itemHash(a);
-            h = 31 * h + itemHash(b);
-            h = 31 * h + itemHash(c);
-            return h;
-        } catch (Throwable t) {
-            return 0;
-        }
-    }
-
-    private static int itemHash(ItemStack s) {
-        try {
-            if (s == null || s.isEmpty()) return 0;
-            return (System.identityHashCode(s.getItem()) * 31) ^ s.getCount();
-        } catch (Throwable t) {
-            return 0;
-        }
-    }
-
-    private static Boolean ezvr$invokeBoolean(Object target, String methodName) {
-        try {
-            if (target == null || methodName == null) return null;
-            Method m = target.getClass().getMethod(methodName);
-            m.setAccessible(true);
-            Object r = m.invoke(target);
-            return (r instanceof Boolean b) ? b : null;
         } catch (Throwable t) {
             return null;
         }
@@ -369,5 +225,25 @@ public final class AutoTradeService {
         } catch (Throwable t) {
             return 0;
         }
+    }
+
+    public static void acceptServerState(int containerId, boolean active, String reason) {
+        try {
+            String r = reason == null ? "" : reason;
+
+            if (!active) {
+                if (ACTIVE != null && ACTIVE.containerId == containerId) {
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] client_stop containerId={} reason={}", containerId, r);
+                    ACTIVE = null;
+                }
+                return;
+            }
+
+            if (ACTIVE == null || ACTIVE.containerId != containerId) {
+                // If server says active but our client didn't start (edge case), still show overlay.
+                ACTIVE = new State(containerId, -1);
+            }
+            ACTIVE.lastReason = r;
+        } catch (Throwable ignored) {}
     }
 }
