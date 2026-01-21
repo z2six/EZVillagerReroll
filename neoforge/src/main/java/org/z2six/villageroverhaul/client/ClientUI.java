@@ -115,10 +115,12 @@ public final class ClientUI {
     private static final class RecruitStateSnap {
         final boolean recruited;
         final boolean canUseControls; // owner == this player
+        final String recruitedByName;
         final long atMs;
-        RecruitStateSnap(boolean recruited, boolean canUseControls, long atMs) {
+        RecruitStateSnap(boolean recruited, boolean canUseControls, String recruitedByName, long atMs) {
             this.recruited = recruited;
             this.canUseControls = canUseControls;
+            this.recruitedByName = recruitedByName == null ? "" : recruitedByName;
             this.atMs = atMs;
         }
     }
@@ -225,7 +227,8 @@ public final class ClientUI {
             // Cache recruited state only; ownership defaults to false until we get RecruitGateData.
             RecruitStateSnap prev = RECRUIT_STATE.get(id);
             boolean canUse = prev != null && prev.canUseControls;
-            RECRUIT_STATE.put(id, new RecruitStateSnap(p.alreadyRecruited(), canUse, System.currentTimeMillis()));
+            String ownerName = prev != null ? prev.recruitedByName : "";
+            RECRUIT_STATE.put(id, new RecruitStateSnap(p.alreadyRecruited(), canUse, ownerName, System.currentTimeMillis()));
         } catch (Throwable ignored) {}
     }
 
@@ -2281,8 +2284,18 @@ public final class ClientUI {
                 return;
             }
 
-            RECRUIT_STATE.put(id, new RecruitStateSnap(p.recruited(), p.canUseControls(), System.currentTimeMillis()));
+            RECRUIT_STATE.put(id, new RecruitStateSnap(p.recruited(), p.canUseControls(), p.recruitedByName(), System.currentTimeMillis()));
         } catch (Throwable ignored) {}
+    }
+
+    public static String getRecruiterNameForVillager(int villagerEntityId) {
+        try {
+            RecruitStateSnap snap = RECRUIT_STATE.get(villagerEntityId);
+            if (snap == null) return "";
+            return snap.recruitedByName == null ? "" : snap.recruitedByName;
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     private static void onClientTickPost(final net.neoforged.neoforge.client.event.ClientTickEvent.Post e) {

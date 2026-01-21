@@ -39,6 +39,7 @@ import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesQuery;
 import org.z2six.villageroverhaul.network.history.ClientVillagerHistoryCache;
 import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryData;
 import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryQuery;
+import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.network.trades.ClientVillagerTradesCache;
@@ -288,6 +289,11 @@ public final class VillagerInfoScreen extends Screen {
 
         // Ask server to resend config on open so this screen reflects live server config changes.
         try { ClientNetwork.sendToServer(new PacketSyncConfigQuery()); } catch (Throwable ignored) {}
+
+        // Query recruiter/ownership info so we can display "Works for: <player>".
+        if (!respawnMode && this.villagerEntityId > 0) {
+            try { ClientNetwork.sendToServer(new PacketRecruitGateQuery(this.villagerEntityId)); } catch (Throwable ignored) {}
+        }
 
         // Back button (vanilla is fine)
         backBtn = Button.builder(Component.literal("Back"), b -> onClose())
@@ -715,8 +721,8 @@ public final class VillagerInfoScreen extends Screen {
             Component name = safeName(le);
             gg.drawString(font, Component.literal("Name: ").append(name), textX, textY, 0xFFFFFFFF, false);
 
-            Component prof = safeProfession(le);
-            gg.drawString(font, Component.literal("Profession: ").append(prof), textX, textY + 12, 0xFFFFFFFF, false);
+            Component worksFor = safeWorksFor(le);
+            gg.drawString(font, Component.literal("Works for: ").append(worksFor), textX, textY + 12, 0xFFFFFFFF, false);
         }
 
         renderVillagerModel(gg, boxLeft, boxTop, boxRight, boxBottom, mouseX, mouseY);
@@ -1841,6 +1847,45 @@ public final class VillagerInfoScreen extends Screen {
             return Component.literal("Unknown");
         } catch (Throwable t) {
             return Component.literal("Unknown");
+        }
+    }
+
+    private Component safeWorksFor(LivingEntity le) {
+        try {
+            if (respawnMode) {
+                String n = readRecruiterNameFromNbt(this.respawnVillagerNbt);
+                if (n == null || n.isBlank()) return Component.literal("(unknown)").withStyle(ChatFormatting.GRAY);
+                return Component.literal(n);
+            }
+
+            String n = ClientUI.getRecruiterNameForVillager(this.villagerEntityId);
+            if (n != null && !n.isBlank()) return Component.literal(n);
+
+            // If we don't know yet (or not recruited), keep it subtle.
+            return Component.literal("(unrecruited)").withStyle(ChatFormatting.GRAY);
+
+        } catch (Throwable ignored) {
+            return Component.literal("(unknown)").withStyle(ChatFormatting.GRAY);
+        }
+    }
+
+    private static String readRecruiterNameFromNbt(CompoundTag villagerNbt) {
+        try {
+            if (villagerNbt == null) return "";
+
+            CompoundTag pd = null;
+            try {
+                if (villagerNbt.contains("ForgeData", CompoundTag.TAG_COMPOUND)) pd = villagerNbt.getCompound("ForgeData");
+                else if (villagerNbt.contains("NeoForgeData", CompoundTag.TAG_COMPOUND)) pd = villagerNbt.getCompound("NeoForgeData");
+                else if (villagerNbt.contains("PersistentData", CompoundTag.TAG_COMPOUND)) pd = villagerNbt.getCompound("PersistentData");
+            } catch (Throwable ignored) { pd = null; }
+
+            if (pd == null) return "";
+            if (!pd.contains(org.z2six.villageroverhaul.server.RecruitService.TAG_RECRUITED_BY_NAME)) return "";
+            return pd.getString(org.z2six.villageroverhaul.server.RecruitService.TAG_RECRUITED_BY_NAME);
+
+        } catch (Throwable ignored) {
+            return "";
         }
     }
 

@@ -1149,19 +1149,53 @@ public final class ServerHandlers {
             Villager vill = resolveVillagerFor(sp, id);
 
             if (vill == null) {
-                ctx.reply(new PacketRecruitGateData(id, false, false, false));
+                ctx.reply(new PacketRecruitGateData(id, false, false, false, ""));
                 return;
             }
 
             boolean recruited = RecruitService.isRecruited(vill);
             boolean canUse = recruited && org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp);
 
-            ctx.reply(new PacketRecruitGateData(id, true, recruited, canUse));
+            String byName = "";
+            if (recruited) {
+                try {
+                    var pd = vill.getPersistentData();
+                    if (pd != null && pd.contains(RecruitService.TAG_RECRUITED_BY_NAME)) {
+                        byName = pd.getString(RecruitService.TAG_RECRUITED_BY_NAME);
+                    }
+                } catch (Throwable ignored) { byName = ""; }
+
+                // Best-effort fallback: resolve from UUID via server cache.
+                if ((byName == null || byName.isBlank())) {
+                    try {
+                        java.util.UUID rid = RecruitService.getRecruiterUuid(vill);
+                        if (rid != null) {
+                            Object cache = sp.server.getProfileCache();
+                            if (cache != null) {
+                                try {
+                                    java.lang.reflect.Method mGet = cache.getClass().getMethod("get", java.util.UUID.class);
+                                    Object opt = mGet.invoke(cache, rid);
+                                    if (opt instanceof java.util.Optional<?> o && o.isPresent()) {
+                                        Object gp = o.get();
+                                        try {
+                                            java.lang.reflect.Method mName = gp.getClass().getMethod("getName");
+                                            Object n = mName.invoke(gp);
+                                            if (n instanceof String s) byName = s;
+                                        } catch (Throwable ignored2) {}
+                                    }
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            ctx.reply(new PacketRecruitGateData(id, true, recruited, canUse, byName == null ? "" : byName));
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRecruitGateQuery failed", t);
             try {
-                ctx.reply(new PacketRecruitGateData(msg == null ? 0 : msg.villagerEntityId(), false, false, false));
+                ctx.reply(new PacketRecruitGateData(msg == null ? 0 : msg.villagerEntityId(), false, false, false, ""));
             } catch (Throwable ignored) {}
         }
     }

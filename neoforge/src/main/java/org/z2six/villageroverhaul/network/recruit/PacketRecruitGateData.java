@@ -11,7 +11,8 @@ public record PacketRecruitGateData(
         int villagerEntityId,
         boolean ok,
         boolean recruited,
-        boolean canUseControls
+        boolean canUseControls,
+        String recruitedByName
 ) implements CustomPacketPayload {
 
     public static final Type<PacketRecruitGateData> TYPE =
@@ -24,13 +25,15 @@ public record PacketRecruitGateData(
             boolean ok = false;
             boolean rec = false;
             boolean can = false;
+            String name = "";
 
             try { id = buf.readVarInt(); } catch (Throwable ignored) {}
             try { ok = buf.readBoolean(); } catch (Throwable ignored) {}
             try { rec = buf.readBoolean(); } catch (Throwable ignored) {}
             try { can = buf.readBoolean(); } catch (Throwable ignored) {}
+            try { name = buf.readUtf(64); } catch (Throwable ignored) { name = ""; }
 
-            return new PacketRecruitGateData(id, ok, rec, can);
+            return new PacketRecruitGateData(id, ok, rec, can, name == null ? "" : name);
         }
 
         @Override
@@ -39,6 +42,7 @@ public record PacketRecruitGateData(
             buf.writeBoolean(p.ok());
             buf.writeBoolean(p.recruited());
             buf.writeBoolean(p.canUseControls());
+            buf.writeUtf(p.recruitedByName() == null ? "" : p.recruitedByName(), 64);
         }
     };
 

@@ -13,6 +13,7 @@ public final class RecruitService {
 
     public static final String TAG_RECRUITED = "villageroverhaul_recruited";
     public static final String TAG_RECRUITED_BY = "villageroverhaul_recruited_by"; // UUID
+    public static final String TAG_RECRUITED_BY_NAME = "villageroverhaul_recruited_by_name"; // String (best-effort, for UI)
     public static final String TAG_RECRUITED_AT = "villageroverhaul_recruited_at"; // long gameTime
 
     private RecruitService() {}
@@ -123,6 +124,13 @@ public final class RecruitService {
 
             try {
                 if (sp != null) pd.putUUID(TAG_RECRUITED_BY, sp.getUUID());
+            } catch (Throwable ignored) {}
+
+            try {
+                if (sp != null && sp.getGameProfile() != null) {
+                    String n = sp.getGameProfile().getName();
+                    if (n != null) pd.putString(TAG_RECRUITED_BY_NAME, n);
+                }
             } catch (Throwable ignored) {}
 
             try {
