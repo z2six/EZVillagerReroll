@@ -351,7 +351,7 @@ public final class ServerHandlers {
                 awardedXp = 0;
             }
 
-            SearchService.popSettlement(vill.getUUID());
+            SearchService.popSettlementAndClearVisuals(vill, sp.server);
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePayAutoSearchSettlement: success (player={} villager={} cost={} awardedXp={} settlementXp={})",
                     sp.getGameProfile().getName(),
@@ -393,7 +393,7 @@ public final class ServerHandlers {
                 org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(vill, sanitized);
             } catch (Throwable ignored) {}
 
-            SearchService.popSettlement(vill.getUUID());
+            SearchService.popSettlementAndClearVisuals(vill, sp.server);
             ctx.reply(new PacketAutoSearchSettlementCleared(vill.getId()));
 
         } catch (Throwable t) {

@@ -145,6 +145,9 @@ public final class SearchService {
         final int villagerEntityId;
         final UUID ownerPlayerUuid;
 
+        // For outline/team restoration
+        String teamAtStart = null;
+
         final long startedAtGameTime;
         final long completedAtGameTime;
 
@@ -653,101 +656,124 @@ public final class SearchService {
     public static void tick(MinecraftServer server) {
         try {
             if (server == null) return;
-            if (TASKS.isEmpty()) return;
+            if (TASKS.isEmpty() && SETTLEMENTS.isEmpty()) return;
 
-            Iterator<Map.Entry<UUID, Task>> it = TASKS.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<UUID, Task> en = it.next();
-                Task task = en.getValue();
-                if (task == null) {
-                    it.remove();
-                    continue;
-                }
+            if (!TASKS.isEmpty()) {
+                Iterator<Map.Entry<UUID, Task>> it = TASKS.entrySet().iterator();
+                while (it.hasNext()) {
+                    Map.Entry<UUID, Task> en = it.next();
+                    Task task = en.getValue();
+                    if (task == null) {
+                        it.remove();
+                        continue;
+                    }
 
-                Villager vill = resolveVillagerByUuid(server, task.villagerUuid);
-                if (vill == null) continue;
+                    Villager vill = resolveVillagerByUuid(server, task.villagerUuid);
+                    if (vill == null) continue;
 
-                if (SETTLEMENTS.containsKey(vill.getUUID())) {
-                    VillagerOverhaul.LOG().warn("[VillagerOverhaul] SearchService.tick: task exists but settlement pending; removing task (villager={})", vill.getUUID());
-                    try { clearBusyState(vill, server, task); } catch (Throwable ignored) {}
-                    it.remove();
-                    continue;
-                }
+                    if (SETTLEMENTS.containsKey(vill.getUUID())) {
+                        VillagerOverhaul.LOG().warn("[VillagerOverhaul] SearchService.tick: task exists but settlement pending; removing task (villager={})", vill.getUUID());
+                        try { clearBusyState(vill, server, task); } catch (Throwable ignored) {}
+                        it.remove();
+                        continue;
+                    }
 
-                try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
+                    try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
 
-                try { updateGlowForBusyVillager(vill, server); } catch (Throwable ignored) {}
-                try { applyBusyMovementFreeze(vill); } catch (Throwable ignored) {}
+                    try { updateGlowForBusyVillager(vill, server); } catch (Throwable ignored) {}
+                    try { applyBusyMovementFreeze(vill); } catch (Throwable ignored) {}
 
-                long now = vill.level().getGameTime();
+                    long now = vill.level().getGameTime();
 
-                if ((now % BUSY_PARTICLE_PERIOD_TICKS) == 0L) {
-                    try { emitBusyParticles(vill); } catch (Throwable ignored) {}
-                }
-                if (now < task.nextRerollGameTime) continue;
+                    if ((now % BUSY_PARTICLE_PERIOD_TICKS) == 0L) {
+                        try { emitBusyParticles(vill); } catch (Throwable ignored) {}
+                    }
+                    if (now < task.nextRerollGameTime) continue;
 
-                int baseCd = Math.max(1, ServerConfig.cooldownTicksAuto);
-                double tPct = 0.0;
-                int cooldown = baseCd;
-                try {
-                    tPct = VillagerTraitEffects.timelinessPct(vill);
-                    cooldown = VillagerTraitEffects.applyCooldownPercent(baseCd, tPct);
-                } catch (Throwable ignored) {
-                    cooldown = baseCd;
-                    tPct = 0.0;
-                }
-
-                task.cooldownTicks = cooldown;
-                task.nextRerollGameTime = now + cooldown;
-
-                if (containsAnyRequested(vill, task.requestedKeys)) {
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={} rerollCount={}",
-                            vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
-                    clearBusyState(vill, server, task);
-                    it.remove();
-                    createSettlementAndNotify(server, vill, task, now);
-                    continue;
-                }
-
-                try {
-                    // This is a rebuild/replace type operation.
-                    TradeUtil.rebuildOffersInternal(vill, null, false);
-                    task.rerollCount = Math.max(0, task.rerollCount + 1);
-                    try { org.z2six.villageroverhaul.server.VillagerHistoryService.addAutoReroll(vill, 1); } catch (Throwable ignored) {}
-
-                    // auto-reroll hook:
-                    // - updates cooldown tracking (RerollState.lastTick)
-                    // - does NOT consume the daily cap
+                    int baseCd = Math.max(1, ServerConfig.cooldownTicksAuto);
+                    double tPct = 0.0;
+                    int cooldown = baseCd;
                     try {
-                        if (vill.level() instanceof ServerLevel sl) {
-                            RerollState.markRerolled(sl, vill, false);
-                        }
-                    } catch (Throwable ignored) {}
+                        tPct = VillagerTraitEffects.timelinessPct(vill);
+                        cooldown = VillagerTraitEffects.applyCooldownPercent(baseCd, tPct);
+                    } catch (Throwable ignored) {
+                        cooldown = baseCd;
+                        tPct = 0.0;
+                    }
 
-                    // After a rebuild, reset baseline/applied then normalize.
-                    try { HoarderOffers.normalizeAfterOfferRebuild(vill, null); } catch (Throwable ignored) {}
-                    try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
+                    task.cooldownTicks = cooldown;
+                    task.nextRerollGameTime = now + cooldown;
 
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search reroll success: villager={} entityId={} rerollCount={} baseCd={} timelinessPct={} effectiveCd={}",
-                            vill.getUUID(), vill.getId(), task.rerollCount, baseCd, tPct, cooldown);
-                } catch (Throwable rerollErr) {
-                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Auto-search reroll failed (villager={} entityId={})",
-                            vill.getUUID(), vill.getId(), rerollErr);
-                    continue;
-                }
+                    if (containsAnyRequested(vill, task.requestedKeys)) {
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={} rerollCount={}",
+                                vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
+                        clearBusyState(vill, server, task);
+                        it.remove();
+                        createSettlementAndNotify(server, vill, task, now);
+                        continue;
+                    }
 
-                if (containsAnyRequested(vill, task.requestedKeys)) {
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search FOUND match: villager={} entityId={} requestedKeys={} rerollCount={}",
-                            vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
-                    clearBusyState(vill, server, task);
-                    it.remove();
-                    createSettlementAndNotify(server, vill, task, now);
+                    try {
+                        // This is a rebuild/replace type operation.
+                        TradeUtil.rebuildOffersInternal(vill, null, false);
+                        task.rerollCount = Math.max(0, task.rerollCount + 1);
+                        try { org.z2six.villageroverhaul.server.VillagerHistoryService.addAutoReroll(vill, 1); } catch (Throwable ignored) {}
+
+                        // auto-reroll hook:
+                        // - updates cooldown tracking (RerollState.lastTick)
+                        // - does NOT consume the daily cap
+                        try {
+                            if (vill.level() instanceof ServerLevel sl) {
+                                RerollState.markRerolled(sl, vill, false);
+                            }
+                        } catch (Throwable ignored) {}
+
+                        // After a rebuild, reset baseline/applied then normalize.
+                        try { HoarderOffers.normalizeAfterOfferRebuild(vill, null); } catch (Throwable ignored) {}
+                        try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
+
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search reroll success: villager={} entityId={} rerollCount={} baseCd={} timelinessPct={} effectiveCd={}",
+                                vill.getUUID(), vill.getId(), task.rerollCount, baseCd, tPct, cooldown);
+                    } catch (Throwable rerollErr) {
+                        VillagerOverhaul.LOG().error("[VillagerOverhaul] Auto-search reroll failed (villager={} entityId={})",
+                                vill.getUUID(), vill.getId(), rerollErr);
+                        continue;
+                    }
+
+                    if (containsAnyRequested(vill, task.requestedKeys)) {
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search FOUND match: villager={} entityId={} requestedKeys={} rerollCount={}",
+                                vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
+                        clearBusyState(vill, server, task);
+                        it.remove();
+                        createSettlementAndNotify(server, vill, task, now);
+                    }
                 }
             }
+
+            // Also keep "settlement pending" glow in sync (green outline when nearby).
+            try { tickSettlementsGlow(server); } catch (Throwable ignored) {}
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] SearchService.tick failed", t);
         }
+    }
+
+    private static void tickSettlementsGlow(MinecraftServer server) {
+        try {
+            if (server == null) return;
+            if (SETTLEMENTS.isEmpty()) return;
+
+            int processed = 0;
+            for (Settlement s : SETTLEMENTS.values()) {
+                if (s == null || s.villagerUuid == null) continue;
+                Villager vill = resolveVillagerByUuid(server, s.villagerUuid);
+                if (vill == null) continue;
+                updateGlowForSettlement(vill, server, s);
+
+                processed++;
+                if (processed >= 256) break;
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static void createSettlementAndNotify(MinecraftServer server, Villager vill, Task task, long completedAtGameTime) {
@@ -799,6 +825,8 @@ public final class SearchService {
             );
 
             SETTLEMENTS.put(vill.getUUID(), settle);
+            try { settle.teamAtStart = getCurrentTeamName(vill, server); } catch (Throwable ignored) { settle.teamAtStart = null; }
+            try { updateGlowForSettlement(vill, server, settle); } catch (Throwable ignored) {}
 
             int offersNow = -1;
             try { offersNow = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
@@ -1029,26 +1057,81 @@ public final class SearchService {
             if (vill == null || server == null) return;
             if (!(vill.level() instanceof ServerLevel sl)) return;
 
-            boolean anyNear = false;
-            try {
-                List<ServerPlayer> players = sl.players();
-                for (ServerPlayer sp : players) {
-                    if (sp == null) continue;
-                    if (sp.isSpectator()) continue;
-                    double d2 = sp.distanceToSqr(vill);
-                    if (d2 <= GLOW_RANGE_SQR) {
-                        anyNear = true;
-                        break;
-                    }
-                }
-            } catch (Throwable t) {
-                anyNear = false;
-            }
+            boolean anyNear = isAnyNonSpectatorPlayerNear(sl, vill, GLOW_RANGE_SQR);
 
-            setBusyGlowState(vill, server, anyNear);
+            // While actively auto-searching, the outline must remain WHITE:
+            // - do NOT assign a team color
+            // - just toggle vanilla glowing when someone is nearby.
+            removeFromBusyTeamOnly(vill, server);
+
+            try {
+                if (vill.isCurrentlyGlowing() != anyNear) vill.setGlowingTag(anyNear);
+            } catch (Throwable ignored) {
+                try { vill.setGlowingTag(anyNear); } catch (Throwable ignored2) {}
+            }
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] updateGlowForBusyVillager failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void updateGlowForSettlement(Villager vill, MinecraftServer server, Settlement settlement) {
+        try {
+            if (vill == null || server == null || settlement == null) return;
+            if (!(vill.level() instanceof ServerLevel sl)) return;
+
+            boolean anyNear = isAnyNonSpectatorPlayerNear(sl, vill, GLOW_RANGE_SQR);
+
+            // After auto-search completes (settlement pending), outline should be GREEN.
+            if (anyNear) {
+                ensureBusyTeam(vill, server);
+                try { if (!vill.isCurrentlyGlowing()) vill.setGlowingTag(true); } catch (Throwable ignored) {}
+            } else {
+                try { if (vill.isCurrentlyGlowing()) vill.setGlowingTag(false); } catch (Throwable ignored) {}
+                clearBusyTeam(vill, server, settlement.teamAtStart);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isAnyNonSpectatorPlayerNear(ServerLevel sl, Villager vill, double rangeSqr) {
+        try {
+            if (sl == null || vill == null) return false;
+            List<ServerPlayer> players = sl.players();
+            for (ServerPlayer sp : players) {
+                if (sp == null) continue;
+                if (sp.isSpectator()) continue;
+                double d2 = sp.distanceToSqr(vill);
+                if (d2 <= rangeSqr) return true;
+            }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static String getCurrentTeamName(Villager vill, MinecraftServer server) {
+        try {
+            if (vill == null || server == null) return null;
+            Object scoreboard = server.getScoreboard();
+            if (scoreboard == null) return null;
+
+            String entry = vill.getScoreboardName();
+            Object curTeam = null;
+            try {
+                java.lang.reflect.Method mGetPlayersTeam = scoreboard.getClass().getMethod("getPlayersTeam", String.class);
+                curTeam = mGetPlayersTeam.invoke(scoreboard, entry);
+            } catch (Throwable ignored) { curTeam = null; }
+
+            if (curTeam == null) return null;
+            try {
+                java.lang.reflect.Method mGetName = curTeam.getClass().getMethod("getName");
+                Object n = mGetName.invoke(curTeam);
+                if (n instanceof String s && !s.isBlank()) return s;
+            } catch (Throwable ignored) {}
+
+            return null;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
@@ -1085,26 +1168,10 @@ public final class SearchService {
         try {
             if (vill == null || server == null) return;
 
-            Task task = TASKS.get(vill.getUUID());
             String entry = vill.getScoreboardName();
 
             Object scoreboard;
             try { scoreboard = server.getScoreboard(); } catch (Throwable ignored) { return; }
-
-            // Capture current team (for restore) once per task.
-            if (task != null && task.teamAtStart == null) {
-                try {
-                    java.lang.reflect.Method mGetPlayersTeam = scoreboard.getClass().getMethod("getPlayersTeam", String.class);
-                    Object curTeam = mGetPlayersTeam.invoke(scoreboard, entry);
-                    if (curTeam != null) {
-                        try {
-                            java.lang.reflect.Method mGetName = curTeam.getClass().getMethod("getName");
-                            Object n = mGetName.invoke(curTeam);
-                            if (n instanceof String s && !s.isBlank()) task.teamAtStart = s;
-                        } catch (Throwable ignored) {}
-                    }
-                } catch (Throwable ignored) {}
-            }
 
             Object busyTeam = null;
             try {
@@ -1195,6 +1262,32 @@ public final class SearchService {
                 } catch (Throwable ignored) {}
             }
 
+        } catch (Throwable ignored) {}
+    }
+
+    private static void removeFromBusyTeamOnly(Villager vill, MinecraftServer server) {
+        try {
+            if (vill == null || server == null) return;
+            Object scoreboard = server.getScoreboard();
+            if (scoreboard == null) return;
+
+            Object busyTeam = null;
+            try {
+                java.lang.reflect.Method mGetTeam = scoreboard.getClass().getMethod("getPlayerTeam", String.class);
+                busyTeam = mGetTeam.invoke(scoreboard, TEAM_BUSY_GLOW);
+            } catch (Throwable ignored) { busyTeam = null; }
+
+            if (busyTeam == null) return;
+
+            String entry = vill.getScoreboardName();
+            for (java.lang.reflect.Method m : scoreboard.getClass().getMethods()) {
+                if (!m.getName().equals("removePlayerFromTeam")) continue;
+                Class<?>[] p = m.getParameterTypes();
+                if (p.length == 2 && p[0] == String.class) {
+                    m.invoke(scoreboard, entry, busyTeam);
+                    break;
+                }
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -1484,6 +1577,24 @@ public final class SearchService {
         try {
             if (villagerUuid == null) return null;
             return SETTLEMENTS.remove(villagerUuid);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    public static Settlement popSettlementAndClearVisuals(Villager vill, MinecraftServer server) {
+        try {
+            if (vill == null) return null;
+            Settlement s = SETTLEMENTS.remove(vill.getUUID());
+
+            if (server != null) {
+                try {
+                    clearBusyTeam(vill, server, s == null ? null : s.teamAtStart);
+                } catch (Throwable ignored) {}
+                try { vill.setGlowingTag(false); } catch (Throwable ignored) {}
+            }
+
+            return s;
         } catch (Throwable t) {
             return null;
         }
