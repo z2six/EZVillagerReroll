@@ -15,7 +15,7 @@ For now, this mod only supports NeoForge 1.21.1 and beyond, due to the complexit
 - Reroll trades at any villager level in exchange for emeralds
 - Lock specific trades so they won’t get rerolled
 - Automatically reroll until a specific item is found while you're away (RMB on reroll button)
-- Automatic trading (example: quickly trade all paper for emeralds)
+- Automatic trading (example: quickly trade all paper for emeralds) (CTRL+Click on a sell-type trade)
 - Each villager spawns with 4 randomized custom Merchant stats
 
 ## Combat Features
