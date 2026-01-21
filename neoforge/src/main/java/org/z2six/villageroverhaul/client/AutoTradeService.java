@@ -19,7 +19,7 @@ import java.lang.reflect.Method;
 /**
  * Client-only “spam sell” automation for MerchantScreen.
  *
- * Triggered via CTRL+RMB on a trade button (see mixin).
+ * Triggered via CTRL+LMB on a trade button (see mixin).
  * Performs normal vanilla UI actions:
  * - selects the offer via gameMode.handleInventoryButtonClick(containerId, offerIndex)
  * - shift-clicks result slot to execute the trade

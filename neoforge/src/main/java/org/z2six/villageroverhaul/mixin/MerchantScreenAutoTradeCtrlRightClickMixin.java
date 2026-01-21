@@ -8,6 +8,8 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.world.inventory.MerchantMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -15,6 +17,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.client.AutoTradeService;
+import org.z2six.villageroverhaul.client.AutoTradeConfirmScreen;
+import org.z2six.villageroverhaul.client.AutoTradeConsentStore;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -40,8 +44,8 @@ public abstract class MerchantScreenAutoTradeCtrlRightClickMixin {
     )
     private void ezvr$mouseClicked(double mouseX, double mouseY, int button, CallbackInfoReturnable<Boolean> cir) {
         try {
-            // CTRL + RMB only
-            if (button != 1) return;
+            // CTRL + LMB only
+            if (button != 0) return;
             if (!Screen.hasControlDown()) return;
 
             Minecraft mc = Minecraft.getInstance();
@@ -62,9 +66,35 @@ public abstract class MerchantScreenAutoTradeCtrlRightClickMixin {
                 return;
             }
 
-            AutoTradeService.start(screen, absoluteIdx);
+            // Offer details for prompt + persistence (ignore counts/discounts).
+            ItemStack buyA = ItemStack.EMPTY;
+            ItemStack buyB = ItemStack.EMPTY;
+            ItemStack sell = ItemStack.EMPTY;
+            try {
+                var offer = screen.getMenu().getOffers().get(absoluteIdx);
+                buyA = offer.getBaseCostA();
+                buyB = offer.getCostB();
+                sell = offer.getResult();
+            } catch (Throwable ignored) {}
 
-            // Consume so trade-lock RMB handler doesn't fire while CTRL is held.
+            if (sell == null) sell = ItemStack.EMPTY;
+            if (!sell.is(Items.EMERALD)) return; // only auto-sell for emerald output
+
+            String key = AutoTradeConsentStore.keyFor(buyA, buyB, sell);
+            AutoTradeConsentStore.Decision d = AutoTradeConsentStore.getDecision(key);
+            if (d == AutoTradeConsentStore.Decision.ALLOW) {
+                AutoTradeService.start(screen, absoluteIdx);
+            } else if (d == AutoTradeConsentStore.Decision.DENY) {
+                // Do nothing (user opted out).
+                return;
+            } else {
+                // Ask once.
+                if (mc != null) {
+                    mc.setScreen(new AutoTradeConfirmScreen(screen, absoluteIdx, key, buyA, buyB, sell));
+                }
+            }
+
+            // Consume so vanilla doesn't treat this click as a normal trade selection/click.
             cir.setReturnValue(true);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] MerchantScreenAutoTradeCtrlRightClickMixin error", t);
@@ -178,4 +208,3 @@ public abstract class MerchantScreenAutoTradeCtrlRightClickMixin {
         }
     }
 }
-
