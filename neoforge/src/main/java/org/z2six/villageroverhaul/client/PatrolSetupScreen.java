@@ -89,6 +89,12 @@ public final class PatrolSetupScreen extends Screen {
                 .build());
     }
 
+    @Override
+    public void renderBackground(net.minecraft.client.gui.GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
+        // Avoid NeoForge blurred menu background.
+        gg.fill(0, 0, this.width, this.height, 0xC0101010);
+    }
+
     private void toast(String msg, ChatFormatting fmt) {
         try {
             Minecraft mc = Minecraft.getInstance();

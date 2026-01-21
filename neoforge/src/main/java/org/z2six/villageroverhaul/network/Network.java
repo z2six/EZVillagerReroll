@@ -199,6 +199,8 @@ public final class Network {
             // We do NOT require a ClientNetworkHandlers method; we route directly to ClientUI via reflection.
             r.playToClient(PacketPatrolOpenGui.TYPE, PacketPatrolOpenGui.STREAM_CODEC,
                     (msg, ctx) -> handlePatrolOpenGuiClient(msg, ctx));
+            r.playToClient(PacketPatrolRoutesData.TYPE, PacketPatrolRoutesData.STREAM_CODEC,
+                    (msg, ctx) -> handlePatrolRoutesDataClient(msg, ctx));
 
             // Villager AI
             r.playToServer(PacketVillagerCommand.TYPE, PacketVillagerCommand.STREAM_CODEC,
@@ -247,6 +249,16 @@ public final class Network {
             // open villager inventory menu
             r.playToServer(PacketOpenVillagerInventory.TYPE, PacketOpenVillagerInventory.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleOpenVillagerInventory(msg, ctx)));
+
+            // patrol routes (multi-route support)
+            r.playToServer(PacketPatrolRouteStart.TYPE, PacketPatrolRouteStart.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handlePatrolRouteStart(msg, ctx)));
+            r.playToServer(PacketPatrolRouteDelete.TYPE, PacketPatrolRouteDelete.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handlePatrolRouteDelete(msg, ctx)));
+            r.playToServer(PacketPatrolRouteRename.TYPE, PacketPatrolRouteRename.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handlePatrolRouteRename(msg, ctx)));
+            r.playToServer(PacketPatrolSaveRoute.TYPE, PacketPatrolSaveRoute.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handlePatrolSaveRoute(msg, ctx)));
 
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] Network payloads registered (handshake-safe). distClient={}", isClientDist());
@@ -342,6 +354,27 @@ public final class Network {
                     }
                 } catch (Throwable t) {
                     VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolOpenGuiClient failed", t);
+                }
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    private static void handlePatrolRoutesDataClient(PacketPatrolRoutesData msg, IPayloadContext ctx) {
+        try {
+            ctx.enqueueWork(() -> {
+                try {
+                    if (!isClientDist()) return;
+                    if (msg == null) return;
+
+                    // Call ClientUI.acceptPatrolRoutesData(PacketPatrolRoutesData) via reflection.
+                    Class<?> ui = Class.forName("org.z2six.villageroverhaul.client.ClientUI");
+                    try {
+                        ui.getMethod("acceptPatrolRoutesData", msg.getClass()).invoke(null, msg);
+                    } catch (NoSuchMethodException ex) {
+                        ui.getMethod("acceptPatrolRoutesData", Object.class).invoke(null, msg);
+                    }
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolRoutesDataClient failed", t);
                 }
             });
         } catch (Throwable ignored) {}

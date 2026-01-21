@@ -48,6 +48,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolInteractRequest;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolOpenGui;
+import org.z2six.villageroverhaul.network.patrol.PacketPatrolRoutesData;
 import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogQuery;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
@@ -325,6 +326,20 @@ public final class ClientUI {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] acceptPatrolOpenGui failed", t);
+        }
+    }
+
+    public static void acceptPatrolRoutesData(PacketPatrolRoutesData p) {
+        try {
+            if (p == null) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            mc.setScreen(new PatrolRouteListScreen(mc.screen, p.villagerEntityId(), p.routes()));
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] acceptPatrolRoutesData failed", t);
         }
     }
 

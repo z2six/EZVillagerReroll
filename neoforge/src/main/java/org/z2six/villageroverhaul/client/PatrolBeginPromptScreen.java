@@ -32,7 +32,7 @@ public final class PatrolBeginPromptScreen extends Screen {
         int w = 220;
         int h = 20;
 
-        // Use existing route (disabled until server confirms a finalized route exists)
+        // Use existing route (disabled until server confirms at least one saved route exists)
         useExistingBtn = this.addRenderableWidget(Button.builder(Component.literal("Use existing patrol"), b -> {
                     try {
                         ClientNetwork.sendToServer(new PacketPatrolBegin(villagerEntityId, false));
@@ -66,8 +66,8 @@ public final class PatrolBeginPromptScreen extends Screen {
                 .bounds(cx - w / 2, cy + 20, w, h)
                 .build());
 
-        // Ask server whether a finalized patrol route exists for this villager.
-        // Server replies with PacketPatrolOpenGui (we reuse hasPatrolData as "has finalized route").
+        // Ask server whether any saved patrol routes exist for this villager.
+        // Server replies with PacketPatrolOpenGui (we reuse hasPatrolData as "has saved route").
         try {
             ClientNetwork.sendToServer(new PacketPatrolInteractRequest(villagerEntityId));
         } catch (Throwable t) {
@@ -75,9 +75,15 @@ public final class PatrolBeginPromptScreen extends Screen {
         }
     }
 
+    @Override
+    public void renderBackground(net.minecraft.client.gui.GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
+        // Avoid NeoForge blurred menu background.
+        gg.fill(0, 0, this.width, this.height, 0xC0101010);
+    }
+
     /**
      * Called by ClientUI when PacketPatrolOpenGui arrives while this prompt is open.
-     * hasPatrolData is interpreted as: "has finalized patrol route".
+     * hasPatrolData is interpreted as: "has at least one saved patrol route".
      */
     public void acceptServerState(boolean hasFinalizedRoute) {
         try {
@@ -105,7 +111,7 @@ public final class PatrolBeginPromptScreen extends Screen {
                 );
             } else {
                 mc.player.displayClientMessage(
-                        Component.literal("Patrol requested. If a route exists, villager will start patrolling.")
+                        Component.literal("Opening patrol route list...")
                                 .withStyle(ChatFormatting.YELLOW),
                         true
                 );

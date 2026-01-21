@@ -421,20 +421,23 @@ public final class ServerHandlers {
             boolean createNew = msg.createNew();
 
             if (!createNew) {
-                // Existing-only: do NOT fall back into setup.
-                if (VillagerBrain.hasFinalizedPatrol(vill)) {
-                    VillagerBrain.startPatrolExisting(vill);
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: start existing patrol (player={} villager={})",
-                            sp.getGameProfile().getName(), vill.getUUID());
-                } else {
-                    // Tell player and keep state unchanged (soft).
-                    try {
-                        sp.sendSystemMessage(net.minecraft.network.chat.Component.literal("No existing patrol route recorded for this villager.")
-                                .withStyle(net.minecraft.ChatFormatting.RED));
-                    } catch (Throwable ignored) {}
-
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolBegin: no existing patrol route (player={} villager={})",
-                            sp.getGameProfile().getName(), vill.getUUID());
+                // Existing-only: send the list of saved routes to the client (do NOT auto-start).
+                try {
+                    var routes = VillagerBrain.listSavedPatrolRoutes(vill);
+                    java.util.ArrayList<org.z2six.villageroverhaul.network.patrol.PacketPatrolRoutesData.RouteEntry> list =
+                            new java.util.ArrayList<>(routes.size());
+                    for (var r : routes) {
+                        if (r == null) continue;
+                        list.add(new org.z2six.villageroverhaul.network.patrol.PacketPatrolRoutesData.RouteEntry(
+                                r.id(),
+                                r.name(),
+                                r.type() == null ? "" : r.type().id,
+                                r.waypointCount()
+                        ));
+                    }
+                    ctx.reply(new org.z2six.villageroverhaul.network.patrol.PacketPatrolRoutesData(vill.getId(), list));
+                } catch (Throwable ignored) {
+                    ctx.reply(new org.z2six.villageroverhaul.network.patrol.PacketPatrolRoutesData(vill.getId(), java.util.List.of()));
                 }
                 return;
             }
@@ -531,6 +534,93 @@ public final class ServerHandlers {
         }
     }
 
+    public static void handlePatrolSaveRoute(PacketPatrolSaveRoute msg, IPayloadContext ctx) {
+        try {
+            if (msg == null || msg.routeType() == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            int id = msg.villagerEntityId();
+            Villager vill = resolveVillagerFor(sp, id);
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) return;
+
+            // Only setup owner can save the currently-recorded route.
+            UUID owner = VillagerBrain.getPatrolSetupOwner(vill);
+            if (owner == null || !owner.equals(sp.getUUID())) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolSaveRoute denied: not owner (player={} villager={})",
+                        sp.getGameProfile().getName(), vill.getUUID());
+                return;
+            }
+
+            VillagerBrain.PatrolRouteType rt = (msg.routeType() == PacketPatrolSetRouteType.RouteType.LINEAR)
+                    ? VillagerBrain.PatrolRouteType.LINEAR
+                    : VillagerBrain.PatrolRouteType.CIRCULAR;
+
+            boolean ok = VillagerBrain.saveCurrentPatrolAsNewRouteAndStart(vill, msg.name(), rt);
+            if (ok) {
+                try { org.z2six.villageroverhaul.server.VillagerHistoryService.addPatrolRouteRecorded(vill, 1); } catch (Throwable ignored) {}
+            }
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolSaveRoute failed", t);
+        }
+    }
+
+    public static void handlePatrolRouteStart(PacketPatrolRouteStart msg, IPayloadContext ctx) {
+        try {
+            if (msg == null || msg.routeId() == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) return;
+
+            VillagerBrain.startPatrolRoute(vill, msg.routeId());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolRouteStart failed", t);
+        }
+    }
+
+    public static void handlePatrolRouteDelete(PacketPatrolRouteDelete msg, IPayloadContext ctx) {
+        try {
+            if (msg == null || msg.routeId() == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) return;
+
+            VillagerBrain.deletePatrolRoute(vill, msg.routeId());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolRouteDelete failed", t);
+        }
+    }
+
+    public static void handlePatrolRouteRename(PacketPatrolRouteRename msg, IPayloadContext ctx) {
+        try {
+            if (msg == null || msg.routeId() == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) return;
+
+            VillagerBrain.renamePatrolRoute(vill, msg.routeId(), msg.newName());
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePatrolRouteRename failed", t);
+        }
+    }
+
     public static void handlePatrolInteractRequest(PacketPatrolInteractRequest msg, IPayloadContext ctx) {
         try {
             if (msg == null) return;
@@ -545,7 +635,7 @@ public final class ServerHandlers {
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
 
-            boolean hasFinalizedRoute = VillagerBrain.hasFinalizedPatrol(vill);
+            boolean hasFinalizedRoute = VillagerBrain.hasAnySavedPatrolRoutes(vill);
             int waypointCount = VillagerBrain.getPatrolWaypointCount(vill);
 
             boolean canOpen = false;

@@ -69,6 +69,16 @@ public final class VillagerBrain {
     private static final String K_PATROL_DIR = "dir"; // +1 / -1
     private static final String K_PATROL_PAUSED = "paused";
 
+    // Saved patrol routes (multi-route support)
+    private static final String K_PATROL_ROUTES = "routes"; // ListTag of CompoundTag
+    private static final String K_PATROL_ACTIVE_ROUTE = "active_route"; // UUID
+
+    // Per-route keys
+    private static final String K_ROUTE_ID = "id"; // UUID
+    private static final String K_ROUTE_NAME = "name"; // String
+    private static final String K_ROUTE_TYPE = "type"; // String (PatrolRouteType.id)
+    private static final String K_ROUTE_WAYPOINTS = "waypoints"; // ListTag of {x,y,z}
+
     // waypoint tag keys
     private static final String K_WP_X = "x";
     private static final String K_WP_Y = "y";
@@ -572,9 +582,16 @@ public final class VillagerBrain {
     public static void cancelAndClearPatrol(Villager vill) {
         try {
             if (vill == null) return;
+            // Important: do NOT delete saved routes when canceling setup.
+            CompoundTag patrol = getOrCreatePatrol(vill);
 
-            CompoundTag root = getOrCreateRoot(vill);
-            root.remove(K_PATROL);
+            patrol.remove(K_PATROL_OWNER);
+            patrol.remove(K_PATROL_WAYPOINTS);
+            patrol.putBoolean(K_PATROL_FINALIZED, false);
+            patrol.putString(K_PATROL_ROUTE, PatrolRouteType.CIRCULAR.id);
+            patrol.putInt(K_PATROL_INDEX, 0);
+            patrol.putInt(K_PATROL_DIR, 1);
+            patrol.putBoolean(K_PATROL_PAUSED, false);
 
             setMode(vill, Mode.NEUTRAL);
             clearFollowPlayer(vill);
@@ -601,6 +618,241 @@ public final class VillagerBrain {
             return patrol.getBoolean(K_PATROL_FINALIZED) && getPatrolWaypointCount(vill) >= 2;
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    public static boolean hasAnySavedPatrolRoutes(Villager vill) {
+        try {
+            if (vill == null) return false;
+            CompoundTag patrol = getOrCreatePatrol(vill);
+            migrateSinglePatrolToSavedRoutesIfNeeded(patrol);
+            ListTag list = patrol.getList(K_PATROL_ROUTES, Tag.TAG_COMPOUND);
+            return list != null && !list.isEmpty();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public record SavedPatrolRoute(UUID id, String name, PatrolRouteType type, int waypointCount) {}
+
+    public static java.util.List<SavedPatrolRoute> listSavedPatrolRoutes(Villager vill) {
+        try {
+            if (vill == null) return java.util.List.of();
+            CompoundTag patrol = getOrCreatePatrol(vill);
+            migrateSinglePatrolToSavedRoutesIfNeeded(patrol);
+
+            ListTag list = patrol.getList(K_PATROL_ROUTES, Tag.TAG_COMPOUND);
+            if (list == null || list.isEmpty()) return java.util.List.of();
+
+            java.util.ArrayList<SavedPatrolRoute> out = new java.util.ArrayList<>();
+            for (int i = 0; i < list.size() && i < 64; i++) {
+                CompoundTag rt = list.getCompound(i);
+                if (rt == null) continue;
+                if (!rt.hasUUID(K_ROUTE_ID)) continue;
+                UUID id = rt.getUUID(K_ROUTE_ID);
+
+                String name = rt.getString(K_ROUTE_NAME);
+                if (name == null || name.isBlank()) name = "Route " + (i + 1);
+
+                PatrolRouteType type = PatrolRouteType.fromId(rt.getString(K_ROUTE_TYPE));
+                int wc = 0;
+                try {
+                    ListTag wp = rt.getList(K_ROUTE_WAYPOINTS, Tag.TAG_COMPOUND);
+                    wc = wp == null ? 0 : wp.size();
+                } catch (Throwable ignored) { wc = 0; }
+
+                out.add(new SavedPatrolRoute(id, name, type, wc));
+            }
+            return out;
+        } catch (Throwable ignored) {
+            return java.util.List.of();
+        }
+    }
+
+    public static boolean startPatrolRoute(Villager vill, UUID routeId) {
+        try {
+            if (vill == null || routeId == null) return false;
+            if (!isControllable(vill)) return false;
+
+            ensureAttached(vill);
+            prepareForManualControl(vill);
+
+            CompoundTag patrol = getOrCreatePatrol(vill);
+            migrateSinglePatrolToSavedRoutesIfNeeded(patrol);
+
+            CompoundTag route = findRouteById(patrol, routeId);
+            if (route == null) return false;
+
+            // Load route -> active patrol fields used by the patrol goal.
+            patrol.putUUID(K_PATROL_ACTIVE_ROUTE, routeId);
+            patrol.putString(K_PATROL_ROUTE, PatrolRouteType.fromId(route.getString(K_ROUTE_TYPE)).id);
+            patrol.put(K_PATROL_WAYPOINTS, route.getList(K_ROUTE_WAYPOINTS, Tag.TAG_COMPOUND).copy());
+            patrol.putBoolean(K_PATROL_FINALIZED, true);
+            patrol.putInt(K_PATROL_INDEX, 0);
+            patrol.putInt(K_PATROL_DIR, 1);
+
+            if (getPatrolWaypointCount(vill) < 2) {
+                setMode(vill, Mode.NEUTRAL);
+                return false;
+            }
+
+            setMode(vill, Mode.PATROL);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean deletePatrolRoute(Villager vill, UUID routeId) {
+        try {
+            if (vill == null || routeId == null) return false;
+            CompoundTag patrol = getOrCreatePatrol(vill);
+            migrateSinglePatrolToSavedRoutesIfNeeded(patrol);
+
+            ListTag list = patrol.getList(K_PATROL_ROUTES, Tag.TAG_COMPOUND);
+            if (list == null || list.isEmpty()) return false;
+
+            boolean removed = false;
+            for (int i = 0; i < list.size(); i++) {
+                CompoundTag rt = list.getCompound(i);
+                if (rt == null) continue;
+                if (!rt.hasUUID(K_ROUTE_ID)) continue;
+                if (routeId.equals(rt.getUUID(K_ROUTE_ID))) {
+                    list.remove(i);
+                    removed = true;
+                    break;
+                }
+            }
+            if (!removed) return false;
+
+            // If this was the active route, clear active marker and stop patrolling.
+            try {
+                if (patrol.hasUUID(K_PATROL_ACTIVE_ROUTE) && routeId.equals(patrol.getUUID(K_PATROL_ACTIVE_ROUTE))) {
+                    patrol.remove(K_PATROL_ACTIVE_ROUTE);
+                    patrol.putBoolean(K_PATROL_FINALIZED, false);
+                    patrol.remove(K_PATROL_WAYPOINTS);
+                    setMode(vill, Mode.NEUTRAL);
+                }
+            } catch (Throwable ignored) {}
+
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean renamePatrolRoute(Villager vill, UUID routeId, String newName) {
+        try {
+            if (vill == null || routeId == null) return false;
+            CompoundTag patrol = getOrCreatePatrol(vill);
+            migrateSinglePatrolToSavedRoutesIfNeeded(patrol);
+            CompoundTag route = findRouteById(patrol, routeId);
+            if (route == null) return false;
+
+            String n = sanitizeRouteName(newName);
+            route.putString(K_ROUTE_NAME, n);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean saveCurrentPatrolAsNewRouteAndStart(Villager vill, String name, PatrolRouteType type) {
+        try {
+            if (vill == null || type == null) return false;
+            if (!isControllable(vill)) return false;
+
+            ensureAttached(vill);
+            prepareForManualControl(vill);
+
+            CompoundTag patrol = getOrCreatePatrol(vill);
+            migrateSinglePatrolToSavedRoutesIfNeeded(patrol);
+
+            ListTag current = patrol.getList(K_PATROL_WAYPOINTS, Tag.TAG_COMPOUND);
+            if (current == null || current.size() < 2) return false;
+
+            UUID id = java.util.UUID.randomUUID();
+            String n = sanitizeRouteName(name);
+
+            CompoundTag rt = new CompoundTag();
+            rt.putUUID(K_ROUTE_ID, id);
+            rt.putString(K_ROUTE_NAME, n);
+            rt.putString(K_ROUTE_TYPE, type.id);
+            rt.put(K_ROUTE_WAYPOINTS, current.copy());
+
+            ListTag list = patrol.getList(K_PATROL_ROUTES, Tag.TAG_COMPOUND);
+            if (list == null) list = new ListTag();
+            if (list.size() >= 64) {
+                // Drop oldest
+                try { list.remove(0); } catch (Throwable ignored) {}
+            }
+            list.add(rt);
+            patrol.put(K_PATROL_ROUTES, list);
+
+            // Load route into active fields and start.
+            patrol.putUUID(K_PATROL_ACTIVE_ROUTE, id);
+            patrol.putString(K_PATROL_ROUTE, type.id);
+            patrol.putBoolean(K_PATROL_FINALIZED, true);
+            patrol.putInt(K_PATROL_INDEX, 0);
+            patrol.putInt(K_PATROL_DIR, 1);
+
+            setMode(vill, Mode.PATROL);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static CompoundTag findRouteById(CompoundTag patrol, UUID id) {
+        try {
+            if (patrol == null || id == null) return null;
+            ListTag list = patrol.getList(K_PATROL_ROUTES, Tag.TAG_COMPOUND);
+            if (list == null) return null;
+            for (int i = 0; i < list.size(); i++) {
+                CompoundTag rt = list.getCompound(i);
+                if (rt != null && rt.hasUUID(K_ROUTE_ID) && id.equals(rt.getUUID(K_ROUTE_ID))) return rt;
+            }
+            return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static void migrateSinglePatrolToSavedRoutesIfNeeded(CompoundTag patrol) {
+        try {
+            if (patrol == null) return;
+            if (patrol.contains(K_PATROL_ROUTES, Tag.TAG_LIST)) return;
+
+            // If we have a finalized legacy route, convert it to a saved route list so the UI can manage it.
+            ListTag wps = patrol.getList(K_PATROL_WAYPOINTS, Tag.TAG_COMPOUND);
+            if (wps == null || wps.size() < 2) return;
+            if (!patrol.getBoolean(K_PATROL_FINALIZED)) return;
+
+            PatrolRouteType type = PatrolRouteType.fromId(patrol.getString(K_PATROL_ROUTE));
+
+            CompoundTag rt = new CompoundTag();
+            UUID id = java.util.UUID.randomUUID();
+            rt.putUUID(K_ROUTE_ID, id);
+            rt.putString(K_ROUTE_NAME, "Route 1");
+            rt.putString(K_ROUTE_TYPE, type.id);
+            rt.put(K_ROUTE_WAYPOINTS, wps.copy());
+
+            ListTag list = new ListTag();
+            list.add(rt);
+            patrol.put(K_PATROL_ROUTES, list);
+            patrol.putUUID(K_PATROL_ACTIVE_ROUTE, id);
+        } catch (Throwable ignored) {}
+    }
+
+    private static String sanitizeRouteName(String name) {
+        try {
+            if (name == null) return "Route";
+            String s = name.strip();
+            if (s.isEmpty()) s = "Route";
+            if (s.length() > 32) s = s.substring(0, 32);
+            return s;
+        } catch (Throwable ignored) {
+            return "Route";
         }
     }
 
