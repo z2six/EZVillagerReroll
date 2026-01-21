@@ -179,11 +179,18 @@ public final class VillagerCombatLoadoutService {
     private static boolean isActiveState(Villager vill) {
         try {
             if (vill == null) return false;
+            // Active means we should equip the registered combat loadout into real hands.
+            // This must depend on *engagement*, not on the villager's configured combat mode setting.
+            //
+            // Rules:
+            // - Always equip while patrolling.
+            // - Equip while combat engaged, but only for DEFEND/AGGRESSIVE (never for FLEE).
+            if (VillagerBrain.getMode(vill) == VillagerBrain.Mode.PATROL) return true;
+
+            if (!VillagerBrain.isCombatEngaged(vill)) return false;
+
             VillagerBrain.CombatMode cm = VillagerBrain.getCombatMode(vill);
-            if (cm == VillagerBrain.CombatMode.FLEE || cm == VillagerBrain.CombatMode.DEFEND || cm == VillagerBrain.CombatMode.AGGRESSIVE) {
-                return true;
-            }
-            return VillagerBrain.getMode(vill) == VillagerBrain.Mode.PATROL;
+            return cm == VillagerBrain.CombatMode.DEFEND || cm == VillagerBrain.CombatMode.AGGRESSIVE;
         } catch (Throwable ignored) {
             return false;
         }
@@ -361,6 +368,22 @@ public final class VillagerCombatLoadoutService {
             // Restore stashed original hands only if the hand is empty to avoid dropping/duplicating.
             restoreStashToHandIfEmpty(vill, root, lookup, K_STASH_MAIN, net.minecraft.world.InteractionHand.MAIN_HAND, "restore_main");
             restoreStashToHandIfEmpty(vill, root, lookup, K_STASH_OFF, net.minecraft.world.InteractionHand.OFF_HAND, "restore_off");
+
+            // In NEUTRAL movement mode, ensure main-hand is empty so vanilla tasks (farming, etc) are not
+            // disrupted by leftover combat food items (e.g. steak).
+            try {
+                if (VillagerBrain.getMode(vill) == VillagerBrain.Mode.NEUTRAL && !VillagerBrain.isCombatEngaged(vill)) {
+                    ItemStack mh = vill.getMainHandItem();
+                    if (mh != null && !mh.isEmpty()) {
+                        boolean isFood = false;
+                        try { isFood = mh.has(DataComponents.FOOD); } catch (Throwable ignored) { isFood = false; }
+                        if (isFood) {
+                            storeOrDrop(vill, mh, "neutral_clear_main_food");
+                            clearHand(vill, net.minecraft.world.InteractionHand.MAIN_HAND, "neutral_clear_main_food");
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().info("[VillagerOverhaul] VillagerCombatLoadoutService.enforceInactiveTick failed (soft): {}", t.toString());
