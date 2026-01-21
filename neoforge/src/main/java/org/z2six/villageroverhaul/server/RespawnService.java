@@ -275,6 +275,18 @@ public final class RespawnService {
                 } catch (Throwable ignored) {}
             }
 
+            if (!ServerConfig.respawnKeepInventory) {
+                try {
+                    var inv = v.getInventory();
+                    if (inv != null) {
+                        for (int i = 0; i < inv.getContainerSize(); i++) {
+                            inv.setItem(i, ItemStack.EMPTY);
+                        }
+                        inv.setChanged();
+                    }
+                } catch (Throwable ignored) {}
+            }
+
             double x = anchorPos.getX() + 0.5;
             double y = anchorPos.getY() + 1.0;
             double z = anchorPos.getZ() + 0.5;

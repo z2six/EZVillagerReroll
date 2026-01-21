@@ -46,6 +46,7 @@ public final class ServerConfig {
     public static final ModConfigSpec.IntValue RECRUIT_COST_MAX;
     public static final ModConfigSpec.DoubleValue RESPAWN_COST_MULTIPLIER;
     public static final ModConfigSpec.BooleanValue RESPAWN_KEEP_EQUIPMENT;
+    public static final ModConfigSpec.BooleanValue RESPAWN_KEEP_INVENTORY;
 
     // ---------------------------------------------------------------------
     // LIMITS
@@ -238,6 +239,13 @@ public final class ServerConfig {
                         Note: inventory and internal mod data is still restored.
                         """)
                         .define("respawnKeepEquipment", false);
+
+        RESPAWN_KEEP_INVENTORY =
+                B.comment("""
+                        If true, respawned villagers keep their internal villager inventory (the 8 vanilla villager slots).
+                        If false, those inventory slots are cleared on respawn.
+                        """)
+                        .define("respawnKeepInventory", true);
 
         B.pop();
 
@@ -435,6 +443,7 @@ public final class ServerConfig {
     public static int recruitCostMax = 64;
     public static double respawnCostMultiplier = 2.0;
     public static boolean respawnKeepEquipment = false;
+    public static boolean respawnKeepInventory = true;
 
     public static int cooldownTicks = 100;
     public static int cooldownTicksAuto = 600;
@@ -512,6 +521,10 @@ public final class ServerConfig {
             boolean keepEq = false;
             try { keepEq = RESPAWN_KEEP_EQUIPMENT.get(); } catch (Throwable ignored) { keepEq = false; }
             respawnKeepEquipment = keepEq;
+
+            boolean keepInv = true;
+            try { keepInv = RESPAWN_KEEP_INVENTORY.get(); } catch (Throwable ignored) { keepInv = true; }
+            respawnKeepInventory = keepInv;
 
             cooldownTicks = Math.max(0, COOLDOWN_TICKS.get());
             cooldownTicksAuto = Math.max(0, COOLDOWN_TICKS_AUTO.get());
@@ -642,6 +655,8 @@ public final class ServerConfig {
         h = 31 * h + recruitCostMin;
         h = 31 * h + recruitCostMax;
         h = 31 * h + Double.hashCode(respawnCostMultiplier);
+        h = 31 * h + (respawnKeepEquipment ? 1 : 0);
+        h = 31 * h + (respawnKeepInventory ? 1 : 0);
 
         h = 31 * h + cooldownTicks;
         h = 31 * h + cooldownTicksAuto;

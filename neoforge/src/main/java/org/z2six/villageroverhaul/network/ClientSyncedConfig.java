@@ -35,6 +35,7 @@ public final class ClientSyncedConfig {
         public int recruitCostMin, recruitCostMax;
         public double respawnCostMultiplier;
         public boolean respawnKeepEquipment;
+        public boolean respawnKeepInventory;
 
         // combat bounds
         public double vitalityMinHealth, vitalityMaxHealth;
@@ -66,6 +67,7 @@ public final class ClientSyncedConfig {
                     ", recruitCost=[" + recruitCostMin + "," + recruitCostMax + "]" +
                     ", respawnCostMultiplier=" + respawnCostMultiplier +
                     ", respawnKeepEquipment=" + respawnKeepEquipment +
+                    ", respawnKeepInventory=" + respawnKeepInventory +
                     ", vitalityHealth=[" + vitalityMinHealth + "," + vitalityMaxHealth + "]" +
                     ", agilitySpeed=[" + agilityMinSpeed + "," + agilityMaxSpeed + "]" +
                     ", strengthDamage=[" + strengthMinDamage + "," + strengthMaxDamage + "]" +
@@ -127,6 +129,7 @@ public final class ClientSyncedConfig {
             if (Double.isNaN(mult) || Double.isInfinite(mult) || mult < 0.0) mult = 0.0;
             s.respawnCostMultiplier = mult;
             s.respawnKeepEquipment = msg.respawnKeepEquipment;
+            s.respawnKeepInventory = msg.respawnKeepInventory;
 
             // combat bounds (normalize each pair)
             double vMin = msg.vitalityMinHealth, vMax = msg.vitalityMaxHealth;

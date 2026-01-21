@@ -1433,11 +1433,8 @@ public final class VillagerInfoScreen extends Screen {
 
             ListTag attrs = (attrKey == null) ? null : this.respawnVillagerNbt.getList(attrKey, CompoundTag.TAG_COMPOUND);
             if (attrs == null || attrs.isEmpty()) {
-                if (this.hasStats) {
-                    appendDerivedAttributesFromStats(out);
-                } else {
-                    out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
-                }
+                // Many entities do not serialize an "Attributes" list. Fall back to the stat-derived deltas.
+                appendDerivedAttributesFromSnapshotNbt(out);
                 return;
             }
 
@@ -1490,6 +1487,44 @@ public final class VillagerInfoScreen extends Screen {
                     .append(Component.literal(": " + formatPlain3(0.0 + arm) + " (base 0.0)").withStyle(ChatFormatting.DARK_GRAY)));
         } catch (Throwable ignored) {
             out.add(Component.literal("(derived attributes failed)").withStyle(ChatFormatting.GRAY));
+        }
+    }
+
+    private void appendDerivedAttributesFromSnapshotNbt(List<Component> out) {
+        try {
+            if (out == null) return;
+            CompoundTag pd = getPersistentDataFromSnapshot();
+            if (pd == null || !pd.contains(VillagerStatsService.TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
+                out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
+                return;
+            }
+
+            CompoundTag root = pd.getCompound(VillagerStatsService.TAG_ROOT);
+            int vit = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_VITALITY));
+            int agi = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_AGILITY));
+            int str = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_STRENGTH));
+            int arm = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_ARMOR));
+
+            Double hp = pointsToVitalityHpDeltaFromServerConfig(vit);
+            Double spd = pointsToAgilityDeltaFromServerConfig(agi);
+            Double dmg = pointsToStrengthDeltaFromServerConfig(str);
+            Double ar = pointsToArmorDeltaFromServerConfig(arm);
+
+            if (hp == null && spd == null && dmg == null && ar == null) {
+                out.add(Component.literal("(syncing...)").withStyle(ChatFormatting.GRAY));
+                return;
+            }
+
+            if (hp != null) out.add(Component.literal("• ").append(Component.translatable("attribute.name.generic.max_health"))
+                    .append(Component.literal(": " + formatPlain3(20.0 + hp) + " (base 20.0)").withStyle(ChatFormatting.DARK_GRAY)));
+            if (spd != null) out.add(Component.literal("• ").append(Component.translatable("attribute.name.generic.movement_speed"))
+                    .append(Component.literal(": " + formatPlain3(0.5 + spd) + " (base 0.5)").withStyle(ChatFormatting.DARK_GRAY)));
+            if (dmg != null) out.add(Component.literal("• ").append(Component.translatable("attribute.name.generic.attack_damage"))
+                    .append(Component.literal(": " + formatPlain3(1.0 + dmg) + " (base 1.0)").withStyle(ChatFormatting.DARK_GRAY)));
+            if (ar != null) out.add(Component.literal("• ").append(Component.translatable("attribute.name.generic.armor"))
+                    .append(Component.literal(": " + formatPlain3(0.0 + ar) + " (base 0.0)").withStyle(ChatFormatting.DARK_GRAY)));
+        } catch (Throwable ignored) {
+            out.add(Component.literal("(none)").withStyle(ChatFormatting.GRAY));
         }
     }
 
