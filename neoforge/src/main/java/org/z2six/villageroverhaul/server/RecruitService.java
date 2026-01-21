@@ -4,7 +4,6 @@ package org.z2six.villageroverhaul.server;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.entity.npc.VillagerProfession;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
 
@@ -22,9 +21,8 @@ public final class RecruitService {
         try {
             if (vill == null) return false;
             if (vill.isBaby()) return false;
-
-            // Must be unemployed (not a merchant yet)
-            return vill.getVillagerData().getProfession() == VillagerProfession.NONE;
+            // Allow recruiting merchant villagers too (profession doesn't matter).
+            return true;
         } catch (Throwable t) {
             return false;
         }

@@ -93,6 +93,7 @@ public final class ClientUI {
 
     private static final Map<Screen, Button> INVENTORY_BUTTONS = new WeakHashMap<>();
     private static final Map<Screen, Button> COMMANDS_BUTTONS = new WeakHashMap<>();
+    private static final Map<Screen, Button> RECRUIT_BUTTONS = new WeakHashMap<>();
 
     private static final long RECRUIT_STATE_STALE_MS = 3000;
 
@@ -241,6 +242,21 @@ public final class ClientUI {
 
             b = COMMANDS_BUTTONS.get(screen);
             if (b != null) { b.visible = controlsVisibleAndEnabled; b.active = controlsVisibleAndEnabled; }
+
+            // Recruit button: only when villager is NOT recruited yet (still allow viewing Info)
+            b = RECRUIT_BUTTONS.get(screen);
+            if (b != null) {
+                boolean show = false;
+                try {
+                    if (screen instanceof MerchantScreen ms && isVillagerTrader(ms)) {
+                        int id = resolveTraderEntityId(ms);
+                        RecruitStateSnap snap = RECRUIT_STATE.get(id);
+                        show = snap == null || !snap.recruited;
+                    }
+                } catch (Throwable ignored) { show = false; }
+                b.visible = show;
+                b.active = show;
+            }
 
             CooldownOverlayWidget ov = COOLDOWN_OVERLAYS.get(screen);
             if (ov != null) {
@@ -508,6 +524,46 @@ public final class ClientUI {
 
             e.addListener(invBtn);
             INVENTORY_BUTTONS.put(screen, invBtn);
+
+            // RECRUIT (only shown when not recruited; visibility handled in setUiButtonsVisible)
+            Button recruitBtn = Button.builder(Component.literal("⊕"), btn -> {
+                        try {
+                            int villagerEntityId = resolveTraderEntityId(screen);
+                            if (villagerEntityId <= 0) return;
+
+                            // Open the recruit screen (it will query server for cost/eligibility/stats).
+                            Minecraft mc = Minecraft.getInstance();
+                            if (mc == null) return;
+
+                            // IMPORTANT: we're currently inside a MerchantScreen (container screen). If we open a plain
+                            // Screen without closing the container, the server can keep the trading session open and
+                            // subsequent RMB interactions will appear to do nothing. Close the container first.
+                            try {
+                                if (mc.player != null) mc.player.closeContainer();
+                            } catch (Throwable ignored) {}
+
+                            RecruitStateSnap snap = RECRUIT_STATE.get(villagerEntityId);
+                            boolean already = snap != null && snap.recruited;
+                            mc.setScreen(new RecruitVillagerScreen(villagerEntityId, 0, true, already, ""));
+                        } catch (Throwable t) {
+                            VillagerOverhaul.LOG().error("[VillagerOverhaul] Recruit button click failed", t);
+                        }
+
+                        try {
+                            btn.setFocused(false);
+                            Screen scr = Minecraft.getInstance().screen;
+                            if (scr != null && scr.getFocused() == btn) scr.setFocused(null);
+                        } catch (Throwable ignored) {}
+                    })
+                    // Place BELOW Info (per request).
+                    .pos(sx, sy + 3 * (h + 2)).size(w, h)
+                    .createNarration(s -> Component.literal("Recruit"))
+                    .build();
+
+            setSimpleTooltip(recruitBtn, "Recruit");
+
+            e.addListener(recruitBtn);
+            RECRUIT_BUTTONS.put(screen, recruitBtn);
 
             // COMMANDS (toggle palette)
             Button cmdBtn = Button.builder(Component.literal("⚐"), btn -> {
@@ -1033,6 +1089,7 @@ public final class ClientUI {
             STATS_BUTTONS.remove(e.getScreen());
             INVENTORY_BUTTONS.remove(e.getScreen());
             COMMANDS_BUTTONS.remove(e.getScreen());
+            RECRUIT_BUTTONS.remove(e.getScreen());
 
             COMMANDS_SUB_BUTTONS.remove(e.getScreen());
             COMMANDS_EXPANDED.remove(e.getScreen());
@@ -2274,6 +2331,11 @@ public final class ClientUI {
 
             int id = PENDING_QUICK_VILLAGER_ID;
             PENDING_QUICK_VILLAGER_ID = -1;
+
+            // Only open QuickActions for villagers we actually control (prevents accidental opens on merchants/not-recruited).
+            if (!canUseControlsForVillager(id)) {
+                return;
+            }
 
             mc.setScreen(new VillagerQuickActionsScreen(id));
 
