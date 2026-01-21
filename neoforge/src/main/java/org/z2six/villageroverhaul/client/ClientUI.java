@@ -952,6 +952,11 @@ public final class ClientUI {
             // Keep trade-lock indicators as-is.
             renderTradeLockIndicators(e, screen);
 
+            // Auto-trade overlay (client-only QoL)
+            try {
+                AutoTradeService.renderStatus(e.getGuiGraphics(), screen);
+            } catch (Throwable ignored) {}
+
             // Refresh recruit state occasionally (villager-only) and enforce visibility/active.
             trySendRecruitStateQueryIfNeeded(screen);
 
@@ -1104,6 +1109,8 @@ public final class ClientUI {
             COMBAT_BTNS.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
+                try { AutoTradeService.stop("screen_closed"); } catch (Throwable ignored) {}
+
                 int cid = resolveContainerId(ms);
                 if (cid >= 0) {
                     ClientTradeLockCache.clearContainer(cid);
@@ -2302,6 +2309,10 @@ public final class ClientUI {
         try {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
+
+            try {
+                AutoTradeService.clientTick();
+            } catch (Throwable ignored) {}
 
             try {
                 if (ClientKeybinds.consumeOpenGlobalCombatSettings()) {

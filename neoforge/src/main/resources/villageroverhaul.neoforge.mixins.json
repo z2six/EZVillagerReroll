@@ -20,6 +20,8 @@
   "client": [
     "MerchantScreenTradeLockRightClickMixin",
     "MerchantScreenRerollButtonRightClickMixin",
+    "MerchantScreenAutoTradeCtrlRightClickMixin",
+    "MerchantScreenAutoTradeEscStopMixin",
     "villagerRendering.VillagerModelVisibilityMixin",
     "villagerRendering.VillagerRendererVisibilityMixin",
     "villagerRendering.ItemInHandLayerDisableForVillagerMixin",
