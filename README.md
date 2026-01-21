@@ -1,88 +1,47 @@
-# EZ Villager Reroll
+![](https://media.forgecdn.net/attachments/description/1338090/description_84801717-51cc-40cc-8d71-48316522a3ab.png)
 
-EZ Villager Reroll lets you reroll villager trades on demand, with full server-side control and optional trade locking.
+## Welcome to Villager Overhaul
 
-It is designed for modded servers where villager rerolling should be controlled, fair, and configurable.
+Welcome to **Villager Overhaul**. This mod adds tons of QoL features to trading, as well as completely new villager combat mechanics. It's a combination of the **Guard Villagers** mod plus a bunch of merchant trading features.
 
-***
+Everything is *balanced* to make sure it's not overpowered. The methodology is simple: provide a better **alternative** to destroying and placing a lectern block over 9000 times. Everything costs emeralds and is completely configurable.
 
-## Features
+For now, this mod only supports NeoForge 1.21.1 and beyond, due to the complexity of the mod’s architecture. I may investigate porting to 1.20.1 in the future, but there are no plans as of now.
 
-*   Reroll villager trades via a simple GUI button
-*   Lock individual trades so they are excluded from rerolls
-*   Rerolling gives Villager EXP
-*   Request a specific item from a merchant (takes time, vanilla friendly)
-*   Server-authoritative logic (no client-side cheating)
-*   Fully configurable costs, cooldowns, and limits
-*   Optional integration with Lightman’s Currency
-*   Works on NeoForge 1.21.1
+![](https://media.forgecdn.net/attachments/description/1338090/description_18ca7a59-8342-4042-8213-92ec32a2be61.png)
 
-***
+## Merchant Features
+
+- Reroll trades at any villager level in exchange for emeralds
+- Lock specific trades so they won’t get rerolled
+- Automatically reroll until a specific item is found while you're away
+- Each villager spawns with 4 randomized custom Merchant stats
+
+## Combat Features
+
+- Give villagers fully functioning equipment (armor, sword, shield)
+- Each villager spawns with 4 randomized custom Combat stats
+- Villagers return to normal jobs (like farming) when not on guard duty
+- Assign patrol routes to villagers
+- Tell villagers to follow you or stop moving
+- Villagers eat food to regenerate HP
+- Fully customize when villagers engage in combat (individually or globally)
+- Customize each villager’s combat AI
+
+## General Features
+
+- Villagers can be respawned
+- Other players cannot run commands, rerolls, etc. on villagers you recruited
+- Villager information GUI showing stats, history, attributes, and more
+- Server config is hot-loaded — no server restart required
+
+![](https://media.forgecdn.net/attachments/description/1338090/description_f4d2c34e-59b6-43ce-bead-96ab544354be.png)
 
 ## How to Use
 
-1.  Open a villager trading screen
-2.  Click the reroll button to reroll trades
-3.  Right-click a trade to lock or unlock it  
-    Locked trades will not change during rerolls
-4.  Reroll again to change only unlocked trades
-5.  Right-click on the reroll button to ask for one (or more) specific item(s)
-
-***
-
-## Details
-
-### The auto-rerolling (request item) feature:
-
-In the server config there is a "reroll cooldown". If you use the Item Request feature, the server legitimately rerolls that villager's trade using the cooldown config. The villager will be unable to trade during this time and show an outline around its model (if any player is within 6 blocks). Any player can right-click the villager again to view the request and cancel it.
-
-### Auto-reroll cost
-Similar as manual reroll cost, but made more expensive for traders with fewer trade offers and made cheaper for traders with a lot of trade offers (to make leveling a Villager make more sense than breeding new ones)
-
-### Trades never reset
-
-Vanilla MC resets trades unless a villager has been traded with. This is counterintuitive to this mod, so we instead store the trades of a villager at the right moments, and ensure we always repopulate the trades with the stored trade offers whenever a player interacts with that villager (more reliable than a mixin).
-
-***
-
-## Configuration (Server-Side)
-
-All configuration options are hot-reloadable and do not require a restart.
-
-Available options include:
-
-*   Reroll cost (item or tag)
-*   Cooldowns per villager
-*   Daily reroll limits
-*   Allow or disallow rerolls after trades were used
-*   Prefer wallet or inventory when Lightman’s Currency is installed
-
-***
-
-## Multiplayer and Servers
-
-*   Safe for dedicated servers
-*   No client trust required
-*   Trade locks are stored directly on the villager
-*   Clients automatically stay in sync with the server
-
-***
-
-## Compatibility
-
-*   Minecraft 1.21.1
-*   NeoForge
-*   Optional: Lightman’s Currency
-
-***
-
-## License
-
-All Rights Reserved unless otherwise stated.  
-Do not redistribute without permission.
-
-***
-
-## Issues and Suggestions
-
-Please report bugs or feature requests via the issue tracker or the mod page comments.
+1. Find a villager (or breed one) 👪
+2. Right-click to recruit it (if you like its stats) 💎
+3. Right-click it again — the mod’s buttons will now appear 🖱️
+4. Configure `villageroverhaul-server.toml` to rebalance everything 📊
+5. Press **K** to set default villager combat AI settings ⚙️
+6. Perfect villager died? Right-click a **Respawn Anchor** while holding an emerald 👻  
