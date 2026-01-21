@@ -1262,6 +1262,10 @@ public final class VillagerInfoScreen extends Screen {
             return out;
         }
 
+        out.add(Component.literal("Trades").withStyle(ChatFormatting.YELLOW));
+        appendTradesOverview(out);
+
+        out.add(Component.literal(""));
         out.add(Component.literal("Stats").withStyle(ChatFormatting.YELLOW));
 
         if (this.hasStats) {
@@ -1379,10 +1383,6 @@ public final class VillagerInfoScreen extends Screen {
             out.add(Component.literal("(attribute scan failed)").withStyle(ChatFormatting.RED));
         }
 
-        out.add(Component.literal(""));
-        out.add(Component.literal("Trades").withStyle(ChatFormatting.YELLOW));
-        appendTradesOverview(out);
-
         return out;
     }
 
@@ -1438,10 +1438,14 @@ public final class VillagerInfoScreen extends Screen {
                 return;
             }
 
+            int added = 0;
             for (int i = 0; i < attrs.size() && i < 128; i++) {
                 CompoundTag a = attrs.getCompound(i);
                 if (a == null) continue;
                 String nameId = a.getString("Name");
+                if (nameId == null || nameId.isEmpty()) nameId = a.getString("name");
+                if (nameId == null || nameId.isEmpty()) nameId = a.getString("Id");
+                if (nameId == null || nameId.isEmpty()) nameId = a.getString("id");
                 if (nameId == null || nameId.isEmpty()) continue;
 
                 ResourceLocation id = ResourceLocation.tryParse(nameId);
@@ -1454,9 +1458,14 @@ public final class VillagerInfoScreen extends Screen {
                     name = Component.literal(nameId);
                 }
 
-                double base = a.getDouble("Base");
+                double base = a.contains("Base", net.minecraft.nbt.Tag.TAG_ANY_NUMERIC) ? a.getDouble("Base") : a.getDouble("base");
                 double val = computeAttributeValueFromNbt(a);
+                added++;
                 out.add(Component.literal("• ").append(name).append(Component.literal(": " + formatPlain3(val) + " (base " + formatPlain3(base) + ")").withStyle(ChatFormatting.DARK_GRAY)));
+            }
+
+            if (added == 0) {
+                appendDerivedAttributesFromSnapshotNbt(out);
             }
         } catch (Throwable ignored) {
             try { out.add(Component.literal("(attribute scan failed)").withStyle(ChatFormatting.RED)); } catch (Throwable ignored2) {}
@@ -1531,35 +1540,41 @@ public final class VillagerInfoScreen extends Screen {
     private static double computeAttributeValueFromNbt(CompoundTag attrTag) {
         try {
             if (attrTag == null) return 0.0;
-            double base = attrTag.getDouble("Base");
+            double base = attrTag.contains("Base", net.minecraft.nbt.Tag.TAG_ANY_NUMERIC) ? attrTag.getDouble("Base") : attrTag.getDouble("base");
             if (Double.isNaN(base) || Double.isInfinite(base)) base = 0.0;
             double value = base;
 
-            if (!attrTag.contains("Modifiers", CompoundTag.TAG_LIST)) return value;
-            ListTag mods = attrTag.getList("Modifiers", CompoundTag.TAG_COMPOUND);
+            String modsKey = null;
+            if (attrTag.contains("Modifiers", net.minecraft.nbt.Tag.TAG_LIST)) modsKey = "Modifiers";
+            else if (attrTag.contains("modifiers", net.minecraft.nbt.Tag.TAG_LIST)) modsKey = "modifiers";
+            if (modsKey == null) return value;
+            ListTag mods = attrTag.getList(modsKey, CompoundTag.TAG_COMPOUND);
 
             // operation: 0 ADD_VALUE, 1 ADD_MULTIPLIED_BASE, 2 ADD_MULTIPLIED_TOTAL
             for (int i = 0; i < mods.size(); i++) {
                 CompoundTag m = mods.getCompound(i);
                 if (m == null) continue;
-                if (m.getInt("Operation") != 0) continue;
-                double amt = m.getDouble("Amount");
+                int op = m.contains("Operation", net.minecraft.nbt.Tag.TAG_ANY_NUMERIC) ? m.getInt("Operation") : m.getInt("operation");
+                if (op != 0) continue;
+                double amt = m.contains("Amount", net.minecraft.nbt.Tag.TAG_ANY_NUMERIC) ? m.getDouble("Amount") : m.getDouble("amount");
                 if (Double.isNaN(amt) || Double.isInfinite(amt)) continue;
                 value += amt;
             }
             for (int i = 0; i < mods.size(); i++) {
                 CompoundTag m = mods.getCompound(i);
                 if (m == null) continue;
-                if (m.getInt("Operation") != 1) continue;
-                double amt = m.getDouble("Amount");
+                int op = m.contains("Operation", net.minecraft.nbt.Tag.TAG_ANY_NUMERIC) ? m.getInt("Operation") : m.getInt("operation");
+                if (op != 1) continue;
+                double amt = m.contains("Amount", net.minecraft.nbt.Tag.TAG_ANY_NUMERIC) ? m.getDouble("Amount") : m.getDouble("amount");
                 if (Double.isNaN(amt) || Double.isInfinite(amt)) continue;
                 value += base * amt;
             }
             for (int i = 0; i < mods.size(); i++) {
                 CompoundTag m = mods.getCompound(i);
                 if (m == null) continue;
-                if (m.getInt("Operation") != 2) continue;
-                double amt = m.getDouble("Amount");
+                int op = m.contains("Operation", net.minecraft.nbt.Tag.TAG_ANY_NUMERIC) ? m.getInt("Operation") : m.getInt("operation");
+                if (op != 2) continue;
+                double amt = m.contains("Amount", net.minecraft.nbt.Tag.TAG_ANY_NUMERIC) ? m.getDouble("Amount") : m.getDouble("amount");
                 if (Double.isNaN(amt) || Double.isInfinite(amt)) continue;
                 value *= 1.0 + amt;
             }

@@ -6,6 +6,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -21,6 +22,9 @@ public abstract class MobBackpedalInputMixin {
     private static final String PD_CIRCLE_ZZA = "ezvr_circle_zza";
 
     private static final String PD_EAT_SLOW_UNTIL = "ezvr_eat_slow_until";
+
+    @Unique
+    private long ezvr$lastManualInputAt = Long.MIN_VALUE;
 
     @Inject(
             method = "aiStep",
@@ -75,6 +79,7 @@ public abstract class MobBackpedalInputMixin {
                 vill.zza = -1.0f;
                 vill.xxa = 0.0f;
                 vill.yya = 0.0f;
+                ezvr$lastManualInputAt = now;
                 return;
             }
 
@@ -124,6 +129,25 @@ public abstract class MobBackpedalInputMixin {
                 float strafeScale = eatingSlow ? 1.0f : 0.35f;
                 vill.xxa = dir * strafeScale;
                 vill.yya = 0.0f;
+                ezvr$lastManualInputAt = now;
+                return;
+            }
+
+            // If we applied manual inputs very recently but they are no longer active, clear them so they
+            // don't "stick" and cause sideways gliding after combat ends (or circling stops).
+            if (ezvr$lastManualInputAt != Long.MIN_VALUE && (now - ezvr$lastManualInputAt) <= 2L) {
+                vill.zza = 0.0f;
+                vill.xxa = 0.0f;
+                vill.yya = 0.0f;
+
+                // Also remove small leftover horizontal momentum so the villager returns to normal navigation quickly.
+                try {
+                    Vec3 dm = vill.getDeltaMovement();
+                    double horiz = Math.sqrt(dm.x * dm.x + dm.z * dm.z);
+                    if (horiz < 0.08) {
+                        vill.setDeltaMovement(0.0, dm.y, 0.0);
+                    }
+                } catch (Throwable ignored) {}
             }
 
         } catch (Throwable ignored) {}
