@@ -36,13 +36,30 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
     // =========================================================================================
 
     private static final boolean ENABLE_WAIST = true;
-    private static final float WAIST_TX = 0.25f;
-    private static final float WAIST_TY = 0.62f;
-    private static final float WAIST_TZ = 0.10f;
-    private static final float WAIST_RX_DEG = -85.0f; // up/down
-    private static final float WAIST_RY_DEG = 45.0f; // dont touch
-    private static final float WAIST_RZ_DEG = 90.0f;
+    private static final float WAIST_TX_DEFAULT = 0.35f;
+    private static final float WAIST_TY_DEFAULT = 0.65f;
+    private static final float WAIST_TZ_DEFAULT = -0.15f;
+    private static final float WAIST_RX_DEG_DEFAULT = -135f;
+    private static final float WAIST_RY_DEG_DEFAULT = 180f;
+    private static final float WAIST_RZ_DEG_DEFAULT = 180f;
     private static final float WAIST_SCALE = 1.00f;
+
+    public static volatile float WAIST_TX = WAIST_TX_DEFAULT;
+    public static volatile float WAIST_TY = WAIST_TY_DEFAULT;
+    public static volatile float WAIST_TZ = WAIST_TZ_DEFAULT;
+    public static volatile float WAIST_RX_DEG = WAIST_RX_DEG_DEFAULT;
+    public static volatile float WAIST_RY_DEG = WAIST_RY_DEG_DEFAULT;
+    public static volatile float WAIST_RZ_DEG = WAIST_RZ_DEG_DEFAULT;
+
+    private static final float WAIST_SPIN_DEG_DEFAULT = 0.0f;
+    public static volatile float WAIST_SPIN_DEG = WAIST_SPIN_DEG_DEFAULT;
+
+    public enum SpinAxis { X, Y, Z }
+    public static volatile SpinAxis WAIST_SPIN_AXIS = SpinAxis.Z;
+
+    private static final float WAIST_ROLL_DEG_DEFAULT = 0.0f;
+    public static volatile float WAIST_ROLL_DEG = WAIST_ROLL_DEG_DEFAULT;
+    public static volatile SpinAxis WAIST_ROLL_AXIS = SpinAxis.Z;
 
     private static final boolean ENABLE_BACK = true;
     private static final float BACK_TX = 0.20f; // left/right back perspective
@@ -57,6 +74,79 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
 
     private boolean ezvr$initLogged = false;
     private static Method ROOT_METHOD = null;
+
+    public static void ezvr$resetWaistTweak() {
+        WAIST_TX = WAIST_TX_DEFAULT;
+        WAIST_TY = WAIST_TY_DEFAULT;
+        WAIST_TZ = WAIST_TZ_DEFAULT;
+        WAIST_RX_DEG = WAIST_RX_DEG_DEFAULT;
+        WAIST_RY_DEG = WAIST_RY_DEG_DEFAULT;
+        WAIST_RZ_DEG = WAIST_RZ_DEG_DEFAULT;
+        WAIST_SPIN_DEG = WAIST_SPIN_DEG_DEFAULT;
+        WAIST_SPIN_AXIS = SpinAxis.Z;
+        WAIST_ROLL_DEG = WAIST_ROLL_DEG_DEFAULT;
+        WAIST_ROLL_AXIS = SpinAxis.Z;
+    }
+
+    public static boolean ezvr$setWaistTweak(String keyRaw, float value, boolean additive) {
+        try {
+            String key = (keyRaw == null) ? "" : keyRaw.trim().toLowerCase(java.util.Locale.ROOT);
+            if (key.isEmpty()) return false;
+
+            return switch (key) {
+                case "tx" -> { WAIST_TX = additive ? (WAIST_TX + value) : value; yield true; }
+                case "ty" -> { WAIST_TY = additive ? (WAIST_TY + value) : value; yield true; }
+                case "tz" -> { WAIST_TZ = additive ? (WAIST_TZ + value) : value; yield true; }
+                case "rx", "rx_deg" -> { WAIST_RX_DEG = additive ? (WAIST_RX_DEG + value) : value; yield true; }
+                case "ry", "ry_deg" -> { WAIST_RY_DEG = additive ? (WAIST_RY_DEG + value) : value; yield true; }
+                case "rz", "rz_deg" -> { WAIST_RZ_DEG = additive ? (WAIST_RZ_DEG + value) : value; yield true; }
+                case "spin", "spin_deg" -> { WAIST_SPIN_DEG = additive ? (WAIST_SPIN_DEG + value) : value; yield true; }
+                case "roll", "roll_deg" -> { WAIST_ROLL_DEG = additive ? (WAIST_ROLL_DEG + value) : value; yield true; }
+                default -> false;
+            };
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean ezvr$setWaistSpinAxis(String axisRaw) {
+        try {
+            String axis = (axisRaw == null) ? "" : axisRaw.trim().toUpperCase(java.util.Locale.ROOT);
+            if (axis.isEmpty()) return false;
+            WAIST_SPIN_AXIS = SpinAxis.valueOf(axis);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean ezvr$setWaistRollAxis(String axisRaw) {
+        try {
+            String axis = (axisRaw == null) ? "" : axisRaw.trim().toUpperCase(java.util.Locale.ROOT);
+            if (axis.isEmpty()) return false;
+            WAIST_ROLL_AXIS = SpinAxis.valueOf(axis);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static String ezvr$waistTweakString() {
+        try {
+            return "tx=" + WAIST_TX
+                    + " ty=" + WAIST_TY
+                    + " tz=" + WAIST_TZ
+                    + " rx=" + WAIST_RX_DEG
+                    + " ry=" + WAIST_RY_DEG
+                    + " rz=" + WAIST_RZ_DEG
+                    + " spin=" + WAIST_SPIN_DEG
+                    + " spinAxis=" + String.valueOf(WAIST_SPIN_AXIS)
+                    + " roll=" + WAIST_ROLL_DEG
+                    + " rollAxis=" + String.valueOf(WAIST_ROLL_AXIS);
+        } catch (Throwable ignored) {
+            return "tx=? ty=? tz=? rx=? ry=? rz=? spin=? spinAxis=? roll=? rollAxis=?";
+        }
+    }
 
     public VillagerHolsteredLoadoutLayer(RenderLayerParent<Villager, VillagerModel<Villager>> parent) {
         super(parent);
@@ -116,7 +206,11 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
                         packedLight,
                         WAIST_TX, WAIST_TY, WAIST_TZ,
                         WAIST_RX_DEG, WAIST_RY_DEG, WAIST_RZ_DEG,
-                        WAIST_SCALE
+                        WAIST_SCALE,
+                        WAIST_SPIN_DEG,
+                        WAIST_SPIN_AXIS,
+                        WAIST_ROLL_DEG,
+                        WAIST_ROLL_AXIS
                 );
             }
 
@@ -132,7 +226,11 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
                         packedLight,
                         BACK_TX, BACK_TY, BACK_TZ,
                         BACK_RX_DEG, BACK_RY_DEG, BACK_RZ_DEG,
-                        BACK_SCALE
+                        BACK_SCALE,
+                        0.0f,
+                        SpinAxis.Z,
+                        0.0f,
+                        SpinAxis.Z
                 );
             }
 
@@ -151,7 +249,11 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
                                   int packedLight,
                                   float tx, float ty, float tz,
                                   float rxDeg, float ryDeg, float rzDeg,
-                                  float scale) {
+                                  float scale,
+                                  float spinDeg,
+                                  SpinAxis spinAxis,
+                                  float rollDeg,
+                                  SpinAxis rollAxis) {
         try {
             if (stack == null || stack.isEmpty()) return;
             Minecraft mc = Minecraft.getInstance();
@@ -167,20 +269,42 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
                 if (rxDeg != 0.0f) poseStack.mulPose(Axis.XP.rotationDegrees(rxDeg));
                 if (ryDeg != 0.0f) poseStack.mulPose(Axis.YP.rotationDegrees(ryDeg));
                 if (rzDeg != 0.0f) poseStack.mulPose(Axis.ZP.rotationDegrees(rzDeg));
+                if (spinDeg != 0.0f) {
+                    if (spinAxis == null) spinAxis = SpinAxis.Z;
+                    switch (spinAxis) {
+                        case X -> poseStack.mulPose(Axis.XP.rotationDegrees(spinDeg));
+                        case Y -> poseStack.mulPose(Axis.YP.rotationDegrees(spinDeg));
+                        case Z -> poseStack.mulPose(Axis.ZP.rotationDegrees(spinDeg));
+                    }
+                }
                 if (scale != 1.0f) poseStack.scale(scale, scale, scale);
 
-                mc.getItemRenderer().renderStatic(
-                        villager,
-                        stack,
-                        ctx,
-                        leftHand,
-                        poseStack,
-                        buffer,
-                        villager.level(),
-                        packedLight,
-                        OverlayTexture.NO_OVERLAY,
-                        villager.getId()
-                );
+                HolsterItemRenderTweakState.Axis ra = HolsterItemRenderTweakState.Axis.Z;
+                if (rollAxis != null) {
+                    ra = switch (rollAxis) {
+                        case X -> HolsterItemRenderTweakState.Axis.X;
+                        case Y -> HolsterItemRenderTweakState.Axis.Y;
+                        case Z -> HolsterItemRenderTweakState.Axis.Z;
+                    };
+                }
+
+                HolsterItemRenderTweakState.push(rollDeg, ra);
+                try {
+                    mc.getItemRenderer().renderStatic(
+                            villager,
+                            stack,
+                            ctx,
+                            leftHand,
+                            poseStack,
+                            buffer,
+                            villager.level(),
+                            packedLight,
+                            OverlayTexture.NO_OVERLAY,
+                            villager.getId()
+                    );
+                } finally {
+                    HolsterItemRenderTweakState.pop();
+                }
 
             } finally {
                 poseStack.popPose();

@@ -3,6 +3,7 @@ package org.z2six.villageroverhaul.client;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
+import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -23,6 +24,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.client.render.ClientPartVisibilityRules;
+import org.z2six.villageroverhaul.client.render.VillagerHolsteredLoadoutLayer;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerEatTest;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerForceBlock;
 
@@ -103,7 +105,52 @@ public final class ClientCommands {
             d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_eat_test")
                     .executes(ctx -> eatTest()));
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest, /vo_eat_test");
+            /**
+             * Usage:
+             *   /vo_waist get
+             *   /vo_waist reset
+             *   /vo_waist set <tx|ty|tz|rx|ry|rz|spin|roll> <value>
+             *   /vo_waist add <tx|ty|tz|rx|ry|rz|spin|roll> <delta>
+             *   /vo_waist axis <x|y|z>
+             *   /vo_waist rollaxis <x|y|z>
+             */
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_waist")
+                    .executes(ctx -> {
+                        clientMsg("Usage: /vo_waist get | reset | set <tx|ty|tz|rx|ry|rz|spin|roll> <value> | add <tx|ty|tz|rx|ry|rz|spin|roll> <delta> | axis <x|y|z> | rollaxis <x|y|z>");
+                        clientMsg("Current: " + VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
+                        return 1;
+                    })
+                    .then(LiteralArgumentBuilder.<CommandSourceStack>literal("get")
+                            .executes(ctx -> waistGet()))
+                    .then(LiteralArgumentBuilder.<CommandSourceStack>literal("reset")
+                            .executes(ctx -> waistReset()))
+                    .then(LiteralArgumentBuilder.<CommandSourceStack>literal("axis")
+                            .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, String>argument("axis", StringArgumentType.word())
+                                    .executes(ctx -> waistAxis(StringArgumentType.getString(ctx, "axis")))))
+                    .then(LiteralArgumentBuilder.<CommandSourceStack>literal("rollaxis")
+                            .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, String>argument("axis", StringArgumentType.word())
+                                    .executes(ctx -> waistRollAxis(StringArgumentType.getString(ctx, "axis")))))
+                    .then(LiteralArgumentBuilder.<CommandSourceStack>literal("set")
+                            .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, String>argument("param", StringArgumentType.word())
+                                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Float>argument("value", FloatArgumentType.floatArg())
+                                            .executes(ctx -> waistSet(
+                                                    StringArgumentType.getString(ctx, "param"),
+                                                    FloatArgumentType.getFloat(ctx, "value"),
+                                                    false
+                                            )))))
+                    .then(LiteralArgumentBuilder.<CommandSourceStack>literal("add")
+                            .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, String>argument("param", StringArgumentType.word())
+                                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Float>argument("delta", FloatArgumentType.floatArg())
+                                            .executes(ctx -> waistSet(
+                                                    StringArgumentType.getString(ctx, "param"),
+                                                    FloatArgumentType.getFloat(ctx, "delta"),
+                                                    true
+                                            ))))));
+
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_holster_tweak")
+                    .executes(ctx -> openHolsterTweak()));
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest, /vo_eat_test, /vo_waist, /vo_holster_tweak");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] [client] RegisterClientCommandsEvent failed.", t);
@@ -217,6 +264,84 @@ public final class ClientCommands {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] /vo_partvis failed (soft): {}", t.toString());
             clientMsg("partvis failed (see log).");
+            return 0;
+        }
+    }
+
+    private static int waistGet() {
+        try {
+            clientMsg("Waist: " + VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
+            return 1;
+        } catch (Throwable t) {
+            clientMsg("vo_waist get failed: " + t);
+            return 0;
+        }
+    }
+
+    private static int waistReset() {
+        try {
+            VillagerHolsteredLoadoutLayer.ezvr$resetWaistTweak();
+            clientMsg("Waist reset. " + VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
+            return 1;
+        } catch (Throwable t) {
+            clientMsg("vo_waist reset failed: " + t);
+            return 0;
+        }
+    }
+
+    private static int waistAxis(String axis) {
+        try {
+            boolean ok = VillagerHolsteredLoadoutLayer.ezvr$setWaistSpinAxis(axis);
+            if (!ok) {
+                clientMsg("Invalid axis '" + axis + "'. Use: x y z");
+                return 0;
+            }
+            clientMsg("Waist updated. " + VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
+            return 1;
+        } catch (Throwable t) {
+            clientMsg("vo_waist axis failed: " + t);
+            return 0;
+        }
+    }
+
+    private static int waistRollAxis(String axis) {
+        try {
+            boolean ok = VillagerHolsteredLoadoutLayer.ezvr$setWaistRollAxis(axis);
+            if (!ok) {
+                clientMsg("Invalid axis '" + axis + "'. Use: x y z");
+                return 0;
+            }
+            clientMsg("Waist updated. " + VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
+            return 1;
+        } catch (Throwable t) {
+            clientMsg("vo_waist rollaxis failed: " + t);
+            return 0;
+        }
+    }
+
+    private static int waistSet(String param, float value, boolean additive) {
+        try {
+            boolean ok = VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(param, value, additive);
+            if (!ok) {
+                clientMsg("Unknown param '" + param + "'. Use: tx ty tz rx ry rz spin roll");
+                return 0;
+            }
+            clientMsg("Waist updated. " + VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
+            return 1;
+        } catch (Throwable t) {
+            clientMsg("vo_waist set/add failed: " + t);
+            return 0;
+        }
+    }
+
+    private static int openHolsterTweak() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return 0;
+            mc.setScreen(new HolsterTweakScreen(mc.screen));
+            return 1;
+        } catch (Throwable t) {
+            clientMsg("vo_holster_tweak failed: " + t);
             return 0;
         }
     }
