@@ -5,11 +5,17 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.mixin.VillagerAccessor;
+import org.z2six.villageroverhaul.server.CatalogBuilder;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public final class HoarderOffers {
 
@@ -80,54 +86,111 @@ public final class HoarderOffers {
             int target = baseline + desiredDelta;
             if (target < 1) target = 1;
 
+            // Hard safety: never reduce offers below highest locked index+1.
+            // Locked trades must never disappear just because hoarder delta wants fewer offers.
+            long lockMask = 0L;
+            int minSizeFromLocks = 0;
+            try {
+                lockMask = TradeLockState.getMask(vill);
+                if (lockMask != 0L) {
+                    int hi = -1;
+                    for (int i = 0; i < 63; i++) {
+                        if ((lockMask & (1L << i)) != 0L) hi = i;
+                    }
+                    if (hi >= 0) minSizeFromLocks = hi + 1;
+                }
+            } catch (Throwable ignored) {
+                lockMask = 0L;
+                minSizeFromLocks = 0;
+            }
+            if (minSizeFromLocks > target) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [hoarder] clamp_target_for_locks villager={} target {}->{} lockMask={}",
+                        vill.getUUID(), target, minSizeFromLocks, Long.toUnsignedString(lockMask));
+                target = minSizeFromLocks;
+            }
+
             boolean changed = false;
 
             // Step 3: enforce exact target size
             if (beforeSize > target) {
-                // Truncate from end. Locks do NOT prevent the reduction.
-                for (int i = beforeSize - 1; i >= target; i--) {
-                    try { offers.remove(i); } catch (Throwable ignored) {}
+                // Truncate from end, but NEVER remove locked indices.
+                // If we cannot reach target due to locks, we keep extra offers (fail-safe).
+                int removed = 0;
+                for (int i = offers.size() - 1; i >= 0 && offers.size() > target; i--) {
+                    if (lockMask != 0L && (lockMask & (1L << i)) != 0L) continue;
+                    try {
+                        offers.remove(i);
+                        removed++;
+                    } catch (Throwable ignored) {}
                 }
-                changed = true;
+                if (removed > 0) {
+                    changed = true;
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [hoarder] truncated villager={} removed={} size {}->{} target={} lockMask={}",
+                            vill.getUUID(), removed, beforeSize, safeSize(offers), target, Long.toUnsignedString(lockMask));
+                }
 
             } else if (beforeSize < target) {
                 // Append offers via vanilla logic (updateTrades should append current level's offers).
                 // This avoids “fake offers” that vanilla/other mods don’t understand.
-                int calls = 0;
-                int last = beforeSize;
+                int need = target - beforeSize;
 
-                while (safeSize(offers) < target && calls < MAX_UPDATE_TRADES_CALLS) {
-                    calls++;
+                Set<String> avoid = new HashSet<>();
+                try {
+                    for (int i = 0; i < offers.size(); i++) {
+                        MerchantOffer o = offers.get(i);
+                        if (o == null) continue;
+                        ItemStack res = o.getResult();
+                        if (res == null || res.isEmpty()) continue;
+                        avoid.add(CatalogBuilder.keyOf(res));
+                    }
+                } catch (Throwable ignored) {}
+
+                int added = 0;
+                int lvl = 1;
+                try { lvl = vill.getVillagerData().getLevel(); } catch (Throwable ignored) { lvl = 1; }
+                lvl = Math.max(1, Math.min(5, lvl));
+
+                for (int i = 0; i < need; i++) {
+                    MerchantOffer extra = CatalogBuilder.generateAdditionalOfferForLevel(vill, lvl, avoid);
+                    if (extra == null) break;
+
                     try {
-                        ((VillagerAccessor) vill).ezvr$updateTrades();
-                    } catch (Throwable t) {
+                        offers.add(extra);
+                        ItemStack res = extra.getResult();
+                        if (res != null && !res.isEmpty()) avoid.add(CatalogBuilder.keyOf(res));
+                        added++;
+                    } catch (Throwable ignored) {
                         break;
                     }
-
-                    int now = safeSize(offers);
-                    if (now <= last) {
-                        // No growth => likely cannot append further (modded behavior). Break to avoid infinite loop.
-                        break;
-                    }
-                    last = now;
                 }
 
-                // If we overshot (updateTrades can add multiple offers), trim back down.
-                int afterGrow = safeSize(offers);
-                if (afterGrow > target) {
-                    for (int i = afterGrow - 1; i >= target; i--) {
-                        try { offers.remove(i); } catch (Throwable ignored) {}
+                // Fail-safe: if we couldn't add enough while avoiding duplicates, allow duplicates.
+                // This prevents offer-count shrink (and therefore "missing slot / lost lock index") in edge cases.
+                if (added < need) {
+                    int stillNeed = need - added;
+                    int dupAdded = 0;
+                    for (int i = 0; i < stillNeed; i++) {
+                        MerchantOffer extra = CatalogBuilder.generateAdditionalOfferForLevel(vill, lvl, null);
+                        if (extra == null) break;
+                        try {
+                            offers.add(extra);
+                            dupAdded++;
+                            added++;
+                        } catch (Throwable ignored) {
+                            break;
+                        }
                     }
-                    changed = true;
-                } else if (afterGrow >= target) {
-                    changed = true;
-                } else {
-                    // Could not reach target; keep best-effort result.
-                    if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] HoarderOffers: could not append enough offers (villager={} target={} got={})",
-                                vill.getUUID(), target, afterGrow);
+                    if (dupAdded > 0) {
+                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [hoarder] append_relaxed_duplicates villager={} addedDup={} target={} lockMask={}",
+                                vill.getUUID(), dupAdded, target, Long.toUnsignedString(lockMask));
                     }
-                    changed = (afterGrow != beforeSize);
+                }
+
+                if (added > 0) changed = true;
+
+                if (added < need) {
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [hoarder] append_incomplete villager={} need={} added={} target={} lvl={} lockMask={}",
+                            vill.getUUID(), need, added, target, lvl, Long.toUnsignedString(lockMask));
                 }
 
                 // Apply special prices for the player if we have one (optional but nice).
@@ -144,6 +207,7 @@ public final class HoarderOffers {
                 if (sanitized != mask) {
                     TradeLockState.setMask(vill, sanitized);
                 }
+                TradeLockState.sanitizeLockedOfferSnapshots(vill, sanitized, finalSize);
             } catch (Throwable ignored) {}
 
             // Step 5: record ACTUAL applied delta now (not desired delta)

@@ -174,7 +174,22 @@ public final class ServerHandlers {
             long next = TradeLockState.toggle(vill, idx);
             long sanitized = TradeLockState.sanitizeMaskForSize(next, vill.getOffers().size());
             TradeLockState.setMask(vill, sanitized);
+
+            // Snapshot or clear the locked offer itself (mask alone is not sufficient for robust locks).
+            try {
+                boolean nowLocked = idx >= 0 && idx < 63 && (sanitized & (1L << idx)) != 0L;
+                if (nowLocked) {
+                    TradeLockState.captureLockedOffer(vill, idx);
+                } else {
+                    TradeLockState.clearLockedOfferSnapshot(vill, idx);
+                }
+                TradeLockState.sanitizeLockedOfferSnapshots(vill, sanitized, vill.getOffers() == null ? 0 : vill.getOffers().size());
+            } catch (Throwable ignored) {}
+
             try { org.z2six.villageroverhaul.server.VillagerHistoryService.addTradeLockToggle(vill, 1); } catch (Throwable ignored) {}
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [lock] toggled player={} villager={} idx={} mask={}",
+                    sp.getGameProfile().getName(), vill.getUUID(), idx, Long.toUnsignedString(sanitized));
 
             ctx.reply(new PacketTradeLocks(menu.containerId, sanitized));
             ctx.reply(org.z2six.villageroverhaul.server.TooltipService.computeSnapshot(sp, vill.getId()));
@@ -253,13 +268,9 @@ public final class ServerHandlers {
                 lockedCount = 0;
             }
 
-            int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
-            int deductibleLocks = Math.min(lockedCount, maxDeduct);
-
-            int effectiveOffers = Math.max(0, offerCount - deductibleLocks);
-
             int freeOffers = Math.max(0, ServerConfig.freeOffers);
-            int effectivePaidOffers = Math.max(0, effectiveOffers - freeOffers);
+            int unlockedOffers = Math.max(0, offerCount - lockedCount);
+            int effectivePaidOffers = Math.max(0, unlockedOffers - freeOffers);
 
             int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
             long manualLong = (long) effectivePaidOffers * (long) costPerOffer;
@@ -276,11 +287,11 @@ public final class ServerHandlers {
             }
 
             if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery snapshot: villager={} offers={} locked={} deductibleLocks={} free={} paid={} manual={} hourly={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery snapshot: villager={} offers={} locked={} unlocked={} free={} paid={} manual={} hourly={}",
                         vill.getUUID(),
                         offerCount,
                         lockedCount,
-                        deductibleLocks,
+                        unlockedOffers,
                         freeOffers,
                         effectivePaidOffers,
                         manualCost,
@@ -360,6 +371,26 @@ public final class ServerHandlers {
                 return;
             }
 
+            int offersNowBefore = -1;
+            int levelBefore = -1;
+            long lockMaskNow = 0L;
+            try { offersNowBefore = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
+            try { levelBefore = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            try { lockMaskNow = TradeLockState.getMask(vill); } catch (Throwable ignored) { lockMaskNow = 0L; }
+            int offersBeforeSnapshot = -1;
+            try { offersBeforeSnapshot = SearchService.getSettlementOffersBeforeTag(vill) == null ? -1 : SearchService.getSettlementOffersBeforeTag(vill).size(); } catch (Throwable ignored) {}
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [auto_search] pay_clicked player={} villagerId={} uuid={} cost={} offersLive={} offersBeforeSnap={} levelBefore={} lockMaskNow={} lockMaskBefore={}",
+                    sp.getGameProfile().getName(),
+                    vill.getId(),
+                    vill.getUUID(),
+                    SearchService.getSettlementFinalCost(vill),
+                    offersNowBefore,
+                    offersBeforeSnapshot,
+                    levelBefore,
+                    Long.toUnsignedString(lockMaskNow),
+                    Long.toUnsignedString(SearchService.getSettlementLockMaskBefore(vill))
+            );
+
             int settlementXp = 0;
             try {
                 settlementXp = Math.max(0, SearchService.getSettlementTotalVillagerXp(vill));
@@ -384,12 +415,39 @@ public final class ServerHandlers {
 
             SearchService.popSettlementAndClearVisuals(vill, sp.server);
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePayAutoSearchSettlement: success (player={} villager={} cost={} awardedXp={} settlementXp={})",
+            // Safety: ensure locked trades remain exactly as locked even after auto-search / settlement.
+            try {
+                org.z2six.villageroverhaul.logic.TradeLockState.ensureSnapshotsForLockedMask(vill);
+                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, vill.getOffers());
+                org.z2six.villageroverhaul.logic.TradeLockState.sanitizeLockedOfferSnapshots(
+                        vill,
+                        org.z2six.villageroverhaul.logic.TradeLockState.sanitizeMaskForSize(
+                                org.z2six.villageroverhaul.logic.TradeLockState.getMask(vill),
+                                safeOfferSize(vill)
+                        ),
+                        safeOfferSize(vill)
+                );
+            } catch (Throwable ignored) {}
+
+            int offersNowAfter = -1;
+            int levelAfter = -1;
+            long lockMaskAfter = 0L;
+            try { offersNowAfter = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
+            try { levelAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            try { lockMaskAfter = TradeLockState.getMask(vill); } catch (Throwable ignored) { lockMaskAfter = 0L; }
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [auto_search] pay_success player={} villager={} cost={} awardedXp={} settlementXp={} offers {}->{} level {}->{} lockMask {}->{}",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     cost,
                     awardedXp,
-                    settlementXp
+                    settlementXp,
+                    offersNowBefore,
+                    offersNowAfter,
+                    levelBefore,
+                    levelAfter,
+                    Long.toUnsignedString(lockMaskNow),
+                    Long.toUnsignedString(lockMaskAfter)
             );
 
             ctx.reply(new PacketAutoSearchSettlementCleared(vill.getId()));
@@ -422,6 +480,13 @@ public final class ServerHandlers {
             TradeLockState.setMask(vill, sanitized);
             try {
                 org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(vill, sanitized);
+            } catch (Throwable ignored) {}
+
+            // Safety: restore exact locked offers (mask alone is not sufficient).
+            try {
+                org.z2six.villageroverhaul.logic.TradeLockState.ensureSnapshotsForLockedMask(vill);
+                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, vill.getOffers());
+                org.z2six.villageroverhaul.logic.TradeLockState.sanitizeLockedOfferSnapshots(vill, sanitized, safeOfferSize(vill));
             } catch (Throwable ignored) {}
 
             SearchService.popSettlementAndClearVisuals(vill, sp.server);

@@ -49,6 +49,9 @@ public final class HoarderOfferService {
             // Don’t mess with settlement states.
             if (SearchService.isAwaitingPayment(vill)) return;
 
+            // Backward-compat: if a villager already had a lock mask stored, ensure snapshots exist.
+            try { org.z2six.villageroverhaul.logic.TradeLockState.ensureSnapshotsForLockedMask(vill); } catch (Throwable ignored) {}
+
             // Enforce Hoarder immediately so UI opens with correct count.
             HoarderOffers.normalizeOffers(vill, sp);
 

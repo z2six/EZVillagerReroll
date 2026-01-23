@@ -507,7 +507,8 @@ public final class SearchService {
 
             try { updateGlowForBusyVillager(vill, sp.server); } catch (Throwable ignored) {}
 
-            if (containsAnyRequested(vill, t.requestedKeys)) {
+            // Only treat "found" as success if it appears in an UNLOCKED slot.
+            if (containsAnyRequestedUnlocked(vill, t.requestedKeys, t.lockMaskBefore)) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={}",
                         vill.getUUID(), vill.getId(), t.requestedKeys.size());
                 clearBusyState(vill, serverOf(sp), t);
@@ -583,6 +584,10 @@ public final class SearchService {
             if (settle != null) {
                 int elapsedTicks = (int) Math.max(0L, settle.completedAtGameTime - settle.startedAtGameTime);
 
+                // Final UI failsafe: force locked slots to match the pre-search snapshot BEFORE we serialize pay-row offers.
+                // This ensures the completion screen can never show a "green outline" on the wrong trade.
+                try { overwriteLockedSlotsFromSnapshot(vill, settle.offersBeforeTag, settle.lockMaskBefore, "settlement_open_ui"); } catch (Throwable ignored) {}
+
                 // ✅ Pay row = CURRENT offers (LIVE, after rerolling)
                 ListTag payOffersLive = serializeOffersCodec(vill);
 
@@ -605,10 +610,11 @@ public final class SearchService {
                             )
                     ));
 
-                    VillagerOverhaul.LOG().debug(
-                            "[VillagerOverhaul] openBusyScreen: sent PacketOpenAutoSearchPaymentScreen (player={} villagerEntityId={} hourly={} final={} elapsedTicks={} totalVillagerXp={} payOffersLive={} declineSnapshot={} lockMaskBefore={} requestedTargets={})",
+                    VillagerOverhaul.LOG().info(
+                            "[VillagerOverhaul] [auto_search] open_payment_screen player={} villagerEntityId={} uuid={} hourly={} final={} elapsedTicks={} totalVillagerXp={} payOffersLive={} declineSnapshot={} lockMaskBefore={} requestedTargets={}",
                             sp.getGameProfile().getName(),
                             vill.getId(),
+                            vill.getUUID(),
                             settle.hourlyCost,
                             settle.finalCost,
                             elapsedTicks,
@@ -704,7 +710,7 @@ public final class SearchService {
                     task.cooldownTicks = cooldown;
                     task.nextRerollGameTime = now + cooldown;
 
-                    if (containsAnyRequested(vill, task.requestedKeys)) {
+                    if (containsAnyRequestedUnlocked(vill, task.requestedKeys, task.lockMaskBefore)) {
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search DONE (already matched): villager={} entityId={} requestedKeys={} rerollCount={}",
                                 vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
                         clearBusyState(vill, server, task);
@@ -732,6 +738,10 @@ public final class SearchService {
                         try { HoarderOffers.normalizeAfterOfferRebuild(vill, null); } catch (Throwable ignored) {}
                         try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
 
+                        // Critical rule: locked slots must NEVER be effectively rerolled during auto-search.
+                        // After rebuilding, overwrite locked indices with the original (pre-search) snapshot offers.
+                        try { overwriteLockedSlotsFromSnapshot(vill, task.offersBeforeTag, task.lockMaskBefore, "auto_search_tick"); } catch (Throwable ignored) {}
+
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search reroll success: villager={} entityId={} rerollCount={} baseCd={} timelinessPct={} effectiveCd={}",
                                 vill.getUUID(), vill.getId(), task.rerollCount, baseCd, tPct, cooldown);
                     } catch (Throwable rerollErr) {
@@ -740,7 +750,7 @@ public final class SearchService {
                         continue;
                     }
 
-                    if (containsAnyRequested(vill, task.requestedKeys)) {
+                    if (containsAnyRequestedUnlocked(vill, task.requestedKeys, task.lockMaskBefore)) {
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search FOUND match: villager={} entityId={} requestedKeys={} rerollCount={}",
                                 vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
                         clearBusyState(vill, server, task);
@@ -808,6 +818,33 @@ public final class SearchService {
 
             // XP now includes Intellect multiplier
             int totalXp = computeTotalVillagerXpForTask(task, vill);
+
+            // Settlement transition: one last hard overwrite of locked indices from the pre-search snapshot
+            // so the villager state (and later UI serialization) cannot drift.
+            try { overwriteLockedSlotsFromSnapshot(vill, task.offersBeforeTag, task.lockMaskBefore, "settlement_create"); } catch (Throwable ignored) {}
+
+            // Final sanity before we create a settlement:
+            // - enforce hoarder extra slots (offer count can impact lock indices and UI rows)
+            // - re-assert locked offers from snapshots
+            int offersBeforeSanity = -1;
+            int offersAfterSanity = -1;
+            try { offersBeforeSanity = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
+            try { HoarderOffers.normalizeOffers(vill, null); } catch (Throwable ignored) {}
+            try {
+                org.z2six.villageroverhaul.logic.TradeLockState.ensureSnapshotsForLockedMask(vill);
+                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, vill.getOffers());
+                long m = org.z2six.villageroverhaul.logic.TradeLockState.getMask(vill);
+                org.z2six.villageroverhaul.logic.TradeLockState.sanitizeLockedOfferSnapshots(vill, m, vill.getOffers() == null ? 0 : vill.getOffers().size());
+            } catch (Throwable ignored) {}
+            try { offersAfterSanity = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
+            if (offersBeforeSanity != offersAfterSanity && VillagerOverhaul.LOG().isInfoEnabled()) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [auto_search] settlement_sanity_offer_count villager={} size {}->{} lockMask={}",
+                        vill.getUUID(),
+                        offersBeforeSanity,
+                        offersAfterSanity,
+                        Long.toUnsignedString(org.z2six.villageroverhaul.logic.TradeLockState.getMask(vill))
+                );
+            }
 
             Settlement settle = new Settlement(
                     vill.getUUID(),
@@ -916,14 +953,12 @@ public final class SearchService {
             }
 
             int lockedOffers = Long.bitCount(lockMask);
-            int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
-            int deductibleLocks = Math.min(lockedOffers, maxDeduct);
-
             int freeOffers = Math.max(0, ServerConfig.freeOffers);
             int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
 
-            int effectiveOffers = Math.max(0, totalOffers - deductibleLocks);
-            int paidOffers = Math.max(0, effectiveOffers - freeOffers);
+            // Cost is based ONLY on offers that are actually rerolled (unlocked indices).
+            int unlockedOffers = Math.max(0, totalOffers - lockedOffers);
+            int paidOffers = Math.max(0, unlockedOffers - freeOffers);
 
             long manual = (long) paidOffers * (long) costPerOffer;
             if (manual < 0L) manual = 0L;
@@ -960,8 +995,8 @@ public final class SearchService {
             }
 
             if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] computeHourlyCostServer: offers={} locked={} deductibleLocks={} free={} paid={} manual={} hourlyBase={} threshold={} pct={} steps={} factor={} hourlyBeforeGen={} generosityPct={} hourlyFinal={}",
-                        totalOffers, lockedOffers, deductibleLocks, freeOffers, paidOffers, manual, hourlyBase,
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] computeHourlyCostServer: offers={} locked={} unlocked={} free={} paid={} manual={} hourlyBase={} threshold={} pct={} steps={} factor={} hourlyBeforeGen={} generosityPct={} hourlyFinal={}",
+                        totalOffers, lockedOffers, unlockedOffers, freeOffers, paidOffers, manual, hourlyBase,
                         threshold, pct, steps, factor, hourly, gPct, finalHourly);
             }
 
@@ -1021,6 +1056,34 @@ public final class SearchService {
                 String k = CatalogBuilder.keyOf(out);
                 if (requestedKeys.contains(k)) return true;
             }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static boolean containsAnyRequestedUnlocked(Villager vill, Set<String> requestedKeys, long lockMask) {
+        try {
+            if (vill == null) return false;
+            if (requestedKeys == null || requestedKeys.isEmpty()) return false;
+
+            MerchantOffers offers = vill.getOffers();
+            if (offers == null || offers.isEmpty()) return false;
+
+            long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, offers.size());
+
+            for (int i = 0; i < offers.size(); i++) {
+                if ((sanitized & (1L << i)) != 0L) continue;
+                MerchantOffer o;
+                try { o = offers.get(i); } catch (Throwable ignored) { o = null; }
+                if (o == null) continue;
+                ItemStack out = o.getResult();
+                if (out == null || out.isEmpty()) continue;
+
+                String k = CatalogBuilder.keyOf(out);
+                if (requestedKeys.contains(k)) return true;
+            }
+
             return false;
         } catch (Throwable t) {
             return false;
@@ -1451,6 +1514,72 @@ public final class SearchService {
             return out;
         } catch (Throwable t) {
             return new ListTag();
+        }
+    }
+
+    private static MerchantOffer decodeOfferFromWrappedCodecListAtIndex(Villager vill, ListTag wrappedList, int idx, String reason) {
+        try {
+            if (vill == null) return null;
+            if (wrappedList == null || wrappedList.isEmpty()) return null;
+            if (!(vill.level() instanceof ServerLevel level)) return null;
+            if (idx < 0 || idx >= wrappedList.size()) return null;
+
+            CompoundTag wrap;
+            try { wrap = wrappedList.getCompound(idx); } catch (Throwable t) { wrap = null; }
+            if (wrap == null) return null;
+
+            Tag offerTag;
+            try { offerTag = wrap.get(TAG_WRAP_VALUE); } catch (Throwable t) { offerTag = null; }
+            if (offerTag == null) return null;
+
+            var ops = RegistryOps.create(NbtOps.INSTANCE, level.registryAccess());
+            var res = MerchantOffer.CODEC.parse(ops, offerTag);
+            return res.resultOrPartial(err ->
+                    VillagerOverhaul.LOG().debug(
+                            "[VillagerOverhaul] decodeOfferFromWrappedCodecListAtIndex: decode error villager={} idx={} reason={} err={}",
+                            vill.getUUID(), idx, reason, err
+                    )
+            ).orElse(null);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Auto-search rule: locked slots are immutable.
+     * This forcibly overwrites locked indices in the CURRENT offer list with their pre-search snapshot versions.
+     */
+    private static int overwriteLockedSlotsFromSnapshot(Villager vill, ListTag offersBeforeTag, long lockMaskBefore, String reason) {
+        try {
+            if (vill == null) return 0;
+            MerchantOffers cur = vill.getOffers();
+            if (cur == null || cur.isEmpty()) return 0;
+            if (offersBeforeTag == null || offersBeforeTag.isEmpty()) return 0;
+
+            int limit = Math.min(cur.size(), offersBeforeTag.size());
+            long sanitized = TradeLockState.sanitizeMaskForSize(lockMaskBefore, limit);
+
+            int overwritten = 0;
+            for (int i = 0; i < limit; i++) {
+                if ((sanitized & (1L << i)) == 0L) continue;
+
+                MerchantOffer snap = decodeOfferFromWrappedCodecListAtIndex(vill, offersBeforeTag, i, reason);
+                if (snap == null) continue;
+
+                try {
+                    cur.set(i, snap);
+                    overwritten++;
+                } catch (Throwable ignored) {}
+            }
+
+            if (overwritten > 0 && VillagerOverhaul.LOG().isInfoEnabled()) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [auto_search] locked_slot_overwrite villager={} overwritten={} reason={} lockMaskBefore={}",
+                        vill.getUUID(), overwritten, reason, Long.toUnsignedString(lockMaskBefore));
+            }
+
+            return overwritten;
+        } catch (Throwable t) {
+            return 0;
         }
     }
 

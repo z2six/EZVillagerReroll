@@ -78,6 +78,12 @@ public final class TradeUtil {
                     restoreLockedOffersSafe(rebuilt, oldOffersSnapshot, afterMask, vill);
                 }
 
+                // 3b) hard-enforce locked-offer snapshots (robust against updateTrades mutating offers in-place)
+                try {
+                    TradeLockState.restoreLockedOffersFromSnapshots(vill, rebuilt);
+                    TradeLockState.sanitizeLockedOfferSnapshots(vill, afterMask, rebuilt == null ? 0 : rebuilt.size());
+                } catch (Throwable ignored) {}
+
                 // 4) check duplicates in final list (especially duplicates caused by restoring locks)
                 boolean hasBadDupes = hasDuplicatesInvolvingUnlocked(rebuilt, afterMask);
 

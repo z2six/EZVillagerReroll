@@ -91,10 +91,10 @@ public final class TooltipService {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] TooltipService: villager unresolved -> tooltip will show offers=0/cost=free");
             }
 
-            int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
-            int deductibleLocks = Math.min(lockedCount, maxDeduct);
-
-            int effectiveOffers = Math.max(0, totalOffers - deductibleLocks);
+            // Cost is based ONLY on offers that are actually rerolled (unlocked indices).
+            int unlockedOffers = Math.max(0, totalOffers - lockedCount);
+            int deductibleLocks = 0;
+            int effectiveOffers = unlockedOffers;
 
             int freeOffers = Math.max(0, ServerConfig.freeOffers);
             int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
@@ -108,8 +108,8 @@ public final class TooltipService {
             else cost = (int) rawCost;
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] TooltipService cost calc: totalOffers={} lockedCount={} deductibleLocks={} effectiveOffers={} freeOffers={} paidOffers={} costPerOffer={} -> cost={}",
-                    totalOffers, lockedCount, deductibleLocks, effectiveOffers, freeOffers, paidOffers, costPerOffer, cost
+                    "[VillagerOverhaul] TooltipService cost calc: totalOffers={} lockedCount={} unlockedOffers={} freeOffers={} paidOffers={} costPerOffer={} -> cost={}",
+                    totalOffers, lockedCount, unlockedOffers, freeOffers, paidOffers, costPerOffer, cost
             );
 
             // Tooltip fields

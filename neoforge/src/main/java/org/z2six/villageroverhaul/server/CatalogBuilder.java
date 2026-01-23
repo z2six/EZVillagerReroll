@@ -52,6 +52,64 @@ public final class CatalogBuilder {
 
     private CatalogBuilder() {}
 
+    /**
+     * Generate a single additional offer for the given villager and level using the same ItemListing pool vanilla uses.
+     * This is used by Hoarder extra-offer logic to add more trades WITHOUT calling updateTrades() (which can overwrite existing locked offers).
+     *
+     * @param avoidResultKeys keys (via {@link #keyOf(ItemStack)}) to avoid duplicating.
+     */
+    public static MerchantOffer generateAdditionalOfferForLevel(Villager vill, int lvl, Set<String> avoidResultKeys) {
+        try {
+            if (vill == null) return null;
+
+            VillagerData vd = vill.getVillagerData();
+            VillagerProfession prof = vd.getProfession();
+            int level = Math.max(1, Math.min(5, lvl));
+
+            if (prof == null) return null;
+
+            Object byProfession = resolveTradesByProfession(prof);
+            if (byProfession == null) return null;
+
+            VillagerTrades.ItemListing[] listings = getListingsForLevel(byProfession, level);
+            if (listings == null || listings.length == 0) return null;
+
+            // Try a handful of times to find a non-null, non-duplicate offer.
+            RandomSource rand;
+            try { rand = vill.getRandom(); } catch (Throwable ignored) { rand = RandomSource.create(); }
+
+            int attempts = Math.min(64, listings.length * 2);
+            for (int i = 0; i < attempts; i++) {
+                VillagerTrades.ItemListing listing;
+                try {
+                    listing = listings[Math.floorMod(rand.nextInt(), listings.length)];
+                } catch (Throwable t) {
+                    listing = null;
+                }
+                if (listing == null) continue;
+
+                MerchantOffer offer = safeGetOfferRandom(listing, vill, rand);
+                if (offer == null) continue;
+
+                ItemStack res = ItemStack.EMPTY;
+                try { res = offer.getResult(); } catch (Throwable ignored) {}
+                if (res == null || res.isEmpty()) continue;
+
+                String key = keyOf(res);
+                if (avoidResultKeys != null && avoidResultKeys.contains(key)) {
+                    continue;
+                }
+
+                return offer;
+            }
+
+            return null;
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder.generateAdditionalOfferForLevel failed (soft): {}", t.toString());
+            return null;
+        }
+    }
+
     public static List<ItemStack> buildCatalog(Villager vill) {
         try {
             if (vill == null) return List.of();
@@ -256,6 +314,31 @@ public final class CatalogBuilder {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder.safeGetOfferOnce failed (soft): {}", t.toString());
+            return null;
+        }
+    }
+
+    private static MerchantOffer safeGetOfferRandom(VillagerTrades.ItemListing listing, Villager vill, RandomSource rand) {
+        try {
+            if (listing == null || vill == null || rand == null) return null;
+
+            try {
+                return listing.getOffer(vill, rand);
+            } catch (Throwable ignored) {}
+
+            try {
+                for (Method m : listing.getClass().getMethods()) {
+                    if (!m.getName().equals("getOffer")) continue;
+                    Class<?>[] p = m.getParameterTypes();
+                    if (p.length == 2) {
+                        Object offer = m.invoke(listing, vill, rand);
+                        return (offer instanceof MerchantOffer mo) ? mo : null;
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            return null;
+        } catch (Throwable t) {
             return null;
         }
     }

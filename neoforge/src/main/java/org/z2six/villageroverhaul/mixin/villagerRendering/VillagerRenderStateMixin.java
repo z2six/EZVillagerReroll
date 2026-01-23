@@ -5,6 +5,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -33,6 +34,14 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
     private static final EntityDataAccessor<Integer> EZVR_SWING_SEQ =
             SynchedEntityData.defineId(Villager.class, EntityDataSerializers.INT);
 
+    @Unique
+    private static final EntityDataAccessor<ItemStack> EZVR_COMBAT_LOADOUT_MAIN =
+            SynchedEntityData.defineId(Villager.class, EntityDataSerializers.ITEM_STACK);
+
+    @Unique
+    private static final EntityDataAccessor<ItemStack> EZVR_COMBAT_LOADOUT_OFF =
+            SynchedEntityData.defineId(Villager.class, EntityDataSerializers.ITEM_STACK);
+
     @Inject(method = "defineSynchedData", at = @At("TAIL"))
     private void ezvr$defineSynchedData(SynchedEntityData.Builder builder, CallbackInfo ci) {
         try {
@@ -40,6 +49,8 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
 
             builder.define(EZVR_RENDER_FLAGS, VillagerRenderFlags.defaultFlags());
             builder.define(EZVR_SWING_SEQ, 0);
+            builder.define(EZVR_COMBAT_LOADOUT_MAIN, ItemStack.EMPTY);
+            builder.define(EZVR_COMBAT_LOADOUT_OFF, ItemStack.EMPTY);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerRenderStateMixin#defineSynchedData failed (soft): {}", t.toString());
@@ -83,6 +94,52 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
             Villager self = (Villager) (Object) this;
             if (self.getEntityData() == null) return;
             self.getEntityData().set(EZVR_RENDER_FLAGS, flags);
+        } catch (Throwable ignored) {}
+    }
+
+    // -------------------------------------------------------------------------
+    // Combat loadout (server -> client) for holstered rendering
+    // -------------------------------------------------------------------------
+
+    @Override
+    public ItemStack ezvr$getCombatLoadoutMain() {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return ItemStack.EMPTY;
+            ItemStack st = self.getEntityData().get(EZVR_COMBAT_LOADOUT_MAIN);
+            return st == null ? ItemStack.EMPTY : st;
+        } catch (Throwable ignored) {
+            return ItemStack.EMPTY;
+        }
+    }
+
+    @Override
+    public ItemStack ezvr$getCombatLoadoutOff() {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return ItemStack.EMPTY;
+            ItemStack st = self.getEntityData().get(EZVR_COMBAT_LOADOUT_OFF);
+            return st == null ? ItemStack.EMPTY : st;
+        } catch (Throwable ignored) {
+            return ItemStack.EMPTY;
+        }
+    }
+
+    @Override
+    public void ezvr$setCombatLoadoutMain(ItemStack stack) {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return;
+            self.getEntityData().set(EZVR_COMBAT_LOADOUT_MAIN, stack == null ? ItemStack.EMPTY : stack);
+        } catch (Throwable ignored) {}
+    }
+
+    @Override
+    public void ezvr$setCombatLoadoutOff(ItemStack stack) {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return;
+            self.getEntityData().set(EZVR_COMBAT_LOADOUT_OFF, stack == null ? ItemStack.EMPTY : stack);
         } catch (Throwable ignored) {}
     }
 

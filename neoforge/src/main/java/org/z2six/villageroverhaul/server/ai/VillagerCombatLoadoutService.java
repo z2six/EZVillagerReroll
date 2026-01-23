@@ -11,6 +11,7 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.menu.VillagerInventoryMenu;
 import org.z2six.villageroverhaul.server.RecruitService;
 
@@ -172,8 +173,55 @@ public final class VillagerCombatLoadoutService {
                 enforceInactiveTick(vill, root, lookup, reason);
             }
 
+            syncClientLoadout(vill, root, lookup);
             root.putBoolean(K_WAS_ACTIVE, active);
         } catch (Throwable ignored) {}
+    }
+
+    private static void syncClientLoadout(Villager vill, CompoundTag root, HolderLookup.Provider lookup) {
+        try {
+            if (vill == null || root == null || lookup == null) return;
+            if (!(vill instanceof VillagerOverhaulRenderAccess acc)) return;
+
+            ItemStack guiMain = readStack(root, K_GUI_MAIN, lookup);
+            ItemStack guiOff = readStack(root, K_GUI_OFF, lookup);
+            ItemStack eqMain = readStack(root, K_EQ_MAIN, lookup);
+            ItemStack eqOff = readStack(root, K_EQ_OFF, lookup);
+
+            ItemStack desiredMain = (guiMain != null && !guiMain.isEmpty()) ? guiMain : eqMain;
+            ItemStack desiredOff = (guiOff != null && !guiOff.isEmpty()) ? guiOff : eqOff;
+
+            if (desiredMain == null) desiredMain = ItemStack.EMPTY;
+            if (desiredOff == null) desiredOff = ItemStack.EMPTY;
+
+            ItemStack normalizedMain = desiredMain.isEmpty() ? ItemStack.EMPTY : desiredMain.copy();
+            if (!normalizedMain.isEmpty()) normalizedMain.setCount(1);
+
+            ItemStack normalizedOff = desiredOff.isEmpty() ? ItemStack.EMPTY : desiredOff.copy();
+            if (!normalizedOff.isEmpty()) normalizedOff.setCount(1);
+
+            ItemStack curMain = acc.ezvr$getCombatLoadoutMain();
+            ItemStack curOff = acc.ezvr$getCombatLoadoutOff();
+
+            if (!sameForSync(curMain, normalizedMain)) {
+                acc.ezvr$setCombatLoadoutMain(normalizedMain);
+            }
+            if (!sameForSync(curOff, normalizedOff)) {
+                acc.ezvr$setCombatLoadoutOff(normalizedOff);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean sameForSync(ItemStack a, ItemStack b) {
+        try {
+            if (a == null) a = ItemStack.EMPTY;
+            if (b == null) b = ItemStack.EMPTY;
+            if (a.isEmpty() && b.isEmpty()) return true;
+            if (a.isEmpty() != b.isEmpty()) return false;
+            return ItemStack.isSameItemSameComponents(a, b) && a.getCount() == b.getCount();
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static boolean isActiveState(Villager vill) {

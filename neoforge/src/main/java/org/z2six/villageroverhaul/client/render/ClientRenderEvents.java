@@ -81,7 +81,10 @@ public final class ClientRenderEvents {
             // --- Held items (renders mainhand + offhand anchored to the custom arms pose) ---
             villagerRenderer.addLayer(new VillagerHumanoidHeldItemLayer(villagerRenderer, armsModel));
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Added VillagerHumanoidArmorLayer + VillagerHumanoidArmsLayer + VillagerHumanoidHeldItemLayer to Villager renderer.");
+            // --- Holstered loadout (renders while NOT holding items) ---
+            villagerRenderer.addLayer(new VillagerHolsteredLoadoutLayer(villagerRenderer));
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Added VillagerHumanoidArmorLayer + VillagerHumanoidArmsLayer + VillagerHumanoidHeldItemLayer + VillagerHolsteredLoadoutLayer to Villager renderer.");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ClientRenderEvents.onAddLayers failed", t);

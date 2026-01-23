@@ -78,15 +78,11 @@ public final class RerollExecutor {
             int lockedCount = Long.bitCount(lockMask);
 
             final int offersRerolled = Math.max(0, totalOffers - lockedCount);
-
-            int maxDeduct = Math.max(0, ServerConfig.maxDeductibleLockedOffers);
-            int deductibleLocks = Math.min(lockedCount, maxDeduct);
-
-            int effectiveOffers = Math.max(0, totalOffers - deductibleLocks);
             int freeOffers = Math.max(0, ServerConfig.freeOffers);
             int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
 
-            int paidOffers = Math.max(0, effectiveOffers - freeOffers);
+            // Cost is based ONLY on offers that are actually rerolled (unlocked indices).
+            int paidOffers = Math.max(0, offersRerolled - freeOffers);
 
             int baseCost;
             try {
@@ -109,13 +105,12 @@ public final class RerollExecutor {
             }
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, offersRerolled={}, deductibleLocks={}, effectiveOffers={}, freeOffers={}, paidOffers={}, costPerOffer={}, baseCost={}, generosityPct={}, cost={}, costSpec='{}' (preferWallet={})",
+                    "[VillagerOverhaul] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, offersRerolled(unlocked)={}, freeOffers={}, paidOffers={}, costPerOffer={}, baseCost={}, generosityPct={}, cost={}, costSpec='{}' (preferWallet={})",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     vill.getVillagerData().getProfession(),
                     level, xp, offersBefore,
                     lockedCount, offersRerolled,
-                    deductibleLocks, effectiveOffers,
                     freeOffers, paidOffers, costPerOffer,
                     baseCost, generosityPct, cost,
                     ServerConfig.costSpec, ServerConfig.preferWallet
