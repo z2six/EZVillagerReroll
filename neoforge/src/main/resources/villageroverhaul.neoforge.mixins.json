@@ -10,6 +10,7 @@
     "VillagerDisableVanillaAutoTradeRefreshMixin",
     "VillagerUpdateTradesPreserveLocksMixin",
     "VillagerBrainGateMixin",
+    "VillagerHarvestFarmlandXpMixin",
     "VillagerDisableInventoryCraftingMixin",
     "villagerRendering.VillagerRenderStateMixin",
     "villagerRendering.LivingEntityPreventVillagerHandClearMixin",

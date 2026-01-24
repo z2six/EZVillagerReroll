@@ -776,7 +776,7 @@ public final class ClientNetworkHandlers {
                 try {
                     if (msg == null) return;
                     AutoTradeService.acceptServerState(msg.containerId(), msg.active(), msg.reason());
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] client_state containerId={} active={} reason={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] client_state containerId={} active={} reason={}",
                             msg.containerId(), msg.active(), msg.reason());
                 } catch (Throwable t) {
                     VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoTradeState failed", t);

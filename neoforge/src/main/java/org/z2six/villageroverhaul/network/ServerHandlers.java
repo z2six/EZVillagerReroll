@@ -29,6 +29,7 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
@@ -75,7 +76,7 @@ public final class ServerHandlers {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] start_req player={} containerId={} offerIdx={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] start_req player={} containerId={} offerIdx={}",
                     sp.getGameProfile().getName(), msg.containerId(), msg.offerIndex());
 
             AutoTradeServerService.start(sp, msg.containerId(), msg.offerIndex());
@@ -89,7 +90,7 @@ public final class ServerHandlers {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] stop_req player={} containerId={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] stop_req player={} containerId={}",
                     sp.getGameProfile().getName(), msg.containerId());
 
             AutoTradeServerService.stop(sp, msg.containerId(), "client_stop");
@@ -193,7 +194,7 @@ public final class ServerHandlers {
 
             try { org.z2six.villageroverhaul.server.VillagerHistoryService.addTradeLockToggle(vill, 1); } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [lock] toggled player={} villager={} idx={} mask={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [lock] toggled player={} villager={} idx={} mask={}",
                     sp.getGameProfile().getName(), vill.getUUID(), idx, Long.toUnsignedString(sanitized));
 
             ctx.reply(new PacketTradeLocks(menu.containerId, sanitized));
@@ -384,7 +385,7 @@ public final class ServerHandlers {
             try { lockMaskNow = TradeLockState.getMask(vill); } catch (Throwable ignored) { lockMaskNow = 0L; }
             int offersBeforeSnapshot = -1;
             try { offersBeforeSnapshot = SearchService.getSettlementOffersBeforeTag(vill) == null ? -1 : SearchService.getSettlementOffersBeforeTag(vill).size(); } catch (Throwable ignored) {}
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [auto_search] pay_clicked player={} villagerId={} uuid={} cost={} offersLive={} offersBeforeSnap={} levelBefore={} lockMaskNow={} lockMaskBefore={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [auto_search] pay_clicked player={} villagerId={} uuid={} cost={} offersLive={} offersBeforeSnap={} levelBefore={} lockMaskNow={} lockMaskBefore={}",
                     sp.getGameProfile().getName(),
                     vill.getId(),
                     vill.getUUID(),
@@ -441,7 +442,7 @@ public final class ServerHandlers {
             try { levelAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
             try { lockMaskAfter = TradeLockState.getMask(vill); } catch (Throwable ignored) { lockMaskAfter = 0L; }
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [auto_search] pay_success player={} villager={} cost={} awardedXp={} settlementXp={} offers {}->{} level {}->{} lockMask {}->{}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [auto_search] pay_success player={} villager={} cost={} awardedXp={} settlementXp={} offers {}->{} level {}->{} lockMask {}->{}",
                     sp.getGameProfile().getName(),
                     vill.getUUID(),
                     cost,
@@ -1282,9 +1283,13 @@ public final class ServerHandlers {
                 settings.updatedAt = 0L;
             }
             try {
-                var sanitized = FarmingSettingsService.sanitizeItemIds(settings.itemIds);
-                settings.itemIds.clear();
-                settings.itemIds.addAll(sanitized);
+                var dep = FarmingSettingsService.sanitizeRules(settings.depositRules);
+                settings.depositRules.clear();
+                settings.depositRules.addAll(dep);
+
+                var wd = FarmingSettingsService.sanitizeRules(settings.withdrawRules);
+                settings.withdrawRules.clear();
+                settings.withdrawRules.addAll(wd);
             } catch (Throwable ignored) {}
             FarmingSettingsService.setSettings(vill, settings);
 
@@ -1334,6 +1339,49 @@ public final class ServerHandlers {
             FarmingSettingsService.setRegisteredChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterFarmingChest failed", t);
+        }
+    }
+
+    public static void handleRegisterFarmingWithdrawChest(PacketRegisterFarmingWithdrawChest msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            var pos = msg.pos();
+            var level = sp.serverLevel();
+            if (level == null) return;
+
+            var state = level.getBlockState(pos);
+            boolean isChest = false;
+            boolean isEnder = false;
+            try {
+                if (state != null) {
+                    var b = state.getBlock();
+                    isEnder = (b == net.minecraft.world.level.block.Blocks.ENDER_CHEST);
+                    isChest = isEnder || b == net.minecraft.world.level.block.Blocks.CHEST || b == net.minecraft.world.level.block.Blocks.TRAPPED_CHEST;
+                }
+            } catch (Throwable ignored) {
+                isChest = false;
+                isEnder = false;
+            }
+
+            if (!isChest) return;
+
+            String dim = "";
+            try {
+                dim = String.valueOf(level.dimension().location());
+            } catch (Throwable ignored) {
+                dim = "";
+            }
+
+            FarmingSettingsService.setRegisteredWithdrawChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterFarmingWithdrawChest failed", t);
         }
     }
 

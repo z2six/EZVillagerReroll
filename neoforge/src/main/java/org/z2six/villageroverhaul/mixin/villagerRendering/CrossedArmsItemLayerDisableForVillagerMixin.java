@@ -23,9 +23,7 @@ import org.z2six.villageroverhaul.render.VillagerRenderFlags;
  * This mixin is purely redundancy in case Mojang moves logic around again.
  */
 @Mixin(targets = {
-        "net.minecraft.client.renderer.entity.layers.CrossedArmsItemLayer",
-        "net.minecraft.client.renderer.entity.layers.VillagerItemLayer",
-        "net.minecraft.client.renderer.entity.layers.VillagerHeldItemLayer"
+        "net.minecraft.client.renderer.entity.layers.CrossedArmsItemLayer"
 })
 public abstract class CrossedArmsItemLayerDisableForVillagerMixin {
 

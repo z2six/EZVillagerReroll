@@ -17,6 +17,7 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
@@ -156,6 +157,8 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleFarmingSettingsUpdate(msg, ctx)));
             r.playToServer(PacketRegisterFarmingChest.TYPE, PacketRegisterFarmingChest.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingChest(msg, ctx)));
+            r.playToServer(PacketRegisterFarmingWithdrawChest.TYPE, PacketRegisterFarmingWithdrawChest.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingWithdrawChest(msg, ctx)));
 
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,

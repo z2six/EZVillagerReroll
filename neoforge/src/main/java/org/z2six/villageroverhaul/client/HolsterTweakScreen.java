@@ -97,9 +97,9 @@ public final class HolsterTweakScreen extends Screen {
             Villager v = findNearbyVillager();
             this.villagerId = (v == null) ? -1 : v.getId();
             if (v == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] HolsterTweakScreen: no villager found to preview.");
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] HolsterTweakScreen: no villager found to preview.");
             } else {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] HolsterTweakScreen: targeting villager id={} uuid={}", v.getId(), v.getUUID());
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] HolsterTweakScreen: targeting villager id={} uuid={}", v.getId(), v.getUUID());
             }
         } catch (Throwable ignored) {
             this.villagerId = -1;
@@ -305,8 +305,8 @@ public final class HolsterTweakScreen extends Screen {
 
     private void dumpToLog() {
         try {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] HolsterTweak dump: {}", VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] Hardcode waist: "
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] HolsterTweak dump: {}", VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Hardcode waist: "
                             + "WAIST_TX=%.4ff WAIST_TY=%.4ff WAIST_TZ=%.4ff "
                             + "WAIST_RX_DEG=%.2ff WAIST_RY_DEG=%.2ff WAIST_RZ_DEG=%.2ff "
                             + "WAIST_SPIN_DEG=%.2ff WAIST_SPIN_AXIS=%s "
@@ -323,7 +323,7 @@ public final class HolsterTweakScreen extends Screen {
                     String.valueOf(VillagerHolsteredLoadoutLayer.WAIST_ROLL_AXIS)
             );
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] HolsterTweak dump failed: {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] HolsterTweak dump failed: {}", t.toString());
         }
     }
 

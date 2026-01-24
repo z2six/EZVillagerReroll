@@ -610,7 +610,7 @@ public final class SearchService {
                             )
                     ));
 
-                    VillagerOverhaul.LOG().info(
+                    VillagerOverhaul.LOG().debug(
                             "[VillagerOverhaul] [auto_search] open_payment_screen player={} villagerEntityId={} uuid={} hourly={} final={} elapsedTicks={} totalVillagerXp={} payOffersLive={} declineSnapshot={} lockMaskBefore={} requestedTargets={}",
                             sp.getGameProfile().getName(),
                             vill.getId(),
@@ -838,7 +838,7 @@ public final class SearchService {
             } catch (Throwable ignored) {}
             try { offersAfterSanity = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
             if (offersBeforeSanity != offersAfterSanity && VillagerOverhaul.LOG().isInfoEnabled()) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [auto_search] settlement_sanity_offer_count villager={} size {}->{} lockMask={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [auto_search] settlement_sanity_offer_count villager={} size {}->{} lockMask={}",
                         vill.getUUID(),
                         offersBeforeSanity,
                         offersAfterSanity,
@@ -1573,7 +1573,7 @@ public final class SearchService {
             }
 
             if (overwritten > 0 && VillagerOverhaul.LOG().isInfoEnabled()) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [auto_search] locked_slot_overwrite villager={} overwritten={} reason={} lockMaskBefore={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [auto_search] locked_slot_overwrite villager={} overwritten={} reason={} lockMaskBefore={}",
                         vill.getUUID(), overwritten, reason, Long.toUnsignedString(lockMaskBefore));
             }
 

@@ -27,15 +27,16 @@ public final class FarmingSettingsScreen extends Screen {
     private boolean preserveLocalDraftOnNextInit = false;
     private boolean hasInitializedOnce = false;
 
-    private EditBox stacksBox;
     private EditBox timeoutBox;
     private EditBox retryBox;
-    private Button btnItems;
+    private Button btnDepositRules;
+    private Button btnWithdrawRules;
     private Button btnSave;
     private Button btnBack;
 
-    private static final int PANEL_W = 360;
-    private static final int PANEL_H = 235;
+    // Match VillagerInfoScreen sizing for consistent UI.
+    private static final int PANEL_W = 316;
+    private static final int PANEL_H = 206;
     private static final int PAD = 10;
 
     private static final int PANEL_BG = 0xCC0B0B0B;
@@ -93,23 +94,26 @@ public final class FarmingSettingsScreen extends Screen {
         int rowY = top + PAD + 40;
         int labelX = left + PAD;
 
-        stacksBox = new EditBox(this.font, labelX + 178, rowY, 50, 18, Component.literal("Stacks"));
-        stacksBox.setFilter(s -> s != null && s.matches("\\d{0,3}"));
-        addRenderableWidget(stacksBox);
-
-        btnItems = Button.builder(Component.literal("Edit items..."), b -> openItemList())
-                .pos(labelX + 236, rowY)
-                .size(88, 18)
+        btnDepositRules = Button.builder(Component.literal("Edit..."), b -> openDepositRules())
+                .pos(left + PANEL_W - PAD - 72, rowY)
+                .size(72, 18)
                 .build();
-        addRenderableWidget(btnItems);
+        addRenderableWidget(btnDepositRules);
 
-        int row2Y = rowY + 26;
-        timeoutBox = new EditBox(this.font, labelX + 178, row2Y, 50, 18, Component.literal("Timeout"));
+        int row2Y = rowY + 22;
+        btnWithdrawRules = Button.builder(Component.literal("Edit..."), b -> openWithdrawRules())
+                .pos(left + PANEL_W - PAD - 72, row2Y)
+                .size(72, 18)
+                .build();
+        addRenderableWidget(btnWithdrawRules);
+
+        int row3Y = row2Y + 22;
+        timeoutBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Timeout"));
         timeoutBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
         addRenderableWidget(timeoutBox);
 
-        int row3Y = row2Y + 26;
-        retryBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Retry"));
+        int row4Y = row3Y + 22;
+        retryBox = new EditBox(this.font, labelX + 178, row4Y, 50, 18, Component.literal("Retry"));
         retryBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
         addRenderableWidget(retryBox);
 
@@ -137,7 +141,6 @@ public final class FarmingSettingsScreen extends Screen {
 
     private void applyToWidgets() {
         try {
-            if (stacksBox != null) stacksBox.setValue(String.valueOf(Math.max(0, settings.stacksThreshold)));
             if (timeoutBox != null) timeoutBox.setValue(String.valueOf(Math.max(1, settings.timeoutSeconds)));
             if (retryBox != null) retryBox.setValue(String.valueOf(Math.max(1, settings.retryAfterSeconds)));
         } catch (Throwable ignored) {}
@@ -145,15 +148,6 @@ public final class FarmingSettingsScreen extends Screen {
 
     private void readFromWidgets() {
         try {
-            int stacks = 0;
-            try {
-                String raw = stacksBox == null ? "" : stacksBox.getValue();
-                stacks = raw == null || raw.isBlank() ? 0 : Integer.parseInt(raw.trim());
-            } catch (Throwable ignored) {
-                stacks = 0;
-            }
-            settings.stacksThreshold = Math.max(0, stacks);
-
             int timeout = 60;
             try {
                 String raw = timeoutBox == null ? "" : timeoutBox.getValue();
@@ -174,13 +168,23 @@ public final class FarmingSettingsScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
-    private void openItemList() {
+    private void openDepositRules() {
         try {
             readFromWidgets();
             preserveLocalDraftOnNextInit = true;
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
-            mc.setScreen(new ItemListEditorScreen(this, settings.itemIds, "Farming: item list"));
+            mc.setScreen(new FarmingItemRulesEditorScreen(this, settings.depositRules, "Deposit rules"));
+        } catch (Throwable ignored) {}
+    }
+
+    private void openWithdrawRules() {
+        try {
+            readFromWidgets();
+            preserveLocalDraftOnNextInit = true;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+            mc.setScreen(new FarmingItemRulesEditorScreen(this, settings.withdrawRules, "Withdraw rules"));
         } catch (Throwable ignored) {}
     }
 
@@ -211,17 +215,21 @@ public final class FarmingSettingsScreen extends Screen {
         gg.drawString(font, "Farming Settings", left + PAD, top + PAD + 5, 0xFFFFFFFF, true);
 
         int rowY = top + PAD + 44;
-        gg.drawString(font, "Stacks threshold (0 = immediate):", left + PAD, rowY + 4, 0xFFBFBFBF, false);
+        gg.drawString(font, "Deposit rules:", left + PAD, rowY + 4, 0xFFBFBFBF, false);
 
-        int row2Y = rowY + 26;
-        gg.drawString(font, "Timeout (seconds):", left + PAD, row2Y + 4, 0xFFBFBFBF, false);
+        int row2Y = rowY + 22;
+        gg.drawString(font, "Withdraw rules:", left + PAD, row2Y + 4, 0xFFBFBFBF, false);
 
-        int row3Y = row2Y + 26;
-        gg.drawString(font, "Retry after (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
+        int row3Y = row2Y + 22;
+        gg.drawString(font, "Timeout (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
 
-        int itemsY = rowY + 82;
-        int count = settings == null || settings.itemIds == null ? 0 : settings.itemIds.size();
-        gg.drawString(font, "Items in list: " + count, left + PAD, itemsY, 0xFFBFBFBF, false);
+        int row4Y = row3Y + 22;
+        gg.drawString(font, "Retry after (seconds):", left + PAD, row4Y + 4, 0xFFBFBFBF, false);
+
+        int infoY = row4Y + 22;
+        int dep = settings == null || settings.depositRules == null ? 0 : settings.depositRules.size();
+        int wd = settings == null || settings.withdrawRules == null ? 0 : settings.withdrawRules.size();
+        gg.drawString(font, "Deposit: " + dep + " | Withdraw: " + wd, left + PAD, infoY, 0xFFBFBFBF, false);
 
         super.render(gg, mouseX, mouseY, partialTick);
     }

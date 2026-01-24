@@ -86,7 +86,7 @@ public final class AutoTradeService {
             ACTIVE = new State(cid, absoluteOfferIndex);
             ACTIVE.lastReason = "start_client";
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] client_start containerId={} offerIdx={}", cid, absoluteOfferIndex);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] client_start containerId={} offerIdx={}", cid, absoluteOfferIndex);
 
             // Server-driven execution.
             ClientNetwork.sendToServer(new PacketAutoTradeStart(cid, absoluteOfferIndex));
@@ -100,7 +100,7 @@ public final class AutoTradeService {
         try {
             if (ACTIVE == null) return;
             String r = reason == null ? "" : reason;
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] client_stop_req containerId={} reason={}", ACTIVE.containerId, r);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] client_stop_req containerId={} reason={}", ACTIVE.containerId, r);
 
             try {
                 ClientNetwork.sendToServer(new PacketAutoTradeStop(ACTIVE.containerId));
@@ -233,7 +233,7 @@ public final class AutoTradeService {
 
             if (!active) {
                 if (ACTIVE != null && ACTIVE.containerId == containerId) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] client_stop containerId={} reason={}", containerId, r);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] client_stop containerId={} reason={}", containerId, r);
                     ACTIVE = null;
                 }
                 return;

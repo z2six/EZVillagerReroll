@@ -57,6 +57,7 @@ import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
@@ -143,6 +144,7 @@ public final class ClientUI {
 
     // Chest registration flow (farming command)
     private static int PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
+    private static boolean PENDING_CHEST_REGISTER_WITHDRAW = false;
     private static long CHEST_REGISTER_MESSAGE_UNTIL_MS = 0L;
     private static String CHEST_REGISTER_MESSAGE = "";
 
@@ -367,10 +369,15 @@ public final class ClientUI {
             PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
 
             try {
-                ClientNetwork.sendToServer(PacketRegisterFarmingChest.of(id, pos));
+                if (PENDING_CHEST_REGISTER_WITHDRAW) {
+                    ClientNetwork.sendToServer(PacketRegisterFarmingWithdrawChest.of(id, pos));
+                } else {
+                    ClientNetwork.sendToServer(PacketRegisterFarmingChest.of(id, pos));
+                }
             } catch (Throwable ignored) {}
 
-            setChestRegisterMessage("Chest registered", 2200);
+            setChestRegisterMessage(PENDING_CHEST_REGISTER_WITHDRAW ? "Withdraw chest registered" : "Deposit chest registered", 2200);
+            PENDING_CHEST_REGISTER_WITHDRAW = false;
         } catch (Throwable ignored) {}
     }
 
@@ -387,6 +394,7 @@ public final class ClientUI {
             if (key != 256) return;
 
             PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
+            PENDING_CHEST_REGISTER_WITHDRAW = false;
             setChestRegisterMessage("Chest registration canceled", 2200);
 
             // Keep player ingame (don't open pause menu)
@@ -449,7 +457,28 @@ public final class ClientUI {
             }
 
             PENDING_CHEST_REGISTER_VILLAGER_ID = villagerEntityId;
-            setChestRegisterMessage("Please open a chest to register it for this villager", 1000000L);
+            PENDING_CHEST_REGISTER_WITHDRAW = false;
+            setChestRegisterMessage("Please open a chest to register it for deposits", 1000000L);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void beginWithdrawChestRegistration(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc != null) {
+                mc.setScreen(null);
+                if (mc.player != null) {
+                    try {
+                        mc.player.closeContainer();
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            PENDING_CHEST_REGISTER_VILLAGER_ID = villagerEntityId;
+            PENDING_CHEST_REGISTER_WITHDRAW = true;
+            setChestRegisterMessage("Please open a chest to register it for withdrawals", 1000000L);
         } catch (Throwable ignored) {}
     }
 
@@ -824,7 +853,7 @@ public final class ClientUI {
 
                 String[] movement = new String[] { "Neutral", "Idle", "Follow", "Patrol" };
                 String[] combat   = new String[] { "Flee", "Defend", "Aggressive", "Settings" };
-                String[] farming  = new String[] { "Chest", "Settings" };
+                String[] farming  = new String[] { "Deposit", "Withdraw", "Settings" };
 
                 int movementBlockH = movement.length * h + (movement.length - 1) * gap;
                 int combatBlockH   = combat.length   * h + (combat.length   - 1) * gap;
@@ -1076,7 +1105,8 @@ public final class ClientUI {
                     int by = farmingStartY + i * (h + gap);
 
                     boolean isSettings = "Settings".equalsIgnoreCase(label);
-                    String glyph = isSettings ? "\u26ED" : "C";
+                    boolean isWithdraw = "Withdraw".equalsIgnoreCase(label);
+                    String glyph = isSettings ? "\u26ED" : (isWithdraw ? "W" : "D");
 
                     Button b = Button.builder(Component.literal(glyph), bbtn -> {
                                 try {
@@ -1088,7 +1118,8 @@ public final class ClientUI {
                                         return;
                                     }
 
-                                    beginChestRegistration(villagerEntityId);
+                                    if (isWithdraw) beginWithdrawChestRegistration(villagerEntityId);
+                                    else beginChestRegistration(villagerEntityId);
 
                                 } catch (Throwable t) {
                                     VillagerOverhaul.LOG().error("[VillagerOverhaul] Farming command click failed: " + label, t);
@@ -1108,7 +1139,9 @@ public final class ClientUI {
                             .createNarration(s -> Component.literal(label))
                             .build();
 
-                    setSimpleTooltip(b, isSettings ? "Farming settings" : "Register storage chest");
+                    if (isSettings) setSimpleTooltip(b, "Farming settings");
+                    else if (isWithdraw) setSimpleTooltip(b, "Register withdraw chest");
+                    else setSimpleTooltip(b, "Register deposit chest");
                     b.visible = false;
                     b.active = false;
 

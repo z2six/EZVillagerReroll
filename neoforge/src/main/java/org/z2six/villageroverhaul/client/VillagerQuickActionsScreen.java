@@ -44,7 +44,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     private Button cbFlee, cbDefend, cbAggressive, cbSettings;
 
     // Farming buttons
-    private Button fmChest, fmSettings;
+    private Button fmDeposit, fmWithdraw, fmSettings;
 
     // Backdrop + header icons (like ClientUI)
     private CommandsBackdropWidget commandsBackdrop;
@@ -135,7 +135,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             int movementRowW = w + gap + movementButtonsW; // icon + gap + buttons
             int combatRowW   = w + gap + combatButtonsW;
 
-            int farmingButtonsW = (2 * w) + gap;
+            int farmingButtonsW = (3 * w) + (2 * gap);
             int farmingRowW = w + gap + farmingButtonsW;
 
             int contentW = Math.max(movementRowW, Math.max(combatRowW, farmingRowW));
@@ -242,15 +242,19 @@ public final class VillagerQuickActionsScreen extends Screen {
             // Row 3 (Farming): icon then buttons
             int fmX0 = row3X + w + gap;
 
-            fmChest = Button.builder(Component.literal("C"), b -> onFarmingRegisterChest())
+            fmDeposit = Button.builder(Component.literal("D"), b -> onFarmingRegisterDepositChest())
                     .pos(fmX0 + 0 * (w + gap), row3Y).size(w, h).build();
-            fmSettings = Button.builder(Component.literal("\u26ED"), b -> onFarmingSettings())
+            fmWithdraw = Button.builder(Component.literal("W"), b -> onFarmingRegisterWithdrawChest())
                     .pos(fmX0 + 1 * (w + gap), row3Y).size(w, h).build();
+            fmSettings = Button.builder(Component.literal("\u26ED"), b -> onFarmingSettings())
+                    .pos(fmX0 + 2 * (w + gap), row3Y).size(w, h).build();
 
-            fmChest.setTooltip(Tooltip.create(Component.literal("Register storage chest")));
+            fmDeposit.setTooltip(Tooltip.create(Component.literal("Register deposit chest")));
+            fmWithdraw.setTooltip(Tooltip.create(Component.literal("Register withdraw chest")));
             fmSettings.setTooltip(Tooltip.create(Component.literal("Farming settings")));
 
-            addRenderableWidget(fmChest);
+            addRenderableWidget(fmDeposit);
+            addRenderableWidget(fmWithdraw);
             addRenderableWidget(fmSettings);
 
         } catch (Throwable t) {
@@ -350,7 +354,8 @@ public final class VillagerQuickActionsScreen extends Screen {
             setWidgetVisible(cbAggressive, v);
             setWidgetVisible(cbSettings, v);
 
-            setWidgetVisible(fmChest, v);
+            setWidgetVisible(fmDeposit, v);
+            setWidgetVisible(fmWithdraw, v);
             setWidgetVisible(fmSettings, v);
 
             // When collapsing, also clear highlights back to default
@@ -360,7 +365,7 @@ public final class VillagerQuickActionsScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
-    private void onFarmingRegisterChest() {
+    private void onFarmingRegisterDepositChest() {
         try {
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
 
@@ -369,6 +374,18 @@ public final class VillagerQuickActionsScreen extends Screen {
             updateCommandsMainButtonVisual();
 
             ClientUI.beginChestRegistration(villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
+    private void onFarmingRegisterWithdrawChest() {
+        try {
+            if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
+
+            commandsExpanded = false;
+            setCommandsVisible(false);
+            updateCommandsMainButtonVisual();
+
+            ClientUI.beginWithdrawChestRegistration(villagerEntityId);
         } catch (Throwable ignored) {}
     }
 

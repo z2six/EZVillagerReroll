@@ -22,6 +22,7 @@ import org.z2six.villageroverhaul.menu.ModMenus;
 import org.z2six.villageroverhaul.network.Network;
 import org.z2six.villageroverhaul.server.BusyVillagerBlocker;
 import org.z2six.villageroverhaul.server.CombatBlockDiagnostics;
+import org.z2six.villageroverhaul.server.ServerCommands;
 import org.z2six.villageroverhaul.server.ServerEvents;
 import org.z2six.villageroverhaul.server.VillagerCombatAttributesBootstrap;
 import org.z2six.villageroverhaul.server.ai.VillagerManualShieldBlocker;
@@ -131,6 +132,13 @@ public final class VillagerOverhaul {
             LOG.info("[VillagerOverhaul] Registered BusyVillagerBlocker on NeoForge EVENT bus.");
         } catch (Throwable t) {
             LOG.error("[VillagerOverhaul] Failed to register BusyVillagerBlocker (continuing).", t);
+        }
+
+        try {
+            ServerCommands.register(NeoForge.EVENT_BUS);
+            LOG.info("[VillagerOverhaul] Registered ServerCommands on NeoForge EVENT bus.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to register ServerCommands (continuing).", t);
         }
     }
 

@@ -14,6 +14,7 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.server.FarmingSettingsService;
 import org.z2six.villageroverhaul.server.RecruitService;
 
@@ -39,10 +40,16 @@ public final class VillagerStorageGoal extends Goal {
         WAITING
     }
 
+    private enum Action {
+        DEPOSIT,
+        WITHDRAW
+    }
+
     private BlockPos targetPos = null;
     private boolean targetIsEnder = false;
     private String targetDim = "";
     private Phase phase = Phase.MOVING;
+    private Action action = Action.DEPOSIT;
 
     private int tickCooldown = 0;
     private long startedAtMs = 0L;
@@ -75,44 +82,107 @@ public final class VillagerStorageGoal extends Goal {
                 return false;
             }
 
-            FarmingSettingsService.RegisteredChest chest = FarmingSettingsService.getRegisteredChest(vill);
-            if (chest == null) return false;
-
-            targetDim = chest.dimId();
-            targetIsEnder = chest.isEnderChest();
-            targetPos = new BlockPos(chest.x(), chest.y(), chest.z());
+            var settings = FarmingSettingsService.getSettings(vill);
+            if (settings == null) return false;
+            timeoutMs = (long) Math.max(1, settings.timeoutSeconds) * 1000L;
+            retryAfterMs = (long) Math.max(1, settings.retryAfterSeconds) * 1000L;
 
             // Must be same dimension as villager (we walk there).
             if (!(vill.level() instanceof ServerLevel sl)) return false;
             String curDim = "";
             try { curDim = String.valueOf(sl.dimension().location()); } catch (Throwable ignored) { curDim = ""; }
-            if (targetDim == null || targetDim.isBlank()) return false;
-            if (!targetDim.equals(curDim)) return false;
 
-            var settings = FarmingSettingsService.getSettings(vill);
-            if (settings == null || settings.itemIds == null || settings.itemIds.isEmpty()) return false;
-            timeoutMs = (long) Math.max(1, settings.timeoutSeconds) * 1000L;
-            retryAfterMs = (long) Math.max(1, settings.retryAfterSeconds) * 1000L;
+            // Prefer WITHDRAW if it triggers; otherwise DEPOSIT.
+            if (tryTriggerWithdraw(sl, curDim, settings)) return true;
+            if (tryTriggerDeposit(sl, curDim, settings)) return true;
 
-            // Trigger if any configured item meets its threshold.
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private boolean tryTriggerDeposit(ServerLevel sl, String curDim, org.z2six.villageroverhaul.farming.FarmingSettings settings) {
+        try {
+            if (settings == null || settings.depositRules == null || settings.depositRules.isEmpty()) return false;
+
+            FarmingSettingsService.RegisteredChest chest = FarmingSettingsService.getRegisteredChest(vill);
+            if (chest == null) return false;
+
+            String dim = chest.dimId();
+            if (dim == null || dim.isBlank()) return false;
+            if (!dim.equals(curDim)) return false;
+
             Container inv = getVillagerInventory();
             if (inv == null) return false;
 
-            for (String id : settings.itemIds) {
-                Item item = resolveItem(id);
+            for (var rule : settings.depositRules) {
+                if (rule == null || rule.itemId == null) continue;
+                Item item = resolveItem(rule.itemId);
                 if (item == null) continue;
                 int count = countItem(inv, item);
                 if (count <= 0) continue;
 
-                int threshold = (settings.stacksThreshold <= 0)
-                        ? 1
-                        : Math.max(1, settings.stacksThreshold) * Math.max(1, item.getDefaultInstance().getMaxStackSize());
+                int maxStack = Math.max(1, item.getDefaultInstance().getMaxStackSize());
+                int threshold = (rule.stacksThreshold <= 0) ? 1 : Math.max(1, rule.stacksThreshold) * maxStack;
+                int keep = Math.max(0, rule.keepStacks) * maxStack;
 
-                if (count >= threshold) {
+                if (count >= threshold && count > keep) {
+                    action = Action.DEPOSIT;
+                    targetDim = dim;
+                    targetIsEnder = chest.isEnderChest();
+                    targetPos = new BlockPos(chest.x(), chest.y(), chest.z());
                     return true;
                 }
             }
 
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private boolean tryTriggerWithdraw(ServerLevel sl, String curDim, org.z2six.villageroverhaul.farming.FarmingSettings settings) {
+        try {
+            if (settings == null || settings.withdrawRules == null || settings.withdrawRules.isEmpty()) return false;
+
+            FarmingSettingsService.RegisteredChest chest = FarmingSettingsService.getRegisteredWithdrawChest(vill);
+            if (chest == null) return false;
+
+            String dim = chest.dimId();
+            if (dim == null || dim.isBlank()) return false;
+            if (!dim.equals(curDim)) return false;
+
+            // Temporarily set target so resolveTargetContainer can work.
+            targetDim = dim;
+            targetIsEnder = chest.isEnderChest();
+            targetPos = new BlockPos(chest.x(), chest.y(), chest.z());
+
+            Container chestInv = resolveTargetContainer(sl);
+            if (chestInv == null) return false;
+
+            for (var rule : settings.withdrawRules) {
+                if (rule == null || rule.itemId == null) continue;
+                Item item = resolveItem(rule.itemId);
+                if (item == null) continue;
+                int maxStack = Math.max(1, item.getDefaultInstance().getMaxStackSize());
+                int threshold = (rule.stacksThreshold <= 0) ? 1 : Math.max(1, rule.stacksThreshold) * maxStack;
+                int keepInChest = Math.max(0, rule.keepStacks) * maxStack;
+
+                int chestCount = countItem(chestInv, item);
+                if (chestCount < threshold) continue;
+                if (chestCount <= keepInChest) continue;
+
+                if (chestCount >= threshold) {
+                    action = Action.WITHDRAW;
+                    return true;
+                }
+            }
+
+            // Not triggered; clear target (so canContinueToUse doesn't keep it alive).
+            targetPos = null;
+            targetDim = "";
+            targetIsEnder = false;
             return false;
         } catch (Throwable ignored) {
             return false;
@@ -215,37 +285,61 @@ public final class VillagerStorageGoal extends Goal {
             if (targetPos == null) return false;
             if (!(vill.level() instanceof ServerLevel level)) return false;
 
+            if (action == Action.WITHDRAW) {
+                return withdrawNow(level);
+            }
+
             Container target = resolveTargetContainer(level);
             if (target == null) return false;
 
             var settings = FarmingSettingsService.getSettings(vill);
-            if (settings == null || settings.itemIds == null || settings.itemIds.isEmpty()) return true;
+            if (settings == null || settings.depositRules == null || settings.depositRules.isEmpty()) return true;
 
             Container inv = getVillagerInventory();
             if (inv == null) return false;
 
-            List<Item> allowed = new ArrayList<>();
-            for (String id : settings.itemIds) {
-                Item item = resolveItem(id);
-                if (item != null) allowed.add(item);
-            }
-            if (allowed.isEmpty()) return true;
+            // Compute per-item remaining-to-move (deposit only the excess above keep).
+            java.util.Map<Item, Integer> remainingToMove = new java.util.HashMap<>();
+            for (var rule : settings.depositRules) {
+                if (rule == null || rule.itemId == null) continue;
+                Item item = resolveItem(rule.itemId);
+                if (item == null) continue;
 
-            // Move ALL matching items (not just those over threshold).
+                int cur = countItem(inv, item);
+                if (cur <= 0) continue;
+
+                int maxStack = Math.max(1, item.getDefaultInstance().getMaxStackSize());
+                int trigger = (rule.stacksThreshold <= 0) ? 1 : Math.max(1, rule.stacksThreshold) * maxStack;
+                int keep = Math.max(0, rule.keepStacks) * maxStack;
+
+                if (cur < trigger) continue;
+                int excess = cur - keep;
+                if (excess <= 0) continue;
+                remainingToMove.put(item, excess);
+            }
+            if (remainingToMove.isEmpty()) return true;
+
+            int movedTotal = 0;
             int size = inv.getContainerSize();
             for (int slot = 0; slot < size; slot++) {
                 ItemStack s = inv.getItem(slot);
                 if (s == null || s.isEmpty()) continue;
 
-                boolean match = false;
-                for (Item item : allowed) {
-                    if (s.is(item)) { match = true; break; }
-                }
-                if (!match) continue;
+                Integer need = remainingToMove.get(s.getItem());
+                if (need == null || need <= 0) continue;
 
-                ItemStack remaining = insertInto(target, s.copy());
-                int moved = s.getCount() - (remaining == null ? 0 : remaining.getCount());
+                int want = Math.min(need, s.getCount());
+                if (want <= 0) continue;
+
+                ItemStack moving = s.copy();
+                moving.setCount(want);
+
+                ItemStack remaining = insertInto(target, moving);
+                int moved = want - (remaining == null ? 0 : remaining.getCount());
                 if (moved <= 0) continue;
+
+                movedTotal += moved;
+                remainingToMove.put(s.getItem(), Math.max(0, need - moved));
 
                 s.shrink(moved);
                 if (s.isEmpty()) inv.setItem(slot, ItemStack.EMPTY);
@@ -254,12 +348,84 @@ public final class VillagerStorageGoal extends Goal {
             try { inv.setChanged(); } catch (Throwable ignored) {}
             try { target.setChanged(); } catch (Throwable ignored) {}
 
-            // If any allowed items remain in inventory, treat it as a failure (likely full chest).
-            for (Item item : allowed) {
-                if (countItem(inv, item) > 0) return false;
+            // XP is no longer granted for storage deposits (too abusable).
+
+            // If we couldn't move all excess, treat it as failure (likely full chest).
+            for (int rem : remainingToMove.values()) {
+                if (rem > 0) return false;
             }
             return true;
 
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private boolean withdrawNow(ServerLevel level) {
+        try {
+            Container chestInv = resolveTargetContainer(level);
+            if (chestInv == null) return false;
+
+            var settings = FarmingSettingsService.getSettings(vill);
+            if (settings == null || settings.withdrawRules == null || settings.withdrawRules.isEmpty()) return true;
+
+            Container inv = getVillagerInventory();
+            if (inv == null) return false;
+
+            // Remaining-to-take: withdraw excess so the chest ends at keep.
+            java.util.Map<Item, Integer> remainingToTake = new java.util.HashMap<>();
+            for (var rule : settings.withdrawRules) {
+                if (rule == null || rule.itemId == null) continue;
+                Item item = resolveItem(rule.itemId);
+                if (item == null) continue;
+
+                int maxStack = Math.max(1, item.getDefaultInstance().getMaxStackSize());
+                int trigger = (rule.stacksThreshold <= 0) ? 1 : Math.max(1, rule.stacksThreshold) * maxStack;
+                int keepInChest = Math.max(0, rule.keepStacks) * maxStack;
+
+                int chestCount = countItem(chestInv, item);
+                if (chestCount < trigger) continue;
+                int excess = chestCount - keepInChest;
+                if (excess <= 0) continue;
+
+                remainingToTake.put(item, excess);
+            }
+
+            if (remainingToTake.isEmpty()) return true;
+
+            int size = chestInv.getContainerSize();
+            for (int slot = 0; slot < size; slot++) {
+                ItemStack s = chestInv.getItem(slot);
+                if (s == null || s.isEmpty()) continue;
+
+                Integer need = remainingToTake.get(s.getItem());
+                if (need == null || need <= 0) continue;
+
+                int want = Math.min(need, s.getCount());
+                if (want <= 0) continue;
+
+                ItemStack moving = s.copy();
+                moving.setCount(want);
+
+                ItemStack remaining = insertInto(inv, moving);
+                int moved = want - (remaining == null ? 0 : remaining.getCount());
+                if (moved <= 0) continue;
+
+                remainingToTake.put(s.getItem(), Math.max(0, need - moved));
+
+                s.shrink(moved);
+                if (s.isEmpty()) chestInv.setItem(slot, ItemStack.EMPTY);
+            }
+
+            try { inv.setChanged(); } catch (Throwable ignored) {}
+            try { chestInv.setChanged(); } catch (Throwable ignored) {}
+
+            // If we couldn't take enough to reach "keep", treat as failure (likely full villager inventory).
+            for (int rem : remainingToTake.values()) {
+                if (rem > 0) return false;
+            }
+
+            return true;
         } catch (Throwable ignored) {
             return false;
         }

@@ -68,6 +68,10 @@ public final class ItemListEditorScreen extends Screen {
     protected void init() {
         super.init();
 
+        // init() can be called multiple times (e.g., window resize). The game clears widgets, but our lists don't.
+        leftButtons.clear();
+        rightButtons.clear();
+
         int left = (this.width - PANEL_W) / 2;
         int top = (this.height - PANEL_H) / 2;
 

@@ -74,6 +74,15 @@ public final class ServerConfig {
      */
     public static final ModConfigSpec.DoubleValue AUTO_SEARCH_XP_PER_OFFER;
 
+    /**
+     * Farming villager XP gain:
+     * XP gained = farmingHarvestXp * floor(itemsPlanted / farmingHarvestItemsPerXp)
+     *
+     * "Planted" is counted when the vanilla HarvestFarmland goal places a non-air block into an air block.
+     */
+    public static final ModConfigSpec.IntValue FARMING_HARVEST_ITEMS_PER_XP;
+    public static final ModConfigSpec.IntValue FARMING_HARVEST_XP;
+
     // ---------------------------------------------------------------------
     // VILLAGER STATS (merchant traits)
     // ---------------------------------------------------------------------
@@ -297,6 +306,22 @@ public final class ServerConfig {
                         """)
                         .defineInRange("autoSearchXpPerOffer", 0.1, 0.0, 10_000.0);
 
+        FARMING_HARVEST_ITEMS_PER_XP =
+                B.comment("""
+                        Villager XP is awarded for planted items.
+
+                        XP granted = farmingHarvestXp * floor(itemsPlanted / farmingHarvestItemsPerXp)
+                        Default: 1 XP per 10 planted items.
+                        """)
+                        .defineInRange("farmingHarvestItemsPerXp", 10, 1, 10_000);
+
+        FARMING_HARVEST_XP =
+                B.comment("""
+                        XP amount to grant per planting unit (see farmingHarvestItemsPerXp).
+                        Set to 0 to disable XP gain from planting.
+                        """)
+                        .defineInRange("farmingHarvestXp", 1, 0, 10_000);
+
         B.pop();
 
         // ----------------------------
@@ -453,6 +478,8 @@ public final class ServerConfig {
 
     public static double manualRerollXpPerOffer = 1.0;
     public static double autoSearchXpPerOffer = 0.1;
+    public static int farmingHarvestItemsPerXp = 10;
+    public static int farmingHarvestXp = 1;
 
     public static double generosityMinPct = -20.0;
     public static double generosityMaxPct = 20.0;
@@ -533,6 +560,8 @@ public final class ServerConfig {
 
             manualRerollXpPerOffer = Math.max(0.0, MANUAL_REROLL_XP_PER_OFFER.get());
             autoSearchXpPerOffer = Math.max(0.0, AUTO_SEARCH_XP_PER_OFFER.get());
+            farmingHarvestItemsPerXp = Math.max(1, FARMING_HARVEST_ITEMS_PER_XP.get());
+            farmingHarvestXp = Math.max(0, FARMING_HARVEST_XP.get());
 
             double[] gg = normalizeMinMax(GENEROSITY_MIN_PCT.get(), GENEROSITY_MAX_PCT.get());
             generosityMinPct = gg[0];
@@ -582,7 +611,7 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
@@ -590,7 +619,7 @@ public final class ServerConfig {
                     recruitCostMin, recruitCostMax,
                     respawnCostMultiplier,
                     cooldownTicks, cooldownTicksAuto, perVillagerDaily, allowAfterTradeUsed,
-                    manualRerollXpPerOffer, autoSearchXpPerOffer,
+                    manualRerollXpPerOffer, autoSearchXpPerOffer, farmingHarvestItemsPerXp, farmingHarvestXp,
                     generosityMinPct, generosityMaxPct,
                     timelinessMinPct, timelinessMaxPct,
                     intellectMinPct, intellectMaxPct,
@@ -668,6 +697,8 @@ public final class ServerConfig {
 
         long aBits = Double.doubleToLongBits(autoSearchXpPerOffer);
         h = 31 * h + (int) (aBits ^ (aBits >>> 32));
+        h = 31 * h + farmingHarvestItemsPerXp;
+        h = 31 * h + farmingHarvestXp;
 
         h = 31 * h + hashD(generosityMinPct);
         h = 31 * h + hashD(generosityMaxPct);

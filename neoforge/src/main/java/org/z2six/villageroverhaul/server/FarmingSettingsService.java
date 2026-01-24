@@ -28,6 +28,13 @@ public final class FarmingSettingsService {
     private static final String K_Z = "z";
     private static final String K_IS_ENDER = "isEnder";
 
+    // Withdraw chest
+    private static final String K_WDIM = "wdim";
+    private static final String K_WX = "wx";
+    private static final String K_WY = "wy";
+    private static final String K_WZ = "wz";
+    private static final String K_WIS_ENDER = "wisEnder";
+
     public static FarmingSettings getSettings(Villager vill) {
         try {
             if (vill == null) return new FarmingSettings();
@@ -59,11 +66,34 @@ public final class FarmingSettingsService {
         } catch (Throwable ignored) {}
     }
 
+    public static void setRegisteredWithdrawChest(Villager vill, String dimId, int x, int y, int z, boolean isEnderChest) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.putString(K_WDIM, dimId == null ? "" : dimId);
+            root.putInt(K_WX, x);
+            root.putInt(K_WY, y);
+            root.putInt(K_WZ, z);
+            root.putBoolean(K_WIS_ENDER, isEnderChest);
+        } catch (Throwable ignored) {}
+    }
+
     public static boolean hasRegisteredChest(Villager vill) {
         try {
             if (vill == null) return false;
             CompoundTag root = getOrCreateRoot(vill);
             String dim = root.getString(K_DIM);
+            return dim != null && !dim.isBlank();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean hasRegisteredWithdrawChest(Villager vill) {
+        try {
+            if (vill == null) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            String dim = root.getString(K_WDIM);
             return dim != null && !dim.isBlank();
         } catch (Throwable ignored) {
             return false;
@@ -84,23 +114,47 @@ public final class FarmingSettingsService {
         }
     }
 
-    public static List<String> sanitizeItemIds(List<String> ids) {
-        List<String> out = new ArrayList<>();
-        if (ids == null) return out;
-        int n = Math.min(512, ids.size());
+    public static RegisteredChest getRegisteredWithdrawChest(Villager vill) {
+        try {
+            if (vill == null) return null;
+            CompoundTag root = getOrCreateRoot(vill);
+            String dim = root.getString(K_WDIM);
+            if (dim == null || dim.isBlank()) return null;
+            return new RegisteredChest(dim, root.getInt(K_WX), root.getInt(K_WY), root.getInt(K_WZ), root.getBoolean(K_WIS_ENDER));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static List<FarmingSettings.ItemRule> sanitizeRules(List<FarmingSettings.ItemRule> rules) {
+        List<FarmingSettings.ItemRule> out = new ArrayList<>();
+        if (rules == null) return out;
+
+        int n = Math.min(512, rules.size());
         for (int i = 0; i < n; i++) {
-            String raw = ids.get(i);
-            if (raw == null) continue;
-            raw = raw.trim().toLowerCase(Locale.ROOT);
+            FarmingSettings.ItemRule r = rules.get(i);
+            if (r == null || r.itemId == null) continue;
+
+            String raw = r.itemId.trim().toLowerCase(Locale.ROOT);
             if (raw.isEmpty()) continue;
-            // Best-effort sanity: must parse as a ResourceLocation
+
             try {
                 ResourceLocation.parse(raw);
             } catch (Throwable ignored) {
                 continue;
             }
-            if (!out.contains(raw)) out.add(raw);
+
+            boolean exists = false;
+            for (FarmingSettings.ItemRule e : out) {
+                if (e != null && e.itemId != null && e.itemId.equalsIgnoreCase(raw)) { exists = true; break; }
+            }
+            if (exists) continue;
+
+            int stacks = Math.max(0, r.stacksThreshold);
+            int keep = Math.max(0, r.keepStacks);
+            out.add(new FarmingSettings.ItemRule(raw, stacks, keep));
         }
+
         return out;
     }
 
@@ -112,4 +166,3 @@ public final class FarmingSettingsService {
         return pd.getCompound(TAG_ROOT);
     }
 }
-

@@ -59,7 +59,7 @@ public final class TradeLockState {
 
             CompoundTag wrap = encodeOfferWrapped(vill, offer);
             if (wrap == null) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [lock] capture_failed villager={} idx={}", vill.getUUID(), idx);
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [lock] capture_failed villager={} idx={}", vill.getUUID(), idx);
                 return;
             }
 
@@ -71,9 +71,9 @@ public final class TradeLockState {
             root.put(NBT_LOCKED_OFFERS, locked);
             pd.put(NBT_ROOT, root);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [lock] captured villager={} idx={}", vill.getUUID(), idx);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [lock] captured villager={} idx={}", vill.getUUID(), idx);
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [lock] capture_error villager={} idx={} err={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [lock] capture_error villager={} idx={} err={}",
                     vill == null ? "null" : vill.getUUID(), idx, t.toString());
         }
     }
@@ -126,7 +126,7 @@ public final class TradeLockState {
             root.put(NBT_LOCKED_OFFERS, locked);
             pd.put(NBT_ROOT, root);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [lock] cleared_snapshot villager={} idx={}", vill.getUUID(), idx);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [lock] cleared_snapshot villager={} idx={}", vill.getUUID(), idx);
         } catch (Throwable ignored) {}
     }
 
@@ -186,13 +186,13 @@ public final class TradeLockState {
             }
 
             if (restored > 0) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [lock] restored villager={} restored={} mask={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [lock] restored villager={} restored={} mask={}",
                         vill.getUUID(), restored, Long.toUnsignedString(mask));
             }
 
             return restored;
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [lock] restore_error villager={} err={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [lock] restore_error villager={} err={}",
                     vill == null ? "null" : vill.getUUID(), t.toString());
             return 0;
         }

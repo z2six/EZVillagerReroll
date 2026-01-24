@@ -104,7 +104,7 @@ public final class HoarderOffers {
                 minSizeFromLocks = 0;
             }
             if (minSizeFromLocks > target) {
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [hoarder] clamp_target_for_locks villager={} target {}->{} lockMask={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [hoarder] clamp_target_for_locks villager={} target {}->{} lockMask={}",
                         vill.getUUID(), target, minSizeFromLocks, Long.toUnsignedString(lockMask));
                 target = minSizeFromLocks;
             }
@@ -125,7 +125,7 @@ public final class HoarderOffers {
                 }
                 if (removed > 0) {
                     changed = true;
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [hoarder] truncated villager={} removed={} size {}->{} target={} lockMask={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [hoarder] truncated villager={} removed={} size {}->{} target={} lockMask={}",
                             vill.getUUID(), removed, beforeSize, safeSize(offers), target, Long.toUnsignedString(lockMask));
                 }
 
@@ -181,7 +181,7 @@ public final class HoarderOffers {
                         }
                     }
                     if (dupAdded > 0) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [hoarder] append_relaxed_duplicates villager={} addedDup={} target={} lockMask={}",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [hoarder] append_relaxed_duplicates villager={} addedDup={} target={} lockMask={}",
                                 vill.getUUID(), dupAdded, target, Long.toUnsignedString(lockMask));
                     }
                 }
@@ -189,7 +189,7 @@ public final class HoarderOffers {
                 if (added > 0) changed = true;
 
                 if (added < need) {
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [hoarder] append_incomplete villager={} need={} added={} target={} lvl={} lockMask={}",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [hoarder] append_incomplete villager={} need={} added={} target={} lvl={} lockMask={}",
                             vill.getUUID(), need, added, target, lvl, Long.toUnsignedString(lockMask));
                 }
 

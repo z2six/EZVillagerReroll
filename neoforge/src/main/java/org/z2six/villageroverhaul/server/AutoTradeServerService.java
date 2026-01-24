@@ -84,7 +84,7 @@ public final class AutoTradeServerService {
             s.lastUses = safeUses(offer);
             SESSIONS.put(sp.getUUID(), s);
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] start player={} containerId={} offerIdx={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] start player={} containerId={} offerIdx={}",
                     sp.getGameProfile().getName(), containerId, offerIndex);
 
             sendState(sp, containerId, true, "started");
@@ -99,7 +99,7 @@ public final class AutoTradeServerService {
             if (sp == null) return;
             SESSIONS.remove(sp.getUUID());
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] stop player={} containerId={} reason={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] stop player={} containerId={} reason={}",
                     sp.getGameProfile().getName(), containerId, reason == null ? "" : reason);
 
             sendState(sp, containerId, false, reason == null ? "" : reason);
@@ -173,7 +173,7 @@ public final class AutoTradeServerService {
                     try {
                         menu.clicked(OUTPUT, 0, ClickType.QUICK_MOVE, sp);
                     } catch (Throwable t) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] click_failed player={} containerId={} err={}",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] click_failed player={} containerId={} err={}",
                                 sp.getGameProfile().getName(), s.containerId, t.toString());
                         stop(sp, s.containerId, "click_failed");
                         progressed = true;
@@ -189,7 +189,7 @@ public final class AutoTradeServerService {
                         beforeUses = afterUses;
 
                         if (s.totalTrades % 10 == 0) {
-                            VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] progress player={} containerId={} trades={}",
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] progress player={} containerId={} trades={}",
                                     sp.getGameProfile().getName(), s.containerId, s.totalTrades);
                         }
 
@@ -203,7 +203,7 @@ public final class AutoTradeServerService {
                 if (!progressed) {
                     s.noProgressTicks++;
                     if (s.noProgressTicks % 10 == 0) {
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [autotrade] no_progress player={} containerId={} ticks={}",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] no_progress player={} containerId={} ticks={}",
                                 sp.getGameProfile().getName(), s.containerId, s.noProgressTicks);
                     }
                     if (s.noProgressTicks > NO_PROGRESS_TICKS_LIMIT) {
