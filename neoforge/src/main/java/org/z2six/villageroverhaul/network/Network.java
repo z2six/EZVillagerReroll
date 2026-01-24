@@ -13,6 +13,10 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.autoReroll.*;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
@@ -143,6 +147,16 @@ public final class Network {
             r.playToServer(PacketPatrolInteractRequest.TYPE, PacketPatrolInteractRequest.STREAM_CODEC,
                     (msg, ctx) -> handlePatrolInteractRequestServer(msg, ctx));
 
+            // ============================
+            // Farming/storage serverbound
+            // ============================
+            r.playToServer(PacketFarmingSettingsQuery.TYPE, PacketFarmingSettingsQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleFarmingSettingsQuery(msg, ctx)));
+            r.playToServer(PacketFarmingSettingsUpdate.TYPE, PacketFarmingSettingsUpdate.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleFarmingSettingsUpdate(msg, ctx)));
+            r.playToServer(PacketRegisterFarmingChest.TYPE, PacketRegisterFarmingChest.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingChest(msg, ctx)));
+
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTooltipData", msg, ctx));
@@ -158,6 +172,10 @@ public final class Network {
                     (msg, ctx) -> dispatchToClientHandler("onSearchCatalogData", msg, ctx));
             r.playToClient(PacketOpenBusyScreen.TYPE, PacketOpenBusyScreen.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onOpenBusyScreen", msg, ctx));
+
+            // farming settings UI data
+            r.playToClient(PacketFarmingSettingsData.TYPE, PacketFarmingSettingsData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onFarmingSettingsData", msg, ctx));
 
             // auto-search completion notification
             r.playToClient(PacketAutoSearchDone.TYPE, PacketAutoSearchDone.STREAM_CODEC,

@@ -25,6 +25,10 @@ import org.z2six.villageroverhaul.logic.WalletBridge;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.autoReroll.*;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
@@ -53,6 +57,7 @@ import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
+import org.z2six.villageroverhaul.server.FarmingSettingsService;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 
 // patrol packets
@@ -1229,6 +1234,106 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleOpenVillagerInventory failed", t);
+        }
+    }
+
+    // =====================
+    // Farming/storage
+    // =====================
+
+    public static void handleFarmingSettingsQuery(PacketFarmingSettingsQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) {
+                ctx.reply(new PacketFarmingSettingsData(msg.villagerEntityId(), new net.minecraft.nbt.CompoundTag()));
+                return;
+            }
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                ctx.reply(new PacketFarmingSettingsData(msg.villagerEntityId(), new net.minecraft.nbt.CompoundTag()));
+                return;
+            }
+
+            var settings = FarmingSettingsService.getSettings(vill);
+            ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleFarmingSettingsQuery failed", t);
+        }
+    }
+
+    public static void handleFarmingSettingsUpdate(PacketFarmingSettingsUpdate msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            var settings = org.z2six.villageroverhaul.farming.FarmingSettings.fromTag(msg.settings());
+            try {
+                // Server is source-of-truth for ordering; this prevents stale query replies overwriting new updates client-side.
+                settings.updatedAt = vill.level() == null ? 0L : Math.max(0L, vill.level().getGameTime());
+            } catch (Throwable ignored) {
+                settings.updatedAt = 0L;
+            }
+            try {
+                var sanitized = FarmingSettingsService.sanitizeItemIds(settings.itemIds);
+                settings.itemIds.clear();
+                settings.itemIds.addAll(sanitized);
+            } catch (Throwable ignored) {}
+            FarmingSettingsService.setSettings(vill, settings);
+
+            ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleFarmingSettingsUpdate failed", t);
+        }
+    }
+
+    public static void handleRegisterFarmingChest(PacketRegisterFarmingChest msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            var pos = msg.pos();
+            var level = sp.serverLevel();
+            if (level == null) return;
+
+            var state = level.getBlockState(pos);
+            boolean isChest = false;
+            boolean isEnder = false;
+            try {
+                if (state != null) {
+                    var b = state.getBlock();
+                    isEnder = (b == net.minecraft.world.level.block.Blocks.ENDER_CHEST);
+                    isChest = isEnder || b == net.minecraft.world.level.block.Blocks.CHEST || b == net.minecraft.world.level.block.Blocks.TRAPPED_CHEST;
+                }
+            } catch (Throwable ignored) {
+                isChest = false;
+                isEnder = false;
+            }
+
+            if (!isChest) return;
+
+            String dim = "";
+            try {
+                dim = String.valueOf(level.dimension().location());
+            } catch (Throwable ignored) {
+                dim = "";
+            }
+
+            FarmingSettingsService.setRegisteredChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterFarmingChest failed", t);
         }
     }
 

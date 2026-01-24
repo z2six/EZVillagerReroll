@@ -52,6 +52,7 @@ public final class VillagerCombatFleeGoal extends Goal {
         try {
             if (vill == null) return false;
             if (vill.level() == null || vill.level().isClientSide()) return false;
+            if (VillagerBrain.isStorageActive(vill)) return false;
 
             if (VillagerBrain.getCombatMode(vill) != VillagerBrain.CombatMode.FLEE) return false;
             if (!VillagerBrain.shouldCombatActNow(vill)) {

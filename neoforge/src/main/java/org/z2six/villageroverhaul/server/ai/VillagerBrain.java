@@ -58,6 +58,7 @@ public final class VillagerBrain {
 
     private static final String K_UI_PAUSED_UNTIL = "ui_paused_until";
     private static final String K_FORCE_BLOCK_UNTIL = "force_block_until";
+    private static final String K_STORAGE_ACTIVE = "storage_active";
 
     // Patrol sub-root
     private static final String K_PATROL = "patrol";
@@ -1090,22 +1091,28 @@ public final class VillagerBrain {
             }
 
             if (!hasGoal(vill, VillagerIdleGoal.class)) {
-                vill.goalSelector.addGoal(3, new VillagerIdleGoal(vill));
+                // Leave slot 3 open for higher-priority storage module (added below).
+                vill.goalSelector.addGoal(4, new VillagerIdleGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
             }
 
+            if (!hasGoal(vill, VillagerStorageGoal.class)) {
+                vill.goalSelector.addGoal(3, new VillagerStorageGoal(vill));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerStorageGoal (villager={})", vill.getUUID());
+            }
+
             if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
-                vill.goalSelector.addGoal(4, new VillagerPatrolSetupFollowGoal(vill));
+                vill.goalSelector.addGoal(5, new VillagerPatrolSetupFollowGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerFollowGoal.class)) {
-                vill.goalSelector.addGoal(5, new VillagerFollowGoal(vill));
+                vill.goalSelector.addGoal(6, new VillagerFollowGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerFollowGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerPatrolGoal.class)) {
-                vill.goalSelector.addGoal(6, new VillagerPatrolGoal(vill));
+                vill.goalSelector.addGoal(7, new VillagerPatrolGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerPatrolGoal (villager={})", vill.getUUID());
             }
 
@@ -1149,10 +1156,30 @@ public final class VillagerBrain {
             if (vill == null) return true;
             if (!RecruitService.isRecruited(vill)) return true;
             if (isUiPaused(vill)) return false;
+            if (isStorageActive(vill)) return false;
             if (getMode(vill) != Mode.NEUTRAL) return false;
             return !isCombatEngaged(vill);
         } catch (Throwable t) {
             return true;
+        }
+    }
+
+    public static void setStorageActive(Villager vill, boolean active) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (active) root.putBoolean(K_STORAGE_ACTIVE, true);
+            else root.remove(K_STORAGE_ACTIVE);
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean isStorageActive(Villager vill) {
+        try {
+            if (vill == null) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            return root.getBoolean(K_STORAGE_ACTIVE);
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 

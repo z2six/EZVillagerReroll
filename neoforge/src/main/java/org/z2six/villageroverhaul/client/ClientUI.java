@@ -11,11 +11,15 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ClientConfig;
@@ -51,6 +55,8 @@ import org.z2six.villageroverhaul.network.patrol.PacketPatrolOpenGui;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolRoutesData;
 import org.z2six.villageroverhaul.network.PacketOpenVillagerInventory;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogQuery;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
@@ -134,6 +140,11 @@ public final class ClientUI {
     private static long PENDING_QUICK_AT_MS = 0L;
     private static final long QUICK_OPEN_DELAY_MS = 120;
     private static final long QUICK_OPEN_TIMEOUT_MS = 800;
+
+    // Chest registration flow (farming command)
+    private static int PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
+    private static long CHEST_REGISTER_MESSAGE_UNTIL_MS = 0L;
+    private static String CHEST_REGISTER_MESSAGE = "";
 
     public static void openVillagerInventory(MerchantScreen parent, int villagerEntityId) {
         try {
@@ -287,6 +298,15 @@ public final class ClientUI {
         // RMB on villager during PATROL_SETUP -> server decides if GUI should open
         NeoForge.EVENT_BUS.addListener(ClientUI::onPlayerInteractEntity);
 
+        // RMB on chest while registering farming storage target
+        NeoForge.EVENT_BUS.addListener(ClientUI::onPlayerRightClickBlock);
+
+        // ESC cancel while registering
+        NeoForge.EVENT_BUS.addListener(ClientUI::onKeyInput);
+
+        // HUD overlay prompt
+        NeoForge.EVENT_BUS.addListener(ClientUI::onRenderGuiPost);
+
         NeoForge.EVENT_BUS.addListener(ClientUI::onClientTickPost);
 
         VillagerOverhaul.LOG().debug("[VillagerOverhaul] ClientUI.registerRuntimeClientEvents(): handlers added");
@@ -320,6 +340,116 @@ public final class ClientUI {
                 PENDING_QUICK_AT_MS = System.currentTimeMillis();
             }
 
+        } catch (Throwable ignored) {}
+    }
+
+    private static void onPlayerRightClickBlock(final PlayerInteractEvent.RightClickBlock e) {
+        try {
+            if (e == null) return;
+            if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0) return;
+            if (e.getLevel() == null || !e.getLevel().isClientSide()) return;
+            if (e.getHand() != InteractionHand.MAIN_HAND) return;
+
+            BlockPos pos = e.getPos();
+            if (pos == null) return;
+
+            boolean isChest = false;
+            try {
+                var state = e.getLevel().getBlockState(pos);
+                var b = state == null ? null : state.getBlock();
+                isChest = (b == Blocks.CHEST) || (b == Blocks.TRAPPED_CHEST) || (b == Blocks.ENDER_CHEST);
+            } catch (Throwable ignored) {
+                isChest = false;
+            }
+            if (!isChest) return;
+
+            int id = PENDING_CHEST_REGISTER_VILLAGER_ID;
+            PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
+
+            try {
+                ClientNetwork.sendToServer(PacketRegisterFarmingChest.of(id, pos));
+            } catch (Throwable ignored) {}
+
+            setChestRegisterMessage("Chest registered", 2200);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void onKeyInput(final InputEvent.Key e) {
+        try {
+            if (e == null) return;
+            if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0) return;
+
+            int key = e.getKey();
+            int action = e.getAction();
+            if (action != 1) return; // press
+
+            // GLFW_KEY_ESCAPE = 256 (avoid direct GLFW dependency)
+            if (key != 256) return;
+
+            PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
+            setChestRegisterMessage("Chest registration canceled", 2200);
+
+            // Keep player ingame (don't open pause menu)
+            try {
+                Minecraft mc = Minecraft.getInstance();
+                if (mc != null) mc.setScreen(null);
+            } catch (Throwable ignored2) {}
+        } catch (Throwable ignored) {}
+    }
+
+    private static void onRenderGuiPost(final RenderGuiEvent.Post e) {
+        try {
+            if (e == null) return;
+            long now = System.currentTimeMillis();
+            if (CHEST_REGISTER_MESSAGE_UNTIL_MS <= now) return;
+            if (CHEST_REGISTER_MESSAGE == null || CHEST_REGISTER_MESSAGE.isBlank()) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.font == null) return;
+
+            GuiGraphics gg = e.getGuiGraphics();
+            int w = 0;
+            int h = 0;
+            try {
+                if (mc.getWindow() != null) {
+                    w = mc.getWindow().getGuiScaledWidth();
+                    h = mc.getWindow().getGuiScaledHeight();
+                }
+            } catch (Throwable ignored) {
+                w = 0;
+                h = 0;
+            }
+            if (w <= 0 || h <= 0) return;
+
+            int x = w / 2;
+            int y = h - 60;
+            gg.drawCenteredString(mc.font, Component.literal(CHEST_REGISTER_MESSAGE), x, y, 0xFFFFFFFF);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void setChestRegisterMessage(String msg, long durationMs) {
+        try {
+            CHEST_REGISTER_MESSAGE = msg == null ? "" : msg;
+            CHEST_REGISTER_MESSAGE_UNTIL_MS = System.currentTimeMillis() + Math.max(250L, durationMs);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void beginChestRegistration(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc != null) {
+                mc.setScreen(null);
+                if (mc.player != null) {
+                    try {
+                        mc.player.closeContainer();
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            PENDING_CHEST_REGISTER_VILLAGER_ID = villagerEntityId;
+            setChestRegisterMessage("Please open a chest to register it for this villager", 1000000L);
         } catch (Throwable ignored) {}
     }
 
@@ -419,6 +549,19 @@ public final class ClientUI {
             mc.setScreen(new CombatSettingsScreen(parent, villagerEntityId, false));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] openCombatSettings failed", t);
+        }
+    }
+
+    public static void openFarmingSettings(Screen parent, int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            ClientNetwork.sendToServer(new PacketFarmingSettingsQuery(villagerEntityId));
+            mc.setScreen(new FarmingSettingsScreen(parent, villagerEntityId));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] openFarmingSettings failed", t);
         }
     }
 
@@ -655,11 +798,11 @@ public final class ClientUI {
             e.addListener(overlay);
             COOLDOWN_OVERLAYS.put(screen, overlay);
 
-            // -------------------------------------------------
-            // Commands palette (collapsed by default)
-            // Two columns: Movement + Combat, vertically centered on cmdBtn
-            // With header icons + shared dark backdrop + border.
-            // -------------------------------------------------
+                // -------------------------------------------------
+                // Commands palette (collapsed by default)
+                // Three columns: Movement + Combat + Farming, vertically centered on cmdBtn
+                // With header icons + shared dark backdrop + border.
+                // -------------------------------------------------
             try {
                 setCommandsExpanded(screen, false);
                 updateCommandsMainButtonVisual(screen);
@@ -681,20 +824,24 @@ public final class ClientUI {
 
                 String[] movement = new String[] { "Neutral", "Idle", "Follow", "Patrol" };
                 String[] combat   = new String[] { "Flee", "Defend", "Aggressive", "Settings" };
+                String[] farming  = new String[] { "Chest", "Settings" };
 
                 int movementBlockH = movement.length * h + (movement.length - 1) * gap;
                 int combatBlockH   = combat.length   * h + (combat.length   - 1) * gap;
+                int farmingBlockH  = farming.length  * h + (farming.length  - 1) * gap;
 
                 int movementStartY = cmdCenterY - (movementBlockH / 2);
                 int combatStartY   = cmdCenterY - (combatBlockH / 2);
+                int farmingStartY  = cmdCenterY - (farmingBlockH / 2);
 
                 int headerAY = movementStartY - (h + headerGap);
                 int headerBY = combatStartY   - (h + headerGap);
+                int headerCY = farmingStartY  - (h + headerGap);
 
-                int topY = Math.min(headerAY, headerBY);
-                int bottomY = Math.max(movementStartY + movementBlockH, combatStartY + combatBlockH);
+                int topY = Math.min(headerAY, Math.min(headerBY, headerCY));
+                int bottomY = Math.max(movementStartY + movementBlockH, Math.max(combatStartY + combatBlockH, farmingStartY + farmingBlockH));
 
-                int contentW = (2 * w) + gap;          // two columns
+                int contentW = (3 * w) + (2 * gap);    // three columns
                 int panelW = (panelPad * 2) + contentW + (panelBorder * 2);
                 int panelH = (panelPad * 2) + (bottomY - topY) + (panelBorder * 2);
 
@@ -704,6 +851,7 @@ public final class ClientUI {
                 int contentX = panelX + panelBorder + panelPad;
                 int colAX = contentX;
                 int colBX = contentX + w + gap;
+                int colCX = contentX + 2 * (w + gap);
 
                 // Backdrop widget (must be added before icons/buttons so it renders behind them)
                 CommandsBackdropWidget backdrop = new CommandsBackdropWidget(panelX, panelY, panelW, panelH);
@@ -713,7 +861,7 @@ public final class ClientUI {
                 COMMANDS_BACKDROPS.put(screen, backdrop);
 
                 // Header icon widgets (non-buttons)
-                List<RowHeaderIconWidget> headerIcons = new ArrayList<>(2);
+                List<RowHeaderIconWidget> headerIcons = new ArrayList<>(3);
 
                 RowHeaderIconWidget movementIcon = new RowHeaderIconWidget(colAX, headerAY, w, h, new ItemStack(Items.LEATHER_BOOTS));
                 movementIcon.visible = false;
@@ -729,10 +877,17 @@ public final class ClientUI {
                 e.addListener(combatIcon);
                 headerIcons.add(combatIcon);
 
+                RowHeaderIconWidget farmingIcon = new RowHeaderIconWidget(colCX, headerCY, w, h, new ItemStack(Items.CARROT));
+                farmingIcon.visible = false;
+                farmingIcon.active = false;
+                setSimpleTooltip(farmingIcon, "Farming commands");
+                e.addListener(farmingIcon);
+                headerIcons.add(farmingIcon);
+
                 COMMANDS_HEADER_ICONS.put(screen, headerIcons);
 
                 // Sub buttons
-                List<Button> subs = new ArrayList<>(movement.length + combat.length);
+                List<Button> subs = new ArrayList<>(movement.length + combat.length + farming.length);
 
                 // Movement column
                 for (int i = 0; i < movement.length; i++) {
@@ -913,6 +1068,52 @@ public final class ClientUI {
                                     .put(label.toLowerCase(java.util.Locale.ROOT), b);
                         }
                     } catch (Throwable ignored) {}
+                }
+
+                // Farming column
+                for (int i = 0; i < farming.length; i++) {
+                    final String label = farming[i];
+                    int by = farmingStartY + i * (h + gap);
+
+                    boolean isSettings = "Settings".equalsIgnoreCase(label);
+                    String glyph = isSettings ? "\u26ED" : "C";
+
+                    Button b = Button.builder(Component.literal(glyph), bbtn -> {
+                                try {
+                                    int villagerEntityId = resolveTraderEntityId(screen);
+                                    if (villagerEntityId <= 0) return;
+
+                                    if (isSettings) {
+                                        openFarmingSettings(screen, villagerEntityId);
+                                        return;
+                                    }
+
+                                    beginChestRegistration(villagerEntityId);
+
+                                } catch (Throwable t) {
+                                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Farming command click failed: " + label, t);
+                                }
+
+                                try {
+                                    collapseCommands(screen);
+                                } catch (Throwable ignored) {}
+
+                                try {
+                                    bbtn.setFocused(false);
+                                    Screen scr = Minecraft.getInstance().screen;
+                                    if (scr != null && scr.getFocused() == bbtn) scr.setFocused(null);
+                                } catch (Throwable ignored) {}
+                            })
+                            .pos(colCX, by).size(w, h)
+                            .createNarration(s -> Component.literal(label))
+                            .build();
+
+                    setSimpleTooltip(b, isSettings ? "Farming settings" : "Register storage chest");
+                    b.visible = false;
+                    b.active = false;
+
+                    e.addListener(b);
+                    subs.add(b);
                 }
 
                 COMMANDS_SUB_BUTTONS.put(screen, subs);

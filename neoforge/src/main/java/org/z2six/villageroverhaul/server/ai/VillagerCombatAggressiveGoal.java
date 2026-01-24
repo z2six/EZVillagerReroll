@@ -45,6 +45,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
         try {
             if (vill == null) return false;
             if (vill.level() == null || vill.level().isClientSide()) return false;
+            if (VillagerBrain.isStorageActive(vill)) return false;
 
             if (!VillagerBrain.shouldCombatActNow(vill)) return false;
             if (VillagerBrain.isUiPaused(vill)) return false;
@@ -79,6 +80,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
         try {
             if (vill == null) return false;
             if (vill.level() == null || vill.level().isClientSide()) return false;
+            if (VillagerBrain.isStorageActive(vill)) return false;
 
             if (!VillagerBrain.shouldCombatActNow(vill)) return false;
             if (VillagerBrain.isUiPaused(vill)) return false;

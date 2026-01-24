@@ -34,6 +34,7 @@ public final class VillagerFollowGoal extends Goal {
     public boolean canUse() {
         if (vill == null) return false;
         if (VillagerBrain.isUiPaused(vill)) return false;
+        if (VillagerBrain.isStorageActive(vill)) return false;
         if (VillagerBrain.getMode(vill) != VillagerBrain.Mode.FOLLOW) return false;
 
         ServerPlayer target = getTargetPlayer();

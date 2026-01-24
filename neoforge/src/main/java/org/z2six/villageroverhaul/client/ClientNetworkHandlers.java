@@ -18,6 +18,7 @@ import org.z2six.villageroverhaul.network.recruit.PacketRecruitResult;
 import org.z2six.villageroverhaul.network.autoReroll.PacketRerollCooldownState;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
 import org.z2six.villageroverhaul.network.PacketSyncConfig;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
@@ -128,6 +129,32 @@ public final class ClientNetworkHandlers {
             });
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onSearchCatalogData enqueue failed", t);
+        }
+    }
+
+    public static void onFarmingSettingsData(PacketFarmingSettingsData msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    ClientFarmingSettingsCache.set(msg);
+
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    Screen s = mc.screen;
+                    if (s instanceof FarmingSettingsScreen fs) {
+                        if (fs.getVillagerEntityId() == msg.villagerEntityId()) {
+                            fs.applyFromServer(msg);
+                        }
+                    }
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onFarmingSettingsData failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onFarmingSettingsData enqueue failed", t);
         }
     }
 

@@ -1,4 +1,3 @@
-// neoforge\src\main\java\org\z2six\villageroverhaul\client\EntityListEditorScreen.java
 package org.z2six.villageroverhaul.client;
 
 import net.minecraft.ChatFormatting;
@@ -17,7 +16,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
-public final class EntityListEditorScreen extends Screen {
+public final class ItemListEditorScreen extends Screen {
 
     private final Screen parent;
     private final List<String> list;
@@ -53,11 +52,11 @@ public final class EntityListEditorScreen extends Screen {
     private static final int ROW_GAP = 4;
     private static final int ROWS_VISIBLE = 8;
 
-    public EntityListEditorScreen(Screen parent, List<String> list, String title) {
-        super(Component.literal("Entity List"));
+    public ItemListEditorScreen(Screen parent, List<String> list, String title) {
+        super(Component.literal("Item List"));
         this.parent = parent;
         this.list = list == null ? new ArrayList<>() : list;
-        this.title = title == null ? "Entity List" : title;
+        this.title = title == null ? "Item List" : title;
     }
 
     @Override
@@ -155,30 +154,30 @@ public final class EntityListEditorScreen extends Screen {
         updateRightButtons();
     }
 
-    @Override
-    public void tick() {
-        super.tick();
-        updateRightButtons();
-    }
-
     private void updateLeftButtons() {
-        List<String> items = new ArrayList<>(list);
-        items.sort(Comparator.naturalOrder());
+        List<String> sorted = new ArrayList<>();
+        for (String s : list) {
+            if (s == null) continue;
+            String id = s.trim().toLowerCase(Locale.ROOT);
+            if (id.isEmpty()) continue;
+            sorted.add(id);
+        }
+        sorted.sort(Comparator.naturalOrder());
 
-        int maxScroll = Math.max(0, items.size() - ROWS_VISIBLE);
+        int maxScroll = Math.max(0, sorted.size() - ROWS_VISIBLE);
         if (leftScroll > maxScroll) leftScroll = maxScroll;
         if (leftScroll < 0) leftScroll = 0;
 
         for (int i = 0; i < leftButtons.size(); i++) {
             Button b = leftButtons.get(i);
             int idx = leftScroll + i;
-            if (idx >= items.size()) {
+            if (idx >= sorted.size()) {
                 b.visible = false;
                 b.active = false;
                 b.setMessage(Component.literal(""));
                 continue;
             }
-            String id = items.get(idx);
+            String id = sorted.get(idx);
             b.visible = true;
             b.active = true;
             b.setMessage(Component.literal(id));
@@ -190,16 +189,12 @@ public final class EntityListEditorScreen extends Screen {
         String q = searchBox == null ? "" : searchBox.getValue();
         q = q == null ? "" : q.trim().toLowerCase(Locale.ROOT);
 
-        for (ResourceLocation id : BuiltInRegistries.ENTITY_TYPE.keySet()) {
+        for (ResourceLocation id : BuiltInRegistries.ITEM.keySet()) {
             if (id == null) continue;
             String s = id.toString();
             if (q.isEmpty() || s.contains(q)) {
                 matches.add(s);
             }
-        }
-
-        if (q.isEmpty() || "minecraft:player".contains(q)) {
-            if (!matches.contains("minecraft:player")) matches.add("minecraft:player");
         }
 
         matches.sort(Comparator.naturalOrder());
@@ -243,6 +238,11 @@ public final class EntityListEditorScreen extends Screen {
         if (id == null || id.isBlank()) return;
         String norm = id.trim().toLowerCase(Locale.ROOT);
         if (norm.isEmpty()) return;
+        try {
+            ResourceLocation.parse(norm);
+        } catch (Throwable ignored) {
+            return;
+        }
         for (String s : list) {
             if (s != null && s.equalsIgnoreCase(norm)) return;
         }
@@ -301,7 +301,7 @@ public final class EntityListEditorScreen extends Screen {
         gg.drawString(font, title, left + PAD, top + PAD + 5, 0xFFFFFFFF, true);
 
         gg.drawString(font, "Selected", leftPanelX + 4, leftPanelY - 12, 0xFFBFBFBF, false);
-        gg.drawString(font, "All entities", rightPanelX + 4, rightPanelY - 12, 0xFFBFBFBF, false);
+        gg.drawString(font, "All items", rightPanelX + 4, rightPanelY - 12, 0xFFBFBFBF, false);
 
         drawPanel(gg, leftPanelX, leftPanelY, leftPanelW, leftPanelH);
         drawPanel(gg, rightPanelX, rightPanelY, rightPanelW, rightPanelH);

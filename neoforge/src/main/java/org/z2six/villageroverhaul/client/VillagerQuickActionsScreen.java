@@ -43,10 +43,14 @@ public final class VillagerQuickActionsScreen extends Screen {
     // Combat buttons (placeholders like ClientUI unless you later wire real packets)
     private Button cbFlee, cbDefend, cbAggressive, cbSettings;
 
+    // Farming buttons
+    private Button fmChest, fmSettings;
+
     // Backdrop + header icons (like ClientUI)
     private CommandsBackdropWidget commandsBackdrop;
     private RowHeaderIconWidget movementHeaderIcon;
     private RowHeaderIconWidget combatHeaderIcon;
+    private RowHeaderIconWidget farmingHeaderIcon;
 
     // Track command buttons by key for green highlight
     private final Map<String, Button> MOVEMENT_BTNS = new HashMap<>();
@@ -111,9 +115,10 @@ public final class VillagerQuickActionsScreen extends Screen {
 
         // ------------------------------------------------------------------
         // Commands palette: SAME VIBE AS ClientUI (backdrop + border + icons),
-        // but now TWO HORIZONTAL ROWS:
+        // but now THREE HORIZONTAL ROWS:
         // Row 1: [Boots icon] [N][I][F][P]
         // Row 2: [Sword icon] [F][D][A]
+        // Row 3: [Carrot icon] [C][Settings]
         // ------------------------------------------------------------------
         try {
             // Below main row
@@ -130,8 +135,11 @@ public final class VillagerQuickActionsScreen extends Screen {
             int movementRowW = w + gap + movementButtonsW; // icon + gap + buttons
             int combatRowW   = w + gap + combatButtonsW;
 
-            int contentW = Math.max(movementRowW, combatRowW);
-            int contentH = (2 * h) + gap; // two rows + gap between
+            int farmingButtonsW = (2 * w) + gap;
+            int farmingRowW = w + gap + farmingButtonsW;
+
+            int contentW = Math.max(movementRowW, Math.max(combatRowW, farmingRowW));
+            int contentH = (3 * h) + (2 * gap); // three rows + gaps between
 
             int panelW = (panelPad * 2) + contentW + (panelBorder * 2);
             int panelH = (panelPad * 2) + contentH + (panelBorder * 2);
@@ -144,10 +152,12 @@ public final class VillagerQuickActionsScreen extends Screen {
 
             int row1Y = contentY;
             int row2Y = contentY + h + gap;
+            int row3Y = contentY + 2 * (h + gap);
 
             // Center each row content inside the panel content area
             int row1X = contentX + (contentW - movementRowW) / 2;
             int row2X = contentX + (contentW - combatRowW) / 2;
+            int row3X = contentX + (contentW - farmingRowW) / 2;
 
             // Backdrop behind everything
             commandsBackdrop = new CommandsBackdropWidget(panelX, panelY, panelW, panelH);
@@ -158,6 +168,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             // Row header icons (textures)
             movementHeaderIcon = new RowHeaderIconWidget(row1X, row1Y, w, h, new ItemStack(Items.LEATHER_BOOTS));
             combatHeaderIcon   = new RowHeaderIconWidget(row2X, row2Y, w, h, new ItemStack(Items.IRON_SWORD));
+            farmingHeaderIcon  = new RowHeaderIconWidget(row3X, row3Y, w, h, new ItemStack(Items.CARROT));
 
             movementHeaderIcon.visible = false;
             movementHeaderIcon.active = false;
@@ -167,8 +178,13 @@ public final class VillagerQuickActionsScreen extends Screen {
             combatHeaderIcon.active = false;
             combatHeaderIcon.setTooltip(Tooltip.create(Component.literal("Combat commands")));
 
+            farmingHeaderIcon.visible = false;
+            farmingHeaderIcon.active = false;
+            farmingHeaderIcon.setTooltip(Tooltip.create(Component.literal("Farming commands")));
+
             addRenderableWidget(movementHeaderIcon);
             addRenderableWidget(combatHeaderIcon);
+            addRenderableWidget(farmingHeaderIcon);
 
             // Row 1 (Movement): icon then buttons
             int mvX0 = row1X + w + gap;
@@ -222,6 +238,20 @@ public final class VillagerQuickActionsScreen extends Screen {
             COMBAT_BTNS.put("flee", cbFlee);
             COMBAT_BTNS.put("defend", cbDefend);
             COMBAT_BTNS.put("aggressive", cbAggressive);
+
+            // Row 3 (Farming): icon then buttons
+            int fmX0 = row3X + w + gap;
+
+            fmChest = Button.builder(Component.literal("C"), b -> onFarmingRegisterChest())
+                    .pos(fmX0 + 0 * (w + gap), row3Y).size(w, h).build();
+            fmSettings = Button.builder(Component.literal("\u26ED"), b -> onFarmingSettings())
+                    .pos(fmX0 + 1 * (w + gap), row3Y).size(w, h).build();
+
+            fmChest.setTooltip(Tooltip.create(Component.literal("Register storage chest")));
+            fmSettings.setTooltip(Tooltip.create(Component.literal("Farming settings")));
+
+            addRenderableWidget(fmChest);
+            addRenderableWidget(fmSettings);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions failed building commands palette", t);
@@ -308,6 +338,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             setWidgetVisible(commandsBackdrop, v);
             setWidgetVisible(movementHeaderIcon, v);
             setWidgetVisible(combatHeaderIcon, v);
+            setWidgetVisible(farmingHeaderIcon, v);
 
             setWidgetVisible(mvNeutral, v);
             setWidgetVisible(mvIdle, v);
@@ -319,10 +350,37 @@ public final class VillagerQuickActionsScreen extends Screen {
             setWidgetVisible(cbAggressive, v);
             setWidgetVisible(cbSettings, v);
 
+            setWidgetVisible(fmChest, v);
+            setWidgetVisible(fmSettings, v);
+
             // When collapsing, also clear highlights back to default
             if (!v) {
                 resetAllCommandButtonStyles();
             }
+        } catch (Throwable ignored) {}
+    }
+
+    private void onFarmingRegisterChest() {
+        try {
+            if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
+
+            commandsExpanded = false;
+            setCommandsVisible(false);
+            updateCommandsMainButtonVisual();
+
+            ClientUI.beginChestRegistration(villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
+    private void onFarmingSettings() {
+        try {
+            if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
+
+            commandsExpanded = false;
+            setCommandsVisible(false);
+            updateCommandsMainButtonVisual();
+
+            ClientUI.openFarmingSettings(this, villagerEntityId);
         } catch (Throwable ignored) {}
     }
 
