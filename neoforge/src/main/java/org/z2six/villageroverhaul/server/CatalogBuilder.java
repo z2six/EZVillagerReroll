@@ -27,11 +27,10 @@ import java.util.*;
  *
  * IMPORTANT DESIGN CHOICES (per your requirements):
  * - No profession-specific special casing (we never check for LIBRARIAN).
- * - No "tradeable flag" method calls (no Enchantment#isTradeable compilation dependency).
  * - No sampling loops. Each listing is read deterministically:
  *   - If the listing is deterministic: we call getOffer() once (seeded RNG) and collect its result.
- *   - If the listing is known-randomized (EnchantBookForEmeralds): we expand using vanilla enchantment tags
- *     (TRADEABLE + NON_TREASURE) so the book list is stable and does not include loot-only enchants (Swift Sneak).
+ *   - If the listing is known-randomized (EnchantBookForEmeralds): we expand by enumerating ALL enchantments
+ *     and all their levels in the enchantment registry, but only for enchantments in EnchantmentTags.TRADEABLE.
  *
  * Notes:
  * - VillagerTrades.ItemListing is the *source of truth* for what can be generated.
@@ -41,12 +40,10 @@ import java.util.*;
 public final class CatalogBuilder {
 
     private static final int MAX_TOTAL_ITEMS = 16384;
-    private static final int MAX_ENCHANTABILITY_LEVEL_ENUM = 20;
 
-    // Cache reflective access to EnchantmentTags fields + Holder#is(TagKey)
+    // Cache reflective access to EnchantmentTags.TRADEABLE + Holder#is(TagKey)
     private static volatile boolean TAG_REFLECTION_LOOKED_UP = false;
     private static volatile Object TAG_TRADEABLE = null;     // TagKey<Enchantment> (as Object)
-    private static volatile Object TAG_NON_TREASURE = null;  // TagKey<Enchantment> (as Object)
     private static volatile Method HOLDER_IS_TAGKEY = null;  // Holder#is(TagKey)
     private static volatile boolean LOGGED_TAG_LOOKUP = false;
 
@@ -201,10 +198,21 @@ public final class CatalogBuilder {
                     }
 
                     if (isEnchantBookForEmeraldsListing(listing)) {
-                        // Enumerate book possibilities using vanilla tags (TRADEABLE + NON_TREASURE)
+                        // Enumerate all possible enchanted books (all TRADEABLE enchants + all levels).
                         int added = expandEnchantedBookListing(vill, unique);
                         bookExpanded[0]++;
-                        bookAdded[0] += Math.max(0, added);
+                        if (added >= 0) {
+                            bookAdded[0] += Math.max(0, added);
+                        } else {
+                            // If we can't reliably enumerate (tag/method not available), fall back to one representative offer.
+                            MerchantOffer offer = safeGetOfferOnce(listing, vill, lvl);
+                            if (offer != null) {
+                                ItemStack res = offer.getResult();
+                                if (res != null && !res.isEmpty()) {
+                                    unique.putIfAbsent(keyOf(res), res.copy());
+                                }
+                            }
+                        }
                         continue;
                     }
 
@@ -361,14 +369,8 @@ public final class CatalogBuilder {
     }
 
     /**
-     * Expands the enchanted-book listing into concrete enchanted book outputs using vanilla enchantment tag lists:
-     * - TRADEABLE
-     * - NON_TREASURE (if available in this version)
-     *
-     * This avoids:
-     * - calling Enchantment#isTradeable() (which doesn't compile in your mappings),
-     * - enumerating the whole registry without filtering (which causes Swift Sneak / loot-only enchants),
-     * - random sampling (which causes missing levels like Density I).
+     * Expands the enchanted-book listing into concrete enchanted book outputs by enumerating the enchantment registry,
+     * keeping only enchantments in EnchantmentTags.TRADEABLE (via reflection for mapping resilience).
      *
      * @return how many unique book ItemStacks were newly added to 'unique'
      */
@@ -385,24 +387,18 @@ public final class CatalogBuilder {
                 reg = vill.level().registryAccess().registryOrThrow(Registries.ENCHANTMENT);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().warn("[VillagerOverhaul] CatalogBuilder: cannot access enchantment registry; cannot expand EnchantBookForEmeralds.");
-                return 0;
-            }
-
-            ensureEnchantmentTagReflection();
-
-            if (TAG_TRADEABLE == null || HOLDER_IS_TAGKEY == null) {
-                // Fail-closed: if we cannot filter properly, do not expand (prevents illegal loot-only books).
-                if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder: enchantment tag reflection unavailable; skipping book expansion to avoid illegal books.");
-                }
-                return 0;
+                return -1;
             }
 
             final int before = unique.size();
 
+            ensureEnchantmentTagReflection();
+            if (TAG_TRADEABLE == null || HOLDER_IS_TAGKEY == null) {
+                // Can't enumerate the real set safely; let caller fall back to a representative offer.
+                return -1;
+            }
+
             int[] scanned = new int[] {0};
-            int[] tradeable = new int[] {0};
-            int[] nonTreasureFiltered = new int[] {0};
             int[] enumeratedBooks = new int[] {0};
             int[] capSkips = new int[] {0};
             int[] errSkips = new int[] {0};
@@ -425,14 +421,6 @@ public final class CatalogBuilder {
                     continue;
                 }
 
-                // If NON_TREASURE tag exists, require it too (filters out treasure/loot-only enchants like Swift Sneak)
-                if (TAG_NON_TREASURE != null && !holderHasEnchantmentTag(holder, TAG_NON_TREASURE)) {
-                    nonTreasureFiltered[0]++;
-                    continue;
-                }
-
-                tradeable[0]++;
-
                 Enchantment ench;
                 try {
                     ench = holder.value();
@@ -446,14 +434,6 @@ public final class CatalogBuilder {
                     max = Math.max(1, ench.getMaxLevel());
                 } catch (Throwable ignoredMax) {
                     max = 1;
-                }
-
-                if (max > MAX_ENCHANTABILITY_LEVEL_ENUM) {
-                    if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder: enchant {} maxLevel={} exceeds cap {}; enumerating 1..{} only.",
-                                safeHolderId(reg, holder), max, MAX_ENCHANTABILITY_LEVEL_ENUM, MAX_ENCHANTABILITY_LEVEL_ENUM);
-                    }
-                    max = MAX_ENCHANTABILITY_LEVEL_ENUM;
                 }
 
                 for (int lvl = 1; lvl <= max; lvl++) {
@@ -486,8 +466,8 @@ public final class CatalogBuilder {
 
             if (VillagerOverhaul.LOG().isDebugEnabled() || added > 0) {
                 VillagerOverhaul.LOG().debug(
-                        "[VillagerOverhaul] CatalogBuilder: EnchantBookForEmeralds expansion scannedEnchants={} tradeable={} nonTreasureFiltered={} enumeratedBooks={} addedBooks={} capSkips={} errSkips={} size {}->{}",
-                        scanned[0], tradeable[0], nonTreasureFiltered[0], enumeratedBooks[0], added, capSkips[0], errSkips[0],
+                        "[VillagerOverhaul] CatalogBuilder: EnchantBookForEmeralds expansion scannedEnchants={} enumeratedBooks={} addedBooks={} capSkips={} errSkips={} size {}->{}",
+                        scanned[0], enumeratedBooks[0], added, capSkips[0], errSkips[0],
                         before, unique.size()
                 );
             }
@@ -496,7 +476,7 @@ public final class CatalogBuilder {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder.expandEnchantedBookListing failed (soft): {}", t.toString());
-            return 0;
+            return -1;
         }
     }
 
@@ -519,39 +499,33 @@ public final class CatalogBuilder {
                 HOLDER_IS_TAGKEY = null;
             }
 
-            // EnchantmentTags.TRADEABLE / EnchantmentTags.NON_TREASURE (field names)
+            // EnchantmentTags.TRADEABLE (field name)
             try {
                 Class<?> clz = Class.forName("net.minecraft.tags.EnchantmentTags");
-
                 TAG_TRADEABLE = readStaticFieldIfPresent(clz, "TRADEABLE");
-                TAG_NON_TREASURE = readStaticFieldIfPresent(clz, "NON_TREASURE");
 
                 if (!LOGGED_TAG_LOOKUP) {
                     LOGGED_TAG_LOOKUP = true;
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder: tag lookup EnchantmentTags.TRADEABLE={} NON_TREASURE={} Holder#is(TagKey)={}",
-                            TAG_TRADEABLE != null, TAG_NON_TREASURE != null, HOLDER_IS_TAGKEY != null);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] CatalogBuilder: tag lookup EnchantmentTags.TRADEABLE={} Holder#is(TagKey)={}",
+                            TAG_TRADEABLE != null, HOLDER_IS_TAGKEY != null);
                 }
 
             } catch (Throwable t) {
                 TAG_TRADEABLE = null;
-                TAG_NON_TREASURE = null;
-
                 if (!LOGGED_TAG_LOOKUP) {
                     LOGGED_TAG_LOOKUP = true;
-                    VillagerOverhaul.LOG().warn("[VillagerOverhaul] CatalogBuilder: cannot reflect net.minecraft.tags.EnchantmentTags; book expansion will be skipped to avoid illegal books. ({})",
+                    VillagerOverhaul.LOG().warn("[VillagerOverhaul] CatalogBuilder: cannot reflect net.minecraft.tags.EnchantmentTags; enchanted book expansion will fall back to sampling. ({})",
                             t.toString());
                 }
             }
 
         } catch (Throwable t) {
-            // fail-closed: leave tags null
             TAG_TRADEABLE = null;
-            TAG_NON_TREASURE = null;
             HOLDER_IS_TAGKEY = null;
 
             if (!LOGGED_TAG_LOOKUP) {
                 LOGGED_TAG_LOOKUP = true;
-                VillagerOverhaul.LOG().warn("[VillagerOverhaul] CatalogBuilder: ensureEnchantmentTagReflection failed; book expansion disabled. ({})",
+                VillagerOverhaul.LOG().warn("[VillagerOverhaul] CatalogBuilder: ensureEnchantmentTagReflection failed; enchanted book expansion will fall back to sampling. ({})",
                         t.toString());
             }
         }
@@ -579,22 +553,6 @@ public final class CatalogBuilder {
 
         } catch (Throwable t) {
             return false;
-        }
-    }
-
-    private static String safeHolderId(Registry<Enchantment> reg, Holder<Enchantment> holder) {
-        try {
-            if (holder == null) return "null";
-            try {
-                Enchantment e = holder.value();
-                if (e != null && reg != null) {
-                    Object key = reg.getKey(e);
-                    if (key != null) return String.valueOf(key);
-                }
-            } catch (Throwable ignored) {}
-            return String.valueOf(holder);
-        } catch (Throwable t) {
-            return "<?>";
         }
     }
 
