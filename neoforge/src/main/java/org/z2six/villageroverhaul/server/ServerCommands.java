@@ -42,6 +42,13 @@ public final class ServerCommands {
                     .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Double>argument(
                                     "radius", DoubleArgumentType.doubleArg(1.0, 256.0))
                             .executes(ctx -> takeHeld(ctx.getSource(), DoubleArgumentType.getDouble(ctx, "radius")))));
+
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_fixgenprices")
+                    .requires(src -> src != null && src.hasPermission(2))
+                    .executes(ctx -> fixGenerosityPrices(ctx.getSource(), 32.0))
+                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Double>argument(
+                                    "radius", DoubleArgumentType.doubleArg(1.0, 256.0))
+                            .executes(ctx -> fixGenerosityPrices(ctx.getSource(), DoubleArgumentType.getDouble(ctx, "radius")))));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] RegisterCommandsEvent failed (server commands may be missing).", t);
         }
@@ -95,6 +102,43 @@ public final class ServerCommands {
 
             sp.displayClientMessage(Component.literal("Moved villager held items to your inventory."), true);
             return 1;
+        } catch (Throwable t) {
+            try {
+                if (source != null) source.sendFailure(Component.literal("Command failed: " + t.getClass().getSimpleName()));
+            } catch (Throwable ignored) {}
+            return 0;
+        }
+    }
+
+    private static int fixGenerosityPrices(CommandSourceStack source, double radius) {
+        try {
+            if (source == null) return 0;
+            if (!(source.getEntity() instanceof ServerPlayer sp)) {
+                source.sendFailure(Component.literal("Player-only command."));
+                return 0;
+            }
+            if (!(sp.level() instanceof ServerLevel level)) return 0;
+
+            double r = Math.max(1.0, Math.min(256.0, radius));
+            AABB box = sp.getBoundingBox().inflate(r, r, r);
+
+            List<Villager> list = level.getEntitiesOfClass(Villager.class, box, v -> true);
+            if (list.isEmpty()) {
+                sp.displayClientMessage(Component.literal("No villagers nearby."), true);
+                return 0;
+            }
+
+            int villagers = 0;
+            int offersTouched = 0;
+
+            for (Villager v : list) {
+                if (v == null) continue;
+                villagers++;
+                offersTouched += VillagerGenerosityOfferService.forceRecalculateFromGenerosityOnly(v);
+            }
+
+            sp.displayClientMessage(Component.literal("Recalculated Generosity prices for " + villagers + " villagers (" + offersTouched + " offers)."), true);
+            return villagers;
         } catch (Throwable t) {
             try {
                 if (source != null) source.sendFailure(Component.literal("Command failed: " + t.getClass().getSimpleName()));
@@ -191,4 +235,3 @@ public final class ServerCommands {
         }
     }
 }
-

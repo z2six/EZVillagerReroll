@@ -191,6 +191,8 @@ public final class Network {
             // settlement/payment UI packets
             r.playToClient(PacketOpenAutoSearchPaymentScreen.TYPE, PacketOpenAutoSearchPaymentScreen.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onOpenAutoSearchPaymentScreen", msg, ctx));
+            r.playToClient(PacketAutoSearchPaymentFailed.TYPE, PacketAutoSearchPaymentFailed.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onAutoSearchPaymentFailed", msg, ctx));
             r.playToClient(PacketAutoSearchSettlementCleared.TYPE, PacketAutoSearchSettlementCleared.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onAutoSearchSettlementCleared", msg, ctx));
 

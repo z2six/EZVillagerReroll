@@ -9,6 +9,7 @@ import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.tooltip.ClientTooltipCache;
 import org.z2six.villageroverhaul.network.ClientTradeLockCache;
 import org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchDone;
+import org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchPaymentFailed;
 import org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchSettlementCleared;
 import org.z2six.villageroverhaul.network.autoReroll.PacketOpenAutoSearchPaymentScreen;
 import org.z2six.villageroverhaul.network.autoReroll.PacketOpenBusyScreen;
@@ -372,6 +373,42 @@ public final class ClientNetworkHandlers {
                     msg == null ? "null" : msg.getClass().getName());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoSearchSettlementCleared(Object) failed", t);
+        }
+    }
+
+    public static void onAutoSearchPaymentFailed(PacketAutoSearchPaymentFailed msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+
+                    Screen s = mc.screen;
+                    if (s instanceof AutoSearchPaymentScreen pay && pay.getVillagerEntityId() == msg.villagerEntityId()) {
+                        pay.onPaymentFailed(msg.reason());
+                    }
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoSearchPaymentFailed failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoSearchPaymentFailed enqueue failed", t);
+        }
+    }
+
+    public static void onAutoSearchPaymentFailed(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketAutoSearchPaymentFailed p) {
+                onAutoSearchPaymentFailed(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onAutoSearchPaymentFailed(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onAutoSearchPaymentFailed(Object) failed", t);
         }
     }
 

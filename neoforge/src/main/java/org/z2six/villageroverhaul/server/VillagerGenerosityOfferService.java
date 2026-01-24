@@ -62,23 +62,22 @@ public final class VillagerGenerosityOfferService {
             int fpOld = gen.getInt(K_FP);
 
             int n = offers.size();
-            int[] baseA;
-            int[] baseB;
-            int[] baseSpd;
+            boolean hasArrays =
+                    gen.contains(K_BASE_A, IntArrayTag.TAG_INT_ARRAY)
+                            && gen.contains(K_BASE_B, IntArrayTag.TAG_INT_ARRAY)
+                            && gen.contains(K_BASE_SPD, IntArrayTag.TAG_INT_ARRAY);
 
-            boolean needRebaseline = (fpOld != fpNow)
-                    || !gen.contains(K_BASE_A, IntArrayTag.TAG_INT_ARRAY)
-                    || !gen.contains(K_BASE_B, IntArrayTag.TAG_INT_ARRAY)
-                    || !gen.contains(K_BASE_SPD, IntArrayTag.TAG_INT_ARRAY);
+            int[] baseA = hasArrays ? gen.getIntArray(K_BASE_A) : new int[0];
+            int[] baseB = hasArrays ? gen.getIntArray(K_BASE_B) : new int[0];
+            int[] baseSpd = hasArrays ? gen.getIntArray(K_BASE_SPD) : new int[0];
 
-            if (!needRebaseline) {
-                baseA = gen.getIntArray(K_BASE_A);
-                baseB = gen.getIntArray(K_BASE_B);
-                baseSpd = gen.getIntArray(K_BASE_SPD);
-                needRebaseline = (baseA.length != n) || (baseB.length != n) || (baseSpd.length != n);
-            }
+            boolean fpChanged = (fpOld != fpNow);
+            boolean sizeMismatch = hasArrays && !fpChanged && ((baseA.length != n) || (baseB.length != n) || (baseSpd.length != n));
 
-            if (needRebaseline) {
+            boolean needFullRebaseline = fpChanged || !hasArrays;
+            boolean needResize = (!needFullRebaseline) && sizeMismatch;
+
+            if (needFullRebaseline) {
                 baseA = new int[n];
                 baseB = new int[n];
                 baseSpd = new int[n];
@@ -100,11 +99,39 @@ public final class VillagerGenerosityOfferService {
                 gen.put(K_BASE_B, new IntArrayTag(baseB));
                 gen.put(K_BASE_SPD, new IntArrayTag(baseSpd));
                 gen.putDouble(K_APPLIED_PCT, 0.0); // reset; we will apply fresh below
+            } else if (needResize) {
+                int[] newA = new int[n];
+                int[] newB = new int[n];
+                int[] newSpd = new int[n];
 
-            } else {
-                baseA = gen.getIntArray(K_BASE_A);
-                baseB = gen.getIntArray(K_BASE_B);
-                baseSpd = gen.getIntArray(K_BASE_SPD);
+                int copy = Math.min(n, Math.min(baseA.length, Math.min(baseB.length, baseSpd.length)));
+                if (copy > 0) {
+                    System.arraycopy(baseA, 0, newA, 0, copy);
+                    System.arraycopy(baseB, 0, newB, 0, copy);
+                    System.arraycopy(baseSpd, 0, newSpd, 0, copy);
+                }
+
+                // Initialize only newly-added slots; preserve existing baselines to prevent compounding.
+                for (int i = copy; i < n; i++) {
+                    MerchantOffer o = offers.get(i);
+                    if (o == null) continue;
+
+                    ItemStack a = safeBaseCostA(o);
+                    ItemStack b = safeCostB(o);
+
+                    newA[i] = (isEmerald(a) ? clampEmeraldCount(a.getCount()) : 0);
+                    newB[i] = (isEmerald(b) ? clampEmeraldCount(b.getCount()) : 0);
+                    newSpd[i] = safeGetSpecialPriceDiff(o);
+                }
+
+                baseA = newA;
+                baseB = newB;
+                baseSpd = newSpd;
+
+                gen.putInt(K_FP, fpNow);
+                gen.put(K_BASE_A, new IntArrayTag(baseA));
+                gen.put(K_BASE_B, new IntArrayTag(baseB));
+                gen.put(K_BASE_SPD, new IntArrayTag(baseSpd));
             }
 
             double oldPct = gen.getDouble(K_APPLIED_PCT);
@@ -119,7 +146,7 @@ public final class VillagerGenerosityOfferService {
                     return true;
                 }
                 // Even if we didn't restore, if we re-baselined above, we should persist it:
-                if (needRebaseline) {
+                if (needFullRebaseline || needResize) {
                     root.put(TAG_GEN, gen);
                     pd.put(VillagerStatsService.TAG_ROOT, root);
                     return true;
@@ -129,7 +156,7 @@ public final class VillagerGenerosityOfferService {
 
             // Apply from baseline => no stacking
             boolean changed = applyFromBaseline(offers, baseA, baseB, baseSpd, pct);
-            if (changed || Math.abs(oldPct - pct) > 0.0001 || needRebaseline) {
+            if (changed || Math.abs(oldPct - pct) > 0.0001 || needFullRebaseline || needResize) {
                 gen.putDouble(K_APPLIED_PCT, pct);
                 root.put(TAG_GEN, gen);
                 pd.put(VillagerStatsService.TAG_ROOT, root);
@@ -146,6 +173,54 @@ public final class VillagerGenerosityOfferService {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerGenerosityOfferService.normalizeAndApply failed (soft): {}", t.toString());
             return false;
+        }
+    }
+
+    /**
+     * Admin-style remediation:
+     * - Clears all emerald Cost A specialPriceDiff on the villager (wipes curing/hero/reputation price modifiers).
+     * - Removes our saved baseline data so we can rebaseline cleanly.
+     * - Re-applies Generosity once.
+     *
+     * @return number of offers inspected.
+     */
+    public static int forceRecalculateFromGenerosityOnly(Entity e) {
+        try {
+            if (!(e instanceof AbstractVillager av)) return 0;
+
+            MerchantOffers offers = av.getOffers();
+            if (offers == null || offers.isEmpty()) return 0;
+
+            // Ensure stats exist (needed for pct)
+            try { VillagerStatsService.ensureStats(e); } catch (Throwable ignored) {}
+
+            int touched = 0;
+            for (int i = 0; i < offers.size(); i++) {
+                MerchantOffer o = offers.get(i);
+                if (o == null) continue;
+
+                ItemStack a = safeBaseCostA(o);
+                if (isEmerald(a)) {
+                    try { safeSetSpecialPriceDiff(o, 0); } catch (Throwable ignored) {}
+                }
+                touched++;
+            }
+
+            // Clear our baseline so next normalize uses current values as fresh baseline.
+            try {
+                CompoundTag pd = e.getPersistentData();
+                if (pd != null && pd.contains(VillagerStatsService.TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
+                    CompoundTag root = pd.getCompound(VillagerStatsService.TAG_ROOT);
+                    root.remove(TAG_GEN);
+                    pd.put(VillagerStatsService.TAG_ROOT, root);
+                }
+            } catch (Throwable ignored) {}
+
+            try { normalizeAndApply(e); } catch (Throwable ignored) {}
+
+            return touched;
+        } catch (Throwable t) {
+            return 0;
         }
     }
 

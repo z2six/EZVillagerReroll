@@ -13,6 +13,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -29,7 +30,8 @@ public record PacketOpenAutoSearchPaymentScreen(
         long lockMaskBefore,
         List<String> requestedTargets,
         int totalVillagerXp,
-        int rerollCount
+        int rerollCount,
+        Map<String, Long> tooltipValueVByKey
 ) implements CustomPacketPayload {
 
     public static final Type<PacketOpenAutoSearchPaymentScreen> TYPE =
@@ -44,6 +46,7 @@ public record PacketOpenAutoSearchPaymentScreen(
      * - AutoSearchPaymentScreen can read it during construction
      */
     private static final Map<Integer, Integer> CLIENT_TOTAL_XP_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Integer, Map<String, Long>> CLIENT_TOOLTIP_V_CACHE = new ConcurrentHashMap<>();
 
     public static void cacheClientTotalVillagerXp(int villagerEntityId, int xp) {
         try {
@@ -60,6 +63,24 @@ public record PacketOpenAutoSearchPaymentScreen(
             return v == null ? -1 : v;
         } catch (Throwable t) {
             return -1;
+        }
+    }
+
+    public static void cacheClientTooltipVByKey(int villagerEntityId, Map<String, Long> map) {
+        try {
+            if (villagerEntityId < 0) return;
+            if (map == null || map.isEmpty()) return;
+            CLIENT_TOOLTIP_V_CACHE.put(villagerEntityId, map);
+        } catch (Throwable ignored) {}
+    }
+
+    public static Map<String, Long> popClientTooltipVByKey(int villagerEntityId) {
+        try {
+            if (villagerEntityId < 0) return Map.of();
+            Map<String, Long> v = CLIENT_TOOLTIP_V_CACHE.remove(villagerEntityId);
+            return v == null ? Map.of() : v;
+        } catch (Throwable t) {
+            return Map.of();
         }
     }
 
@@ -137,11 +158,32 @@ public record PacketOpenAutoSearchPaymentScreen(
                     rr = 0;
                 }
 
-                return new PacketOpenAutoSearchPaymentScreen(id, hourly, fin, ticks, pay, decline, lockMask, requested, totalXp, rr);
+                Map<String, Long> tooltipV = Map.of();
+                try {
+                    int vn = buf.readVarInt();
+                    if (vn < 0) vn = 0;
+                    if (vn > 2048) vn = 2048;
+                    LinkedHashMap<String, Long> tmp = new LinkedHashMap<>();
+                    for (int i = 0; i < vn; i++) {
+                        String k = buf.readUtf(32767);
+                        long v = Math.max(0L, buf.readLong());
+                        if (k == null) continue;
+                        k = k.trim();
+                        if (k.isEmpty()) continue;
+                        if (v <= 0L) continue;
+                        tmp.put(k, v);
+                    }
+                    tooltipV = tmp;
+                } catch (Throwable ignored) {}
+                if (tooltipV != null && !tooltipV.isEmpty()) {
+                    cacheClientTooltipVByKey(id, tooltipV);
+                }
+
+                return new PacketOpenAutoSearchPaymentScreen(id, hourly, fin, ticks, pay, decline, lockMask, requested, totalXp, rr, tooltipV);
 
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] PacketOpenAutoSearchPaymentScreen decode failed", t);
-                return new PacketOpenAutoSearchPaymentScreen(-1, 0, 0, 0, new ListTag(), new ListTag(), 0L, List.of(), -1, 0);
+                return new PacketOpenAutoSearchPaymentScreen(-1, 0, 0, 0, new ListTag(), new ListTag(), 0L, List.of(), -1, 0, Map.of());
             }
         }
 
@@ -188,6 +230,26 @@ public record PacketOpenAutoSearchPaymentScreen(
 
                 try {
                     buf.writeVarInt(Math.max(0, msg.rerollCount()));
+                } catch (Throwable t) {
+                    buf.writeVarInt(0);
+                }
+
+                // Appended fields (so old decoders can still read the prefix safely)
+                try {
+                    Map<String, Long> map = msg.tooltipValueVByKey() == null ? Map.of() : msg.tooltipValueVByKey();
+                    int vn = Math.min(2048, map.size());
+                    buf.writeVarInt(vn);
+                    int i = 0;
+                    for (Map.Entry<String, Long> en : map.entrySet()) {
+                        if (i >= vn) break;
+                        String k = en.getKey();
+                        long v = en.getValue() == null ? 0L : Math.max(0L, en.getValue());
+                        if (k == null) k = "";
+                        if (k.length() > 32767) k = k.substring(0, 32767);
+                        buf.writeUtf(k);
+                        buf.writeLong(v);
+                        i++;
+                    }
                 } catch (Throwable t) {
                     buf.writeVarInt(0);
                 }

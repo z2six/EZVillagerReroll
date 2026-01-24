@@ -12,7 +12,12 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import java.util.ArrayList;
 import java.util.List;
 
-public record PacketOpenBusyScreen(int villagerEntityId, List<ItemStack> requested, boolean canCancel) implements CustomPacketPayload {
+public record PacketOpenBusyScreen(
+        int villagerEntityId,
+        List<ItemStack> requested,
+        boolean canCancel,
+        List<Long> requestedValueV
+) implements CustomPacketPayload {
 
     public static final Type<PacketOpenBusyScreen> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "open_busy_screen"));
@@ -40,10 +45,21 @@ public record PacketOpenBusyScreen(int villagerEntityId, List<ItemStack> request
                     ItemStack s = ItemStack.STREAM_CODEC.decode(buf);
                     list.add(s == null ? ItemStack.EMPTY : s);
                 }
-                return new PacketOpenBusyScreen(id, list, canCancel);
+
+                List<Long> vv = List.of();
+                try {
+                    int vn = buf.readVarInt();
+                    if (vn < 0) vn = 0;
+                    if (vn > 512) vn = 512;
+                    ArrayList<Long> tmp = new ArrayList<>(vn);
+                    for (int i = 0; i < vn; i++) tmp.add(Math.max(0L, buf.readLong()));
+                    vv = tmp;
+                } catch (Throwable ignored) {}
+
+                return new PacketOpenBusyScreen(id, list, canCancel, vv);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] PacketOpenBusyScreen decode failed", t);
-                return new PacketOpenBusyScreen(-1, List.of(), false);
+                return new PacketOpenBusyScreen(-1, List.of(), false, List.of());
             }
         }
 
@@ -60,6 +76,15 @@ public record PacketOpenBusyScreen(int villagerEntityId, List<ItemStack> request
                     ItemStack s = list.get(i);
                     if (s == null) s = ItemStack.EMPTY;
                     ItemStack.STREAM_CODEC.encode(buf, s);
+                }
+
+                // Appended fields (backwards-friendly):
+                List<Long> vv = msg.requestedValueV() == null ? List.of() : msg.requestedValueV();
+                int vn = Math.min(512, vv.size());
+                buf.writeVarInt(vn);
+                for (int i = 0; i < vn; i++) {
+                    Long v = vv.get(i);
+                    buf.writeLong(v == null ? 0L : Math.max(0L, v));
                 }
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] PacketOpenBusyScreen encode failed", t);

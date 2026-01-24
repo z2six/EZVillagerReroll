@@ -17,6 +17,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
+import net.minecraft.world.inventory.tooltip.TooltipComponent;
+import net.minecraft.world.item.TooltipFlag;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.Network;
 import org.z2six.villageroverhaul.network.autoReroll.PacketDeclineAutoSearchSettlement;
@@ -92,10 +94,14 @@ public final class AutoSearchPaymentScreen extends Screen {
     // reroll count
     private final int rerollCount;
 
+    // Player-global accumulated V for items shown in this UI (server-auth; keyed by CatalogBuilder.keyOf)
+    private final Map<String, Long> tooltipValueVByKey;
+
     // UI
     private Button btnPay;
     private Button btnDecline;
     private boolean sentAction = false;
+    private Component statusLineOverride = null;
 
     /**
      * Back-compat constructor: older call-sites can keep using it.
@@ -177,6 +183,7 @@ public final class AutoSearchPaymentScreen extends Screen {
 
         this.totalVillagerXp = (totalVillagerXp < 0 ? -1 : Math.max(0, totalVillagerXp));
         this.rerollCount = Math.max(0, rerollCount);
+        this.tooltipValueVByKey = PacketOpenAutoSearchPaymentScreen.popClientTooltipVByKey(villagerEntityId);
 
         this.offersIfPayTag = deepCopyOfferList(offersIfPay);
         this.offersIfDeclineTag = deepCopyOfferList(offersIfDecline);
@@ -521,6 +528,7 @@ public final class AutoSearchPaymentScreen extends Screen {
             }
 
             sentAction = true;
+            statusLineOverride = Component.literal("Waiting for server…").withStyle(ChatFormatting.DARK_GRAY);
             setButtonsActive(false);
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoSearchPaymentScreen: sending PacketPayAutoSearchSettlement(villagerEntityId={})", villagerEntityId);
@@ -529,6 +537,7 @@ public final class AutoSearchPaymentScreen extends Screen {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] AutoSearchPaymentScreen.onPay failed", t);
             sentAction = false;
+            statusLineOverride = null;
             setButtonsActive(true);
         }
     }
@@ -545,6 +554,7 @@ public final class AutoSearchPaymentScreen extends Screen {
             }
 
             sentAction = true;
+            statusLineOverride = Component.literal("Waiting for server…").withStyle(ChatFormatting.DARK_GRAY);
             setButtonsActive(false);
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoSearchPaymentScreen: sending PacketDeclineAutoSearchSettlement(villagerEntityId={})", villagerEntityId);
@@ -553,8 +563,23 @@ public final class AutoSearchPaymentScreen extends Screen {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] AutoSearchPaymentScreen.onDecline failed", t);
             sentAction = false;
+            statusLineOverride = null;
             setButtonsActive(true);
         }
+    }
+
+    public void onPaymentFailed(String reason) {
+        try {
+            sentAction = false;
+            setButtonsActive(true);
+
+            String r = reason == null ? "" : reason.trim();
+            if ("not_enough_emeralds".equalsIgnoreCase(r) || "not_enough".equalsIgnoreCase(r)) {
+                statusLineOverride = Component.literal("Not enough emeralds.").withStyle(ChatFormatting.RED);
+            } else {
+                statusLineOverride = Component.literal("Payment failed.").withStyle(ChatFormatting.RED);
+            }
+        } catch (Throwable ignored) {}
     }
 
     private void setButtonsActive(boolean active) {
@@ -613,9 +638,11 @@ public final class AutoSearchPaymentScreen extends Screen {
             y += 16;
 
             gg.drawCenteredString(this.font,
-                    sentAction
-                            ? Component.literal("Waiting for server…").withStyle(ChatFormatting.DARK_GRAY)
-                            : Component.literal("Pay to keep the offers, or decline to revert.").withStyle(ChatFormatting.DARK_GRAY),
+                    statusLineOverride != null
+                            ? statusLineOverride
+                            : (sentAction
+                                    ? Component.literal("Waiting for server…").withStyle(ChatFormatting.DARK_GRAY)
+                                    : Component.literal("Pay to keep the offers, or decline to revert.").withStyle(ChatFormatting.DARK_GRAY)),
                     cx, y, 0xFFFFFF);
 
             // Pay items row (no label)
@@ -652,7 +679,7 @@ public final class AutoSearchPaymentScreen extends Screen {
 
             if (hovered != null && !hovered.isEmpty()) {
                 try {
-                    gg.renderTooltip(this.font, hovered, mouseX, mouseY);
+                    renderTooltipWithRerolls(gg, hovered, mouseX, mouseY);
                 } catch (Throwable t) {
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoSearchPaymentScreen.renderTooltip failed (soft): {}", t.toString());
                 }
@@ -660,6 +687,199 @@ public final class AutoSearchPaymentScreen extends Screen {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] AutoSearchPaymentScreen.render failed", t);
+        }
+    }
+
+    private void renderTooltipWithRerolls(GuiGraphics gg, ItemStack stack, int mouseX, int mouseY) {
+        try {
+            if (gg == null || this.font == null) return;
+            if (stack == null || stack.isEmpty()) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            var player = mc == null ? null : mc.player;
+            if (player == null) {
+                gg.renderTooltip(this.font, stack, mouseX, mouseY);
+                return;
+            }
+
+            TooltipFlag flag = getTooltipFlagSafe(mc);
+            List<Component> lines = TooltipCompat.getTooltipLines(stack, player, flag);
+            ArrayList<Component> withExtra = new ArrayList<>(Math.max(1, lines == null ? 0 : lines.size()) + 1);
+            if (lines != null) withExtra.addAll(lines);
+
+            long vUnits = 0L;
+            try {
+                String k = keyOf(stack);
+                vUnits = (k == null) ? 0L : tooltipValueVByKey.getOrDefault(k, 0L);
+                if (vUnits < 0L) vUnits = 0L;
+            } catch (Throwable ignored) {}
+
+            if (vUnits > 0L) {
+                withExtra.add(
+                        Component.literal(String.valueOf(vUnits)).withStyle(ChatFormatting.AQUA)
+                                .append(Component.literal(" Rerolls ").withStyle(ChatFormatting.GRAY))
+                                .append(Component.literal("(").withStyle(ChatFormatting.DARK_GRAY))
+                                .append(Component.literal(formatEmeraldsFromV(vUnits)).withStyle(ChatFormatting.GOLD))
+                                .append(Component.literal(" emeralds").withStyle(ChatFormatting.DARK_GRAY))
+                                .append(Component.literal(")").withStyle(ChatFormatting.DARK_GRAY))
+                );
+            }
+
+            gg.renderTooltip(this.font, withExtra, TooltipCompat.getTooltipImage(stack), mouseX, mouseY);
+        } catch (Throwable ignored) {
+            gg.renderTooltip(this.font, stack, mouseX, mouseY);
+        }
+    }
+
+    private static TooltipFlag getTooltipFlagSafe(Minecraft mc) {
+        try {
+            boolean adv = false;
+            try {
+                if (mc != null && mc.options != null) {
+                    adv = mc.options.advancedItemTooltips;
+                }
+            } catch (Throwable ignored) {
+                adv = false;
+            }
+            return adv ? TooltipFlag.Default.ADVANCED : TooltipFlag.Default.NORMAL;
+        } catch (Throwable ignored) {
+            return TooltipFlag.Default.NORMAL;
+        }
+    }
+
+    private static String formatEmeraldsFromV(long vUnits) {
+        try {
+            int costPerOffer = 0;
+            try {
+                var snap = org.z2six.villageroverhaul.network.ClientSyncedConfig.get();
+                costPerOffer = snap == null ? 0 : Math.max(0, snap.costPerOffer);
+            } catch (Throwable ignored) {
+                costPerOffer = 0;
+            }
+            long cost = Math.max(0L, vUnits) * (long) Math.max(0, costPerOffer);
+            if (cost < 0L) cost = Long.MAX_VALUE;
+            return String.valueOf(cost);
+        } catch (Throwable ignored) {
+            return "0";
+        }
+    }
+
+    private static String keyOf(ItemStack s) {
+        try {
+            if (s == null || s.isEmpty()) return "empty";
+            String itemPart = String.valueOf(s.getItem());
+
+            String compPart;
+            try {
+                Object patch = s.getComponentsPatch();
+                compPart = (patch == null) ? "noComponents" : patch.toString();
+            } catch (Throwable ignored) {
+                compPart = s.toString();
+            }
+
+            return itemPart + "|" + compPart;
+        } catch (Throwable t) {
+            return "err|" + java.util.Objects.hashCode(s);
+        }
+    }
+
+    private static final class TooltipCompat {
+        private static Method mGetTooltipLines_New; // (Item$TooltipContext, Player, TooltipFlag)
+        private static Method mGetTooltipLines_Old; // (Player, TooltipFlag)
+        private static Method mGetTooltipImage; // getTooltipImage(): Optional
+        private static Method mTooltipContextOfLevel; // Item$TooltipContext.of(Level)
+        private static boolean lookedUp = false;
+
+        static List<Component> getTooltipLines(ItemStack stack, net.minecraft.world.entity.player.Player player, TooltipFlag flag) {
+            try {
+                if (!lookedUp) lookupMethods();
+                if (stack == null) return List.of();
+                if (player == null) return List.of(stack.getHoverName());
+
+                if (mGetTooltipLines_New != null) {
+                    Object ctx = createTooltipContext(player);
+                    if (ctx != null) {
+                        @SuppressWarnings("unchecked")
+                        List<Component> res = (List<Component>) mGetTooltipLines_New.invoke(stack, ctx, player, flag);
+                        return res == null ? List.of(stack.getHoverName()) : res;
+                    }
+                }
+
+                if (mGetTooltipLines_Old != null) {
+                    @SuppressWarnings("unchecked")
+                    List<Component> res = (List<Component>) mGetTooltipLines_Old.invoke(stack, player, flag);
+                    return res == null ? List.of(stack.getHoverName()) : res;
+                }
+
+                return List.of(stack.getHoverName());
+            } catch (Throwable ignored) {
+                return List.of(stack == null ? Component.literal("") : stack.getHoverName());
+            }
+        }
+
+        static java.util.Optional<TooltipComponent> getTooltipImage(ItemStack stack) {
+            try {
+                if (!lookedUp) lookupMethods();
+                if (stack == null) return java.util.Optional.empty();
+                if (mGetTooltipImage == null) return java.util.Optional.empty();
+                Object res = mGetTooltipImage.invoke(stack);
+                if (res instanceof java.util.Optional<?> opt) {
+                    Object inner = opt.orElse(null);
+                    if (inner instanceof TooltipComponent tc) {
+                        return java.util.Optional.of(tc);
+                    }
+                }
+                return java.util.Optional.empty();
+            } catch (Throwable ignored) {
+                return java.util.Optional.empty();
+            }
+        }
+
+        private static void lookupMethods() {
+            lookedUp = true;
+            try {
+                Class<?> tooltipContextClz = Class.forName("net.minecraft.world.item.Item$TooltipContext");
+                try {
+                    mGetTooltipLines_New = ItemStack.class.getMethod("getTooltipLines", tooltipContextClz, net.minecraft.world.entity.player.Player.class, TooltipFlag.class);
+                } catch (Throwable ignored) {
+                    mGetTooltipLines_New = null;
+                }
+
+                try {
+                    Class<?> levelClz = Class.forName("net.minecraft.world.level.Level");
+                    mTooltipContextOfLevel = tooltipContextClz.getMethod("of", levelClz);
+                } catch (Throwable ignored) {
+                    mTooltipContextOfLevel = null;
+                }
+            } catch (Throwable ignored) {
+                mGetTooltipLines_New = null;
+                mTooltipContextOfLevel = null;
+            }
+
+            try {
+                mGetTooltipLines_Old = ItemStack.class.getMethod("getTooltipLines", net.minecraft.world.entity.player.Player.class, TooltipFlag.class);
+            } catch (Throwable ignored) {
+                mGetTooltipLines_Old = null;
+            }
+
+            try {
+                mGetTooltipImage = ItemStack.class.getMethod("getTooltipImage");
+            } catch (Throwable ignored) {
+                mGetTooltipImage = null;
+            }
+        }
+
+        private static Object createTooltipContext(net.minecraft.world.entity.player.Player player) {
+            try {
+                if (player == null) return null;
+                if (mTooltipContextOfLevel == null) return null;
+                Object level = null;
+                try { level = player.level(); } catch (Throwable ignored) { level = null; }
+                if (level == null) return null;
+                return mTooltipContextOfLevel.invoke(null, level);
+            } catch (Throwable ignored) {
+                return null;
+            }
         }
     }
 

@@ -595,18 +595,63 @@ public final class SearchService {
                 ListTag declineOffersSnapshot = deepCopyOfferList(settle.offersBeforeTag);
 
                 try {
+                    // Build tooltip V map for all result items shown in this UI (pay row + decline row).
+                    Map<String, Long> tooltipVByKey = new HashMap<>();
+                    try {
+                        UUID ownerUuid = settle.ownerPlayerUuid;
+                        MinecraftServer srv = serverOf(sp);
+                        if (ownerUuid != null && srv != null) {
+                            // Pay row: current live offers
+                            try {
+                                MerchantOffers offers = vill.getOffers();
+                                int n = offers == null ? 0 : Math.min(256, offers.size());
+                                for (int i = 0; i < n; i++) {
+                                    MerchantOffer o = offers.get(i);
+                                    if (o == null) continue;
+                                    ItemStack res = o.getResult();
+                                    if (res == null || res.isEmpty()) continue;
+                                    String k = CatalogBuilder.keyOf(res);
+                                    if (k == null || k.isBlank()) continue;
+                                    long v = PlayerAutoSearchCostService.getValueV(srv, ownerUuid, k);
+                                    if (v <= 0L) continue;
+                                    long prev = tooltipVByKey.getOrDefault(k, 0L);
+                                    if (v > prev) tooltipVByKey.put(k, v);
+                                }
+                            } catch (Throwable ignored) {}
+
+                            // Decline row: snapshot offers from before auto-search
+                            try {
+                                ListTag list = settle.offersBeforeTag;
+                                int n = list == null ? 0 : Math.min(256, list.size());
+                                for (int i = 0; i < n; i++) {
+                                    MerchantOffer o = decodeOfferFromWrappedCodecListAtIndex(vill, list, i, "settlement_tooltip_v");
+                                    if (o == null) continue;
+                                    ItemStack res = o.getResult();
+                                    if (res == null || res.isEmpty()) continue;
+                                    String k = CatalogBuilder.keyOf(res);
+                                    if (k == null || k.isBlank()) continue;
+                                    long v = PlayerAutoSearchCostService.getValueV(srv, ownerUuid, k);
+                                    if (v <= 0L) continue;
+                                    long prev = tooltipVByKey.getOrDefault(k, 0L);
+                                    if (v > prev) tooltipVByKey.put(k, v);
+                                }
+                            } catch (Throwable ignored) {}
+                        }
+                    } catch (Throwable ignored) {}
+
                     sp.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
                             new PacketOpenAutoSearchPaymentScreen(
                                     vill.getId(),
                                     settle.hourlyCost,
-                                    settle.finalCost,
+                                    getSettlementFinalCost(vill),
                                     elapsedTicks,
                                     payOffersLive,
                                     declineOffersSnapshot,
                                     settle.lockMaskBefore,
                                     settle.requestedTargets,
                                     settle.totalVillagerXp,
-                                    settle.rerollCount
+                                    settle.rerollCount,
+                                    tooltipVByKey
                             )
                     ));
 
@@ -644,7 +689,8 @@ public final class SearchService {
                         new PacketOpenBusyScreen(
                                 vill.getId(),
                                 t.requested,
-                                org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)
+                                org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp),
+                                org.z2six.villageroverhaul.server.PlayerAutoSearchCostService.buildValuesForCatalog(serverOf(sp), sp.getUUID(), t.requested)
                         )
                 ));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] openBusyScreen: sent PacketOpenBusyScreen (player={} villagerEntityId={} req={} rerollCount={})",
@@ -750,7 +796,19 @@ public final class SearchService {
                         continue;
                     }
 
-                    if (containsAnyRequestedUnlocked(vill, task.requestedKeys, task.lockMaskBefore)) {
+                    boolean matched = containsAnyRequestedUnlocked(vill, task.requestedKeys, task.lockMaskBefore);
+                    if (!matched) {
+                        try {
+                            PlayerAutoSearchCostService.addAttemptValueForRequestedKeys(
+                                    server,
+                                    task.ownerPlayerUuid,
+                                    task.requestedKeys,
+                                    task.offersRerolledPerRerollAtStart
+                            );
+                        } catch (Throwable ignored) {}
+                    }
+
+                    if (matched) {
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search FOUND match: villager={} entityId={} requestedKeys={} rerollCount={}",
                                 vill.getUUID(), vill.getId(), task.requestedKeys.size(), task.rerollCount);
                         clearBusyState(vill, server, task);
@@ -1668,8 +1726,39 @@ public final class SearchService {
     public static int getSettlementFinalCost(Villager vill) {
         try {
             Settlement s = SETTLEMENTS.get(vill.getUUID());
-            return s == null ? 0 : Math.max(0, s.finalCost);
+            if (s == null) return 0;
+            return Math.max(0, computeSettlementFinalCostFromV(vill, s));
         } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private static int computeSettlementFinalCostFromV(Villager vill, Settlement s) {
+        try {
+            if (vill == null || s == null) return 0;
+            if (s.ownerPlayerUuid == null) return 0;
+            if (s.requestedTargets == null || s.requestedTargets.isEmpty()) return 0;
+
+            MinecraftServer server = null;
+            try { server = vill.getServer(); } catch (Throwable ignored) { server = null; }
+            if (server == null) return 0;
+
+            int costPerOffer = Math.max(0, ServerConfig.costPerOffer);
+            if (costPerOffer <= 0) return 0;
+
+            long totalV = 0L;
+            for (String k : s.requestedTargets) {
+                if (k == null || k.isBlank()) continue;
+                totalV += Math.max(0L, PlayerAutoSearchCostService.getValueV(server, s.ownerPlayerUuid, k));
+                if (totalV < 0L) totalV = Long.MAX_VALUE;
+                if (totalV > (long) Integer.MAX_VALUE) break;
+            }
+
+            long cost = totalV * (long) costPerOffer;
+            if (cost < 0L) cost = Long.MAX_VALUE;
+            if (cost > Integer.MAX_VALUE) cost = Integer.MAX_VALUE;
+            return (int) cost;
+        } catch (Throwable ignored) {
             return 0;
         }
     }
@@ -1680,6 +1769,17 @@ public final class SearchService {
             return s == null ? 0 : Math.max(0, s.hourlyCost);
         } catch (Throwable t) {
             return 0;
+        }
+    }
+
+    public static List<String> getSettlementRequestedTargets(Villager vill) {
+        try {
+            if (vill == null) return List.of();
+            Settlement s = SETTLEMENTS.get(vill.getUUID());
+            if (s == null || s.requestedTargets == null || s.requestedTargets.isEmpty()) return List.of();
+            return s.requestedTargets;
+        } catch (Throwable t) {
+            return List.of();
         }
     }
 

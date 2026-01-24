@@ -311,7 +311,8 @@ public final class ServerHandlers {
                     lockedCount,
                     effectivePaidOffers,
                     manualCost,
-                    hourlyCost
+                    hourlyCost,
+                    org.z2six.villageroverhaul.server.PlayerAutoSearchCostService.buildValuesForCatalog(sp.server, sp.getUUID(), items)
             ));
 
         } catch (Throwable t) {
@@ -408,6 +409,9 @@ public final class ServerHandlers {
             if (cost > 0 && !tryChargePlayer(sp, cost)) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePayAutoSearchSettlement: charge failed (player={} cost={} villager={})",
                         sp.getGameProfile().getName(), cost, vill.getUUID());
+                try {
+                    ctx.reply(new org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchPaymentFailed(vill.getId(), "not_enough_emeralds"));
+                } catch (Throwable ignored) {}
                 return;
             }
 
@@ -418,6 +422,15 @@ public final class ServerHandlers {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] handlePayAutoSearchSettlement: awarding XP failed (soft) villager={}", vill.getUUID(), xpErr);
                 awardedXp = 0;
             }
+
+            // Clear player-global per-item V debt for the requested targets (so cancel/restart can't avoid it).
+            try {
+                org.z2six.villageroverhaul.server.PlayerAutoSearchCostService.clearValuesForKeys(
+                        sp.server,
+                        sp.getUUID(),
+                        org.z2six.villageroverhaul.server.SearchService.getSettlementRequestedTargets(vill)
+                );
+            } catch (Throwable ignored) {}
 
             SearchService.popSettlementAndClearVisuals(vill, sp.server);
 

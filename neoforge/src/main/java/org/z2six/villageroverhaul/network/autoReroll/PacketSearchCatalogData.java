@@ -19,7 +19,8 @@ public record PacketSearchCatalogData(
         int lockedCount,
         int effectivePaidOffers,
         int manualCost,
-        int hourlyCost
+        int hourlyCost,
+        List<Long> accumulatedValueV
 ) implements CustomPacketPayload {
 
     public static final Type<PacketSearchCatalogData> TYPE =
@@ -39,7 +40,7 @@ public record PacketSearchCatalogData(
     }
 
     public static PacketSearchCatalogData minimal(int villagerEntityId, List<ItemStack> catalog) {
-        return new PacketSearchCatalogData(villagerEntityId, catalog, -1, -1, -1, -1, -1);
+        return new PacketSearchCatalogData(villagerEntityId, catalog, -1, -1, -1, -1, -1, List.of());
     }
 
     public static final StreamCodec<RegistryFriendlyByteBuf, PacketSearchCatalogData> STREAM_CODEC = new StreamCodec<>() {
@@ -67,17 +68,28 @@ public record PacketSearchCatalogData(
                 int effectivePaidOffers = -1;
                 int manualCost = -1;
                 int hourlyCost = -1;
+                List<Long> accumulatedValueV = List.of();
 
                 try { offerCount = buf.readVarInt(); } catch (Throwable ignored) {}
                 try { lockedCount = buf.readVarInt(); } catch (Throwable ignored) {}
                 try { effectivePaidOffers = buf.readVarInt(); } catch (Throwable ignored) {}
                 try { manualCost = buf.readVarInt(); } catch (Throwable ignored) {}
                 try { hourlyCost = buf.readVarInt(); } catch (Throwable ignored) {}
+                try {
+                    int cn = buf.readVarInt();
+                    if (cn < 0) cn = 0;
+                    if (cn > MAX_ITEMS_ON_WIRE) cn = MAX_ITEMS_ON_WIRE;
+                    ArrayList<Long> tmp = new ArrayList<>(cn);
+                    for (int i = 0; i < cn; i++) {
+                        tmp.add(buf.readLong());
+                    }
+                    accumulatedValueV = tmp;
+                } catch (Throwable ignored) {}
 
-                return new PacketSearchCatalogData(id, list, offerCount, lockedCount, effectivePaidOffers, manualCost, hourlyCost);
+                return new PacketSearchCatalogData(id, list, offerCount, lockedCount, effectivePaidOffers, manualCost, hourlyCost, accumulatedValueV);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] PacketSearchCatalogData decode failed", t);
-                return new PacketSearchCatalogData(-1, List.of(), -1, -1, -1, -1, -1);
+                return new PacketSearchCatalogData(-1, List.of(), -1, -1, -1, -1, -1, List.of());
             }
         }
 
@@ -106,6 +118,15 @@ public record PacketSearchCatalogData(
                 buf.writeVarInt(Math.max(-1, msg.effectivePaidOffers()));
                 buf.writeVarInt(Math.max(-1, msg.manualCost()));
                 buf.writeVarInt(Math.max(-1, msg.hourlyCost()));
+
+                List<Long> values = msg.accumulatedValueV() == null ? List.of() : msg.accumulatedValueV();
+                int cRaw = values.size();
+                int cN = Math.min(MAX_ITEMS_ON_WIRE, Math.max(0, cRaw));
+                buf.writeVarInt(cN);
+                for (int i = 0; i < cN; i++) {
+                    Long v = values.get(i);
+                    buf.writeLong(v == null ? 0L : Math.max(0L, v));
+                }
 
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] PacketSearchCatalogData encode failed", t);
