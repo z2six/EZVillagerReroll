@@ -1,22 +1,31 @@
 ﻿# Villager Overhaul
 
-Villager Overhaul adds three major systems:
+Villager Overhaul is a NeoForge mod that adds three big systems for recruited villagers:
 
-- **Merchants**: reroll, lock, auto-search, and auto-trade villager offers.
-- **Guards**: equip villagers with armor/weapons and configure combat behavior.
-- **Farmers**: logistics (deposit/withdraw chests) and manual farming automation.
+- **Merchants**: reroll, lock, auto-search, and auto-trade villager offers (with server-balanced costs).
+- **Guards**: equip villagers with real gear and configure combat behavior.
+- **Farmers**: deposit/withdraw logistics + a manual-farming AI that works with modded crops.
 
-## Getting started
+## Getting started (2 minutes)
 
 1. Install **NeoForge 1.21.1** and Villager Overhaul.
-2. Join your world/server.
-3. Find a villager and **recruit** it.
-4. Re-open the villager: the mod’s UI buttons appear.
-5. Configure server settings via `config/villageroverhaul-server.toml` (hot-reload supported).
+2. In-game, find an **unemployed** villager (profession = none).
+3. Right-click the villager to open the **Recruit** screen.
+4. Pay the emerald cost to recruit (ownership is enforced server-side).
+5. Open the villager again: the mod's UI (commands, settings, info) becomes available.
 
-## Where to go next
+## Start here
 
-- New to the mod? Start with **General → Recruiting & Ownership**.
-- Want better trades? Go to **Merchants → Overview**.
-- Want guards/patrols? Go to **Guards → Overview**.
-- Want automated farming? Go to **Farmers → Overview**.
+[Recruiting & Ownership](general/recruiting.md)
+
+## Choose your module
+
+- [Merchants](merchants/index.md): trading QoL + balance (rerolls, locking, auto-search).
+- [Guards](guards/index.md): combat modes, triggers/filters, gear, blocking, eating.
+- [Farmers](farmers/index.md): chests logistics and manual farming automation.
+
+## Server owners
+
+Server config is hot-reloaded from `config/villageroverhaul-server.toml`.
+
+See: [Server Config](general/config.md)

@@ -37,4 +37,4 @@ Merchant controls are server-authoritative:
 - Server config can rebalance costs, cooldowns, and limits.
 - Servers can disable the entire Merchant module.
 
-See **General → Server Config** for global settings.
+See **General - Server Config** for global settings.

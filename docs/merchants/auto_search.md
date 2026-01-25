@@ -72,8 +72,8 @@ Then it applies a threshold-based factor:
 
 What this means:
 
-- If `paidOffers` is **below** the threshold, `steps` becomes negative → the factor increases → hourly cost becomes **more expensive**.
-- If `paidOffers` is **above** the threshold, `steps` becomes positive → the factor decreases → hourly cost becomes **cheaper**.
+- If `paidOffers` is **below** the threshold, `steps` becomes negative -> the factor increases -> hourly cost becomes **more expensive**.
+- If `paidOffers` is **above** the threshold, `steps` becomes positive -> the factor decreases -> hourly cost becomes **cheaper**.
 
 Finally, **Generosity** applies as a discount/surcharge.
 

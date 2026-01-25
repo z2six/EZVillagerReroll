@@ -15,7 +15,7 @@ It is intended to solve common vanilla/modded issues (for example modded crops n
 1. Recruit the villager.
 2. Ensure it is a **Farmer**.
 3. Ensure it has a **workstation**.
-4. Configure the rules in **Farming Settings → Manual Farming**.
+4. Configure the rules in **Farming Settings - Manual Farming**.
 5. Toggle **Manual Farming** from the Farming command buttons (button `M`).
 
 Manual farming is exclusive with movement modes like idle/patrol/follow: enabling it will replace the active movement mode, and disabling it restores the previous mode.
@@ -77,7 +77,7 @@ If enabled, the villager will periodically drop items that are not part of its c
 
 ### Till soil
 
-If enabled, the villager will convert **dirt/grass → farmland** when it can.
+If enabled, the villager will convert **dirt/grass -> farmland** when it can.
 
 - Requires a **hoe** equipped.
 - This is the **lowest priority** action, and it respects timeout/retry so it won’t get stuck.
@@ -118,5 +118,5 @@ The fake player is not a real visible player entity (it is not added to the play
 
     - Manual farming scans every ~10 ticks (about twice per second).
     - Action priority inside manual farming is:
-      bonemeal → pickup → plant → harvest → till → roam.
+      bonemeal -> pickup -> plant -> harvest -> till -> roam.
     - The overall system prioritizes storage runs first when deposit/withdraw rules trigger.

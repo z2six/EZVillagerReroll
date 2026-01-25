@@ -8,7 +8,7 @@ Logistics moves items between the villager inventory and one (or two) registered
 You can register chests from:
 
 - The **Farming commands** row (Deposit/Withdraw buttons), and/or
-- The **Farming Settings → Logistics** tab.
+- The **Farming Settings - Logistics** tab.
 
 ---
 

@@ -51,7 +51,7 @@ When it has nothing to do, it will **roam** inside its work area.
 
 ## XP + history tracking
 
-The mod keeps farming history counters (visible in the villager **Info → History** tab), split by:
+The mod keeps farming history counters (visible in the villager **Info - History** tab), split by:
 
 - **Neutral (vanilla)** farming
 - **Manual farming** mode
