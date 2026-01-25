@@ -1,4 +1,4 @@
-# Manual Farming
+﻿# Manual Farming
 
 Manual Farming is an AI module that takes over villager behavior (while active) to farm in a configurable work area.
 
@@ -17,4 +17,3 @@ Manual farming runs actions in priority order:
 4. Plant configured seeds/crops
 5. Harvest mature crops
 6. Optional: till dirt into farmland (if enabled and a hoe is available)
-

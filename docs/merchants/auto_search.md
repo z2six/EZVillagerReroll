@@ -1,4 +1,4 @@
-# Auto-Search
+﻿# Auto-Search
 
 Auto-Search lets you request one or more target items and have the villager automatically reroll offers until one of the requested items appears.
 
@@ -14,4 +14,3 @@ Auto-Search lets you request one or more target items and have the villager auto
 Villager Overhaul tracks accumulated reroll “effort” (`rerolls`) for requested items per-player, and shows it in tooltips.
 
 This value is later converted into an emerald cost at payment time based on current server config.
-

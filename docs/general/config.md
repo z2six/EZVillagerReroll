@@ -1,4 +1,4 @@
-# Server Config
+﻿# Server Config
 
 Server config lives at:
 
@@ -17,4 +17,3 @@ Servers can disable major modules:
 - Farming
 
 When a module is disabled, related UI elements and server handlers are gated off.
-

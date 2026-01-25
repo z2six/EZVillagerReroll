@@ -1,4 +1,4 @@
-site_name: Villager Overhaul
+﻿site_name: Villager Overhaul
 site_description: Merchant, Guard, and Farmer improvements for NeoForge 1.21.1+
 theme:
   name: material
@@ -46,4 +46,3 @@ nav:
       - Keybinds & Commands: general/commands.md
       - Server Config: general/config.md
       - FAQ: general/faq.md
-

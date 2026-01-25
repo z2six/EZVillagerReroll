@@ -1,4 +1,4 @@
-# Villager Overhaul
+﻿# Villager Overhaul
 
 Villager Overhaul adds three major systems:
 
@@ -20,4 +20,3 @@ Villager Overhaul adds three major systems:
 - Want better trades? Go to **Merchants → Overview**.
 - Want guards/patrols? Go to **Guards → Overview**.
 - Want automated farming? Go to **Farmers → Overview**.
-

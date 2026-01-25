@@ -1,4 +1,4 @@
-# Logistics (Chests)
+﻿# Logistics (Chests)
 
 Logistics lets a villager move items between its inventory and chests.
 
@@ -9,4 +9,3 @@ Register a deposit chest and define per-item rules that determine when to deposi
 ## Withdraw
 
 Register a withdraw chest and define per-item rules that determine when to withdraw, and how much to keep in the chest.
-

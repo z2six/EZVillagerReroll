@@ -1,4 +1,4 @@
-# FAQ
+﻿# FAQ
 
 ## Does the mod support modded items/crops?
 
@@ -7,4 +7,3 @@ Yes. Farmer logic is designed around configured rules, and harvesting uses playe
 ## Why can’t my friend use my villager controls?
 
 Villagers are owned by the player who recruited them. Server-side access checks prevent non-owners from using controls.
-

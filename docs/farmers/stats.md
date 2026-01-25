@@ -1,4 +1,4 @@
-# Farming Stats
+﻿# Farming Stats
 
 Villagers have Farming stats (range `-100` to `+100`) that influence manual farming behavior.
 
@@ -17,4 +17,3 @@ Periodically bonemeals nearby crops during manual farming based on a configurabl
 ## Ranger
 
 Modifies the villager’s maximum allowed farming range around its workstation.
-

@@ -1,4 +1,4 @@
-# Merchants
+﻿# Merchants
 
 The Merchant module focuses on making villager trading less tedious and more controllable, while keeping it balanced via emerald costs and server config.
 
@@ -19,4 +19,3 @@ See:
 - **Auto-Search**
 - **Auto-Trade**
 - **Merchant Stats**
-

@@ -1,4 +1,4 @@
-# Rerolling & Locking
+﻿# Rerolling & Locking
 
 ## Rerolling
 
@@ -12,4 +12,3 @@ Locking an offer marks it as protected. Locked offers remain unchanged during re
 
 - Costs and limits are server-configurable.
 - Some flows may show “locked” outlines/markers in the UI to make it obvious what will be preserved.
-

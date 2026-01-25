@@ -1,4 +1,4 @@
-# Keybinds & Commands
+﻿# Keybinds & Commands
 
 ## Keybinds
 
@@ -12,4 +12,3 @@
 ## Client commands (debug/dev)
 
 This mod includes a few client-side dev commands (for example model/part visibility debugging).
-
