@@ -365,6 +365,12 @@ public final class VillagerStorageGoal extends Goal {
             try { target.setChanged(); } catch (Throwable ignored) {}
 
             // XP is no longer granted for storage deposits (too abusable).
+            try {
+                if (movedTotal > 0) {
+                    boolean manual = VillagerBrain.isManualFarmingActive(vill);
+                    org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingDepositedItems(vill, movedTotal, manual);
+                }
+            } catch (Throwable ignored) {}
 
             // If we couldn't move all excess, treat it as failure (likely full chest).
             for (int rem : remainingToMove.values()) {
@@ -411,6 +417,7 @@ public final class VillagerStorageGoal extends Goal {
 
             if (remainingToTake.isEmpty()) return true;
 
+            int movedTotal = 0;
             int size = chestInv.getContainerSize();
             for (int slot = 0; slot < size; slot++) {
                 ItemStack s = chestInv.getItem(slot);
@@ -429,6 +436,7 @@ public final class VillagerStorageGoal extends Goal {
                 int moved = want - (remaining == null ? 0 : remaining.getCount());
                 if (moved <= 0) continue;
 
+                movedTotal += moved;
                 remainingToTake.put(s.getItem(), Math.max(0, need - moved));
 
                 s.shrink(moved);
@@ -437,6 +445,13 @@ public final class VillagerStorageGoal extends Goal {
 
             try { inv.setChanged(); } catch (Throwable ignored) {}
             try { chestInv.setChanged(); } catch (Throwable ignored) {}
+
+            try {
+                if (movedTotal > 0) {
+                    boolean manual = VillagerBrain.isManualFarmingActive(vill);
+                    org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingWithdrawnItems(vill, movedTotal, manual);
+                }
+            } catch (Throwable ignored) {}
 
             // If we couldn't take enough to reach "keep", treat as failure (likely full villager inventory).
             for (int rem : remainingToTake.values()) {

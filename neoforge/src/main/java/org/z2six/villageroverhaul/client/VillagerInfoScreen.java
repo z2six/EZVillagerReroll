@@ -7,6 +7,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
@@ -121,6 +122,9 @@ public final class VillagerInfoScreen extends Screen {
     private IconTabButton tabCombatBtn;
     private IconTabButton tabFarmingBtn;
     private IconTabButton tabHistoryBtn;
+
+    // Expand overview/history into fullscreen reader
+    private Button expandListBtn;
 
     // Overview scroll + cache
     private int overviewScrollRow = 0;
@@ -378,6 +382,23 @@ public final class VillagerInfoScreen extends Screen {
         }
         rebuildOverviewLinesIfNeeded(true);
         rebuildHistoryLinesIfNeeded(true);
+
+        // Expand button for the scrollable overview/history list.
+        try {
+            int listX = getOverviewListX();
+            int listY = getOverviewListY();
+            int listW = getOverviewListW();
+
+            // Unicode: up-right arrow (fallback visually to a simple arrow depending on font).
+            expandListBtn = Button.builder(Component.literal("\u2197"), b -> openFullscreenReader())
+                    .pos(listX + listW - 16, listY + 2)
+                    .size(14, 14)
+                    .build();
+            expandListBtn.setTooltip(Tooltip.create(Component.literal("Expand")));
+            this.addRenderableWidget(expandListBtn);
+        } catch (Throwable ignored) {}
+
+        updateExpandButtonVisibility();
     }
 
     @Override
@@ -392,6 +413,7 @@ public final class VillagerInfoScreen extends Screen {
         }
         rebuildOverviewLinesIfNeeded(false);
         rebuildHistoryLinesIfNeeded(false);
+        updateExpandButtonVisibility();
 
         if (!respawnMode) {
             if (!hasStats && !statsUnavailable) {
@@ -911,6 +933,50 @@ public final class VillagerInfoScreen extends Screen {
             if (tabCombatBtn != null) tabCombatBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY);
             if (tabFarmingBtn != null) tabFarmingBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY);
             if (tabHistoryBtn != null) tabHistoryBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 4, tabsY);
+
+            if (expandListBtn != null) {
+                int listX = getOverviewListX();
+                int listY = getOverviewListY();
+                int listW = getOverviewListW();
+                expandListBtn.setPosition(listX + listW - 16, listY + 2);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private void updateExpandButtonVisibility() {
+        try {
+            if (expandListBtn == null) return;
+            expandListBtn.visible = (this.currentTab == Tab.OVERVIEW || this.currentTab == Tab.HISTORY);
+            expandListBtn.active = expandListBtn.visible;
+        } catch (Throwable ignored) {}
+    }
+
+    private void openFullscreenReader() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+
+            if (this.currentTab == Tab.HISTORY) {
+                rebuildHistoryLinesIfNeeded(true);
+                List<Component> raw = this.historyLinesRaw == null ? List.of(Component.literal("Loading...")) : this.historyLinesRaw;
+                mc.setScreen(new FullscreenTextViewScreen(this, "History", raw));
+                return;
+            }
+
+            rebuildOverviewLinesIfNeeded(true);
+            List<Component> raw = this.overviewLinesRaw == null ? List.of(Component.literal("Loading...")) : this.overviewLinesRaw;
+
+            // Strip trade-row placeholders used for inline trade icons in the compact overview list.
+            List<Component> filtered = new ArrayList<>();
+            for (Component c : raw) {
+                if (c == null) continue;
+                String s = null;
+                try { s = c.getString(); } catch (Throwable ignored) { s = null; }
+                if (s != null && s.startsWith(OVERVIEW_TRADE_ROW_PREFIX)) continue;
+                filtered.add(c);
+            }
+
+            mc.setScreen(new FullscreenTextViewScreen(this, "Overview", filtered));
         } catch (Throwable ignored) {}
     }
 
@@ -1760,12 +1826,46 @@ public final class VillagerInfoScreen extends Screen {
             out.add(Component.literal("Manual rerolls: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("manual_rerolls")))).withStyle(ChatFormatting.DARK_GRAY)));
             out.add(Component.literal("Auto-search rerolls: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("auto_rerolls")))).withStyle(ChatFormatting.DARK_GRAY)));
             out.add(Component.literal("Trade locks toggled: ").append(Component.literal(String.valueOf(safeInt(hist.getInt("trade_lock_toggles")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Emeralds from manual rerolls: ").append(Component.literal(String.valueOf(safeLong(hist.getLong("emeralds_manual_rerolls")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Emeralds from auto-search: ").append(Component.literal(String.valueOf(safeLong(hist.getLong("emeralds_auto_rerolls")))).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Emeralds from trades: ").append(Component.literal(String.valueOf(safeLong(hist.getLong("emeralds_trades")))).withStyle(ChatFormatting.DARK_GRAY)));
         } else {
             out.add(Component.literal("Trades completed: ").append(Component.literal(String.valueOf(snap.tradesCompleted())).withStyle(ChatFormatting.DARK_GRAY)));
             out.add(Component.literal("Merchant menus opened: ").append(Component.literal(String.valueOf(snap.merchantMenuOpens())).withStyle(ChatFormatting.DARK_GRAY)));
             out.add(Component.literal("Manual rerolls: ").append(Component.literal(String.valueOf(snap.manualRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
             out.add(Component.literal("Auto-search rerolls: ").append(Component.literal(String.valueOf(snap.autoRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
             out.add(Component.literal("Trade locks toggled: ").append(Component.literal(String.valueOf(snap.tradeLocksToggled())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Emeralds from manual rerolls: ").append(Component.literal(String.valueOf(snap.emeraldsFromManualRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Emeralds from auto-search: ").append(Component.literal(String.valueOf(snap.emeraldsFromAutoRerolls())).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Emeralds from trades: ").append(Component.literal(String.valueOf(snap.emeraldsFromTrades())).withStyle(ChatFormatting.DARK_GRAY)));
+        }
+
+        out.add(Component.literal(""));
+        out.add(Component.literal("Farming").withStyle(ChatFormatting.YELLOW));
+        if (respawnMode) {
+            CompoundTag hist = getHistoryTagFromSnapshot();
+            long plantedN = safeLong(hist.getLong("farm_planted_neutral"));
+            long plantedM = safeLong(hist.getLong("farm_planted_manual"));
+            long harvestedN = safeLong(hist.getLong("farm_harvested_neutral"));
+            long harvestedM = safeLong(hist.getLong("farm_harvested_manual"));
+            long bonemealedN = safeLong(hist.getLong("farm_bonemealed_neutral"));
+            long bonemealedM = safeLong(hist.getLong("farm_bonemealed_manual"));
+            long withdrawnN = safeLong(hist.getLong("farm_withdrawn_items_neutral"));
+            long withdrawnM = safeLong(hist.getLong("farm_withdrawn_items_manual"));
+            long depositedN = safeLong(hist.getLong("farm_deposited_items_neutral"));
+            long depositedM = safeLong(hist.getLong("farm_deposited_items_manual"));
+
+            out.add(Component.literal("Planted: ").append(Component.literal("Neutral " + plantedN + " | Manual " + plantedM).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Harvested: ").append(Component.literal("Neutral " + harvestedN + " | Manual " + harvestedM).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Bonemealed: ").append(Component.literal("Neutral " + bonemealedN + " | Manual " + bonemealedM).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Items withdrawn: ").append(Component.literal("Neutral " + withdrawnN + " | Manual " + withdrawnM).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Items deposited: ").append(Component.literal("Neutral " + depositedN + " | Manual " + depositedM).withStyle(ChatFormatting.DARK_GRAY)));
+        } else {
+            out.add(Component.literal("Planted: ").append(Component.literal("Neutral " + snap.farmPlantedNeutral() + " | Manual " + snap.farmPlantedManual()).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Harvested: ").append(Component.literal("Neutral " + snap.farmHarvestedNeutral() + " | Manual " + snap.farmHarvestedManual()).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Bonemealed: ").append(Component.literal("Neutral " + snap.farmBonemealedNeutral() + " | Manual " + snap.farmBonemealedManual()).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Items withdrawn: ").append(Component.literal("Neutral " + snap.farmWithdrawnItemsNeutral() + " | Manual " + snap.farmWithdrawnItemsManual()).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Items deposited: ").append(Component.literal("Neutral " + snap.farmDepositedItemsNeutral() + " | Manual " + snap.farmDepositedItemsManual()).withStyle(ChatFormatting.DARK_GRAY)));
         }
 
         out.add(Component.literal(""));

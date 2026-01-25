@@ -15,6 +15,7 @@ public final class FarmingSettings {
     private static final String K_RETRY_SECONDS = "retryAfterSeconds";
     private static final String K_DEPOSIT_RULES = "depositRules";
     private static final String K_WITHDRAW_RULES = "withdrawRules";
+    private static final String K_PICKUP_RULES = "pickupRules";
 
     // Manual farming (new)
     private static final String K_MANUAL_TIMEOUT_SECONDS = "manualTimeoutSeconds";
@@ -41,6 +42,7 @@ public final class FarmingSettings {
     public int retryAfterSeconds = 60;
     public final List<ItemRule> depositRules = new ArrayList<>();
     public final List<ItemRule> withdrawRules = new ArrayList<>();
+    public final List<String> pickupItemIds = new ArrayList<>();
 
     // Manual farming defaults (requested: 10s/10s)
     public int manualTimeoutSeconds = 10;
@@ -217,6 +219,7 @@ public final class FarmingSettings {
 
         s.depositRules.clear();
         s.withdrawRules.clear();
+        s.pickupItemIds.clear();
 
         // New format: per-action rules
         try {
@@ -267,6 +270,25 @@ public final class FarmingSettings {
                     if (exists) continue;
 
                     s.withdrawRules.add(new ItemRule(norm, stacks, keep));
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // Pickup rules (simple list of item ids)
+        try {
+            if (tag.contains(K_PICKUP_RULES, Tag.TAG_LIST)) {
+                ListTag list = tag.getList(K_PICKUP_RULES, Tag.TAG_STRING);
+                int n = Math.min(512, list.size());
+                for (int i = 0; i < n; i++) {
+                    String raw = list.getString(i);
+                    if (raw == null) continue;
+                    String norm = raw.trim().toLowerCase(Locale.ROOT);
+                    if (norm.isEmpty()) continue;
+                    boolean exists = false;
+                    for (String e : s.pickupItemIds) {
+                        if (e != null && e.equalsIgnoreCase(norm)) { exists = true; break; }
+                    }
+                    if (!exists) s.pickupItemIds.add(norm);
                 }
             }
         } catch (Throwable ignored) {}
@@ -394,6 +416,17 @@ public final class FarmingSettings {
             withdrawList.add(rt);
         }
         tag.put(K_WITHDRAW_RULES, withdrawList);
+
+        ListTag pickupList = new ListTag();
+        int p = Math.min(512, pickupItemIds.size());
+        for (int i = 0; i < p; i++) {
+            String raw = pickupItemIds.get(i);
+            if (raw == null) continue;
+            String norm = raw.trim().toLowerCase(Locale.ROOT);
+            if (norm.isEmpty()) continue;
+            pickupList.add(net.minecraft.nbt.StringTag.valueOf(norm));
+        }
+        tag.put(K_PICKUP_RULES, pickupList);
 
         return tag;
     }

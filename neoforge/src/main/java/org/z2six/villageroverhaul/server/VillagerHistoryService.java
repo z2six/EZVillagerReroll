@@ -41,6 +41,23 @@ public final class VillagerHistoryService {
     private static final String K_TRADES_COMPLETED = "trades_completed";
     private static final String K_DEATHS = "deaths";
 
+    // Trading economics (emeralds)
+    private static final String K_EMERALDS_FROM_MANUAL_REROLLS = "emeralds_manual_rerolls";
+    private static final String K_EMERALDS_FROM_AUTO_REROLLS = "emeralds_auto_rerolls";
+    private static final String K_EMERALDS_FROM_TRADES = "emeralds_trades";
+
+    // Farming counters (split by NEUTRAL/vanilla vs MANUAL mode)
+    private static final String K_FARM_PLANTED_NEUTRAL = "farm_planted_neutral";
+    private static final String K_FARM_PLANTED_MANUAL = "farm_planted_manual";
+    private static final String K_FARM_HARVESTED_NEUTRAL = "farm_harvested_neutral";
+    private static final String K_FARM_HARVESTED_MANUAL = "farm_harvested_manual";
+    private static final String K_FARM_BONEMEALED_NEUTRAL = "farm_bonemealed_neutral";
+    private static final String K_FARM_BONEMEALED_MANUAL = "farm_bonemealed_manual";
+    private static final String K_FARM_DEPOSITED_ITEMS_NEUTRAL = "farm_deposited_items_neutral";
+    private static final String K_FARM_DEPOSITED_ITEMS_MANUAL = "farm_deposited_items_manual";
+    private static final String K_FARM_WITHDRAWN_ITEMS_NEUTRAL = "farm_withdrawn_items_neutral";
+    private static final String K_FARM_WITHDRAWN_ITEMS_MANUAL = "farm_withdrawn_items_manual";
+
     private static final String K_LAST_X = "last_x";
     private static final String K_LAST_Y = "last_y";
     private static final String K_LAST_Z = "last_z";
@@ -235,6 +252,83 @@ public final class VillagerHistoryService {
         } catch (Throwable ignored) {}
     }
 
+    public static void addEmeraldsFromManualRerolls(Villager vill, long emeralds) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (emeralds <= 0L) return;
+            CompoundTag root = getOrCreate(vill);
+            root.putLong(K_EMERALDS_FROM_MANUAL_REROLLS, safeLong(root.getLong(K_EMERALDS_FROM_MANUAL_REROLLS)) + emeralds);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void addEmeraldsFromAutoRerolls(Villager vill, long emeralds) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (emeralds <= 0L) return;
+            CompoundTag root = getOrCreate(vill);
+            root.putLong(K_EMERALDS_FROM_AUTO_REROLLS, safeLong(root.getLong(K_EMERALDS_FROM_AUTO_REROLLS)) + emeralds);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void addEmeraldsFromTrades(Villager vill, long emeralds) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (emeralds <= 0L) return;
+            CompoundTag root = getOrCreate(vill);
+            root.putLong(K_EMERALDS_FROM_TRADES, safeLong(root.getLong(K_EMERALDS_FROM_TRADES)) + emeralds);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void addFarmingPlanted(Villager vill, int count, boolean manualMode) {
+        addFarmingCounter(vill, manualMode ? K_FARM_PLANTED_MANUAL : K_FARM_PLANTED_NEUTRAL, count);
+    }
+
+    public static void addFarmingHarvested(Villager vill, int count, boolean manualMode) {
+        addFarmingCounter(vill, manualMode ? K_FARM_HARVESTED_MANUAL : K_FARM_HARVESTED_NEUTRAL, count);
+    }
+
+    public static void addFarmingBonemealed(Villager vill, int count, boolean manualMode) {
+        addFarmingCounter(vill, manualMode ? K_FARM_BONEMEALED_MANUAL : K_FARM_BONEMEALED_NEUTRAL, count);
+    }
+
+    public static void addFarmingDepositedItems(Villager vill, long items, boolean manualMode) {
+        addFarmingCounterLong(vill, manualMode ? K_FARM_DEPOSITED_ITEMS_MANUAL : K_FARM_DEPOSITED_ITEMS_NEUTRAL, items);
+    }
+
+    public static void addFarmingWithdrawnItems(Villager vill, long items, boolean manualMode) {
+        addFarmingCounterLong(vill, manualMode ? K_FARM_WITHDRAWN_ITEMS_MANUAL : K_FARM_WITHDRAWN_ITEMS_NEUTRAL, items);
+    }
+
+    private static void addFarmingCounter(Villager vill, String key, int add) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            int n = Math.max(0, add);
+            if (n <= 0) return;
+            CompoundTag root = getOrCreate(vill);
+            root.putLong(key, safeLong(root.getLong(key)) + (long) n);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void addFarmingCounterLong(Villager vill, String key, long add) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            long n = Math.max(0L, add);
+            if (n <= 0L) return;
+            CompoundTag root = getOrCreate(vill);
+            root.putLong(key, safeLong(root.getLong(key)) + n);
+        } catch (Throwable ignored) {}
+    }
+
     public static void addDeath(Villager vill, int count) {
         try {
             if (vill == null) return;
@@ -268,7 +362,20 @@ public final class VillagerHistoryService {
                     safeInt(root.getInt(K_PATROL_ROUTES_RECORDED)),
                     safeInt(root.getInt(K_MERCHANT_MENU_OPENS)),
                     safeInt(root.getInt(K_TRADES_COMPLETED)),
-                    safeInt(root.getInt(K_DEATHS))
+                    safeInt(root.getInt(K_DEATHS)),
+                    safeLong(root.getLong(K_EMERALDS_FROM_MANUAL_REROLLS)),
+                    safeLong(root.getLong(K_EMERALDS_FROM_AUTO_REROLLS)),
+                    safeLong(root.getLong(K_EMERALDS_FROM_TRADES)),
+                    safeLong(root.getLong(K_FARM_PLANTED_NEUTRAL)),
+                    safeLong(root.getLong(K_FARM_PLANTED_MANUAL)),
+                    safeLong(root.getLong(K_FARM_HARVESTED_NEUTRAL)),
+                    safeLong(root.getLong(K_FARM_HARVESTED_MANUAL)),
+                    safeLong(root.getLong(K_FARM_BONEMEALED_NEUTRAL)),
+                    safeLong(root.getLong(K_FARM_BONEMEALED_MANUAL)),
+                    safeLong(root.getLong(K_FARM_WITHDRAWN_ITEMS_NEUTRAL)),
+                    safeLong(root.getLong(K_FARM_WITHDRAWN_ITEMS_MANUAL)),
+                    safeLong(root.getLong(K_FARM_DEPOSITED_ITEMS_NEUTRAL)),
+                    safeLong(root.getLong(K_FARM_DEPOSITED_ITEMS_MANUAL))
             );
         } catch (Throwable ignored) {
             return PacketVillagerHistoryData.missing(vill == null ? -1 : vill.getId());

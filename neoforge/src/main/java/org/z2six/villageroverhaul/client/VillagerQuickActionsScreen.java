@@ -139,7 +139,8 @@ public final class VillagerQuickActionsScreen extends Screen {
             int movementRowW = w + gap + movementButtonsW; // icon + gap + buttons
             int combatRowW   = w + gap + combatButtonsW;
 
-            int farmingButtonsW = (3 * w) + (2 * gap);
+            // Row 3 has 4 buttons: [M][D][W][Settings]
+            int farmingButtonsW = (4 * w) + (3 * gap);
             int farmingRowW = w + gap + farmingButtonsW;
 
             int contentW = Math.max(movementRowW, Math.max(combatRowW, farmingRowW));
@@ -378,10 +379,6 @@ public final class VillagerQuickActionsScreen extends Screen {
         try {
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
 
-            commandsExpanded = false;
-            setCommandsVisible(false);
-            updateCommandsMainButtonVisual();
-
             ClientUI.beginChestRegistration(villagerEntityId);
         } catch (Throwable ignored) {}
     }
@@ -390,10 +387,6 @@ public final class VillagerQuickActionsScreen extends Screen {
         try {
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
 
-            commandsExpanded = false;
-            setCommandsVisible(false);
-            updateCommandsMainButtonVisual();
-
             ClientUI.beginWithdrawChestRegistration(villagerEntityId);
         } catch (Throwable ignored) {}
     }
@@ -401,10 +394,6 @@ public final class VillagerQuickActionsScreen extends Screen {
     private void onFarmingManualToggle() {
         try {
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
-
-            commandsExpanded = false;
-            setCommandsVisible(false);
-            updateCommandsMainButtonVisual();
 
             boolean cur = readManualFarmingEnabledFromClientUI(villagerEntityId);
             boolean next = !cur;
@@ -419,10 +408,6 @@ public final class VillagerQuickActionsScreen extends Screen {
     private void onFarmingSettings() {
         try {
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
-
-            commandsExpanded = false;
-            setCommandsVisible(false);
-            updateCommandsMainButtonVisual();
 
             ClientUI.openFarmingSettings(this, villagerEntityId);
         } catch (Throwable ignored) {}
@@ -456,11 +441,6 @@ public final class VillagerQuickActionsScreen extends Screen {
 
             ClientNetwork.sendToServer(new PacketVillagerCommand(villagerEntityId, cmd));
 
-            // Collapse after click (like ClientUI requirement)
-            commandsExpanded = false;
-            setCommandsVisible(false);
-            updateCommandsMainButtonVisual();
-
             // Optimistically highlight the chosen mode until server update arrives
             if (key != null) applyHighlightKey(MOVEMENT_BTNS, key);
 
@@ -482,11 +462,6 @@ public final class VillagerQuickActionsScreen extends Screen {
                     : cmd;
 
             ClientNetwork.sendToServer(new PacketVillagerCombatCommand(villagerEntityId, actual));
-
-            // Collapse after click (like ClientUI)
-            commandsExpanded = false;
-            setCommandsVisible(false);
-            updateCommandsMainButtonVisual();
 
             // Optimistically highlight the chosen mode until server update arrives
             if (key != null) applyHighlightKey(COMBAT_BTNS, normKey.equals(current) ? "off" : key);
@@ -541,11 +516,6 @@ public final class VillagerQuickActionsScreen extends Screen {
                 } catch (Throwable ignored) {}
 
             } catch (Throwable ignored) {}
-
-            // If prompt cannot open, just close commands
-            commandsExpanded = false;
-            setCommandsVisible(false);
-            updateCommandsMainButtonVisual();
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions patrol prompt failed", t);
@@ -797,6 +767,18 @@ public final class VillagerQuickActionsScreen extends Screen {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // ESC closes only the commands palette if it is open.
+        if (keyCode == 256 && commandsExpanded) {
+            commandsExpanded = false;
+            setCommandsVisible(false);
+            updateCommandsMainButtonVisual();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     // -------------------------------------------------------------------------

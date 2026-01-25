@@ -1232,8 +1232,12 @@ public final class VillagerBrain {
         try {
             if (vill == null) return;
             CompoundTag root = getOrCreateRoot(vill);
-            if (active) root.putBoolean(K_MANUAL_FARMING_ACTIVE, true);
-            else root.remove(K_MANUAL_FARMING_ACTIVE);
+            if (active) {
+                root.putBoolean(K_MANUAL_FARMING_ACTIVE, true);
+            } else {
+                root.remove(K_MANUAL_FARMING_ACTIVE);
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -1266,6 +1270,14 @@ public final class VillagerBrain {
             String prev = root.getString(K_MANUAL_FARMING_PREV_MODE);
             root.remove(K_MANUAL_FARMING_PREV_MODE);
             setMode(vill, Mode.fromId(prev));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void clearPrevModeForManualFarming(Villager vill) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.remove(K_MANUAL_FARMING_PREV_MODE);
         } catch (Throwable ignored) {}
     }
 

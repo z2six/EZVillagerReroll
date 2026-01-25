@@ -327,6 +327,26 @@ public final class FarmingManualItemListEditorScreen extends Screen {
     }
 
     @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        boolean handled = false;
+        if (isInside(mouseX, mouseY, leftPanelX, leftPanelY, leftPanelW, leftPanelH)) {
+            leftScroll -= (int) Math.signum(scrollY);
+            updateLeftButtons();
+            handled = true;
+        }
+        if (isInside(mouseX, mouseY, rightPanelX, rightPanelY, rightPanelW, rightPanelH)) {
+            rightScroll -= (int) Math.signum(scrollY);
+            updateRightButtons();
+            handled = true;
+        }
+        return handled || super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    private static boolean isInside(double mx, double my, int x, int y, int w, int h) {
+        return mx >= x && my >= y && mx <= (x + w) && my <= (y + h);
+    }
+
+    @Override
     public void onClose() {
         Minecraft mc = Minecraft.getInstance();
         if (mc != null) mc.setScreen(parent);
@@ -341,6 +361,15 @@ public final class FarmingManualItemListEditorScreen extends Screen {
 
         Font font = Minecraft.getInstance().font;
         gg.drawString(font, title, left + PAD, top + PAD + 5, 0xFFFFFFFF, true);
+
+        // Match the Deposit/Withdraw rules editors: per-panel backdrops with labels above them.
+        try {
+            gg.drawString(font, "Configured (click to edit)", leftPanelX + 4, leftPanelY - 12, 0xFFBFBFBF, false);
+            gg.drawString(font, "All items", rightPanelX + 4, rightPanelY - 12, 0xFFBFBFBF, false);
+
+            drawPanel(gg, leftPanelX, leftPanelY, leftPanelW, leftPanelH);
+            drawPanel(gg, rightPanelX, rightPanelY, rightPanelW, rightPanelH);
+        } catch (Throwable ignored) {}
 
         super.render(gg, mouseX, mouseY, partialTick);
     }

@@ -314,6 +314,7 @@ public final class ClientUI {
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenInitPost);
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenRenderPost);
         NeoForge.EVENT_BUS.addListener(ClientUI::onScreenClosed);
+        NeoForge.EVENT_BUS.addListener(ClientUI::onScreenKeyPressedPre);
 
         // RMB on villager during PATROL_SETUP -> server decides if GUI should open
         NeoForge.EVENT_BUS.addListener(ClientUI::onPlayerInteractEntity);
@@ -330,6 +331,21 @@ public final class ClientUI {
         NeoForge.EVENT_BUS.addListener(ClientUI::onClientTickPost);
 
         VillagerOverhaul.LOG().debug("[VillagerOverhaul] ClientUI.registerRuntimeClientEvents(): handlers added");
+    }
+
+    // When the commands palette is open, ESC should close only the palette (not the whole merchant screen).
+    private static void onScreenKeyPressedPre(final ScreenEvent.KeyPressed.Pre e) {
+        try {
+            if (e == null) return;
+            if (!(e.getScreen() instanceof MerchantScreen ms)) return;
+            if (!isCommandsExpanded(ms)) return;
+
+            // GLFW_KEY_ESCAPE = 256 (avoid direct GLFW dependency)
+            if (e.getKeyCode() != 256) return;
+
+            collapseCommands(ms);
+            e.setCanceled(true);
+        } catch (Throwable ignored) {}
     }
 
     private static void onPlayerInteractEntity(final PlayerInteractEvent.EntityInteract e) {
@@ -886,7 +902,9 @@ public final class ClientUI {
 
                 // -------------------------------------------------
                 // Commands palette (collapsed by default)
-                // Three columns: Movement + Combat + Farming, vertically centered on cmdBtn
+                // 2 columns:
+                // - Column A: Movement (top) + Combat (below)
+                // - Column B: Farming (aligned with Movement)
                 // With header icons + shared dark backdrop + border.
                 // -------------------------------------------------
             try {
@@ -917,17 +935,23 @@ public final class ClientUI {
                 int farmingBlockH  = farming.length  * h + (farming.length  - 1) * gap;
 
                 int movementStartY = cmdCenterY - (movementBlockH / 2);
-                int combatStartY   = cmdCenterY - (combatBlockH / 2);
-                int farmingStartY  = cmdCenterY - (farmingBlockH / 2);
+                int farmingStartY  = movementStartY;
 
                 int headerAY = movementStartY - (h + headerGap);
-                int headerBY = combatStartY   - (h + headerGap);
-                int headerCY = farmingStartY  - (h + headerGap);
+                int headerCY = headerAY;
 
-                int topY = Math.min(headerAY, Math.min(headerBY, headerCY));
-                int bottomY = Math.max(movementStartY + movementBlockH, Math.max(combatStartY + combatBlockH, farmingStartY + farmingBlockH));
+                // Combat stack below movement in the same column.
+                final int sectionGap = 6;
+                int headerBY = movementStartY + movementBlockH + sectionGap;
+                int combatStartY = headerBY + h + headerGap;
 
-                int contentW = (3 * w) + (2 * gap);    // three columns
+                int topY = Math.min(headerAY, headerCY);
+                int bottomY = Math.max(
+                        Math.max(movementStartY + movementBlockH, farmingStartY + farmingBlockH),
+                        combatStartY + combatBlockH
+                );
+
+                int contentW = (2 * w) + gap;    // two columns
                 int panelW = (panelPad * 2) + contentW + (panelBorder * 2);
                 int panelH = (panelPad * 2) + (bottomY - topY) + (panelBorder * 2);
 
@@ -937,7 +961,6 @@ public final class ClientUI {
                 int contentX = panelX + panelBorder + panelPad;
                 int colAX = contentX;
                 int colBX = contentX + w + gap;
-                int colCX = contentX + 2 * (w + gap);
 
                 // Backdrop widget (must be added before icons/buttons so it renders behind them)
                 CommandsBackdropWidget backdrop = new CommandsBackdropWidget(panelX, panelY, panelW, panelH);
@@ -956,14 +979,14 @@ public final class ClientUI {
                 e.addListener(movementIcon);
                 headerIcons.add(movementIcon);
 
-                RowHeaderIconWidget combatIcon = new RowHeaderIconWidget(colBX, headerBY, w, h, new ItemStack(Items.IRON_SWORD));
+                RowHeaderIconWidget combatIcon = new RowHeaderIconWidget(colAX, headerBY, w, h, new ItemStack(Items.IRON_SWORD));
                 combatIcon.visible = false;
                 combatIcon.active = false;
                 setSimpleTooltip(combatIcon, "Combat commands");
                 e.addListener(combatIcon);
                 headerIcons.add(combatIcon);
 
-                RowHeaderIconWidget farmingIcon = new RowHeaderIconWidget(colCX, headerCY, w, h, new ItemStack(Items.CARROT));
+                RowHeaderIconWidget farmingIcon = new RowHeaderIconWidget(colBX, headerCY, w, h, new ItemStack(Items.CARROT));
                 farmingIcon.visible = false;
                 farmingIcon.active = false;
                 setSimpleTooltip(farmingIcon, "Farming commands");
@@ -1049,11 +1072,6 @@ public final class ClientUI {
                                     VillagerOverhaul.LOG().error("[VillagerOverhaul] Movement command click failed: " + label, t);
                                 }
 
-                                // Requirement #4: any subcommand click collapses the palette
-                                try {
-                                    collapseCommands(screen);
-                                } catch (Throwable ignored) {}
-
                                 try {
                                     bbtn.setFocused(false);
                                     Screen scr = Minecraft.getInstance().screen;
@@ -1081,7 +1099,7 @@ public final class ClientUI {
                     } catch (Throwable ignored) {}
                 }
 
-                // Combat column
+                // Combat column (stacked under Movement)
                 for (int i = 0; i < combat.length; i++) {
                     final String label = combat[i];
                     int by = combatStartY + i * (h + gap);
@@ -1124,16 +1142,12 @@ public final class ClientUI {
                                 }
 
                                 try {
-                                    collapseCommands(screen);
-                                } catch (Throwable ignored) {}
-
-                                try {
                                     bbtn.setFocused(false);
                                     Screen scr = Minecraft.getInstance().screen;
                                     if (scr != null && scr.getFocused() == bbtn) scr.setFocused(null);
                                 } catch (Throwable ignored) {}
                             })
-                            .pos(colBX, by).size(w, h)
+                            .pos(colAX, by).size(w, h)
                             .createNarration(s -> Component.literal(label))
                             .build();
 
@@ -1156,7 +1170,7 @@ public final class ClientUI {
                     } catch (Throwable ignored) {}
                 }
 
-                // Farming column
+                // Farming column (aligned with Movement)
                 for (int i = 0; i < farming.length; i++) {
                     final String label = farming[i];
                     int by = farmingStartY + i * (h + gap);
@@ -1195,16 +1209,12 @@ public final class ClientUI {
                                 }
 
                                 try {
-                                    collapseCommands(screen);
-                                } catch (Throwable ignored) {}
-
-                                try {
                                     bbtn.setFocused(false);
                                     Screen scr = Minecraft.getInstance().screen;
                                     if (scr != null && scr.getFocused() == bbtn) scr.setFocused(null);
                                 } catch (Throwable ignored) {}
                             })
-                            .pos(colCX, by).size(w, h)
+                            .pos(colBX, by).size(w, h)
                             .createNarration(s -> Component.literal(label))
                             .build();
 

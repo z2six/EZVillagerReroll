@@ -30,7 +30,20 @@ public record PacketVillagerHistoryData(
         int patrolRoutesRecorded,
         int merchantMenuOpens,
         int tradesCompleted,
-        int deaths
+        int deaths,
+        long emeraldsFromManualRerolls,
+        long emeraldsFromAutoRerolls,
+        long emeraldsFromTrades,
+        long farmPlantedNeutral,
+        long farmPlantedManual,
+        long farmHarvestedNeutral,
+        long farmHarvestedManual,
+        long farmBonemealedNeutral,
+        long farmBonemealedManual,
+        long farmWithdrawnItemsNeutral,
+        long farmWithdrawnItemsManual,
+        long farmDepositedItemsNeutral,
+        long farmDepositedItemsManual
 ) implements CustomPacketPayload {
 
     public static final Type<PacketVillagerHistoryData> TYPE =
@@ -60,6 +73,21 @@ public record PacketVillagerHistoryData(
                     int trades = 0;
                     int deaths = 0;
 
+                    long emeraldsManual = 0L;
+                    long emeraldsAuto = 0L;
+                    long emeraldsTrades = 0L;
+
+                    long plantedNeutral = 0L;
+                    long plantedManual = 0L;
+                    long harvestedNeutral = 0L;
+                    long harvestedManual = 0L;
+                    long bonemealedNeutral = 0L;
+                    long bonemealedManual = 0L;
+                    long withdrawnNeutral = 0L;
+                    long withdrawnManual = 0L;
+                    long depositedNeutral = 0L;
+                    long depositedManual = 0L;
+
                     try { id = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { ok = buf.readBoolean(); } catch (Throwable ignored) {}
 
@@ -81,7 +109,38 @@ public record PacketVillagerHistoryData(
                     try { trades = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { deaths = buf.readVarInt(); } catch (Throwable ignored) {}
 
-                    return new PacketVillagerHistoryData(id, ok, ticksAlive, dist, foodEaten, heal, blocks, hitsTaken, damageTakenTotal, hitsDealt, damageDealtTotal, kills, manualRerolls, autoRerolls, tradeLocksToggled, patrolRoutesRecorded, opens, trades, deaths);
+                    try { emeraldsManual = buf.readLong(); } catch (Throwable ignored) {}
+                    try { emeraldsAuto = buf.readLong(); } catch (Throwable ignored) {}
+                    try { emeraldsTrades = buf.readLong(); } catch (Throwable ignored) {}
+
+                    try { plantedNeutral = buf.readLong(); } catch (Throwable ignored) {}
+                    try { plantedManual = buf.readLong(); } catch (Throwable ignored) {}
+                    try { harvestedNeutral = buf.readLong(); } catch (Throwable ignored) {}
+                    try { harvestedManual = buf.readLong(); } catch (Throwable ignored) {}
+                    try { bonemealedNeutral = buf.readLong(); } catch (Throwable ignored) {}
+                    try { bonemealedManual = buf.readLong(); } catch (Throwable ignored) {}
+                    try { withdrawnNeutral = buf.readLong(); } catch (Throwable ignored) {}
+                    try { withdrawnManual = buf.readLong(); } catch (Throwable ignored) {}
+                    try { depositedNeutral = buf.readLong(); } catch (Throwable ignored) {}
+                    try { depositedManual = buf.readLong(); } catch (Throwable ignored) {}
+
+                    return new PacketVillagerHistoryData(
+                            id, ok,
+                            ticksAlive, dist,
+                            foodEaten, heal,
+                            blocks, hitsTaken, damageTakenTotal,
+                            hitsDealt, damageDealtTotal,
+                            kills,
+                            manualRerolls, autoRerolls,
+                            tradeLocksToggled, patrolRoutesRecorded,
+                            opens, trades, deaths,
+                            emeraldsManual, emeraldsAuto, emeraldsTrades,
+                            plantedNeutral, plantedManual,
+                            harvestedNeutral, harvestedManual,
+                            bonemealedNeutral, bonemealedManual,
+                            withdrawnNeutral, withdrawnManual,
+                            depositedNeutral, depositedManual
+                    );
                 }
 
                 @Override
@@ -106,11 +165,42 @@ public record PacketVillagerHistoryData(
                     buf.writeVarInt(d.merchantMenuOpens());
                     buf.writeVarInt(d.tradesCompleted());
                     buf.writeVarInt(d.deaths());
+
+                    buf.writeLong(d.emeraldsFromManualRerolls());
+                    buf.writeLong(d.emeraldsFromAutoRerolls());
+                    buf.writeLong(d.emeraldsFromTrades());
+
+                    buf.writeLong(d.farmPlantedNeutral());
+                    buf.writeLong(d.farmPlantedManual());
+                    buf.writeLong(d.farmHarvestedNeutral());
+                    buf.writeLong(d.farmHarvestedManual());
+                    buf.writeLong(d.farmBonemealedNeutral());
+                    buf.writeLong(d.farmBonemealedManual());
+                    buf.writeLong(d.farmWithdrawnItemsNeutral());
+                    buf.writeLong(d.farmWithdrawnItemsManual());
+                    buf.writeLong(d.farmDepositedItemsNeutral());
+                    buf.writeLong(d.farmDepositedItemsManual());
                 }
             };
 
     public static PacketVillagerHistoryData missing(int entityId) {
-        return new PacketVillagerHistoryData(entityId, false, 0L, 0L, 0, 0.0f, 0, 0, 0.0f, 0, 0.0f, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new PacketVillagerHistoryData(
+                entityId, false,
+                0L, 0L,
+                0, 0.0f,
+                0, 0, 0.0f,
+                0, 0.0f,
+                0,
+                0, 0,
+                0, 0,
+                0, 0, 0,
+                0L, 0L, 0L,
+                0L, 0L,
+                0L, 0L,
+                0L, 0L,
+                0L, 0L,
+                0L, 0L
+        );
     }
 
     @Override

@@ -73,8 +73,9 @@ public final class VillagerCombatFleeGoal extends Goal {
             LivingEntity attacker = findRecentAttacker(vill);
             if (attacker != null) return true;
 
-            // Still tick in FLEE mode even without a recent attacker so we can instantly exit FLEE on contact.
-            return true;
+            // No threat: do not preempt movement/manual farming.
+            logNoThreat("no_threat");
+            return false;
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatFleeGoal.canUse failed (soft): {}", t.toString());
             return false;

@@ -21,7 +21,7 @@ import java.util.UUID;
 public final class VillagerHistoryEvents {
     private VillagerHistoryEvents() {}
 
-    private record TradeSession(int villagerEntityId, UUID villagerUuid, int usesSum) {}
+    private record TradeSession(int villagerEntityId, UUID villagerUuid, int[] usesByOffer) {}
 
     private static final Map<UUID, TradeSession> TRADE_SESSIONS = new HashMap<>();
 
@@ -45,8 +45,8 @@ public final class VillagerHistoryEvents {
 
             VillagerHistoryService.addMerchantMenuOpen(vill, 1);
 
-            int sum = sumOfferUses(vill);
-            TRADE_SESSIONS.put(sp.getUUID(), new TradeSession(vill.getId(), vill.getUUID(), sum));
+            int[] uses = snapshotOfferUses(vill);
+            TRADE_SESSIONS.put(sp.getUUID(), new TradeSession(vill.getId(), vill.getUUID(), uses));
         } catch (Throwable ignored) {}
     }
 
@@ -64,25 +64,64 @@ public final class VillagerHistoryEvents {
             if (!RecruitService.isRecruited(vill)) return;
             if (!vill.getUUID().equals(session.villagerUuid)) return;
 
-            int sumNow = sumOfferUses(vill);
-            int delta = Math.max(0, sumNow - session.usesSum);
-            if (delta > 0) {
-                VillagerHistoryService.addTradesCompleted(vill, delta);
-            }
+            int deltaTrades = 0;
+            long emeralds = 0L;
+            try {
+                var offers = vill.getOffers();
+                int[] before = session.usesByOffer == null ? null : session.usesByOffer;
+                int n = offers == null ? 0 : offers.size();
+                for (int i = 0; i < n; i++) {
+                    MerchantOffer o = offers.get(i);
+                    if (o == null) continue;
+                    int beforeUses = (before != null && i < before.length) ? Math.max(0, before[i]) : 0;
+                    int nowUses = Math.max(0, o.getUses());
+                    int d = Math.max(0, nowUses - beforeUses);
+                    if (d <= 0) continue;
+                    deltaTrades += d;
+                    emeralds += (long) d * (long) emeraldCost(o);
+                }
+            } catch (Throwable ignored) {}
+
+            if (deltaTrades > 0) VillagerHistoryService.addTradesCompleted(vill, deltaTrades);
+            if (emeralds > 0L) VillagerHistoryService.addEmeraldsFromTrades(vill, emeralds);
         } catch (Throwable ignored) {}
     }
 
-    private static int sumOfferUses(Villager vill) {
+    private static int[] snapshotOfferUses(Villager vill) {
         try {
-            if (vill == null) return 0;
+            if (vill == null) return new int[0];
             var offers = vill.getOffers();
-            if (offers == null) return 0;
-            int sum = 0;
-            for (MerchantOffer o : offers) {
-                if (o == null) continue;
-                sum += Math.max(0, o.getUses());
+            if (offers == null) return new int[0];
+            int n = Math.min(64, offers.size());
+            int[] out = new int[n];
+            for (int i = 0; i < n; i++) {
+                MerchantOffer o = offers.get(i);
+                out[i] = o == null ? 0 : Math.max(0, o.getUses());
             }
-            return sum;
+            return out;
+        } catch (Throwable ignored) {
+            return new int[0];
+        }
+    }
+
+    private static int emeraldCost(MerchantOffer o) {
+        try {
+            if (o == null) return 0;
+            int n = 0;
+            n += emeraldCount(o.getCostA());
+            n += emeraldCount(o.getCostB());
+            return Math.max(0, n);
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    private static int emeraldCount(net.minecraft.world.item.ItemStack st) {
+        try {
+            if (st == null || st.isEmpty()) return 0;
+            if (st.is(net.minecraft.world.item.Items.EMERALD)) return Math.max(0, st.getCount());
+            if (st.is(net.minecraft.world.item.Items.EMERALD_BLOCK)) return Math.max(0, st.getCount()) * 9;
+            return 0;
         } catch (Throwable ignored) {
             return 0;
         }

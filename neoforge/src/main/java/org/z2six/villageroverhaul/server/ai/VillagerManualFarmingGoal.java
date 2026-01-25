@@ -334,6 +334,8 @@ public final class VillagerManualFarmingGoal extends Goal {
                         6, 0.35, 0.35, 0.35, 0.0);
             } catch (Throwable ignored) {}
 
+            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingBonemealed(vill, 1, true); } catch (Throwable ignored) {}
+
         } catch (Throwable ignored) {}
     }
 
@@ -394,7 +396,13 @@ public final class VillagerManualFarmingGoal extends Goal {
             if (action == Action.PLANT) {
                 if (targetPos == null || targetPlantItemId == null) return false;
                 BlockState below = level.getBlockState(targetPos);
-                if (below == null || below.getBlock() != Blocks.FARMLAND) return false;
+                if (below == null) return false;
+
+                Item plantItem = resolveItem(targetPlantItemId);
+                if (!(plantItem instanceof BlockItem bi)) return false;
+                Block base = getPlantingBaseBlock(bi.getBlock());
+                if (below.getBlock() != base) return false;
+
                 BlockState above = level.getBlockState(targetPos.above());
                 return above != null && above.isAir() && hasPlantItemInInv(targetPlantItemId);
             }
@@ -426,8 +434,8 @@ public final class VillagerManualFarmingGoal extends Goal {
 
             Set<Item> harvestItems = resolveItemSet(settings.manualHarvestItemIds);
             Set<Item> plantItems = resolveItemSet(settings.manualPlantItemIds);
-
-            boolean pickupAll = settings.manualDropOtherItems;
+            Set<Item> pickupItems = resolveItemSet(settings.pickupItemIds);
+            boolean pickupAll = pickupItems.isEmpty();
 
             // 1) Bonemeal (optional, highest priority inside manual farming)
             if (settings.manualUseBonemeal && hasBonemealInInv()) {
@@ -442,7 +450,7 @@ public final class VillagerManualFarmingGoal extends Goal {
             }
 
             // 2) Pickup
-            ItemEntity nearest = findNearestItem(level, center, range, circular, pickupAll ? null : union(harvestItems, plantItems));
+            ItemEntity nearest = findNearestItem(level, center, range, circular, pickupAll ? null : pickupItems);
             if (nearest != null) {
                 action = Action.PICKUP;
                 actionStartGameTime = level.getGameTime();
@@ -453,13 +461,18 @@ public final class VillagerManualFarmingGoal extends Goal {
             // 3) Plant
             Pair<String, Integer> plantSlot = findFirstPlantItemSlot(settings.manualPlantItemIds);
             if (plantSlot != null) {
-                BlockPos farmland = findNearestEmptyFarmland(level, center, range, circular);
-                if (farmland != null) {
-                    action = Action.PLANT;
-                    actionStartGameTime = level.getGameTime();
-                    targetPos = farmland;
-                    targetPlantItemId = plantSlot.getFirst();
-                    return;
+                String id = plantSlot.getFirst();
+                Item plantItem = resolveItem(id);
+                if (plantItem instanceof BlockItem bi) {
+                    Block base = getPlantingBaseBlock(bi.getBlock());
+                    BlockPos soil = findNearestEmptyPlantingBase(level, center, range, circular, base);
+                    if (soil != null) {
+                        action = Action.PLANT;
+                        actionStartGameTime = level.getGameTime();
+                        targetPos = soil;
+                        targetPlantItemId = id;
+                        return;
+                    }
                 }
             }
 
@@ -688,7 +701,11 @@ public final class VillagerManualFarmingGoal extends Goal {
                     VillagerBrain.triggerManualPlantAnimation(vill, visual, 10);
                 } catch (Throwable ignored) {}
 
-                level.destroyBlock(targetPos, true, vill);
+                boolean ok = false;
+                try { ok = level.destroyBlock(targetPos, true, vill); } catch (Throwable ignored) { ok = false; }
+                if (ok) {
+                    try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingHarvested(vill, 1, true); } catch (Throwable ignored) {}
+                }
                 action = Action.NONE;
                 targetPos = null;
                 return;
@@ -852,10 +869,15 @@ public final class VillagerManualFarmingGoal extends Goal {
                         if (st == null || st.isAir()) continue;
                         if (!isMature(st)) continue;
 
-                        // Most farm crops sit on farmland
+                        // Most farm crops sit on farmland; Nether Wart sits on Soul Sand.
                         try {
                             BlockState below = level.getBlockState(p.below());
-                            if (below == null || below.getBlock() != Blocks.FARMLAND) continue;
+                            if (below == null) continue;
+                            if (st.getBlock() == Blocks.NETHER_WART) {
+                                if (below.getBlock() != Blocks.SOUL_SAND) continue;
+                            } else {
+                                if (below.getBlock() != Blocks.FARMLAND) continue;
+                            }
                         } catch (Throwable ignored) {}
 
                         if (!dropsContainAny(level, p, st, harvestItems)) continue;
@@ -1031,7 +1053,7 @@ public final class VillagerManualFarmingGoal extends Goal {
             if (level == null || farmlandPos == null || itemId == null) return false;
 
             BlockState below = level.getBlockState(farmlandPos);
-            if (below == null || below.getBlock() != Blocks.FARMLAND) return false;
+            if (below == null) return false;
 
             BlockPos placePos = farmlandPos.above();
             if (!level.getBlockState(placePos).isAir()) return false;
@@ -1052,6 +1074,9 @@ public final class VillagerManualFarmingGoal extends Goal {
                 Block block = bi.getBlock();
                 if (block == null || block == Blocks.AIR) return false;
 
+                Block base = getPlantingBaseBlock(block);
+                if (below.getBlock() != base) return false;
+
                 BlockState placeState = block.defaultBlockState();
                 try {
                     if (!placeState.canSurvive(level, placePos)) return false;
@@ -1069,11 +1094,71 @@ public final class VillagerManualFarmingGoal extends Goal {
                     VillagerBrain.triggerManualPlantAnimation(vill, bi.getDefaultInstance(), 10);
                 } catch (Throwable ignored) {}
 
+                try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingPlanted(vill, 1, true); } catch (Throwable ignored) {}
+
                 return true;
             }
             return false;
         } catch (Throwable ignored) {
             return false;
+        }
+    }
+
+    private static Block getPlantingBaseBlock(Block plantBlock) {
+        try {
+            if (plantBlock == null) return Blocks.FARMLAND;
+            // Special-case: Nether Wart grows on Soul Sand.
+            if (plantBlock == Blocks.NETHER_WART) return Blocks.SOUL_SAND;
+            return Blocks.FARMLAND;
+        } catch (Throwable ignored) {
+            return Blocks.FARMLAND;
+        }
+    }
+
+    private BlockPos findNearestEmptyPlantingBase(ServerLevel level, net.minecraft.world.phys.Vec3 center, int range, boolean circular, Block baseBlock) {
+        try {
+            if (level == null || center == null || baseBlock == null) return null;
+            int r = Math.max(1, range);
+
+            int cx = (int) Math.floor(center.x);
+            int cy = (int) Math.floor(center.y);
+            int cz = (int) Math.floor(center.z);
+
+            BlockPos best = null;
+            double bestDistSqr = Double.MAX_VALUE;
+
+            BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (circular) {
+                        long d2 = (long) dx * dx + (long) dz * dz;
+                        long rr = (long) r * r;
+                        if (d2 > rr) continue;
+                    }
+
+                    // Try a small vertical window around the center.
+                    for (int dy = -3; dy <= 3; dy++) {
+                        mp.set(cx + dx, cy + dy, cz + dz);
+                        BlockState below = level.getBlockState(mp);
+                        if (below == null || below.getBlock() != baseBlock) continue;
+                        BlockState above = level.getBlockState(mp.above());
+                        if (above == null || !above.isAir()) continue;
+
+                        double tx = mp.getX() + 0.5;
+                        double ty = mp.getY() + 0.5;
+                        double tz = mp.getZ() + 0.5;
+                        double dist = center.distanceToSqr(tx, ty, tz);
+                        if (dist < bestDistSqr) {
+                            bestDistSqr = dist;
+                            best = mp.immutable();
+                        }
+                    }
+                }
+            }
+
+            return best;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
@@ -1135,6 +1220,8 @@ public final class VillagerManualFarmingGoal extends Goal {
             if (wantConsume > 0) consumeFromInventory(Items.BONE_MEAL, wantConsume);
 
             try { VillagerBrain.triggerManualPlantAnimation(vill, Items.BONE_MEAL.getDefaultInstance(), 10); } catch (Throwable ignored) {}
+
+            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingBonemealed(vill, 1, true); } catch (Throwable ignored) {}
 
             return true;
         } catch (Throwable ignored) {

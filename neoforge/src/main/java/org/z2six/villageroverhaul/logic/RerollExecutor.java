@@ -177,6 +177,16 @@ public final class RerollExecutor {
             RerollState.markRerolled(sp, vill);
             toast(sp, "ezvr.msg.success");
             try { org.z2six.villageroverhaul.server.VillagerHistoryService.addManualReroll(vill, 1); } catch (Throwable ignored) {}
+            try {
+                // Track emeralds earned from manual rerolls (only when the costSpec is exactly emerald).
+                if (cost > 0) {
+                    boolean specIsTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
+                    ResourceLocation itemId = specIsTag ? null : ResourceLocation.tryParse(ServerConfig.costSpec);
+                    if (!specIsTag && itemId != null && "minecraft:emerald".equals(itemId.toString())) {
+                        org.z2six.villageroverhaul.server.VillagerHistoryService.addEmeraldsFromManualRerolls(vill, cost);
+                    }
+                }
+            } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Reroll success: villager={}, offers {} -> {}, player={}, paid={}",

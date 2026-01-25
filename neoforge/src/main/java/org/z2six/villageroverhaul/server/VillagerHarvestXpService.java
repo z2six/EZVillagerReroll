@@ -32,6 +32,8 @@ public final class VillagerHarvestXpService {
                 return;
             }
 
+            try { VillagerHistoryService.addFarmingPlanted(vill, plantedCount, false); } catch (Throwable ignored) {}
+
             int xpPerUnit = Math.max(0, ServerConfig.farmingHarvestXp);
             if (xpPerUnit <= 0) {
                 ezvr$maybeInfo(vill, "skip:xp_disabled");

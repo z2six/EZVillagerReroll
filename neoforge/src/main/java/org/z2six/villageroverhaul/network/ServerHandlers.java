@@ -420,6 +420,13 @@ public final class ServerHandlers {
                 return;
             }
 
+            try {
+                if (cost > 0) {
+                    // Auto-search costs are currently paid in emeralds; store as "emeralds earned from auto rerolls".
+                    org.z2six.villageroverhaul.server.VillagerHistoryService.addEmeraldsFromAutoRerolls(vill, cost);
+                }
+            } catch (Throwable ignored) {}
+
             int awardedXp = 0;
             try {
                 awardedXp = SearchService.awardSettlementVillagerXpIfAny(vill, settlement);
@@ -1088,13 +1095,13 @@ public final class ServerHandlers {
                 return;
             }
 
-            // Manual Farming is an exclusive "movement replacement" mode: ignore movement commands while active.
+            // Any movement command should stop manual farming.
             if (VillagerBrain.isManualFarmingActive(vill)) {
                 try {
-                    var mode = VillagerBrain.getMode(vill);
-                    ctx.reply(new PacketVillagerModeData(vill.getId(), mode == null ? "neutral" : mode.id));
+                    VillagerBrain.setManualFarmingActive(vill, false);
+                    VillagerBrain.clearPrevModeForManualFarming(vill);
+                    ctx.reply(new PacketVillagerManualFarmingModeData(vill.getId(), false));
                 } catch (Throwable ignored) {}
-                return;
             }
 
             switch (msg.command()) {
@@ -1410,6 +1417,10 @@ public final class ServerHandlers {
                 var mp = FarmingSettingsService.sanitizeItemIds(settings.manualPlantItemIds);
                 settings.manualPlantItemIds.clear();
                 settings.manualPlantItemIds.addAll(mp);
+
+                var pr = FarmingSettingsService.sanitizeItemIds(settings.pickupItemIds);
+                settings.pickupItemIds.clear();
+                settings.pickupItemIds.addAll(pr);
 
                 settings.manualRange = Math.max(1, Math.min(64, settings.manualRange));
             } catch (Throwable ignored) {}

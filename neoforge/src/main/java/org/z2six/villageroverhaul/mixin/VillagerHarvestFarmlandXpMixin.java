@@ -61,6 +61,20 @@ public abstract class VillagerHarvestFarmlandXpMixin {
                 }
             } catch (Throwable ignored) {}
 
+            // Count "harvested" as turning a non-air block into air (inside HarvestFarmland behavior tick).
+            try {
+                if (ok
+                        && before != null
+                        && !before.isAir()
+                        && state != null
+                        && state.isAir()) {
+                    Villager v = ezvr$tickVillager;
+                    if (v != null) {
+                        org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingHarvested(v, 1, false);
+                    }
+                }
+            } catch (Throwable ignored) {}
+
             return ok;
         } catch (Throwable ignored) {
             return level.setBlock(pos, state, flags);
@@ -91,6 +105,19 @@ public abstract class VillagerHarvestFarmlandXpMixin {
                     Villager v = ezvr$tickVillager;
                     if (v != null) {
                         VillagerHarvestXpService.onPlanted(v, 1);
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            try {
+                if (ok
+                        && before != null
+                        && !before.isAir()
+                        && state != null
+                        && state.isAir()) {
+                    Villager v = ezvr$tickVillager;
+                    if (v != null) {
+                        org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingHarvested(v, 1, false);
                     }
                 }
             } catch (Throwable ignored) {}
@@ -129,6 +156,19 @@ public abstract class VillagerHarvestFarmlandXpMixin {
                 }
             } catch (Throwable ignored) {}
 
+            try {
+                if (ok
+                        && before != null
+                        && !before.isAir()
+                        && state != null
+                        && state.isAir()) {
+                    Villager v = ezvr$tickVillager;
+                    if (v != null) {
+                        org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingHarvested(v, 1, false);
+                    }
+                }
+            } catch (Throwable ignored) {}
+
             return ok;
         } catch (Throwable ignored) {
             return level.setBlock(pos, state, flags);
@@ -159,6 +199,19 @@ public abstract class VillagerHarvestFarmlandXpMixin {
                     Villager v = ezvr$tickVillager;
                     if (v != null) {
                         VillagerHarvestXpService.onPlanted(v, 1);
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            try {
+                if (ok
+                        && before != null
+                        && !before.isAir()
+                        && state != null
+                        && state.isAir()) {
+                    Villager v = ezvr$tickVillager;
+                    if (v != null) {
+                        org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingHarvested(v, 1, false);
                     }
                 }
             } catch (Throwable ignored) {}

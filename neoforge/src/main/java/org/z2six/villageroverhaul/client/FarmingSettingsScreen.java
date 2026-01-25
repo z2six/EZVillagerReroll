@@ -5,6 +5,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -39,6 +40,7 @@ public final class FarmingSettingsScreen extends Screen {
     private EditBox retryBox;
     private Button btnDepositRules;
     private Button btnWithdrawRules;
+    private Button btnPickupRules;
 
     // Manual tab widgets
     private EditBox manualTimeoutBox;
@@ -102,12 +104,14 @@ public final class FarmingSettingsScreen extends Screen {
                 .pos(left + PANEL_W - 58 - PAD, top + PAD)
                 .size(58, 18)
                 .build();
+        btnBack.setTooltip(Tooltip.create(Component.literal("Close without saving.")));
         addRenderableWidget(btnBack);
 
         btnSave = Button.builder(Component.literal("Save"), b -> onSave())
                 .pos(left + PANEL_W - 58 - PAD - 6 - 58, top + PAD)
                 .size(58, 18)
                 .build();
+        btnSave.setTooltip(Tooltip.create(Component.literal("Save settings to the villager.")));
         addRenderableWidget(btnSave);
 
         // Tabs (below title)
@@ -116,12 +120,14 @@ public final class FarmingSettingsScreen extends Screen {
                 .pos(left + PAD, tabY)
                 .size(92, 18)
                 .build();
+        btnTabLogistics.setTooltip(Tooltip.create(Component.literal("Storage rules: deposit/withdraw items to/from registered chests.")));
         addRenderableWidget(btnTabLogistics);
 
         btnTabManual = Button.builder(Component.literal("Manual farming"), b -> switchTab(Tab.MANUAL))
                 .pos(left + PAD + 92 + 6, tabY)
                 .size(120, 18)
                 .build();
+        btnTabManual.setTooltip(Tooltip.create(Component.literal("Manual farming AI: pick up, plant, harvest, and optionally bonemeal within the workstation area.")));
         addRenderableWidget(btnTabManual);
 
         // Extra breathing room under tabs.
@@ -139,23 +145,35 @@ public final class FarmingSettingsScreen extends Screen {
                 .pos(left + PAD, rowY)
                 .size(halfW, 18)
                 .build();
+        btnDepositRules.setTooltip(Tooltip.create(Component.literal("Configure what items to deposit and when.\nRule: trigger stacks + keep stacks (kept in villager inventory).")));
         addRenderableWidget(btnDepositRules);
 
         btnWithdrawRules = Button.builder(Component.literal("Withdraw rules"), b -> openWithdrawRules())
                 .pos(left + PAD + halfW + 6, rowY)
                 .size(halfW, 18)
                 .build();
+        btnWithdrawRules.setTooltip(Tooltip.create(Component.literal("Configure what items to withdraw and when.\nRule: trigger stacks + keep stacks (kept in chest).")));
         addRenderableWidget(btnWithdrawRules);
 
         int row2Y = rowY + 22;
         timeoutBox = new EditBox(this.font, labelX + 178, row2Y, 50, 18, Component.literal("Timeout"));
         timeoutBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
+        timeoutBox.setTooltip(Tooltip.create(Component.literal("Storage timeout in seconds.\nIf moving/depositing/withdrawing takes longer than this, it fails and stops.")));
         addRenderableWidget(timeoutBox);
 
         int row3Y = row2Y + 22;
         retryBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Retry"));
         retryBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
+        retryBox.setTooltip(Tooltip.create(Component.literal("Storage retry delay in seconds.\nAfter a failure, the villager will try again after this delay.")));
         addRenderableWidget(retryBox);
+
+        int row4Y = row3Y + 22;
+        btnPickupRules = Button.builder(Component.literal("Pickup rules"), b -> openPickupRules())
+                .pos(left + PAD, row4Y)
+                .size(innerW, 18)
+                .build();
+        btnPickupRules.setTooltip(Tooltip.create(Component.literal("Configure which items the villager may pick up while manual farming.\nEmpty list = pick up all items (within the workstation area).")));
+        addRenderableWidget(btnPickupRules);
 
         // ------------------------------------------------------------
         // Manual tab
@@ -165,28 +183,32 @@ public final class FarmingSettingsScreen extends Screen {
                 .pos(left + PAD, rowY)
                 .size(halfW, 18)
                 .build();
+        btnHarvestRules.setTooltip(Tooltip.create(Component.literal("Items to harvest.\nIf a mature crop drops any of these items, the villager will harvest it.")));
         addRenderableWidget(btnHarvestRules);
 
         btnPlantRules = Button.builder(Component.literal("Planting rules"), b -> openManualPlantRules())
                 .pos(left + PAD + halfW + 6, rowY)
                 .size(halfW, 18)
                 .build();
+        btnPlantRules.setTooltip(Tooltip.create(Component.literal("Items to plant.\nThese must be block items that can be placed on the correct base block (e.g. Farmland, or Nether Wart on Soul Sand).")));
         addRenderableWidget(btnPlantRules);
 
         // Row 2-4: same as before (labels rendered, widgets here)
         manualTimeoutBox = new EditBox(this.font, labelX + 178, row2Y, 50, 18, Component.literal("Timeout"));
         manualTimeoutBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
+        manualTimeoutBox.setTooltip(Tooltip.create(Component.literal("Manual farming timeout in seconds.\nIf an action takes too long (stuck path), it fails and the villager roams until retry.")));
         addRenderableWidget(manualTimeoutBox);
 
         manualRetryBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Retry"));
         manualRetryBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
+        manualRetryBox.setTooltip(Tooltip.create(Component.literal("Manual farming retry delay in seconds after a failure.")));
         addRenderableWidget(manualRetryBox);
 
-        int row4Y = row3Y + 22;
         btnRangeShapeToggle = Button.builder(Component.literal("Circular"), b -> toggleRangeShape())
                 .pos(labelX + 178, row4Y)
-                .size(126, 18)
+                .size(117, 18)
                 .build();
+        btnRangeShapeToggle.setTooltip(Tooltip.create(Component.literal("Work area shape around the workstation.\nRange size is server-defined and modified by the villager's Ranger stat.")));
         addRenderableWidget(btnRangeShapeToggle);
 
         // Row 5: compact action/toggles
@@ -195,6 +217,7 @@ public final class FarmingSettingsScreen extends Screen {
                 .pos(left + PAD, row5Y)
                 .size(innerW, 18)
                 .build();
+        btnWorkstationRegister.setTooltip(Tooltip.create(Component.literal("Register a workstation block.\nAfter clicking, RMB any block.\nIf not registered, the villager will fall back to its vanilla job site (if any).")));
         addRenderableWidget(btnWorkstationRegister);
 
         int row6Y = row5Y + 22;
@@ -202,12 +225,14 @@ public final class FarmingSettingsScreen extends Screen {
                 .pos(left + PAD, row6Y)
                 .size(halfW, 18)
                 .build();
+        btnBonemealToggle.setTooltip(Tooltip.create(Component.literal("If enabled, the villager will bonemeal crops during manual farming.\nBonemeal must be available via withdraw rules (or already in inventory).")));
         addRenderableWidget(btnBonemealToggle);
 
         btnDropOtherToggle = Button.builder(Component.literal("Toss other items [ ]"), b -> toggleDropOtherItems())
                 .pos(left + PAD + halfW + 6, row6Y)
                 .size(halfW, 18)
                 .build();
+        btnDropOtherToggle.setTooltip(Tooltip.create(Component.literal("If enabled, the villager will drop any inventory items not used by manual farming and not referenced by deposit/withdraw rules.")));
         addRenderableWidget(btnDropOtherToggle);
 
         // Load cached settings and/or query server, unless we're returning from the item editor with a local draft.
@@ -249,6 +274,7 @@ public final class FarmingSettingsScreen extends Screen {
 
         if (btnDepositRules != null) btnDepositRules.visible = isLog;
         if (btnWithdrawRules != null) btnWithdrawRules.visible = isLog;
+        if (btnPickupRules != null) btnPickupRules.visible = isLog;
         if (timeoutBox != null) timeoutBox.visible = isLog;
         if (retryBox != null) retryBox.visible = isLog;
 
@@ -334,6 +360,16 @@ public final class FarmingSettingsScreen extends Screen {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
             mc.setScreen(new FarmingItemRulesEditorScreen(this, settings.withdrawRules, "Withdraw rules"));
+        } catch (Throwable ignored) {}
+    }
+
+    private void openPickupRules() {
+        try {
+            readFromWidgets();
+            preserveLocalDraftOnNextInit = true;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+            mc.setScreen(new FarmingManualItemListEditorScreen(this, settings.pickupItemIds, "Pickup rules"));
         } catch (Throwable ignored) {}
     }
 
@@ -423,10 +459,13 @@ public final class FarmingSettingsScreen extends Screen {
             int row3Y = row2Y + 22;
             gg.drawString(font, "Retry after (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
 
-            int infoY = row3Y + 22;
+            // Row 4 is the "Pickup rules" button.
+            int row4Y = row3Y + 22;
+            int infoY = row4Y + 22;
             int dep = settings == null || settings.depositRules == null ? 0 : settings.depositRules.size();
             int wd = settings == null || settings.withdrawRules == null ? 0 : settings.withdrawRules.size();
-            gg.drawString(font, "Deposit: " + dep + " | Withdraw: " + wd, left + PAD, infoY, 0xFFBFBFBF, false);
+            int pu = settings == null || settings.pickupItemIds == null ? 0 : settings.pickupItemIds.size();
+            gg.drawString(font, "Deposit: " + dep + " | Withdraw: " + wd + " | Pickup: " + pu, left + PAD, infoY, 0xFFBFBFBF, false);
         } else {
             int row2Y = rowY + 22;
             gg.drawString(font, "Timeout (seconds):", left + PAD, row2Y + 4, 0xFFBFBFBF, false);
