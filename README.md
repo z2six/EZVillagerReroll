@@ -14,6 +14,10 @@ Trading features consume emeralds. Everything is fully configurable, of course.
 
 For now, this mod only supports NeoForge 1.21.1 and beyond, due to the complexity of the mod’s architecture. I may investigate porting to 1.20.1 in the future, but there are no plans as of now.
 
+### Wiki
+
+Please visit: https://z2six.github.io/VillagerOverhaul
+
 ![](https://media.forgecdn.net/attachments/description/1338090/description_18ca7a59-8342-4042-8213-92ec32a2be61.png)
 
 ## Better Trading

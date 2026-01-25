@@ -1,21 +1,40 @@
 ﻿# Merchants
 
-The Merchant module focuses on making villager trading less tedious and more controllable, while keeping it balanced via emerald costs and server config.
+The Merchant module is the “trading QoL + balance” part of Villager Overhaul.
+
+It’s built around one idea:
+
+- You *can* get the trade you want, without breaking/placing a lectern 9000 times…
+- …but you pay for it, and the server can rebalance everything.
+
+---
 
 ## Features
 
-- Reroll trade offers in exchange for emeralds.
-- Lock specific offers so they don’t change when rerolling.
-- Auto-search (auto-reroll) for requested items.
-- Auto-trade (batch trades) for convenience.
-- Per-villager Merchant stats that influence trading behavior and pricing.
+- **Manual rerolls**: reroll a villager’s offers for a cost.
+- **Lock trades**: protect specific offers so they never change.
+- **Auto-search**: request one or more items and let the villager reroll in the background.
+- **Auto-trade**: repeat certain trades automatically (quality of life).
+- **Merchant stats**: each villager gets 4 trading-related stats.
 
-## UI
+---
 
-Merchant controls are available after recruiting a villager and opening its trade screen.
+## Quick start
 
-See:
-- **Rerolling & Locking**
-- **Auto-Search**
-- **Auto-Trade**
-- **Merchant Stats**
+1. Recruit a villager.
+2. Open the **trade screen**.
+3. **Left-click** the reroll button to reroll.
+4. **Right-click** an offer row to lock/unlock it.
+5. **Right-click** the reroll button to open the **Auto-search catalog**.
+
+---
+
+## Ownership & server rules
+
+Merchant controls are server-authoritative:
+
+- Only the recruiting player can use merchant controls on that villager.
+- Server config can rebalance costs, cooldowns, and limits.
+- Servers can disable the entire Merchant module.
+
+See **General → Server Config** for global settings.
