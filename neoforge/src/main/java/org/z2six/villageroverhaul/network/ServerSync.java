@@ -70,6 +70,23 @@ public final class ServerSync {
             pkt.armorMin = ServerConfig.armorMin;
             pkt.armorMax = ServerConfig.armorMax;
 
+            // manual farming baselines
+            pkt.manualFarmBaseRange = ServerConfig.manualFarmBaseRange;
+            pkt.manualFarmWorkStartTick = ServerConfig.manualFarmWorkStartTick;
+            pkt.manualFarmWorkEndTick = ServerConfig.manualFarmWorkEndTick;
+            pkt.plantWhispererIntervalSeconds = ServerConfig.plantWhispererIntervalSeconds;
+            pkt.plantWhispererBaseChancePct = ServerConfig.plantWhispererBaseChancePct;
+
+            // farming stat bounds
+            pkt.motivationMinPct = ServerConfig.motivationMinPct;
+            pkt.motivationMaxPct = ServerConfig.motivationMaxPct;
+            pkt.efficiencyMinPct = ServerConfig.efficiencyMinPct;
+            pkt.efficiencyMaxPct = ServerConfig.efficiencyMaxPct;
+            pkt.plantWhispererMinPct = ServerConfig.plantWhispererMinPct;
+            pkt.plantWhispererMaxPct = ServerConfig.plantWhispererMaxPct;
+            pkt.rangerMinPct = ServerConfig.rangerMinPct;
+            pkt.rangerMaxPct = ServerConfig.rangerMaxPct;
+
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));
 
             VillagerOverhaul.LOG().debug(

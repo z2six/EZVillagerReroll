@@ -20,9 +20,11 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.farming.FarmingSettings;
 import org.z2six.villageroverhaul.server.FarmingSettingsService;
 import org.z2six.villageroverhaul.server.RecruitService;
+import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -73,6 +75,7 @@ public final class VillagerManualFarmingGoal extends Goal {
     private String targetPlantItemId = null;
 
     private long nextRoamAt = 0L;
+    private long nextPlantWhisperAt = 0L;
 
     public VillagerManualFarmingGoal(Villager vill) {
         this.vill = vill;
@@ -88,7 +91,7 @@ public final class VillagerManualFarmingGoal extends Goal {
             if (!RecruitService.isRecruited(vill)) return false;
             if (VillagerBrain.isUiPaused(vill)) return false;
             if (VillagerBrain.isStorageActive(vill)) return false;
-            return VillagerBrain.isManualFarmingActive(vill);
+            return VillagerBrain.isManualFarmingControlling(vill);
         } catch (Throwable ignored) {
             return false;
         }
@@ -110,6 +113,7 @@ public final class VillagerManualFarmingGoal extends Goal {
             targetPos = null;
             targetPlantItemId = null;
             nextRoamAt = 0L;
+            nextPlantWhisperAt = 0L;
         } catch (Throwable ignored) {}
     }
 
@@ -132,11 +136,12 @@ public final class VillagerManualFarmingGoal extends Goal {
         try {
             if (!(vill.level() instanceof ServerLevel level)) return;
 
-            // Mimic vanilla: do active farming only during the day.
+            // Mimic vanilla: do active farming only during the "work window" (configurable),
+            // modulated by Motivation.
             boolean doWork = isWorkTime(level);
 
             FarmingSettings settings = FarmingSettingsService.getSettings(vill);
-            int range = clampRange(settings.manualRange);
+            int range = FarmingSettingsService.getEffectiveManualFarmingRange(vill);
             boolean circular = settings.manualRangeCircular;
             net.minecraft.world.phys.Vec3 center = resolveWorkCenter(level);
 
@@ -163,6 +168,9 @@ public final class VillagerManualFarmingGoal extends Goal {
                 tickRoam(level, center, range, circular);
                 return;
             }
+
+            // Plant Whisperer: periodic "free bonemeal" nearby (no item consumption).
+            tickPlantWhisperer(level, now);
 
             // Refresh target selection periodically or if current target is invalid.
             if (scanCooldown > 0) scanCooldown--;
@@ -195,7 +203,7 @@ public final class VillagerManualFarmingGoal extends Goal {
     private net.minecraft.world.phys.Vec3 resolveWorkCenter(ServerLevel level) {
         try {
             if (level == null) return vill.position();
-            var ws = FarmingSettingsService.getRegisteredWorkstation(vill);
+            var ws = FarmingSettingsService.getEffectiveWorkstation(level, vill);
             if (ws == null) return vill.position();
 
             String dim = "";
@@ -211,11 +219,154 @@ public final class VillagerManualFarmingGoal extends Goal {
     private boolean isWorkTime(ServerLevel level) {
         try {
             if (level == null) return false;
-            if (!level.isDay()) return false;
             try { if (vill.isSleeping()) return false; } catch (Throwable ignored) {}
-            return true;
+
+            int start = ServerConfig.manualFarmWorkStartTick;
+            int end = ServerConfig.manualFarmWorkEndTick;
+
+            // Clamp to day range
+            if (start < 0) start = 0;
+            if (start > 23999) start = 23999;
+            if (end < 0) end = 0;
+            if (end > 23999) end = 23999;
+
+            int t = 0;
+            try {
+                long dayTime = level.getDayTime();
+                t = (int) (dayTime % 24000L);
+                if (t < 0) t += 24000;
+            } catch (Throwable ignored) {
+                t = 0;
+            }
+
+            // Base window length (wrap-safe)
+            int len = end >= start ? (end - start) : (24000 - start + end);
+            if (len <= 0) return false;
+            if (len >= 24000) return true;
+
+            // Motivation expands/contracts the window around midpoint.
+            double pct = 0.0;
+            try { pct = VillagerTraitEffects.motivationPct(vill); } catch (Throwable ignored) { pct = 0.0; }
+            double mult = 1.0 + (pct / 100.0);
+            if (Double.isNaN(mult) || Double.isInfinite(mult)) mult = 1.0;
+            if (mult < 0.0) mult = 0.0;
+
+            double startD = start;
+            double endD = startD + len;
+            double mid = (startD + endD) / 2.0;
+            double newLen = len * mult;
+            if (newLen < 1.0) newLen = 1.0;
+            if (newLen > 24000.0) newLen = 24000.0;
+
+            double newStart = mid - newLen / 2.0;
+            double newEnd = mid + newLen / 2.0;
+
+            return isTimeInWindow(t, newStart, newEnd);
         } catch (Throwable ignored) {
             return false;
+        }
+    }
+
+    private static boolean isTimeInWindow(int timeOfDay, double start, double end) {
+        // start/end are in "unwrapped" ticks; window is [start,end) modulo 24000.
+        if (timeOfDay < 0) timeOfDay = 0;
+        if (timeOfDay > 23999) timeOfDay = 23999;
+
+        double s = start % 24000.0;
+        double e = end % 24000.0;
+        if (s < 0.0) s += 24000.0;
+        if (e < 0.0) e += 24000.0;
+
+        // If window length spans full day, always true.
+        double len = end - start;
+        if (len >= 24000.0) return true;
+
+        if (s <= e) {
+            return timeOfDay >= s && timeOfDay < e;
+        } else {
+            // Wrapped across 0
+            return timeOfDay >= s || timeOfDay < e;
+        }
+    }
+
+    private void tickPlantWhisperer(ServerLevel level, long nowGameTime) {
+        try {
+            if (level == null) return;
+
+            int intervalS = Math.max(1, ServerConfig.plantWhispererIntervalSeconds);
+            long intervalTicks = (long) intervalS * 20L;
+            if (intervalTicks < 1L) intervalTicks = 1L;
+
+            if (nextPlantWhisperAt <= 0L) nextPlantWhisperAt = nowGameTime + intervalTicks;
+            if (nowGameTime < nextPlantWhisperAt) return;
+            nextPlantWhisperAt = nowGameTime + intervalTicks;
+
+            double baseChance = ServerConfig.plantWhispererBaseChancePct;
+            if (Double.isNaN(baseChance) || Double.isInfinite(baseChance)) baseChance = 0.0;
+            if (baseChance < 0.0) baseChance = 0.0;
+            if (baseChance > 100.0) baseChance = 100.0;
+
+            double pct = 0.0;
+            try { pct = VillagerTraitEffects.plantWhispererPct(vill); } catch (Throwable ignored) { pct = 0.0; }
+            double mult = 1.0 + (pct / 100.0);
+            if (Double.isNaN(mult) || Double.isInfinite(mult)) mult = 1.0;
+            if (mult < 0.0) mult = 0.0;
+
+            double chance = baseChance * mult;
+            if (chance <= 0.0) return;
+            if (chance > 100.0) chance = 100.0;
+
+            if (rng.nextDouble() * 100.0 >= chance) return;
+
+            BlockPos target = findNearbyBonemealable(level, vill.blockPosition(), 3);
+            if (target == null) return;
+
+            BlockState st = level.getBlockState(target);
+            if (st == null || st.isAir() || !(st.getBlock() instanceof BonemealableBlock bb)) return;
+            if (!bb.isValidBonemealTarget(level, target, st)) return;
+            if (!bb.isBonemealSuccess(level, level.getRandom(), target, st)) return;
+
+            bb.performBonemeal(level, level.getRandom(), target, st);
+            try { level.levelEvent(2005, target, 0); } catch (Throwable ignored) {}
+            try {
+                level.sendParticles(net.minecraft.core.particles.ParticleTypes.HAPPY_VILLAGER,
+                        target.getX() + 0.5, target.getY() + 0.7, target.getZ() + 0.5,
+                        6, 0.35, 0.35, 0.35, 0.0);
+            } catch (Throwable ignored) {}
+
+        } catch (Throwable ignored) {}
+    }
+
+    private static BlockPos findNearbyBonemealable(ServerLevel level, BlockPos origin, int r) {
+        try {
+            if (level == null || origin == null) return null;
+            int rr = Math.max(1, r);
+            BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
+            BlockPos best = null;
+            int bestDist = Integer.MAX_VALUE;
+
+            for (int dx = -rr; dx <= rr; dx++) {
+                for (int dz = -rr; dz <= rr; dz++) {
+                    for (int dy = -1; dy <= 2; dy++) {
+                        mp.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
+                        BlockState st = level.getBlockState(mp);
+                        if (st == null || st.isAir()) continue;
+                        if (!(st.getBlock() instanceof BonemealableBlock bb)) continue;
+                        try {
+                            if (!bb.isValidBonemealTarget(level, mp, st)) continue;
+                        } catch (Throwable ignored) { continue; }
+                        if (isMature(st)) continue;
+                        int d = dx * dx + dz * dz + dy * dy;
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = mp.immutable();
+                        }
+                    }
+                }
+            }
+            return best;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
@@ -907,9 +1058,11 @@ public final class VillagerManualFarmingGoal extends Goal {
                 } catch (Throwable ignored) {}
 
                 level.setBlock(placePos, placeState, 3);
-                s.shrink(1);
-                if (s.isEmpty()) inv.setItem(i, ItemStack.EMPTY);
-                inv.setChanged();
+                int wantConsume = computeEfficiencyAdjustedConsume(1);
+                if (wantConsume > 0) {
+                    // Consume across inventory so negative Efficiency can take an "extra" from another stack.
+                    consumeFromInventory(item, wantConsume);
+                }
 
                 // Visual feedback: make sure custom arms render + play a swing while planting.
                 try {
@@ -978,18 +1131,66 @@ public final class VillagerManualFarmingGoal extends Goal {
                         0.0);
             } catch (Throwable ignored) {}
 
-            ItemStack bm = inv.getItem(slot);
-            if (bm != null && !bm.isEmpty()) {
-                bm.shrink(1);
-                if (bm.isEmpty()) inv.setItem(slot, ItemStack.EMPTY);
-            }
-            inv.setChanged();
+            int wantConsume = computeEfficiencyAdjustedConsume(1);
+            if (wantConsume > 0) consumeFromInventory(Items.BONE_MEAL, wantConsume);
 
             try { VillagerBrain.triggerManualPlantAnimation(vill, Items.BONE_MEAL.getDefaultInstance(), 10); } catch (Throwable ignored) {}
 
             return true;
         } catch (Throwable ignored) {
             return false;
+        }
+    }
+
+    private int computeEfficiencyAdjustedConsume(int base) {
+        int b = Math.max(0, base);
+        if (b == 0) return 0;
+        try {
+            double pct = 0.0;
+            try { pct = VillagerTraitEffects.efficiencyPct(vill); } catch (Throwable ignored) { pct = 0.0; }
+            if (Double.isNaN(pct) || Double.isInfinite(pct)) pct = 0.0;
+
+            if (pct > 0.0) {
+                double p = pct / 100.0;
+                if (p > 1.0) p = 1.0;
+                if (rng.nextDouble() < p) return 0; // save item
+                return b;
+            }
+
+            if (pct < 0.0) {
+                double p = (-pct) / 100.0;
+                if (p > 1.0) p = 1.0;
+                if (rng.nextDouble() < p) return b + 1; // consume extra
+                return b;
+            }
+
+            return b;
+        } catch (Throwable ignored) {
+            return b;
+        }
+    }
+
+    private int consumeFromInventory(Item item, int amount) {
+        try {
+            if (item == null || amount <= 0) return 0;
+            Container inv = vill.getInventory();
+            if (inv == null) return 0;
+
+            int remaining = amount;
+            int sz = inv.getContainerSize();
+            for (int i = 0; i < sz && remaining > 0; i++) {
+                ItemStack s = inv.getItem(i);
+                if (s == null || s.isEmpty() || !s.is(item)) continue;
+                int take = Math.min(remaining, s.getCount());
+                if (take <= 0) continue;
+                s.shrink(take);
+                remaining -= take;
+                if (s.isEmpty()) inv.setItem(i, ItemStack.EMPTY);
+            }
+            inv.setChanged();
+            return amount - remaining;
+        } catch (Throwable ignored) {
+            return 0;
         }
     }
 

@@ -9,6 +9,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.farming.FarmingSettings;
+import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
@@ -46,7 +47,6 @@ public final class FarmingSettingsScreen extends Screen {
     private Button btnPlantRules;
     private Button btnBonemealToggle;
     private Button btnDropOtherToggle;
-    private EditBox manualRangeBox;
     private Button btnRangeShapeToggle;
     private Button btnWorkstationRegister;
 
@@ -183,13 +183,9 @@ public final class FarmingSettingsScreen extends Screen {
         addRenderableWidget(manualRetryBox);
 
         int row4Y = row3Y + 22;
-        manualRangeBox = new EditBox(this.font, labelX + 178, row4Y, 50, 18, Component.literal("Range"));
-        manualRangeBox.setFilter(s -> s != null && s.matches("\\d{0,4}"));
-        addRenderableWidget(manualRangeBox);
-
         btnRangeShapeToggle = Button.builder(Component.literal("Circular"), b -> toggleRangeShape())
-                .pos(labelX + 178 + 54, row4Y)
-                .size(72, 18)
+                .pos(labelX + 178, row4Y)
+                .size(126, 18)
                 .build();
         addRenderableWidget(btnRangeShapeToggle);
 
@@ -262,7 +258,6 @@ public final class FarmingSettingsScreen extends Screen {
         if (manualRetryBox != null) manualRetryBox.visible = !isLog;
         if (btnBonemealToggle != null) btnBonemealToggle.visible = !isLog;
         if (btnDropOtherToggle != null) btnDropOtherToggle.visible = !isLog;
-        if (manualRangeBox != null) manualRangeBox.visible = !isLog;
         if (btnRangeShapeToggle != null) btnRangeShapeToggle.visible = !isLog;
         if (btnWorkstationRegister != null) btnWorkstationRegister.visible = !isLog;
     }
@@ -277,7 +272,6 @@ public final class FarmingSettingsScreen extends Screen {
             if (btnWorkstationRegister != null) btnWorkstationRegister.setMessage(Component.literal("Register Workstation [" + (settings.manualWorkstationRegistered ? "x" : " ") + "]"));
             if (btnBonemealToggle != null) btnBonemealToggle.setMessage(Component.literal("Use Bonemeal [" + (settings.manualUseBonemeal ? "x" : " ") + "]"));
             if (btnDropOtherToggle != null) btnDropOtherToggle.setMessage(Component.literal("Toss other items [" + (settings.manualDropOtherItems ? "x" : " ") + "]"));
-            if (manualRangeBox != null) manualRangeBox.setValue(String.valueOf(Math.max(1, settings.manualRange)));
             if (btnRangeShapeToggle != null) btnRangeShapeToggle.setMessage(Component.literal(settings.manualRangeCircular ? "Circular" : "Square"));
         } catch (Throwable ignored) {}
     }
@@ -320,14 +314,6 @@ public final class FarmingSettingsScreen extends Screen {
             }
             settings.manualRetryAfterSeconds = Math.max(1, mRetry);
 
-            int range = 10;
-            try {
-                String raw = manualRangeBox == null ? "" : manualRangeBox.getValue();
-                range = raw == null || raw.isBlank() ? 10 : Integer.parseInt(raw.trim());
-            } catch (Throwable ignored) {
-                range = 10;
-            }
-            settings.manualRange = Math.max(1, range);
         } catch (Throwable ignored) {}
     }
 
@@ -449,7 +435,13 @@ public final class FarmingSettingsScreen extends Screen {
             gg.drawString(font, "Retry after (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
 
             int row4Y = row3Y + 22;
-            gg.drawString(font, "Range:", left + PAD, row4Y + 4, 0xFFBFBFBF, false);
+            int baseRange = 10;
+            try {
+                ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+                if (cfg != null) baseRange = Math.max(1, cfg.manualFarmBaseRange);
+            } catch (Throwable ignored) { baseRange = 10; }
+            gg.drawString(font, "Range: " + baseRange + " (modified by Ranger)", left + PAD, row4Y + 4, 0xFFBFBFBF, false);
+            gg.drawString(font, "Work area shape:", left + PAD, row4Y + 26, 0xFFBFBFBF, false);
 
             int infoY = row4Y + 66;
             int h = settings == null || settings.manualHarvestItemIds == null ? 0 : settings.manualHarvestItemIds.size();

@@ -474,6 +474,12 @@ public final class ClientUI {
         } catch (Throwable ignored) {}
     }
 
+    public static void showFarmingOverlayText(String msg, int durationMs) {
+        try {
+            setChestRegisterMessage(msg, (long) durationMs);
+        } catch (Throwable ignored) {}
+    }
+
     public static void beginChestRegistration(int villagerEntityId) {
         try {
             if (villagerEntityId <= 0) return;

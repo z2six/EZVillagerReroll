@@ -20,6 +20,7 @@ import org.z2six.villageroverhaul.network.autoReroll.PacketRerollCooldownState;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
 import org.z2six.villageroverhaul.network.PacketSyncConfig;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
@@ -157,6 +158,22 @@ public final class ClientNetworkHandlers {
             });
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onFarmingSettingsData enqueue failed", t);
+        }
+    }
+
+    public static void onFarmingOverlayText(PacketFarmingOverlayText msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    ClientUI.showFarmingOverlayText(msg.message(), msg.durationMs());
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onFarmingOverlayText failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onFarmingOverlayText enqueue failed", t);
         }
     }
 

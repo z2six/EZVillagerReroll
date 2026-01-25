@@ -17,7 +17,7 @@ public final class VillagerStatsService {
 
     // Version for future migrations
     private static final String TAG_VERSION = "v";
-    private static final int STATS_VERSION = 2; // bumped for combat stats
+    private static final int STATS_VERSION = 3; // bumped for farming stats
 
     // Merchant stat keys (stored as int points)
     public static final String K_GENEROSITY = "generosity";
@@ -30,6 +30,12 @@ public final class VillagerStatsService {
     public static final String K_AGILITY  = "agility";
     public static final String K_STRENGTH = "strength";
     public static final String K_ARMOR    = "armor";
+
+    // Farming stat keys (stored as int points)
+    public static final String K_MOTIVATION = "motivation";
+    public static final String K_EFFICIENCY = "efficiency";
+    public static final String K_PLANT_WHISPERER = "plant_whisperer";
+    public static final String K_RANGER = "ranger";
 
     public static final int POINTS_MIN = -100;
     public static final int POINTS_MAX = 100;
@@ -76,7 +82,11 @@ public final class VillagerStatsService {
                             root.contains(K_VITALITY) &&
                             root.contains(K_AGILITY) &&
                             root.contains(K_STRENGTH) &&
-                            root.contains(K_ARMOR);
+                            root.contains(K_ARMOR) &&
+                            root.contains(K_MOTIVATION) &&
+                            root.contains(K_EFFICIENCY) &&
+                            root.contains(K_PLANT_WHISPERER) &&
+                            root.contains(K_RANGER);
 
             // Already initialized for this version + has all keys
             if (ver >= STATS_VERSION && hasAll) {
@@ -99,6 +109,11 @@ public final class VillagerStatsService {
             changed |= ensureKey(root, r, K_STRENGTH);
             changed |= ensureKey(root, r, K_ARMOR);
 
+            changed |= ensureKey(root, r, K_MOTIVATION);
+            changed |= ensureKey(root, r, K_EFFICIENCY);
+            changed |= ensureKey(root, r, K_PLANT_WHISPERER);
+            changed |= ensureKey(root, r, K_RANGER);
+
             // update version
             if (ver < STATS_VERSION) {
                 root.putInt(TAG_VERSION, STATS_VERSION);
@@ -118,13 +133,19 @@ public final class VillagerStatsService {
                 int s = clampPoints(root.getInt(K_STRENGTH));
                 int ar = clampPoints(root.getInt(K_ARMOR));
 
+                int m = clampPoints(root.getInt(K_MOTIVATION));
+                int ePts = clampPoints(root.getInt(K_EFFICIENCY));
+                int pw = clampPoints(root.getInt(K_PLANT_WHISPERER));
+                int rg = clampPoints(root.getInt(K_RANGER));
+
                 VillagerOverhaul.LOG().debug(
-                        "[VillagerOverhaul] VillagerStats assigned/upgraded: type={} entityId={} uuid={} generosity={} timeliness={} intellect={} hoarder={} vitality={} agility={} strength={} armor={}",
+                        "[VillagerOverhaul] VillagerStats assigned/upgraded: type={} entityId={} uuid={} generosity={} timeliness={} intellect={} hoarder={} vitality={} agility={} strength={} armor={} motivation={} efficiency={} plant_whisperer={} ranger={}",
                         String.valueOf(e.getType()),
                         e.getId(),
                         e.getUUID(),
                         g, t, i, h,
-                        v, a, s, ar
+                        v, a, s, ar,
+                        m, ePts, pw, rg
                 );
             }
 

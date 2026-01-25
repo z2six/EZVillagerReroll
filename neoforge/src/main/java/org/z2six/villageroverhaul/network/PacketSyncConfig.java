@@ -61,6 +61,26 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public double armorMin;
     public double armorMax;
 
+    // farming baselines (manual farming)
+    public int manualFarmBaseRange;
+    public int manualFarmWorkStartTick;
+    public int manualFarmWorkEndTick;
+    public int plantWhispererIntervalSeconds;
+    public double plantWhispererBaseChancePct;
+
+    // farming stat bounds
+    public double motivationMinPct;
+    public double motivationMaxPct;
+
+    public double efficiencyMinPct;
+    public double efficiencyMaxPct;
+
+    public double plantWhispererMinPct;
+    public double plantWhispererMaxPct;
+
+    public double rangerMinPct;
+    public double rangerMaxPct;
+
     public PacketSyncConfig() {}
 
     public static final StreamCodec<FriendlyByteBuf, PacketSyncConfig> STREAM_CODEC = new StreamCodec<>() {
@@ -133,6 +153,26 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.armorMin = -5.0;
             p.armorMax = 15.0;
 
+            // manual farming defaults
+            p.manualFarmBaseRange = 10;
+            p.manualFarmWorkStartTick = 2000;
+            p.manualFarmWorkEndTick = 9000;
+            p.plantWhispererIntervalSeconds = 60;
+            p.plantWhispererBaseChancePct = 50.0;
+
+            // farming stat defaults (match ServerConfig defaults)
+            p.motivationMinPct = -20.0;
+            p.motivationMaxPct = 20.0;
+
+            p.efficiencyMinPct = -100.0;
+            p.efficiencyMaxPct = 100.0;
+
+            p.plantWhispererMinPct = -20.0;
+            p.plantWhispererMaxPct = 20.0;
+
+            p.rangerMinPct = -20.0;
+            p.rangerMaxPct = 20.0;
+
             // trait bounds
             try { p.generosityMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.generosityMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
@@ -173,6 +213,26 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.respawnKeepEquipment = buf.readBoolean(); } catch (Throwable ignored) { p.respawnKeepEquipment = false; }
             // respawn keep-inventory toggle (append-only)
             try { p.respawnKeepInventory = buf.readBoolean(); } catch (Throwable ignored) { p.respawnKeepInventory = true; }
+
+            // manual farming baselines (append-only)
+            try { p.manualFarmBaseRange = Math.max(1, buf.readVarInt()); } catch (Throwable ignored) {}
+            try { p.manualFarmWorkStartTick = buf.readVarInt(); } catch (Throwable ignored) {}
+            try { p.manualFarmWorkEndTick = buf.readVarInt(); } catch (Throwable ignored) {}
+            try { p.plantWhispererIntervalSeconds = Math.max(1, buf.readVarInt()); } catch (Throwable ignored) {}
+            try { p.plantWhispererBaseChancePct = buf.readDouble(); } catch (Throwable ignored) {}
+            if (Double.isNaN(p.plantWhispererBaseChancePct) || Double.isInfinite(p.plantWhispererBaseChancePct)) p.plantWhispererBaseChancePct = 50.0;
+            if (p.plantWhispererBaseChancePct < 0.0) p.plantWhispererBaseChancePct = 0.0;
+            if (p.plantWhispererBaseChancePct > 100.0) p.plantWhispererBaseChancePct = 100.0;
+
+            // farming stat bounds (append-only)
+            try { p.motivationMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.motivationMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.efficiencyMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.efficiencyMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.plantWhispererMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.plantWhispererMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.rangerMinPct = buf.readDouble(); } catch (Throwable ignored) {}
+            try { p.rangerMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
 
             return p;
         }
@@ -237,6 +297,23 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeBoolean(p.respawnKeepEquipment);
             // respawn keep-inventory toggle (append-only)
             buf.writeBoolean(p.respawnKeepInventory);
+
+            // manual farming baselines (append-only)
+            buf.writeVarInt(Math.max(1, p.manualFarmBaseRange));
+            buf.writeVarInt(p.manualFarmWorkStartTick);
+            buf.writeVarInt(p.manualFarmWorkEndTick);
+            buf.writeVarInt(Math.max(1, p.plantWhispererIntervalSeconds));
+            buf.writeDouble(Math.max(0.0, Math.min(100.0, p.plantWhispererBaseChancePct)));
+
+            // farming stat bounds (append-only)
+            buf.writeDouble(p.motivationMinPct);
+            buf.writeDouble(p.motivationMaxPct);
+            buf.writeDouble(p.efficiencyMinPct);
+            buf.writeDouble(p.efficiencyMaxPct);
+            buf.writeDouble(p.plantWhispererMinPct);
+            buf.writeDouble(p.plantWhispererMaxPct);
+            buf.writeDouble(p.rangerMinPct);
+            buf.writeDouble(p.rangerMaxPct);
         }
     };
 

@@ -43,6 +43,19 @@ public final class ClientSyncedConfig {
         public double strengthMinDamage, strengthMaxDamage;
         public double armorMin, armorMax;
 
+        // manual farming baselines
+        public int manualFarmBaseRange;
+        public int manualFarmWorkStartTick;
+        public int manualFarmWorkEndTick;
+        public int plantWhispererIntervalSeconds;
+        public double plantWhispererBaseChancePct;
+
+        // farming stat bounds
+        public double motivationMinPct, motivationMaxPct;
+        public double efficiencyMinPct, efficiencyMaxPct;
+        public double plantWhispererMinPct, plantWhispererMaxPct;
+        public double rangerMinPct, rangerMaxPct;
+
         @Override
         public String toString() {
             return "Snapshot{" +
@@ -72,6 +85,13 @@ public final class ClientSyncedConfig {
                     ", agilitySpeed=[" + agilityMinSpeed + "," + agilityMaxSpeed + "]" +
                     ", strengthDamage=[" + strengthMinDamage + "," + strengthMaxDamage + "]" +
                     ", armor=[" + armorMin + "," + armorMax + "]" +
+                    ", manualFarmBaseRange=" + manualFarmBaseRange +
+                    ", manualFarmWorkWindow=[" + manualFarmWorkStartTick + "," + manualFarmWorkEndTick + "]" +
+                    ", plantWhispererBase=[" + plantWhispererBaseChancePct + "%/" + plantWhispererIntervalSeconds + "s]" +
+                    ", motivation=[" + motivationMinPct + "," + motivationMaxPct + "]" +
+                    ", efficiency=[" + efficiencyMinPct + "," + efficiencyMaxPct + "]" +
+                    ", plantWhisperer=[" + plantWhispererMinPct + "," + plantWhispererMaxPct + "]" +
+                    ", ranger=[" + rangerMinPct + "," + rangerMaxPct + "]" +
                     '}';
         }
     }
@@ -159,6 +179,46 @@ public final class ClientSyncedConfig {
             if (arMin > arMax) { double tmp = arMin; arMin = arMax; arMax = tmp; }
             s.armorMin = arMin;
             s.armorMax = arMax;
+
+            // manual farming baselines
+            s.manualFarmBaseRange = Math.max(1, msg.manualFarmBaseRange);
+            s.manualFarmWorkStartTick = msg.manualFarmWorkStartTick;
+            s.manualFarmWorkEndTick = msg.manualFarmWorkEndTick;
+            s.plantWhispererIntervalSeconds = Math.max(1, msg.plantWhispererIntervalSeconds);
+            double pwChance = msg.plantWhispererBaseChancePct;
+            if (Double.isNaN(pwChance) || Double.isInfinite(pwChance)) pwChance = 50.0;
+            if (pwChance < 0.0) pwChance = 0.0;
+            if (pwChance > 100.0) pwChance = 100.0;
+            s.plantWhispererBaseChancePct = pwChance;
+
+            // farming bounds (normalize each pair)
+            double moMin = msg.motivationMinPct, moMax = msg.motivationMaxPct;
+            if (Double.isNaN(moMin)) moMin = 0.0;
+            if (Double.isNaN(moMax)) moMax = 0.0;
+            if (moMin > moMax) { double tmp = moMin; moMin = moMax; moMax = tmp; }
+            s.motivationMinPct = moMin;
+            s.motivationMaxPct = moMax;
+
+            double efMin = msg.efficiencyMinPct, efMax = msg.efficiencyMaxPct;
+            if (Double.isNaN(efMin)) efMin = 0.0;
+            if (Double.isNaN(efMax)) efMax = 0.0;
+            if (efMin > efMax) { double tmp = efMin; efMin = efMax; efMax = tmp; }
+            s.efficiencyMinPct = efMin;
+            s.efficiencyMaxPct = efMax;
+
+            double pwMin = msg.plantWhispererMinPct, pwMax = msg.plantWhispererMaxPct;
+            if (Double.isNaN(pwMin)) pwMin = 0.0;
+            if (Double.isNaN(pwMax)) pwMax = 0.0;
+            if (pwMin > pwMax) { double tmp = pwMin; pwMin = pwMax; pwMax = tmp; }
+            s.plantWhispererMinPct = pwMin;
+            s.plantWhispererMaxPct = pwMax;
+
+            double raMin = msg.rangerMinPct, raMax = msg.rangerMaxPct;
+            if (Double.isNaN(raMin)) raMin = 0.0;
+            if (Double.isNaN(raMax)) raMax = 0.0;
+            if (raMin > raMax) { double tmp = raMin; raMin = raMax; raMax = tmp; }
+            s.rangerMinPct = raMin;
+            s.rangerMaxPct = raMax;
 
             last = s;
 

@@ -84,6 +84,15 @@ public final class ServerConfig {
     public static final ModConfigSpec.IntValue FARMING_HARVEST_XP;
 
     // ---------------------------------------------------------------------
+    // MANUAL FARMING (server-authoritative baselines)
+    // ---------------------------------------------------------------------
+    public static final ModConfigSpec.IntValue MANUAL_FARM_BASE_RANGE;
+    public static final ModConfigSpec.IntValue MANUAL_FARM_WORK_START_TICK;
+    public static final ModConfigSpec.IntValue MANUAL_FARM_WORK_END_TICK;
+    public static final ModConfigSpec.IntValue PLANT_WHISPERER_INTERVAL_SECONDS;
+    public static final ModConfigSpec.DoubleValue PLANT_WHISPERER_BASE_CHANCE_PCT;
+
+    // ---------------------------------------------------------------------
     // VILLAGER STATS (merchant traits)
     // ---------------------------------------------------------------------
 
@@ -95,6 +104,23 @@ public final class ServerConfig {
 
     public static final ModConfigSpec.DoubleValue INTELLECT_MIN_PCT;
     public static final ModConfigSpec.DoubleValue INTELLECT_MAX_PCT;
+
+    // Farming stats (points -> percent deltas)
+    public static final ModConfigSpec.DoubleValue MOTIVATION_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue MOTIVATION_MAX_PCT;
+
+    public static final ModConfigSpec.DoubleValue EFFICIENCY_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue EFFICIENCY_MAX_PCT;
+
+    /**
+     * Plant Whisperer: percent delta applied to the base chance.
+     * Note: deltas below -50% are clamped to -50% because chance cannot be meaningfully reduced further for this mechanic.
+     */
+    public static final ModConfigSpec.DoubleValue PLANT_WHISPERER_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue PLANT_WHISPERER_MAX_PCT;
+
+    public static final ModConfigSpec.DoubleValue RANGER_MIN_PCT;
+    public static final ModConfigSpec.DoubleValue RANGER_MAX_PCT;
 
     // ---------------------------------------------------------------------
     // COMBAT STATS ()
@@ -322,6 +348,47 @@ public final class ServerConfig {
                         """)
                         .defineInRange("farmingHarvestXp", 1, 0, 10_000);
 
+        // ----------------------------
+        // Manual farming baselines
+        // ----------------------------
+        MANUAL_FARM_BASE_RANGE =
+                B.comment("""
+                        Base manual farming range around the villager workstation.
+                        This is then modified by the villager "Ranger" stat percent delta.
+                        Default: 10 blocks.
+                        """)
+                        .defineInRange("manualFarmBaseRange", 10, 1, 64);
+
+        MANUAL_FARM_WORK_START_TICK =
+                B.comment("""
+                        Manual farming work window start time (daytime ticks 0..23999).
+                        Vanilla-like default is 2000.
+                        """)
+                        .defineInRange("manualFarmWorkStartTick", 2000, 0, 23999);
+
+        MANUAL_FARM_WORK_END_TICK =
+                B.comment("""
+                        Manual farming work window end time (daytime ticks 0..23999).
+                        Vanilla-like default is 9000.
+                        """)
+                        .defineInRange("manualFarmWorkEndTick", 9000, 0, 23999);
+
+        PLANT_WHISPERER_INTERVAL_SECONDS =
+                B.comment("""
+                        Plant Whisperer check interval (seconds).
+                        Every interval, the villager may perform a free-standing bonemeal action on a nearby crop.
+                        Default: 60 seconds.
+                        """)
+                        .defineInRange("plantWhispererIntervalSeconds", 60, 1, 10_000);
+
+        PLANT_WHISPERER_BASE_CHANCE_PCT =
+                B.comment("""
+                        Plant Whisperer base chance (percent) at 0 stat points.
+                        This chance is then multiplied by (1 + deltaPct/100) from the Plant Whisperer stat.
+                        Default: 50%.
+                        """)
+                        .defineInRange("plantWhispererBaseChancePct", 50.0, 0.0, 100.0);
+
         B.pop();
 
         // ----------------------------
@@ -364,6 +431,64 @@ public final class ServerConfig {
                         Intellect effect MAX percent at points = +100.
                         """)
                         .defineInRange("intellectMaxPct", 20.0, -1000.0, 1000.0);
+
+        MOTIVATION_MIN_PCT =
+                B.comment("""
+                        Motivation effect MIN percent at points = -100.
+                        Applied to the manual-farming work window length.
+                        """)
+                        .defineInRange("motivationMinPct", -20.0, -1000.0, 1000.0);
+
+        MOTIVATION_MAX_PCT =
+                B.comment("""
+                        Motivation effect MAX percent at points = +100.
+                        Applied to the manual-farming work window length.
+                        """)
+                        .defineInRange("motivationMaxPct", 20.0, -1000.0, 1000.0);
+
+        EFFICIENCY_MIN_PCT =
+                B.comment("""
+                        Efficiency effect MIN percent at points = -100.
+                        Negative values increase the chance to consume an extra seed/bonemeal (after the normal one).
+                        Example: -100% means always consume an extra item when possible.
+                        """)
+                        .defineInRange("efficiencyMinPct", -100.0, -1000.0, 1000.0);
+
+        EFFICIENCY_MAX_PCT =
+                B.comment("""
+                        Efficiency effect MAX percent at points = +100.
+                        Positive values increase the chance to not consume a seed/bonemeal.
+                        Example: +100% means never consume the item.
+                        """)
+                        .defineInRange("efficiencyMaxPct", 100.0, -1000.0, 1000.0);
+
+        PLANT_WHISPERER_MIN_PCT =
+                B.comment("""
+                        Plant Whisperer chance delta MIN percent at points = -100.
+                        This is applied to the base chance as: chance = baseChance * (1 + deltaPct/100).
+                        Values below -50% are effectively clamped to -50%.
+                        """)
+                        .defineInRange("plantWhispererMinPct", -20.0, -1000.0, 1000.0);
+
+        PLANT_WHISPERER_MAX_PCT =
+                B.comment("""
+                        Plant Whisperer chance delta MAX percent at points = +100.
+                        """)
+                        .defineInRange("plantWhispererMaxPct", 20.0, -1000.0, 1000.0);
+
+        RANGER_MIN_PCT =
+                B.comment("""
+                        Ranger effect MIN percent at points = -100.
+                        Applied to the manual-farming range around the workstation.
+                        """)
+                        .defineInRange("rangerMinPct", -20.0, -1000.0, 1000.0);
+
+        RANGER_MAX_PCT =
+                B.comment("""
+                        Ranger effect MAX percent at points = +100.
+                        Applied to the manual-farming range around the workstation.
+                        """)
+                        .defineInRange("rangerMaxPct", 20.0, -1000.0, 1000.0);
 
         // ----------------------------
         // Combat stat bounds
@@ -481,6 +606,12 @@ public final class ServerConfig {
     public static int farmingHarvestItemsPerXp = 10;
     public static int farmingHarvestXp = 1;
 
+    public static int manualFarmBaseRange = 10;
+    public static int manualFarmWorkStartTick = 2000;
+    public static int manualFarmWorkEndTick = 9000;
+    public static int plantWhispererIntervalSeconds = 60;
+    public static double plantWhispererBaseChancePct = 50.0;
+
     public static double generosityMinPct = -20.0;
     public static double generosityMaxPct = 20.0;
 
@@ -489,6 +620,18 @@ public final class ServerConfig {
 
     public static double intellectMinPct = -20.0;
     public static double intellectMaxPct = 20.0;
+
+    public static double motivationMinPct = -20.0;
+    public static double motivationMaxPct = 20.0;
+
+    public static double efficiencyMinPct = -100.0;
+    public static double efficiencyMaxPct = 100.0;
+
+    public static double plantWhispererMinPct = -20.0;
+    public static double plantWhispererMaxPct = 20.0;
+
+    public static double rangerMinPct = -20.0;
+    public static double rangerMaxPct = 20.0;
 
     // combat bounds
     public static double vitalityMinHealth = -6.0;
@@ -563,6 +706,12 @@ public final class ServerConfig {
             farmingHarvestItemsPerXp = Math.max(1, FARMING_HARVEST_ITEMS_PER_XP.get());
             farmingHarvestXp = Math.max(0, FARMING_HARVEST_XP.get());
 
+            manualFarmBaseRange = Math.max(1, Math.min(64, MANUAL_FARM_BASE_RANGE.get()));
+            manualFarmWorkStartTick = Math.max(0, Math.min(23999, MANUAL_FARM_WORK_START_TICK.get()));
+            manualFarmWorkEndTick = Math.max(0, Math.min(23999, MANUAL_FARM_WORK_END_TICK.get()));
+            plantWhispererIntervalSeconds = Math.max(1, PLANT_WHISPERER_INTERVAL_SECONDS.get());
+            plantWhispererBaseChancePct = Math.max(0.0, Math.min(100.0, PLANT_WHISPERER_BASE_CHANCE_PCT.get()));
+
             double[] gg = normalizeMinMax(GENEROSITY_MIN_PCT.get(), GENEROSITY_MAX_PCT.get());
             generosityMinPct = gg[0];
             generosityMaxPct = gg[1];
@@ -574,6 +723,24 @@ public final class ServerConfig {
             double[] ii = normalizeMinMax(INTELLECT_MIN_PCT.get(), INTELLECT_MAX_PCT.get());
             intellectMinPct = ii[0];
             intellectMaxPct = ii[1];
+
+            double[] mm = normalizeMinMax(MOTIVATION_MIN_PCT.get(), MOTIVATION_MAX_PCT.get());
+            motivationMinPct = mm[0];
+            motivationMaxPct = mm[1];
+
+            double[] ee = normalizeMinMax(EFFICIENCY_MIN_PCT.get(), EFFICIENCY_MAX_PCT.get());
+            efficiencyMinPct = ee[0];
+            efficiencyMaxPct = ee[1];
+
+            double[] pw = normalizeMinMax(PLANT_WHISPERER_MIN_PCT.get(), PLANT_WHISPERER_MAX_PCT.get());
+            // Clamp min delta to -50% for meaningful odds reduction.
+            if (pw[0] < -50.0) pw[0] = -50.0;
+            plantWhispererMinPct = pw[0];
+            plantWhispererMaxPct = pw[1];
+
+            double[] rr = normalizeMinMax(RANGER_MIN_PCT.get(), RANGER_MAX_PCT.get());
+            rangerMinPct = rr[0];
+            rangerMaxPct = rr[1];
 
             // combat bounds (normalize each pair)
             double[] vh = normalizeMinMax(VITALITY_MIN_HEALTH.get(), VITALITY_MAX_HEALTH.get());
@@ -700,6 +867,13 @@ public final class ServerConfig {
         h = 31 * h + farmingHarvestItemsPerXp;
         h = 31 * h + farmingHarvestXp;
 
+        // manual farming baselines
+        h = 31 * h + manualFarmBaseRange;
+        h = 31 * h + manualFarmWorkStartTick;
+        h = 31 * h + manualFarmWorkEndTick;
+        h = 31 * h + plantWhispererIntervalSeconds;
+        h = 31 * h + hashD(plantWhispererBaseChancePct);
+
         h = 31 * h + hashD(generosityMinPct);
         h = 31 * h + hashD(generosityMaxPct);
 
@@ -708,6 +882,19 @@ public final class ServerConfig {
 
         h = 31 * h + hashD(intellectMinPct);
         h = 31 * h + hashD(intellectMaxPct);
+
+        // farming stat bounds
+        h = 31 * h + hashD(motivationMinPct);
+        h = 31 * h + hashD(motivationMaxPct);
+
+        h = 31 * h + hashD(efficiencyMinPct);
+        h = 31 * h + hashD(efficiencyMaxPct);
+
+        h = 31 * h + hashD(plantWhispererMinPct);
+        h = 31 * h + hashD(plantWhispererMaxPct);
+
+        h = 31 * h + hashD(rangerMinPct);
+        h = 31 * h + hashD(rangerMaxPct);
 
         // combat bounds
         h = 31 * h + hashD(vitalityMinHealth);

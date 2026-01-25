@@ -91,6 +91,12 @@ public final class VillagerInfoScreen extends Screen {
     private int strength = 0;
     private int armor    = 0;
 
+    // Farming stats
+    private int motivation = 0;
+    private int efficiency = 0;
+    private int plantWhisperer = 0;
+    private int ranger = 0;
+
     private long lastStatsQueryMs = 0L;
     private long lastAttrsQueryMs = 0L;
     private long lastHistoryQueryMs = 0L;
@@ -101,6 +107,7 @@ public final class VillagerInfoScreen extends Screen {
         OVERVIEW("Overview"),
         MERCHANT("Merchant stats"),
         COMBAT("Combat stats"),
+        FARMING("Farming stats"),
         HISTORY("History");
 
         final String label;
@@ -112,6 +119,7 @@ public final class VillagerInfoScreen extends Screen {
     private IconTabButton tabOverviewBtn;
     private IconTabButton tabMerchantBtn;
     private IconTabButton tabCombatBtn;
+    private IconTabButton tabFarmingBtn;
     private IconTabButton tabHistoryBtn;
 
     // Overview scroll + cache
@@ -182,6 +190,12 @@ public final class VillagerInfoScreen extends Screen {
     private static final int C_STRENGTH = 0xFFFF7A2F; // orange-red
     private static final int C_ARMOR    = 0xFFB0B0B0; // silver
 
+    // Farming colors
+    private static final int C_MOTIVATION     = 0xFFFFC94A; // warm yellow
+    private static final int C_EFFICIENCY     = 0xFF4AE0C1; // turquoise
+    private static final int C_PLANTWHISPERER = 0xFF69FF6E; // green
+    private static final int C_RANGER         = 0xFF6BA2FF; // blue
+
     private enum StatKind {
         // Merchant
         GENEROSITY("Generosity"),
@@ -193,13 +207,23 @@ public final class VillagerInfoScreen extends Screen {
         VITALITY("Vitality"),
         AGILITY("Agility"),
         STRENGTH("Strength"),
-        ARMOR("Armor");
+        ARMOR("Armor"),
+
+        // Farming
+        MOTIVATION("Motivation"),
+        EFFICIENCY("Efficiency"),
+        PLANT_WHISPERER("Plant Whisperer"),
+        RANGER("Ranger");
 
         final String label;
         StatKind(String label) { this.label = label; }
 
         boolean isMerchant() {
             return this == GENEROSITY || this == TIMELINESS || this == INTELLECT || this == HOARDER;
+        }
+
+        boolean isFarming() {
+            return this == MOTIVATION || this == EFFICIENCY || this == PLANT_WHISPERER || this == RANGER;
         }
     }
 
@@ -319,7 +343,7 @@ public final class VillagerInfoScreen extends Screen {
         }
 
         // Custom tab buttons centered at the bottom INSIDE the panel.
-        int groupW = TAB_BTN_SIZE * 4 + TAB_BTN_GAP * 3;
+        int groupW = TAB_BTN_SIZE * 5 + TAB_BTN_GAP * 4;
         int tabsX = left + (PANEL_W - groupW) / 2;
         int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
 
@@ -330,12 +354,16 @@ public final class VillagerInfoScreen extends Screen {
         tabCombatBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY, TAB_BTN_SIZE, "⚔",
                 Component.literal("Combat stats"), Tab.COMBAT);
 
-        tabHistoryBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY, TAB_BTN_SIZE, "\u231B",
+        tabFarmingBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY, TAB_BTN_SIZE, "✿",
+                Component.literal("Farming stats"), Tab.FARMING);
+
+        tabHistoryBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 4, tabsY, TAB_BTN_SIZE, "\u231B",
                 Component.literal("History"), Tab.HISTORY);
 
         this.addRenderableWidget(tabOverviewBtn);
         this.addRenderableWidget(tabMerchantBtn);
         this.addRenderableWidget(tabCombatBtn);
+        this.addRenderableWidget(tabFarmingBtn);
         this.addRenderableWidget(tabHistoryBtn);
 
         // Kick initial request immediately (snapshot mode does not query server)
@@ -539,6 +567,12 @@ public final class VillagerInfoScreen extends Screen {
             this.strength = VillagerStatsService.clampPoints(snap.strength());
             this.armor    = VillagerStatsService.clampPoints(snap.armor());
 
+            // Farming
+            this.motivation = VillagerStatsService.clampPoints(snap.motivation());
+            this.efficiency = VillagerStatsService.clampPoints(snap.efficiency());
+            this.plantWhisperer = VillagerStatsService.clampPoints(snap.plantWhisperer());
+            this.ranger = VillagerStatsService.clampPoints(snap.ranger());
+
             this.hasStats = true;
             this.statsUnavailable = false;
 
@@ -568,6 +602,11 @@ public final class VillagerInfoScreen extends Screen {
             this.agility  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_AGILITY));
             this.strength = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_STRENGTH));
             this.armor    = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_ARMOR));
+
+            this.motivation = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_MOTIVATION));
+            this.efficiency = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_EFFICIENCY));
+            this.plantWhisperer = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_PLANT_WHISPERER));
+            this.ranger = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
 
             this.hasStats = true;
             this.statsUnavailable = false;
@@ -751,6 +790,18 @@ public final class VillagerInfoScreen extends Screen {
 
             tooltipDrawn |= renderStatBar(gg, font, StatKind.HOARDER, this.hasStats ? this.hoarder : null,
                     barsX, barsY + stepY * 3, BAR_W, BAR_H, C_HOARDER, mouseX, mouseY, !tooltipDrawn);
+        } else if (currentTab == Tab.FARMING) {
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.MOTIVATION, this.hasStats ? this.motivation : null,
+                    barsX, barsY + stepY * 0, BAR_W, BAR_H, C_MOTIVATION, mouseX, mouseY, !tooltipDrawn);
+
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.EFFICIENCY, this.hasStats ? this.efficiency : null,
+                    barsX, barsY + stepY * 1, BAR_W, BAR_H, C_EFFICIENCY, mouseX, mouseY, !tooltipDrawn);
+
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.PLANT_WHISPERER, this.hasStats ? this.plantWhisperer : null,
+                    barsX, barsY + stepY * 2, BAR_W, BAR_H, C_PLANTWHISPERER, mouseX, mouseY, !tooltipDrawn);
+
+            tooltipDrawn |= renderStatBar(gg, font, StatKind.RANGER, this.hasStats ? this.ranger : null,
+                    barsX, barsY + stepY * 3, BAR_W, BAR_H, C_RANGER, mouseX, mouseY, !tooltipDrawn);
         } else {
             tooltipDrawn |= renderStatBar(gg, font, StatKind.VITALITY, this.hasStats ? this.vitality : null,
                     barsX, barsY + stepY * 0, BAR_W, BAR_H, C_VITALITY, mouseX, mouseY, !tooltipDrawn);
@@ -796,6 +847,8 @@ public final class VillagerInfoScreen extends Screen {
                 gg.renderTooltip(font, Component.literal("Merchant stats"), mouseX, mouseY);
             } else if (isMouseOverWidget(tabCombatBtn, mouseX, mouseY)) {
                 gg.renderTooltip(font, Component.literal("Combat stats"), mouseX, mouseY);
+            } else if (isMouseOverWidget(tabFarmingBtn, mouseX, mouseY)) {
+                gg.renderTooltip(font, Component.literal("Farming stats"), mouseX, mouseY);
             } else if (isMouseOverWidget(tabHistoryBtn, mouseX, mouseY)) {
                 gg.renderTooltip(font, Component.literal("History"), mouseX, mouseY);
             }
@@ -849,14 +902,15 @@ public final class VillagerInfoScreen extends Screen {
                 respawnBtn.setPosition(respawnX, top + PAD);
             }
 
-            int groupW = TAB_BTN_SIZE * 4 + TAB_BTN_GAP * 3;
+            int groupW = TAB_BTN_SIZE * 5 + TAB_BTN_GAP * 4;
             int tabsX = left + (PANEL_W - groupW) / 2;
             int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
 
             if (tabOverviewBtn != null) tabOverviewBtn.setPosition(tabsX, tabsY);
             if (tabMerchantBtn != null) tabMerchantBtn.setPosition(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY);
             if (tabCombatBtn != null) tabCombatBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY);
-            if (tabHistoryBtn != null) tabHistoryBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY);
+            if (tabFarmingBtn != null) tabFarmingBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY);
+            if (tabHistoryBtn != null) tabHistoryBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 4, tabsY);
         } catch (Throwable ignored) {}
     }
 
@@ -1994,6 +2048,20 @@ public final class VillagerInfoScreen extends Screen {
             return lines;
         }
 
+        if (kind.isFarming()) {
+            Double pct = pointsToPercentFromServerConfig(kind, points);
+            if (pct == null) {
+                lines.add(Component.literal("Value: " + points).withStyle(valueColor));
+            } else {
+                String effectShort = shortEffectParen(kind, pct, points);
+                lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
+            }
+
+            lines.add(Component.literal(""));
+            for (Component c : flavorLines(kind)) lines.add(c);
+            return lines;
+        }
+
         // Combat stats
         String effectShort = shortEffectParen(kind, 0.0, points);
         lines.add(Component.literal("Value: " + points + " (" + effectShort + ")").withStyle(valueColor));
@@ -2049,6 +2117,10 @@ public final class VillagerInfoScreen extends Screen {
                 if (arm == null) yield "Armor (syncing…)";
                 yield "Armor " + formatSigned1(arm);
             }
+            case MOTIVATION -> "Work window " + formatSignedPercent1(safeFinite(traitPctOrUnused));
+            case EFFICIENCY -> "Item use " + formatSignedPercent1(safeFinite(traitPctOrUnused));
+            case PLANT_WHISPERER -> "Whisperer " + formatSignedPercent1(safeFinite(traitPctOrUnused));
+            case RANGER -> "Range " + formatSignedPercent1(safeFinite(traitPctOrUnused));
         };
     }
 
@@ -2132,6 +2204,11 @@ public final class VillagerInfoScreen extends Screen {
             case AGILITY  -> List.of("Affects movement speed.", "Higher = faster, lower = slower.");
             case STRENGTH -> List.of("Affects attack damage.", "Higher = stronger, lower = weaker.");
             case ARMOR    -> List.of("Affects armor value.", "Higher = tankier, lower = squishier.");
+
+            case MOTIVATION -> List.of("Affects how long the villager farms each day.", "Higher = longer work window, lower = shorter.");
+            case EFFICIENCY -> List.of("Affects seed/bonemeal consumption.", "Higher = chance to save items, lower = chance to consume extra.");
+            case PLANT_WHISPERER -> List.of("Periodically grows nearby crops during manual farming.", "Higher = more often, lower = less often.");
+            case RANGER -> List.of("Affects the farming range around the workstation.", "Higher = larger range, lower = smaller.");
         };
 
         List<Component> out = new ArrayList<>(raw.size());
@@ -2149,6 +2226,10 @@ public final class VillagerInfoScreen extends Screen {
             case AGILITY    -> C_AGILITY;
             case STRENGTH   -> C_STRENGTH;
             case ARMOR      -> C_ARMOR;
+            case MOTIVATION -> C_MOTIVATION;
+            case EFFICIENCY -> C_EFFICIENCY;
+            case PLANT_WHISPERER -> C_PLANTWHISPERER;
+            case RANGER -> C_RANGER;
         };
         return argb & 0x00FFFFFF;
     }
@@ -2165,6 +2246,10 @@ public final class VillagerInfoScreen extends Screen {
                 case GENEROSITY -> { min = cfg.generosityMinPct; max = cfg.generosityMaxPct; }
                 case TIMELINESS -> { min = cfg.timelinessMinPct; max = cfg.timelinessMaxPct; }
                 case INTELLECT  -> { min = cfg.intellectMinPct; max = cfg.intellectMaxPct; }
+                case MOTIVATION -> { min = cfg.motivationMinPct; max = cfg.motivationMaxPct; }
+                case EFFICIENCY -> { min = cfg.efficiencyMinPct; max = cfg.efficiencyMaxPct; }
+                case PLANT_WHISPERER -> { min = cfg.plantWhispererMinPct; max = cfg.plantWhispererMaxPct; }
+                case RANGER -> { min = cfg.rangerMinPct; max = cfg.rangerMaxPct; }
                 default -> { return null; }
             }
 

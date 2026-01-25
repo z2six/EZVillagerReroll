@@ -40,6 +40,32 @@ public final class VillagerTraitEffects {
         return pointsToPct(pts, ServerConfig.intellectMinPct, ServerConfig.intellectMaxPct);
     }
 
+    // Farming stats
+    public static double motivationPct(Villager vill) {
+        int pts = getPointsSafe(vill, VillagerStatsService.K_MOTIVATION);
+        return pointsToPct(pts, ServerConfig.motivationMinPct, ServerConfig.motivationMaxPct);
+    }
+
+    /**
+     * Efficiency delta percent.
+     * Positive => chance to save a seed/bonemeal.
+     * Negative => chance to consume an extra seed/bonemeal.
+     */
+    public static double efficiencyPct(Villager vill) {
+        int pts = getPointsSafe(vill, VillagerStatsService.K_EFFICIENCY);
+        return pointsToPct(pts, ServerConfig.efficiencyMinPct, ServerConfig.efficiencyMaxPct);
+    }
+
+    public static double plantWhispererPct(Villager vill) {
+        int pts = getPointsSafe(vill, VillagerStatsService.K_PLANT_WHISPERER);
+        return pointsToPct(pts, ServerConfig.plantWhispererMinPct, ServerConfig.plantWhispererMaxPct);
+    }
+
+    public static double rangerPct(Villager vill) {
+        int pts = getPointsSafe(vill, VillagerStatsService.K_RANGER);
+        return pointsToPct(pts, ServerConfig.rangerMinPct, ServerConfig.rangerMaxPct);
+    }
+
     // -----------------------------------------------------------------------------------------
     // Public API: apply effects
     // -----------------------------------------------------------------------------------------

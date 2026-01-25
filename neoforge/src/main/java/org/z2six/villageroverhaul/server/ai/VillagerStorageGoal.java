@@ -93,6 +93,9 @@ public final class VillagerStorageGoal extends Goal {
             String curDim = "";
             try { curDim = String.valueOf(sl.dimension().location()); } catch (Throwable ignored) { curDim = ""; }
 
+            // Storage rules require a workstation so the villager has a defined farming area.
+            if (FarmingSettingsService.getEffectiveWorkstation(sl, vill) == null) return false;
+
             // Prefer WITHDRAW if it triggers; otherwise DEPOSIT.
             if (tryTriggerWithdraw(sl, curDim, settings)) return true;
             if (tryTriggerDeposit(sl, curDim, settings)) return true;
@@ -114,6 +117,10 @@ public final class VillagerStorageGoal extends Goal {
             if (dim == null || dim.isBlank()) return false;
             if (!dim.equals(curDim)) return false;
 
+            // Enforce chest within the villager's farming area.
+            BlockPos chestPos = new BlockPos(chest.x(), chest.y(), chest.z());
+            if (!FarmingSettingsService.isWithinManualFarmingArea(sl, vill, chestPos, settings.manualRangeCircular)) return false;
+
             Container inv = getVillagerInventory();
             if (inv == null) return false;
 
@@ -132,7 +139,7 @@ public final class VillagerStorageGoal extends Goal {
                     action = Action.DEPOSIT;
                     targetDim = dim;
                     targetIsEnder = chest.isEnderChest();
-                    targetPos = new BlockPos(chest.x(), chest.y(), chest.z());
+                    targetPos = chestPos;
                     return true;
                 }
             }
@@ -158,6 +165,14 @@ public final class VillagerStorageGoal extends Goal {
             targetDim = dim;
             targetIsEnder = chest.isEnderChest();
             targetPos = new BlockPos(chest.x(), chest.y(), chest.z());
+
+            // Enforce chest within the villager's farming area.
+            if (!FarmingSettingsService.isWithinManualFarmingArea(sl, vill, targetPos, settings.manualRangeCircular)) {
+                targetPos = null;
+                targetDim = "";
+                targetIsEnder = false;
+                return false;
+            }
 
             Container chestInv = resolveTargetContainer(sl);
             if (chestInv == null) return false;

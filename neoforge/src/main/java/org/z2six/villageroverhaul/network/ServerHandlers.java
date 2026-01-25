@@ -28,6 +28,7 @@ import org.z2six.villageroverhaul.network.autoReroll.*;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
@@ -855,6 +856,25 @@ public final class ServerHandlers {
 
             boolean enable = msg.enabled();
             if (enable) {
+                // Eligibility gate: manual farming requires a workstation + Farmer profession.
+                boolean ok = true;
+                try {
+                    if (vill.getVillagerData() == null || vill.getVillagerData().getProfession() != net.minecraft.world.entity.npc.VillagerProfession.FARMER) ok = false;
+                } catch (Throwable ignored) {
+                    ok = false;
+                }
+                try {
+                    if (ok && sp.serverLevel() != null && FarmingSettingsService.getEffectiveWorkstation(sp.serverLevel(), vill) == null) ok = false;
+                } catch (Throwable ignored) {
+                    ok = false;
+                }
+
+                if (!ok) {
+                    try { ctx.reply(new PacketFarmingOverlayText("Manual farming requires Farmer + workstation", 3200)); } catch (Throwable ignored) {}
+                    ctx.reply(new PacketVillagerManualFarmingModeData(vill.getId(), false));
+                    return;
+                }
+
                 // Remember previous movement mode and temporarily clear movement behavior/highlight.
                 VillagerBrain.rememberPrevModeForManualFarming(vill);
                 VillagerBrain.setMode(vill, VillagerBrain.Mode.NEUTRAL);
@@ -1342,7 +1362,13 @@ public final class ServerHandlers {
             }
 
             var settings = FarmingSettingsService.getSettings(vill);
-            try { settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill); } catch (Throwable ignored) {}
+            try {
+                if (vill.level() instanceof ServerLevel sl) {
+                    settings.manualWorkstationRegistered = (FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null);
+                } else {
+                    settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
+                }
+            } catch (Throwable ignored) {}
             ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleFarmingSettingsQuery failed", t);
@@ -1389,7 +1415,13 @@ public final class ServerHandlers {
             } catch (Throwable ignored) {}
 
             // Derived / server-owned
-            try { settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill); } catch (Throwable ignored) {}
+            try {
+                if (vill.level() instanceof ServerLevel sl) {
+                    settings.manualWorkstationRegistered = (FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null);
+                } else {
+                    settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
+                }
+            } catch (Throwable ignored) {}
             FarmingSettingsService.setSettings(vill, settings);
 
             ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
@@ -1407,6 +1439,10 @@ public final class ServerHandlers {
             if (vill == null) return;
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager is not recruited", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
 
             var pos = msg.pos();
             var level = sp.serverLevel();
@@ -1426,7 +1462,23 @@ public final class ServerHandlers {
                 isEnder = false;
             }
 
-            if (!isChest) return;
+            if (!isChest) {
+                try { ctx.reply(new PacketFarmingOverlayText("Not a chest", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
+
+            // Must have a workstation to define a farming area.
+            if (FarmingSettingsService.getEffectiveWorkstation(level, vill) == null) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager has no workstation", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
+
+            var settings = FarmingSettingsService.getSettings(vill);
+            boolean circular = settings != null && settings.manualRangeCircular;
+            if (!FarmingSettingsService.isWithinManualFarmingArea(level, vill, pos, circular)) {
+                try { ctx.reply(new PacketFarmingOverlayText("Chest is not within villager range", 2600)); } catch (Throwable ignored) {}
+                return;
+            }
 
             String dim = "";
             try {
@@ -1436,6 +1488,7 @@ public final class ServerHandlers {
             }
 
             FarmingSettingsService.setRegisteredChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
+            try { ctx.reply(new PacketFarmingOverlayText("Deposit chest registered", 2200)); } catch (Throwable ignored) {}
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterFarmingChest failed", t);
         }
@@ -1450,6 +1503,10 @@ public final class ServerHandlers {
             if (vill == null) return;
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager is not recruited", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
 
             var pos = msg.pos();
             var level = sp.serverLevel();
@@ -1469,7 +1526,23 @@ public final class ServerHandlers {
                 isEnder = false;
             }
 
-            if (!isChest) return;
+            if (!isChest) {
+                try { ctx.reply(new PacketFarmingOverlayText("Not a chest", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
+
+            // Must have a workstation to define a farming area.
+            if (FarmingSettingsService.getEffectiveWorkstation(level, vill) == null) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager has no workstation", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
+
+            var settings = FarmingSettingsService.getSettings(vill);
+            boolean circular = settings != null && settings.manualRangeCircular;
+            if (!FarmingSettingsService.isWithinManualFarmingArea(level, vill, pos, circular)) {
+                try { ctx.reply(new PacketFarmingOverlayText("Chest is not within villager range", 2600)); } catch (Throwable ignored) {}
+                return;
+            }
 
             String dim = "";
             try {
@@ -1479,6 +1552,7 @@ public final class ServerHandlers {
             }
 
             FarmingSettingsService.setRegisteredWithdrawChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
+            try { ctx.reply(new PacketFarmingOverlayText("Withdraw chest registered", 2200)); } catch (Throwable ignored) {}
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterFarmingWithdrawChest failed", t);
         }
@@ -1493,6 +1567,10 @@ public final class ServerHandlers {
             if (vill == null) return;
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager is not recruited", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
 
             var pos = msg.pos();
             var level = sp.serverLevel();
@@ -1507,6 +1585,7 @@ public final class ServerHandlers {
                 settings.manualWorkstationRegistered = true;
                 ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
             } catch (Throwable ignored) {}
+            try { ctx.reply(new PacketFarmingOverlayText("Workstation registered", 2200)); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}
     }
 

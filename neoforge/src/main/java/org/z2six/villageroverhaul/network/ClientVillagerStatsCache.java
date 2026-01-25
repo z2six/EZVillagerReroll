@@ -35,10 +35,11 @@ public final class ClientVillagerStatsCache {
             MAP.put(data.villagerEntityId(), new Entry(data, System.currentTimeMillis()));
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] ClientVillagerStatsCache.accept: entityId={} ok={} g={} t={} i={} h={} vit={} agi={} str={} arm={}",
+                    "[VillagerOverhaul] ClientVillagerStatsCache.accept: entityId={} ok={} g={} t={} i={} h={} vit={} agi={} str={} arm={} mot={} eff={} pw={} rng={}",
                     data.villagerEntityId(), data.ok(),
                     data.generosity(), data.timeliness(), data.intellect(), data.hoarder(),
-                    data.vitality(), data.agility(), data.strength(), data.armor()
+                    data.vitality(), data.agility(), data.strength(), data.armor(),
+                    data.motivation(), data.efficiency(), data.plantWhisperer(), data.ranger()
             );
         } catch (Throwable t) {
             // soft

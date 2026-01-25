@@ -3,9 +3,15 @@ package org.z2six.villageroverhaul.server;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.npc.Villager;
+import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.farming.FarmingSettings;
+import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -165,6 +171,92 @@ public final class FarmingSettingsService {
             return new RegisteredWorkstation(dim, root.getInt(K_MX), root.getInt(K_MY), root.getInt(K_MZ));
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    /**
+     * Returns the effective workstation for manual farming:
+     * - If the player registered one via our UI, use that.
+     * - Otherwise fall back to the villager's vanilla JOB_SITE memory (job site block).
+     *
+     * Returns null if none exists or if it's not in the given level dimension.
+     */
+    public static RegisteredWorkstation getEffectiveWorkstation(ServerLevel level, Villager vill) {
+        try {
+            if (level == null || vill == null) return null;
+
+            String dim = "";
+            try { dim = String.valueOf(level.dimension().location()); } catch (Throwable ignored) { dim = ""; }
+
+            // Prefer explicit registered workstation (same-dim only)
+            RegisteredWorkstation reg = getRegisteredWorkstation(vill);
+            if (reg != null && reg.dimId() != null && !reg.dimId().isBlank() && reg.dimId().equals(dim)) {
+                return reg;
+            }
+
+            // Fall back to vanilla job site (brain memory)
+            try {
+                var brain = vill.getBrain();
+                if (brain != null && brain.hasMemoryValue(MemoryModuleType.JOB_SITE)) {
+                    var opt = brain.getMemory(MemoryModuleType.JOB_SITE);
+                    if (opt != null && opt.isPresent()) {
+                        GlobalPos gp = opt.get();
+                        if (gp != null && gp.dimension() != null && gp.pos() != null) {
+                            String d2 = "";
+                            try { d2 = String.valueOf(gp.dimension().location()); } catch (Throwable ignored) { d2 = ""; }
+                            if (d2.equals(dim)) {
+                                BlockPos p = gp.pos();
+                                return new RegisteredWorkstation(dim, p.getX(), p.getY(), p.getZ());
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static int getEffectiveManualFarmingRange(Villager vill) {
+        try {
+            int base = Math.max(1, Math.min(64, ServerConfig.manualFarmBaseRange));
+            double pct = 0.0;
+            try { pct = VillagerTraitEffects.rangerPct(vill); } catch (Throwable ignored) { pct = 0.0; }
+            double mult = 1.0 + (pct / 100.0);
+            if (Double.isNaN(mult) || Double.isInfinite(mult)) mult = 1.0;
+            if (mult < 0.0) mult = 0.0;
+            long out = Math.round(base * mult);
+            if (out < 1L) out = 1L;
+            if (out > 64L) out = 64L;
+            return (int) out;
+        } catch (Throwable ignored) {
+            return Math.max(1, Math.min(64, ServerConfig.manualFarmBaseRange));
+        }
+    }
+
+    public static boolean isWithinManualFarmingArea(ServerLevel level, Villager vill, BlockPos pos, boolean circular) {
+        try {
+            if (level == null || vill == null || pos == null) return false;
+            RegisteredWorkstation ws = getEffectiveWorkstation(level, vill);
+            if (ws == null) return false;
+            int r = getEffectiveManualFarmingRange(vill);
+
+            int dx = pos.getX() - ws.x();
+            int dz = pos.getZ() - ws.z();
+
+            if (circular) {
+                long dist2 = (long) dx * dx + (long) dz * dz;
+                long rr = (long) r * r;
+                return dist2 <= rr;
+            } else {
+                int adx = Math.abs(dx);
+                int adz = Math.abs(dz);
+                return adx <= r && adz <= r;
+            }
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 

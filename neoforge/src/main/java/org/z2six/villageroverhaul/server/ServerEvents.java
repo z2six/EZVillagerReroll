@@ -286,8 +286,13 @@ public final class ServerEvents {
             int str = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_STRENGTH));
             int arm = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_ARMOR));
 
+            int mot = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_MOTIVATION));
+            int eff = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_EFFICIENCY));
+            int pw  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_PLANT_WHISPERER));
+            int rng = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
+
             sp.connection.send(new ClientboundCustomPayloadPacket(
-                    new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm)
+                    new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng)
             ));
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] Sent villager stats snapshot to {} for entityId={} uuid={}",

@@ -16,6 +16,7 @@ import org.z2six.villageroverhaul.network.autoReroll.*;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
@@ -185,6 +186,8 @@ public final class Network {
             // farming settings UI data
             r.playToClient(PacketFarmingSettingsData.TYPE, PacketFarmingSettingsData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onFarmingSettingsData", msg, ctx));
+            r.playToClient(PacketFarmingOverlayText.TYPE, PacketFarmingOverlayText.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onFarmingOverlayText", msg, ctx));
 
             // auto-search completion notification
             r.playToClient(PacketAutoSearchDone.TYPE, PacketAutoSearchDone.STREAM_CODEC,
@@ -694,7 +697,12 @@ public final class Network {
                 int str = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_STRENGTH));
                 int arm = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_ARMOR));
 
-                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm));
+                int mot = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_MOTIVATION));
+                int eff = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_EFFICIENCY));
+                int pw  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_PLANT_WHISPERER));
+                int rng = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
+
+                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng));
 
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerStatsQuery handler error", t);

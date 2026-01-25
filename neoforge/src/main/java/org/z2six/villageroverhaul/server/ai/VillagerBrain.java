@@ -15,6 +15,7 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.Brain;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
@@ -24,6 +25,7 @@ import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+import org.z2six.villageroverhaul.server.FarmingSettingsService;
 import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.lang.reflect.Method;
@@ -1176,11 +1178,34 @@ public final class VillagerBrain {
             if (!RecruitService.isRecruited(vill)) return true;
             if (isUiPaused(vill)) return false;
             if (isStorageActive(vill)) return false;
-            if (isManualFarmingActive(vill)) return false;
+            if (isManualFarmingControlling(vill)) return false;
             if (getMode(vill) != Mode.NEUTRAL) return false;
             return !isCombatEngaged(vill);
         } catch (Throwable t) {
             return true;
+        }
+    }
+
+    /**
+     * Manual farming replaces vanilla brain ticking only when it is eligible to perform work.
+     * This prevents villagers from becoming "frozen" if manual farming is enabled but the villager
+     * has no workstation or is not a Farmer.
+     */
+    public static boolean isManualFarmingControlling(Villager vill) {
+        try {
+            if (vill == null) return false;
+            if (!isManualFarmingActive(vill)) return false;
+            if (!(vill.level() instanceof ServerLevel sl)) return false;
+
+            try {
+                if (vill.getVillagerData() == null || vill.getVillagerData().getProfession() != VillagerProfession.FARMER) return false;
+            } catch (Throwable ignored) {
+                return false;
+            }
+
+            return FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null;
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
