@@ -1,0 +1,49 @@
+site_name: Villager Overhaul
+site_description: Merchant, Guard, and Farmer improvements for NeoForge 1.21.1+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+  palette:
+    - scheme: slate
+      primary: green
+      accent: light green
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Merchants:
+      - Overview: merchants/index.md
+      - Rerolling & Locking: merchants/rerolling.md
+      - Auto-Search: merchants/auto_search.md
+      - Auto-Trade: merchants/auto_trade.md
+      - Merchant Stats: merchants/stats.md
+  - Guards:
+      - Overview: guards/index.md
+      - Modes & Commands: guards/modes.md
+      - Loadouts & Equipment: guards/loadouts.md
+      - Combat Stats: guards/stats.md
+  - Farmers:
+      - Overview: farmers/index.md
+      - Logistics (Chests): farmers/logistics.md
+      - Manual Farming: farmers/manual_farming.md
+      - Farming Stats: farmers/stats.md
+  - General:
+      - Recruiting & Ownership: general/recruiting.md
+      - Respawning: general/respawning.md
+      - Keybinds & Commands: general/commands.md
+      - Server Config: general/config.md
+      - FAQ: general/faq.md
+
