@@ -17,4 +17,15 @@ public interface VillagerOverhaulSwingAccess {
     int ezvr$getSwingSeq();
 
     void ezvr$setSwingSeq(int seq);
+
+    /**
+     * Which hand triggered the last swing sequence increment.
+     *
+     * Values:
+     * - 0 = main hand
+     * - 1 = off hand
+     */
+    byte ezvr$getSwingHand();
+
+    void ezvr$setSwingHand(byte hand);
 }

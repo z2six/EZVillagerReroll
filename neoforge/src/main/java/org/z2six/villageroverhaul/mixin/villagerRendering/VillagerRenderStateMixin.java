@@ -35,6 +35,10 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
             SynchedEntityData.defineId(Villager.class, EntityDataSerializers.INT);
 
     @Unique
+    private static final EntityDataAccessor<Byte> EZVR_SWING_HAND =
+            SynchedEntityData.defineId(Villager.class, EntityDataSerializers.BYTE);
+
+    @Unique
     private static final EntityDataAccessor<ItemStack> EZVR_COMBAT_LOADOUT_MAIN =
             SynchedEntityData.defineId(Villager.class, EntityDataSerializers.ITEM_STACK);
 
@@ -49,6 +53,7 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
 
             builder.define(EZVR_RENDER_FLAGS, VillagerRenderFlags.defaultFlags());
             builder.define(EZVR_SWING_SEQ, 0);
+            builder.define(EZVR_SWING_HAND, (byte) 0);
             builder.define(EZVR_COMBAT_LOADOUT_MAIN, ItemStack.EMPTY);
             builder.define(EZVR_COMBAT_LOADOUT_OFF, ItemStack.EMPTY);
 
@@ -165,6 +170,27 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
             Villager self = (Villager) (Object) this;
             if (self.getEntityData() == null) return;
             self.getEntityData().set(EZVR_SWING_SEQ, seq);
+        } catch (Throwable ignored) {}
+    }
+
+    @Override
+    public byte ezvr$getSwingHand() {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return (byte) 0;
+            Byte b = self.getEntityData().get(EZVR_SWING_HAND);
+            return b == null ? (byte) 0 : b;
+        } catch (Throwable ignored) {
+            return (byte) 0;
+        }
+    }
+
+    @Override
+    public void ezvr$setSwingHand(byte hand) {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return;
+            self.getEntityData().set(EZVR_SWING_HAND, hand);
         } catch (Throwable ignored) {}
     }
 }

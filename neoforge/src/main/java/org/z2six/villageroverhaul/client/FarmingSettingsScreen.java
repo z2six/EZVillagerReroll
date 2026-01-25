@@ -206,7 +206,7 @@ public final class FarmingSettingsScreen extends Screen {
 
         btnRangeShapeToggle = Button.builder(Component.literal("Circular"), b -> toggleRangeShape())
                 .pos(labelX + 178, row4Y)
-                .size(117, 18)
+                .size(118, 18)
                 .build();
         btnRangeShapeToggle.setTooltip(Tooltip.create(Component.literal("Work area shape around the workstation.\nRange size is server-defined and modified by the villager's Ranger stat.")));
         addRenderableWidget(btnRangeShapeToggle);

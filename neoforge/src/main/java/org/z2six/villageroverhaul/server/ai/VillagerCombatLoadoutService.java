@@ -67,6 +67,154 @@ public final class VillagerCombatLoadoutService {
 
     private VillagerCombatLoadoutService() {}
 
+    public static void enforceNow(Villager vill, String reason) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (isMenuOpen(vill)) {
+                try {
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=enforceNow_skip_menu_open reason={}",
+                            vill.getUUID(), safe(reason));
+                } catch (Throwable ignored) {}
+                return;
+            }
+            track(vill);
+            enforce(vill, reason == null ? "manual" : reason);
+        } catch (Throwable ignored) {}
+    }
+
+    public static ItemStack getDesiredMain(Villager vill) {
+        try {
+            if (vill == null) return ItemStack.EMPTY;
+            if (vill.level() == null || vill.level().isClientSide()) return ItemStack.EMPTY;
+
+            ensureIdsExist(vill);
+            HolderLookup.Provider lookup = safeLookup(vill);
+            if (lookup == null) return ItemStack.EMPTY;
+
+            CompoundTag root = getOrCreate(vill);
+            ItemStack guiMain = readStack(root, K_GUI_MAIN, lookup);
+            ItemStack eqMain = readStack(root, K_EQ_MAIN, lookup);
+            ItemStack desired = (guiMain != null && !guiMain.isEmpty()) ? guiMain : eqMain;
+            if (desired == null) desired = ItemStack.EMPTY;
+
+            if (desired.isEmpty()) return ItemStack.EMPTY;
+            ItemStack out = desired.copy();
+            if (out.getCount() > 1) out.setCount(1);
+            return out;
+        } catch (Throwable ignored) {
+            return ItemStack.EMPTY;
+        }
+    }
+
+    public static ItemStack getDesiredOff(Villager vill) {
+        try {
+            if (vill == null) return ItemStack.EMPTY;
+            if (vill.level() == null || vill.level().isClientSide()) return ItemStack.EMPTY;
+
+            ensureIdsExist(vill);
+            HolderLookup.Provider lookup = safeLookup(vill);
+            if (lookup == null) return ItemStack.EMPTY;
+
+            CompoundTag root = getOrCreate(vill);
+            ItemStack guiOff = readStack(root, K_GUI_OFF, lookup);
+            ItemStack eqOff = readStack(root, K_EQ_OFF, lookup);
+            ItemStack desired = (guiOff != null && !guiOff.isEmpty()) ? guiOff : eqOff;
+            if (desired == null) desired = ItemStack.EMPTY;
+
+            if (desired.isEmpty()) return ItemStack.EMPTY;
+            ItemStack out = desired.copy();
+            if (out.getCount() > 1) out.setCount(1);
+            return out;
+        } catch (Throwable ignored) {
+            return ItemStack.EMPTY;
+        }
+    }
+
+    public static boolean isOffhandRegistered(Villager vill) {
+        try {
+            return !getDesiredOff(vill).isEmpty();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Stashes a single-item stack into the player-visible offhand loadout slot if and only if the player has not
+     * registered an offhand loadout item yet.
+     *
+     * <p>This is used by manual farming to temporarily clear the real offhand for a seed visual.</p>
+     */
+    public static boolean tryStowInUnregisteredGuiOffhand(Villager vill, ItemStack stack, String reason) {
+        try {
+            if (vill == null) return false;
+            if (vill.level() == null || vill.level().isClientSide()) return false;
+            if (stack == null || stack.isEmpty()) return true;
+            if (stack.getCount() != 1) return false;
+
+            ensureIdsExist(vill);
+            HolderLookup.Provider lookup = safeLookup(vill);
+            if (lookup == null) return false;
+
+            CompoundTag root = getOrCreate(vill);
+            ItemStack guiOff = readStack(root, K_GUI_OFF, lookup);
+            ItemStack eqOff = readStack(root, K_EQ_OFF, lookup);
+            boolean registered = (guiOff != null && !guiOff.isEmpty()) || (eqOff != null && !eqOff.isEmpty());
+            if (registered) return false;
+
+            UUID offId = root.getUUID(K_ID_OFF);
+            ItemStack one = stack.copy();
+            if (!one.isEmpty() && one.getCount() > 1) one.setCount(1);
+            stamp(one, offId, SLOT_OFF);
+            writeStack(root, K_GUI_OFF, one, lookup);
+
+            track(vill);
+            try {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=stow_to_gui_off why={} item={}",
+                        vill.getUUID(), safe(reason), safeItem(one));
+            } catch (Throwable ignored) {}
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static void updateDesiredMainFromHandIfPresent(Villager vill, ItemStack currentMain, String reason) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (currentMain == null || currentMain.isEmpty()) return;
+
+            ensureIdsExist(vill);
+            HolderLookup.Provider lookup = safeLookup(vill);
+            if (lookup == null) return;
+
+            CompoundTag root = getOrCreate(vill);
+            ItemStack guiMain = readStack(root, K_GUI_MAIN, lookup);
+            ItemStack eqMain = readStack(root, K_EQ_MAIN, lookup);
+            boolean hasGui = guiMain != null && !guiMain.isEmpty();
+            boolean hasEq = eqMain != null && !eqMain.isEmpty();
+            if (!hasGui && !hasEq) return;
+
+            UUID mainId = root.getUUID(K_ID_MAIN);
+            ItemStack upd = currentMain.copy();
+            if (!upd.isEmpty() && upd.getCount() > 1) upd.setCount(1);
+            stamp(upd, mainId, SLOT_MAIN);
+
+            if (hasGui) {
+                writeStack(root, K_GUI_MAIN, upd, lookup);
+            } else {
+                writeStack(root, K_EQ_MAIN, upd, lookup);
+            }
+
+            track(vill);
+            try {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=update_main_from_hand why={} item={}",
+                        vill.getUUID(), safe(reason), safeItem(upd));
+            } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
     public static void track(Villager vill) {
         try {
             if (vill == null) return;
@@ -232,8 +380,11 @@ public final class VillagerCombatLoadoutService {
             //
             // Rules:
             // - Always equip while patrolling.
+            // - Equip while in Manual Farming (mainhand only; offhand handled separately).
             // - Equip while combat engaged, but only for DEFEND/AGGRESSIVE (never for FLEE).
             if (VillagerBrain.getMode(vill) == VillagerBrain.Mode.PATROL) return true;
+
+            if (VillagerBrain.isManualFarmingControlling(vill)) return true;
 
             if (!VillagerBrain.isCombatEngaged(vill)) return false;
 
@@ -249,28 +400,77 @@ public final class VillagerCombatLoadoutService {
             UUID mainId = root.getUUID(K_ID_MAIN);
             UUID offId = root.getUUID(K_ID_OFF);
 
+            boolean manualFarmOnly = false;
+            try {
+                manualFarmOnly = VillagerBrain.isManualFarmingControlling(vill)
+                        && !VillagerBrain.isCombatEngaged(vill)
+                        && VillagerBrain.getMode(vill) != VillagerBrain.Mode.PATROL;
+            } catch (Throwable ignored) { manualFarmOnly = false; }
+
             // If we are active and have GUI loadout items (e.g. just closed the menu),
             // promote GUI -> EQ (canonical) and clear GUI.
+            // While active, GUI is considered transient player UI state; EQ is canonical storage.
             ItemStack eqMain = readStack(root, K_EQ_MAIN, lookup);
             ItemStack guiMain = readStack(root, K_GUI_MAIN, lookup);
-            if ((eqMain == null || eqMain.isEmpty()) && guiMain != null && !guiMain.isEmpty()) {
+            if (guiMain != null && !guiMain.isEmpty()) {
                 stamp(guiMain, mainId, SLOT_MAIN);
+
+                if (eqMain != null && !eqMain.isEmpty() && !ItemStack.isSameItemSameComponents(eqMain, guiMain)) {
+                    storeOrDrop(vill, eqMain, "active_main_gui_override");
+                }
+
                 writeStack(root, K_EQ_MAIN, guiMain, lookup);
                 writeStack(root, K_GUI_MAIN, ItemStack.EMPTY, lookup);
                 eqMain = guiMain;
+            } else if (safe(reason).equals("menu_close")) {
+                // If the player cleared the GUI slot while active, treat that as clearing the registered loadout.
+                if (eqMain != null && !eqMain.isEmpty()) {
+                    ItemStack curMain = vill.getMainHandItem();
+                    boolean clearHand = false;
+                    try { clearHand = curMain != null && !curMain.isEmpty() && isStamped(curMain, mainId, SLOT_MAIN); } catch (Throwable ignored) { clearHand = false; }
+                    if (clearHand) {
+                        try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.MAINHAND, ItemStack.EMPTY, "loadout_menu_clear_main"); } catch (Throwable ignored) {}
+                        vill.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+                    }
+                    writeStack(root, K_EQ_MAIN, ItemStack.EMPTY, lookup);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=menu_clear_main", vill.getUUID());
+                    eqMain = ItemStack.EMPTY;
+                }
             }
 
             ItemStack eqOff = readStack(root, K_EQ_OFF, lookup);
             ItemStack guiOff = readStack(root, K_GUI_OFF, lookup);
-            if ((eqOff == null || eqOff.isEmpty()) && guiOff != null && !guiOff.isEmpty()) {
+            // During manual farming, the real offhand is reserved for temporary visuals, so don't promote GUI->EQ for offhand.
+            if (!manualFarmOnly && guiOff != null && !guiOff.isEmpty()) {
                 stamp(guiOff, offId, SLOT_OFF);
+
+                if (eqOff != null && !eqOff.isEmpty() && !ItemStack.isSameItemSameComponents(eqOff, guiOff)) {
+                    storeOrDrop(vill, eqOff, "active_off_gui_override");
+                }
+
                 writeStack(root, K_EQ_OFF, guiOff, lookup);
                 writeStack(root, K_GUI_OFF, ItemStack.EMPTY, lookup);
                 eqOff = guiOff;
+            } else if (!manualFarmOnly && safe(reason).equals("menu_close")) {
+                // Same idea for offhand: allow player to clear registered offhand loadout while active.
+                if (eqOff != null && !eqOff.isEmpty()) {
+                    ItemStack curOff = vill.getOffhandItem();
+                    boolean clearHand = false;
+                    try { clearHand = curOff != null && !curOff.isEmpty() && isStamped(curOff, offId, SLOT_OFF); } catch (Throwable ignored) { clearHand = false; }
+                    if (clearHand) {
+                        try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.OFFHAND, ItemStack.EMPTY, "loadout_menu_clear_off"); } catch (Throwable ignored) {}
+                        vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);
+                    }
+                    writeStack(root, K_EQ_OFF, ItemStack.EMPTY, lookup);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=menu_clear_off", vill.getUUID());
+                    eqOff = ItemStack.EMPTY;
+                }
             }
 
             ItemStack curMain = vill.getMainHandItem();
             ItemStack curOff = vill.getOffhandItem();
+
+            boolean manualFarm = manualFarmOnly;
 
             // MAINHAND: self-heal if the hand doesn't match the equipped loadout.
             boolean skipMain = false;
@@ -287,6 +487,7 @@ public final class VillagerCombatLoadoutService {
                     ItemStack toEquip = eqMain.copy();
                     if (!toEquip.isEmpty()) toEquip.setCount(1);
                     stamp(toEquip, mainId, SLOT_MAIN);
+                    try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.MAINHAND, toEquip, "loadout_active_equip_main"); } catch (Throwable ignored) {}
                     vill.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, toEquip);
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_equip_main reason={}", vill.getUUID(), safe(reason));
                 } else if (isStamped(curMain, mainId, SLOT_MAIN)) {
@@ -312,6 +513,7 @@ public final class VillagerCombatLoadoutService {
                         ItemStack toEquip = eqMain.copy();
                         if (!toEquip.isEmpty()) toEquip.setCount(1);
                         stamp(toEquip, mainId, SLOT_MAIN);
+                        try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.MAINHAND, toEquip, "loadout_active_equip_main_displace"); } catch (Throwable ignored) {}
                         vill.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, toEquip);
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_equip_main reason={}", vill.getUUID(), safe(reason));
                     }
@@ -319,7 +521,8 @@ public final class VillagerCombatLoadoutService {
             }
 
             // OFFHAND: self-heal if the hand doesn't match the equipped loadout.
-            if (eqOff != null && !eqOff.isEmpty()) {
+            // Manual farming needs the real offhand to be free for seed/bonemeal visuals; never auto-equip the offhand loadout there.
+            if (!manualFarm && eqOff != null && !eqOff.isEmpty()) {
                 if (curOff == null) curOff = ItemStack.EMPTY;
 
                 if (curOff.isEmpty()) {
@@ -338,6 +541,7 @@ public final class VillagerCombatLoadoutService {
                     ItemStack toEquip = eqOff.copy();
                     if (!toEquip.isEmpty()) toEquip.setCount(1);
                     stamp(toEquip, offId, SLOT_OFF);
+                    try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.OFFHAND, toEquip, "loadout_active_equip_off"); } catch (Throwable ignored) {}
                     vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, toEquip);
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_equip_off reason={}", vill.getUUID(), safe(reason));
                 } else if (isStamped(curOff, offId, SLOT_OFF)) {
@@ -360,6 +564,7 @@ public final class VillagerCombatLoadoutService {
                         ItemStack toEquip = eqOff.copy();
                         if (!toEquip.isEmpty()) toEquip.setCount(1);
                         stamp(toEquip, offId, SLOT_OFF);
+                        try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.OFFHAND, toEquip, "loadout_active_equip_off_displace"); } catch (Throwable ignored) {}
                         vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, toEquip);
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=active_equip_off reason={}", vill.getUUID(), safe(reason));
                     }
@@ -752,6 +957,14 @@ public final class VillagerCombatLoadoutService {
             ItemStack cur = (hand == net.minecraft.world.InteractionHand.MAIN_HAND) ? vill.getMainHandItem() : vill.getOffhandItem();
             if (cur != null && !cur.isEmpty()) return;
 
+            try {
+                VillagerBrain.notifyManualHandSet(
+                        vill,
+                        (hand == net.minecraft.world.InteractionHand.MAIN_HAND) ? net.minecraft.world.entity.EquipmentSlot.MAINHAND : net.minecraft.world.entity.EquipmentSlot.OFFHAND,
+                        stashed,
+                        "loadout_restore_stash"
+                );
+            } catch (Throwable ignored) {}
             vill.setItemInHand(hand, stashed);
             writeStack(root, stashKey, ItemStack.EMPTY, lookup);
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=restore why={}", vill.getUUID(), safe(why));

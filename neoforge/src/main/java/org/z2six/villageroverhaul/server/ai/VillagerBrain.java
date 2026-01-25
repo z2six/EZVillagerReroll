@@ -108,6 +108,10 @@ public final class VillagerBrain {
     // Stored in ezvr_brain root.
     private static final String K_ALLOW_CLEAR_MAIN_UNTIL = "allow_clear_main_until";
     private static final String K_ALLOW_CLEAR_OFF_UNTIL  = "allow_clear_off_until";
+    private static final String K_ALLOW_SET_MAIN_UNTIL = "allow_set_main_until";
+    private static final String K_ALLOW_SET_OFF_UNTIL  = "allow_set_off_until";
+    private static final String K_ALLOW_SET_MAIN_ITEM  = "allow_set_main_item";
+    private static final String K_ALLOW_SET_OFF_ITEM   = "allow_set_off_item";
 
     public enum Mode {
         NEUTRAL("neutral"),
@@ -380,6 +384,8 @@ public final class VillagerBrain {
             if (newStack == null || newStack.isEmpty()) {
                 allowClearFor(sl, vill, hand, 5);
             } else {
+                // Allow ONLY this specific non-empty set for a very short window.
+                allowSetFor(sl, vill, hand, newStack, 1);
                 clearAllowClearMarker(vill, hand);
             }
 
@@ -418,6 +424,25 @@ public final class VillagerBrain {
         }
     }
 
+    /**
+     * Returns true if we should BLOCK attempts to set a NON-EMPTY item into the villager's hand.
+     * This prevents vanilla AI "visual" equips (e.g. bonemeal/emerald) from overriding loadouts.
+     */
+    public static boolean shouldBlockHandSet(Villager vill, InteractionHand hand, ItemStack stack) {
+        try {
+            if (vill == null || hand == null) return false;
+            if (stack == null || stack.isEmpty()) return false;
+            if (vill.level() == null || vill.level().isClientSide()) return false;
+            if (!(vill.level() instanceof ServerLevel sl)) return false;
+
+            // Only allow non-empty sets if explicitly permitted for this hand and matches expected item id.
+            if (isSetAllowed(sl, vill, hand, stack)) return false;
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     /** Checks if a clear is temporarily allowed for this hand. */
     private static boolean isClearAllowed(ServerLevel sl, Villager vill, InteractionHand hand) {
         try {
@@ -432,6 +457,28 @@ public final class VillagerBrain {
             } else {
                 long until = root.getLong(K_ALLOW_CLEAR_OFF_UNTIL);
                 return until > now;
+            }
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isSetAllowed(ServerLevel sl, Villager vill, InteractionHand hand, ItemStack stack) {
+        try {
+            if (sl == null || vill == null || hand == null) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            long now = sl.getGameTime();
+
+            if (hand == InteractionHand.MAIN_HAND) {
+                long until = root.getLong(K_ALLOW_SET_MAIN_UNTIL);
+                if (until <= now) return false;
+                String expect = root.getString(K_ALLOW_SET_MAIN_ITEM);
+                return expect != null && !expect.isBlank() && expect.equalsIgnoreCase(safeItemId(stack));
+            } else {
+                long until = root.getLong(K_ALLOW_SET_OFF_UNTIL);
+                if (until <= now) return false;
+                String expect = root.getString(K_ALLOW_SET_OFF_ITEM);
+                return expect != null && !expect.isBlank() && expect.equalsIgnoreCase(safeItemId(stack));
             }
         } catch (Throwable ignored) {
             return false;
@@ -454,6 +501,27 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
+    /** Allows setting a specific non-empty item for N ticks so our mixin won't cancel our own equip calls. */
+    private static void allowSetFor(ServerLevel sl, Villager vill, InteractionHand hand, ItemStack stack, int ticks) {
+        try {
+            if (sl == null || vill == null || hand == null) return;
+            if (stack == null || stack.isEmpty()) return;
+
+            CompoundTag root = getOrCreateRoot(vill);
+            long until = sl.getGameTime() + Math.max(1, ticks);
+            String id = safeItemId(stack);
+            if (id.isBlank()) return;
+
+            if (hand == InteractionHand.MAIN_HAND) {
+                root.putLong(K_ALLOW_SET_MAIN_UNTIL, until);
+                root.putString(K_ALLOW_SET_MAIN_ITEM, id);
+            } else {
+                root.putLong(K_ALLOW_SET_OFF_UNTIL, until);
+                root.putString(K_ALLOW_SET_OFF_ITEM, id);
+            }
+        } catch (Throwable ignored) {}
+    }
+
     /** Clears the allow-clear marker when we set a non-empty item. */
     private static void clearAllowClearMarker(Villager vill, InteractionHand hand) {
         try {
@@ -463,6 +531,16 @@ public final class VillagerBrain {
             if (hand == InteractionHand.MAIN_HAND) root.remove(K_ALLOW_CLEAR_MAIN_UNTIL);
             else root.remove(K_ALLOW_CLEAR_OFF_UNTIL);
         } catch (Throwable ignored) {}
+    }
+
+    private static String safeItemId(ItemStack st) {
+        try {
+            if (st == null || st.isEmpty()) return "";
+            var key = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(st.getItem());
+            return key == null ? "" : key.toString();
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     // ============================================================
@@ -1384,7 +1462,7 @@ public final class VillagerBrain {
                 ItemStack off = vill.getOffhandItem();
                 boolean hasHands = (main != null && !main.isEmpty()) || (off != null && !off.isEmpty());
                 if (hasHands) {
-                    bumpSwingSeq(vill);
+                    signalSwing(vill, InteractionHand.MAIN_HAND, "manual_plant_anim_swing_only");
                     VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant_anim swing_only villager={} entityId={} (hands already non-empty)",
                             vill.getUUID(), vill.getId());
                     return;
@@ -1402,6 +1480,7 @@ public final class VillagerBrain {
             }
 
             // Apply visual item so custom arms layer is enabled client-side.
+            notifyManualHandSet(vill, EquipmentSlot.MAINHAND, visual, "manual_plant_anim_visual_set");
             vill.setItemInHand(InteractionHand.MAIN_HAND, visual);
             MANUAL_PLANT_ANIM_VISUAL_MAIN.put(vill, visual.copy());
 
@@ -1413,7 +1492,7 @@ public final class VillagerBrain {
             try { tickRenderDecisions(vill); } catch (Throwable ignored) {}
 
             // Trigger the custom swing anim (client uses our synced swing-seq, not vanilla swing state).
-            bumpSwingSeq(vill);
+            signalSwing(vill, InteractionHand.MAIN_HAND, "manual_plant_anim");
 
             VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant_anim start villager={} entityId={} item={} ticks={} until={}",
                     vill.getUUID(), vill.getId(), String.valueOf(visual.getItem()), ticks, until);
@@ -1421,14 +1500,17 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
-    private static void bumpSwingSeq(Villager vill) {
+    public static void signalSwing(Villager vill, InteractionHand hand, String reason) {
         try {
             if (!(vill instanceof VillagerOverhaulSwingAccess acc)) return;
+            if (hand == null) hand = InteractionHand.MAIN_HAND;
             int prev = acc.ezvr$getSwingSeq();
             int next = prev + 1;
             acc.ezvr$setSwingSeq(next);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] swing_seq villager={} entityId={} {}->{}",
-                    vill.getUUID(), vill.getId(), prev, next);
+            byte h = (hand == InteractionHand.OFF_HAND) ? (byte) 1 : (byte) 0;
+            acc.ezvr$setSwingHand(h);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [swing] villager={} entityId={} {}->{} hand={} reason={}",
+                    vill.getUUID(), vill.getId(), prev, next, (h == 1 ? "off" : "main"), (reason == null ? "unknown" : reason));
         } catch (Throwable ignored) {}
     }
 
@@ -1473,6 +1555,7 @@ public final class VillagerBrain {
 
                 if (stillVisual) {
                     ItemStack prev = MANUAL_PLANT_ANIM_PREV_MAIN.get(vill);
+                    notifyManualHandSet(vill, EquipmentSlot.MAINHAND, prev == null ? ItemStack.EMPTY : prev, "manual_plant_anim_restore");
                     vill.setItemInHand(InteractionHand.MAIN_HAND, prev == null ? ItemStack.EMPTY : prev);
                     try { tickRenderDecisions(vill); } catch (Throwable ignored) {}
                 }

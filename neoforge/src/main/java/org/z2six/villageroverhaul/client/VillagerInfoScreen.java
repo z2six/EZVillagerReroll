@@ -2306,7 +2306,12 @@ public final class VillagerInfoScreen extends Screen {
             case ARMOR    -> List.of("Affects armor value.", "Higher = tankier, lower = squishier.");
 
             case MOTIVATION -> List.of("Affects how long the villager farms each day.", "Higher = longer work window, lower = shorter.");
-            case EFFICIENCY -> List.of("Affects seed/bonemeal consumption.", "Higher = chance to save items, lower = chance to consume extra.");
+            case EFFICIENCY -> List.of(
+                    "Affects seed/bonemeal consumption.",
+                    "Higher = chance to save items, lower = chance to consume extra.",
+                    "Note: Very high values can make items nearly infinite.",
+                    "VillagerOverhaul hard-caps the save chance to 95%."
+            );
             case PLANT_WHISPERER -> List.of("Periodically grows nearby crops during manual farming.", "Higher = more often, lower = less often.");
             case RANGER -> List.of("Affects the farming range around the workstation.", "Higher = larger range, lower = smaller.");
         };

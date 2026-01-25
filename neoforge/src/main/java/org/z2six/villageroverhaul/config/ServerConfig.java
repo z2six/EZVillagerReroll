@@ -396,6 +396,11 @@ public final class ServerConfig {
         // ----------------------------
         B.push("villagerStats");
 
+        // ----------------------------
+        // Merchant stats
+        // ----------------------------
+        B.push("merchant");
+
         GENEROSITY_MIN_PCT =
                 B.comment("""
                         Generosity effect MIN percent at points = -100.
@@ -432,6 +437,29 @@ public final class ServerConfig {
                         """)
                         .defineInRange("intellectMaxPct", 20.0, -1000.0, 1000.0);
 
+        // ----------------------------
+        // Hoarder clamp
+        // ----------------------------
+
+        HOARDER_EXTRA_OFFERS_MIN =
+                B.comment("""
+                        Hoarder offer DELTA clamp MIN (applied to hoarder points).
+                        """)
+                        .defineInRange("hoarderExtraOffersMin", -3, -64, 64);
+
+        HOARDER_EXTRA_OFFERS_MAX =
+                B.comment("""
+                        Hoarder offer DELTA clamp MAX (applied to hoarder points).
+                        """)
+                        .defineInRange("hoarderExtraOffersMax", 3, -64, 64);
+
+        B.pop(); // merchant
+
+        // ----------------------------
+        // Farming stats
+        // ----------------------------
+        B.push("farming");
+
         MOTIVATION_MIN_PCT =
                 B.comment("""
                         Motivation effect MIN percent at points = -100.
@@ -449,18 +477,26 @@ public final class ServerConfig {
         EFFICIENCY_MIN_PCT =
                 B.comment("""
                         Efficiency effect MIN percent at points = -100.
+                        At points=0 this is always 0% (no effect).
                         Negative values increase the chance to consume an extra seed/bonemeal (after the normal one).
-                        Example: -100% means always consume an extra item when possible.
+                        Default: -20% at points=-100.
+                        Example: -20% means 20% chance to consume an extra item when possible.
                         """)
-                        .defineInRange("efficiencyMinPct", -100.0, -1000.0, 1000.0);
+                        .defineInRange("efficiencyMinPct", -20.0, -1000.0, 1000.0);
 
         EFFICIENCY_MAX_PCT =
                 B.comment("""
                         Efficiency effect MAX percent at points = +100.
+                        At points=0 this is always 0% (no effect).
                         Positive values increase the chance to not consume a seed/bonemeal.
-                        Example: +100% means never consume the item.
+                        Default: +20% at points=+100.
+                        Example: +20% means 20% chance to not consume the item.
+
+                        NOTE: Avoid setting this too high (recommended <= 50%).
+                        A true 100% save chance makes seeds/bonemeal effectively infinite. VillagerOverhaul hard-caps the
+                        save chance to 95% to prevent infinite planting even if config/stat values would imply 100%.
                         """)
-                        .defineInRange("efficiencyMaxPct", 100.0, -1000.0, 1000.0);
+                        .defineInRange("efficiencyMaxPct", 20.0, -1000.0, 1000.0);
 
         PLANT_WHISPERER_MIN_PCT =
                 B.comment("""
@@ -490,9 +526,12 @@ public final class ServerConfig {
                         """)
                         .defineInRange("rangerMaxPct", 20.0, -1000.0, 1000.0);
 
+        B.pop(); // farming
+
         // ----------------------------
-        // Combat stat bounds
+        // Combat stats
         // ----------------------------
+        B.push("combat");
 
         VITALITY_MIN_HEALTH =
                 B.comment("""
@@ -553,22 +592,7 @@ public final class ServerConfig {
                         """)
                         .defineInRange("armorMax", 5.0, -1024.0, 1024.0);
 
-        // ----------------------------
-        // Hoarder clamp
-        // ----------------------------
-
-        HOARDER_EXTRA_OFFERS_MIN =
-                B.comment("""
-                        Hoarder offer DELTA clamp MIN (applied to hoarder points).
-                        """)
-                        .defineInRange("hoarderExtraOffersMin", -3, -64, 64);
-
-        HOARDER_EXTRA_OFFERS_MAX =
-                B.comment("""
-                        Hoarder offer DELTA clamp MAX (applied to hoarder points).
-                        """)
-                        .defineInRange("hoarderExtraOffersMax", 3, -64, 64);
-
+        B.pop(); // combat
         B.pop();
     }
 
@@ -624,8 +648,8 @@ public final class ServerConfig {
     public static double motivationMinPct = -20.0;
     public static double motivationMaxPct = 20.0;
 
-    public static double efficiencyMinPct = -100.0;
-    public static double efficiencyMaxPct = 100.0;
+    public static double efficiencyMinPct = -20.0;
+    public static double efficiencyMaxPct = 20.0;
 
     public static double plantWhispererMinPct = -20.0;
     public static double plantWhispererMaxPct = 20.0;

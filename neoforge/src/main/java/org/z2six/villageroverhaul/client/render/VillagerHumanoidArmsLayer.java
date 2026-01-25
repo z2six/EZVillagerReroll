@@ -132,6 +132,7 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
     private static final class SwingTrack {
         int lastSeq = 0;
+        byte lastHand = 0; // 0=main, 1=off
         long localStartGameTime = -1L;
         WeakReference<Villager> ref;
 
@@ -283,8 +284,10 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             }
 
             int seq = 0;
+            byte hand = 0;
             if (v instanceof VillagerOverhaulSwingAccess acc) {
                 seq = acc.ezvr$getSwingSeq();
+                hand = acc.ezvr$getSwingHand();
             }
 
             long now = v.level().getGameTime();
@@ -292,11 +295,12 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             if (seq != tr.lastSeq) {
                 int prev = tr.lastSeq;
                 tr.lastSeq = seq;
+                tr.lastHand = hand;
                 tr.localStartGameTime = now;
 
                 VillagerOverhaul.LOG().debug(
-                        "[VillagerOverhaul] [client] swingSeq changed (villager={} {}->{}). Restarting local swing anim.",
-                        v.getUUID(), prev, seq
+                        "[VillagerOverhaul] [client] swingSeq changed (villager={} {}->{} hand={}). Restarting local swing anim.",
+                        v.getUUID(), prev, seq, (hand == 1 ? "off" : "main")
                 );
             }
 
@@ -390,6 +394,14 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             }
 
             HumanoidArm armToSwing = v.getMainArm();
+            try {
+                SwingTrack tr = SWING_TRACK.get(v.getId());
+                if (tr != null && tr.ref != null && tr.ref.get() == v) {
+                    if (tr.lastHand == 1) {
+                        armToSwing = (armToSwing == HumanoidArm.RIGHT) ? HumanoidArm.LEFT : HumanoidArm.RIGHT;
+                    }
+                }
+            } catch (Throwable ignored) {}
             ModelPart arm = (armToSwing == HumanoidArm.RIGHT) ? driver.rightArm : driver.leftArm;
             if (arm == null) return;
 

@@ -14,6 +14,7 @@ import net.minecraft.world.phys.AABB;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -96,6 +97,9 @@ public final class ServerCommands {
                     return 0;
                 }
             }
+
+            try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.MAINHAND, ItemStack.EMPTY, "vo_takeheld_clear_main"); } catch (Throwable ignored) {}
+            try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.OFFHAND, ItemStack.EMPTY, "vo_takeheld_clear_off"); } catch (Throwable ignored) {}
 
             vill.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
             vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);

@@ -831,6 +831,7 @@ public final class VillagerCombatDirector {
             try { vill.stopUsingItem(); } catch (Throwable ignored) {}
 
             // Equip food and start using (server authoritative).
+            try { VillagerBrain.notifyManualHandSet(vill, EquipmentSlot.MAINHAND, one.copy(), "combat_eat_equip_food"); } catch (Throwable ignored) {}
             vill.setItemInHand(InteractionHand.MAIN_HAND, one.copy());
             vill.startUsingItem(InteractionHand.MAIN_HAND);
 
@@ -892,8 +893,10 @@ public final class VillagerCombatDirector {
 
             // Restore previous mainhand.
             allowClearHand(vill, InteractionHand.MAIN_HAND, "combat_eat_finish");
+            try { VillagerBrain.notifyManualHandSet(vill, EquipmentSlot.MAINHAND, ItemStack.EMPTY, "combat_eat_finish_clear"); } catch (Throwable ignored) {}
             vill.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
             if (st.eatPrevMain != null && !st.eatPrevMain.isEmpty()) {
+                try { VillagerBrain.notifyManualHandSet(vill, EquipmentSlot.MAINHAND, st.eatPrevMain.copy(), "combat_eat_finish_restore"); } catch (Throwable ignored) {}
                 vill.setItemInHand(InteractionHand.MAIN_HAND, st.eatPrevMain.copy());
             }
             try { vill.stopUsingItem(); } catch (Throwable ignored) {}
@@ -936,8 +939,10 @@ public final class VillagerCombatDirector {
                 } catch (Throwable ignored) {}
 
                 allowClearHand(vill, InteractionHand.MAIN_HAND, "combat_eat_cancel");
+                try { VillagerBrain.notifyManualHandSet(vill, EquipmentSlot.MAINHAND, ItemStack.EMPTY, "combat_eat_cancel_clear"); } catch (Throwable ignored) {}
                 vill.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
                 if (st.eatPrevMain != null && !st.eatPrevMain.isEmpty()) {
+                    try { VillagerBrain.notifyManualHandSet(vill, EquipmentSlot.MAINHAND, st.eatPrevMain.copy(), "combat_eat_cancel_restore"); } catch (Throwable ignored) {}
                     vill.setItemInHand(InteractionHand.MAIN_HAND, st.eatPrevMain.copy());
                 }
 

@@ -51,6 +51,9 @@ public final class VillagerManualFarmingGoal extends Goal {
     private static final double ASSIST_MIN_VEL_SQR = 0.0025;
     private static final double ASSIST_PUSH_PER_TICK = 0.04;
 
+    private static final String PD_OFFHAND_VIS_UNTIL = "ezvr_manual_farm_offhand_vis_until";
+    private static final String PD_OFFHAND_VIS_ITEM = "ezvr_manual_farm_offhand_vis_item";
+
     private enum Action {
         NONE,
         PICKUP,
@@ -150,6 +153,9 @@ public final class VillagerManualFarmingGoal extends Goal {
 
             long now = level.getGameTime();
 
+            tickOffhandVisualRestore(now);
+            try { VillagerCombatLoadoutService.enforceNow(vill, "manual_farm_tick"); } catch (Throwable ignored) {}
+
             // Timeout handling
             if (action != Action.NONE && actionStartGameTime > 0L && (now - actionStartGameTime) > timeoutTicks) {
                 markFailure(now);
@@ -190,6 +196,45 @@ public final class VillagerManualFarmingGoal extends Goal {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerManualFarmingGoal.tick failed (soft): {}", t.toString());
         }
+    }
+
+    private void tickOffhandVisualRestore(long now) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            long until = vill.getPersistentData().getLong(PD_OFFHAND_VIS_UNTIL);
+            if (until <= 0L) return;
+            if (now < until) return;
+
+            String id = "";
+            try { id = vill.getPersistentData().getString(PD_OFFHAND_VIS_ITEM); } catch (Throwable ignored) { id = ""; }
+
+            ItemStack curOff = vill.getOffhandItem();
+            boolean stillExpected = false;
+            try {
+                if (curOff == null || curOff.isEmpty()) {
+                    stillExpected = true;
+                } else if (id != null && !id.isBlank()) {
+                    String curId = "";
+                    try { curId = String.valueOf(BuiltInRegistries.ITEM.getKey(curOff.getItem())); } catch (Throwable ignored) { curId = ""; }
+                    stillExpected = id.equals(curId);
+                }
+            } catch (Throwable ignored) { stillExpected = false; }
+
+            if (stillExpected) {
+                try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.OFFHAND, ItemStack.EMPTY, "manual_farm_offhand_visual_restore"); } catch (Throwable ignored) {}
+                vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);
+            }
+
+            vill.getPersistentData().remove(PD_OFFHAND_VIS_UNTIL);
+            vill.getPersistentData().remove(PD_OFFHAND_VIS_ITEM);
+        } catch (Throwable ignored) {}
+    }
+
+    private void ensureLoadoutMainhandEquipped(String why) {
+        try {
+            VillagerCombatLoadoutService.enforceNow(vill, why == null ? "manual_farm" : why);
+        } catch (Throwable ignored) {}
     }
 
     private static int clampRange(int r) {
@@ -690,15 +735,10 @@ public final class VillagerManualFarmingGoal extends Goal {
             double distSqr = vill.distanceToSqr(tx, ty, tz);
             if (distSqr <= 4.0) {
                 try {
-                    ItemStack visual = ItemStack.EMPTY;
-                    try {
-                        Item asItem = st.getBlock().asItem();
-                        if (asItem != null && asItem != net.minecraft.world.item.Items.AIR) {
-                            visual = new ItemStack(asItem);
-                        }
-                    } catch (Throwable ignored) {}
-                    if (visual.isEmpty()) visual = net.minecraft.world.item.Items.WOODEN_HOE.getDefaultInstance();
-                    VillagerBrain.triggerManualPlantAnimation(vill, visual, 10);
+                    try { ensureLoadoutMainhandEquipped("manual_farm_harvest"); } catch (Throwable ignored) {}
+                    try { vill.swing(net.minecraft.world.InteractionHand.MAIN_HAND, true); } catch (Throwable ignored) {
+                        try { vill.swing(net.minecraft.world.InteractionHand.MAIN_HAND); } catch (Throwable ignored2) {}
+                    }
                 } catch (Throwable ignored) {}
 
                 boolean ok = false;
@@ -1082,17 +1122,56 @@ public final class VillagerManualFarmingGoal extends Goal {
                     if (!placeState.canSurvive(level, placePos)) return false;
                 } catch (Throwable ignored) {}
 
+                // Always keep the configured loadout item in mainhand (e.g. hoe), and show the seed in offhand.
+                try { ensureLoadoutMainhandEquipped("manual_farm_plant"); } catch (Throwable ignored) {}
+                try { setOffhandVisualFor(item, level.getGameTime(), 10, "manual_farm_seed"); } catch (Throwable ignored) {}
+
                 level.setBlock(placePos, placeState, 3);
                 int wantConsume = computeEfficiencyAdjustedConsume(1);
                 if (wantConsume > 0) {
                     // Consume across inventory so negative Efficiency can take an "extra" from another stack.
-                    consumeFromInventory(item, wantConsume);
+                    int consumed = consumeFromInventory(item, wantConsume);
+                    if (consumed <= 0) {
+                        try {
+                            long nowGt = level.getGameTime();
+                            long last = vill.getPersistentData().getLong("ezvr_manual_farm_last_consume_warn");
+                            if (last <= 0L || (nowGt - last) > 100L) {
+                                vill.getPersistentData().putLong("ezvr_manual_farm_last_consume_warn", nowGt);
+                                VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] WARNING consumed=0 for plant villager={} item={} wantConsume={}",
+                                    vill.getUUID(), String.valueOf(BuiltInRegistries.ITEM.getKey(item)), wantConsume);
+                            }
+                        } catch (Throwable ignored) {}
+                    }
                 }
 
-                // Visual feedback: make sure custom arms render + play a swing while planting.
+                // Occasional info log for debugging seed consumption behavior.
                 try {
-                    VillagerBrain.triggerManualPlantAnimation(vill, bi.getDefaultInstance(), 10);
+                    long nowGt = level.getGameTime();
+                    long last = vill.getPersistentData().getLong("ezvr_manual_farm_last_plant_log");
+                    if (last <= 0L || (nowGt - last) >= 40L) { // ~2s
+                        vill.getPersistentData().putLong("ezvr_manual_farm_last_plant_log", nowGt);
+                        int invCount = 0;
+                        try {
+                            Container inv2 = vill.getInventory();
+                            if (inv2 != null) {
+                                int sz2 = inv2.getContainerSize();
+                                for (int ii = 0; ii < sz2; ii++) {
+                                    ItemStack st2 = inv2.getItem(ii);
+                                    if (st2 != null && !st2.isEmpty() && st2.is(item)) invCount += st2.getCount();
+                                }
+                            }
+                        } catch (Throwable ignored) { invCount = -1; }
+                        double eff = 0.0;
+                        try { eff = VillagerTraitEffects.efficiencyPct(vill); } catch (Throwable ignored) { eff = 0.0; }
+                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant villager={} item={} wantConsume={} invCountAfter={} efficiencyPct={}",
+                                vill.getUUID(), String.valueOf(BuiltInRegistries.ITEM.getKey(item)), wantConsume, invCount, eff);
+                    }
                 } catch (Throwable ignored) {}
+
+                try { VillagerBrain.signalSwing(vill, net.minecraft.world.InteractionHand.OFF_HAND, "manual_farm_plant"); } catch (Throwable ignored) {}
+                try { vill.swing(net.minecraft.world.InteractionHand.OFF_HAND, true); } catch (Throwable ignored) {
+                    try { vill.swing(net.minecraft.world.InteractionHand.OFF_HAND); } catch (Throwable ignored2) {}
+                }
 
                 try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingPlanted(vill, 1, true); } catch (Throwable ignored) {}
 
@@ -1102,6 +1181,87 @@ public final class VillagerManualFarmingGoal extends Goal {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private void setOffhandVisualFor(Item item, long now, int ticks, String why) {
+        try {
+            if (vill == null || item == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+
+            clearRealOffhandForManualAction(why + "_clear_offhand");
+
+            ItemStack one = new ItemStack(item);
+            if (!one.isEmpty() && one.getCount() > 1) one.setCount(1);
+            try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.OFFHAND, one, why + "_set"); } catch (Throwable ignored) {}
+            vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, one);
+
+            vill.getPersistentData().putLong(PD_OFFHAND_VIS_UNTIL, now + Math.max(1, ticks));
+            try { vill.getPersistentData().putString(PD_OFFHAND_VIS_ITEM, String.valueOf(BuiltInRegistries.ITEM.getKey(item))); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    private void clearRealOffhandForManualAction(String why) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+
+            ItemStack curOff = vill.getOffhandItem();
+            if (curOff == null || curOff.isEmpty()) return;
+
+            // If this is OUR temporary visual offhand (seed/bonemeal), never stash it into GUI/offhand loadout.
+            // Just clear it so we don't duplicate items via the loadout UI.
+            try {
+                long until = vill.getPersistentData().getLong(PD_OFFHAND_VIS_UNTIL);
+                if (until > 0L && vill.level() != null) {
+                    long now = vill.level().getGameTime();
+                    if (now <= until) {
+                        String expect = vill.getPersistentData().getString(PD_OFFHAND_VIS_ITEM);
+                        String curId = "";
+                        try { curId = String.valueOf(BuiltInRegistries.ITEM.getKey(curOff.getItem())); } catch (Throwable ignored) { curId = ""; }
+                        if (expect != null && !expect.isBlank() && expect.equals(curId)) {
+                            try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.OFFHAND, ItemStack.EMPTY, why + "_clear_temp_visual"); } catch (Throwable ignored) {}
+                            vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);
+                            vill.getPersistentData().remove(PD_OFFHAND_VIS_UNTIL);
+                            vill.getPersistentData().remove(PD_OFFHAND_VIS_ITEM);
+                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [manual_farm] offhand_clear temp_visual villager={} why={} item={}",
+                                    vill.getUUID(), String.valueOf(why), curId);
+                            return;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            // If the player registered an offhand loadout item, never overwrite it: stash to inventory/drop.
+            boolean offhandRegistered = VillagerCombatLoadoutService.isOffhandRegistered(vill);
+            if (!offhandRegistered) {
+                // Only safe to stow single-count stacks, since loadout UI normalizes to count=1.
+                boolean stowed = VillagerCombatLoadoutService.tryStowInUnregisteredGuiOffhand(vill, curOff, why);
+                if (!stowed) {
+                    storeOrDropToVillager(curOff.copy());
+                }
+            } else {
+                storeOrDropToVillager(curOff.copy());
+            }
+
+            try { VillagerBrain.notifyManualHandSet(vill, net.minecraft.world.entity.EquipmentSlot.OFFHAND, ItemStack.EMPTY, why + "_clear"); } catch (Throwable ignored) {}
+            vill.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND, ItemStack.EMPTY);
+        } catch (Throwable ignored) {}
+    }
+
+    private void storeOrDropToVillager(ItemStack stack) {
+        try {
+            if (vill == null) return;
+            if (stack == null || stack.isEmpty()) return;
+
+            Container inv = vill.getInventory();
+            if (inv != null) {
+                ItemStack remaining = insertInto(inv, stack.copy());
+                if (remaining == null || remaining.isEmpty()) return;
+                stack = remaining;
+            }
+
+            try { vill.spawnAtLocation(stack.copy()); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
     }
 
     private static Block getPlantingBaseBlock(Block plantBlock) {
@@ -1219,7 +1379,9 @@ public final class VillagerManualFarmingGoal extends Goal {
             int wantConsume = computeEfficiencyAdjustedConsume(1);
             if (wantConsume > 0) consumeFromInventory(Items.BONE_MEAL, wantConsume);
 
-            try { VillagerBrain.triggerManualPlantAnimation(vill, Items.BONE_MEAL.getDefaultInstance(), 10); } catch (Throwable ignored) {}
+            try { vill.swing(net.minecraft.world.InteractionHand.OFF_HAND, true); } catch (Throwable ignored) {
+                try { vill.swing(net.minecraft.world.InteractionHand.OFF_HAND); } catch (Throwable ignored2) {}
+            }
 
             try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingBonemealed(vill, 1, true); } catch (Throwable ignored) {}
 
@@ -1238,8 +1400,11 @@ public final class VillagerManualFarmingGoal extends Goal {
             if (Double.isNaN(pct) || Double.isInfinite(pct)) pct = 0.0;
 
             if (pct > 0.0) {
+                // Never allow a true 100% save chance: that makes seeds/bonemeal effectively infinite.
+                // Keep it "very strong" but not absolute.
                 double p = pct / 100.0;
                 if (p > 1.0) p = 1.0;
+                if (p > 0.95) p = 0.95;
                 if (rng.nextDouble() < p) return 0; // save item
                 return b;
             }
@@ -1272,7 +1437,9 @@ public final class VillagerManualFarmingGoal extends Goal {
                 if (take <= 0) continue;
                 s.shrink(take);
                 remaining -= take;
+                // Always write back: some Container implementations may return a copy from getItem().
                 if (s.isEmpty()) inv.setItem(i, ItemStack.EMPTY);
+                else inv.setItem(i, s);
             }
             inv.setChanged();
             return amount - remaining;

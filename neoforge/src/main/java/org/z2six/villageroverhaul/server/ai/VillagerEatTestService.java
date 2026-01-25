@@ -85,6 +85,7 @@ public final class VillagerEatTestService {
             allowClearHand(vill, InteractionHand.MAIN_HAND, "eat_test_start");
             vill.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
 
+            try { VillagerBrain.notifyManualHandSet(vill, EquipmentSlot.MAINHAND, one.copy(), "eat_test_equip_food"); } catch (Throwable ignored) {}
             vill.setItemInHand(InteractionHand.MAIN_HAND, one.copy());
             vill.startUsingItem(InteractionHand.MAIN_HAND);
 
@@ -167,6 +168,7 @@ public final class VillagerEatTestService {
                 allowClearHand(vill, InteractionHand.MAIN_HAND, "eat_test_finish");
                 vill.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
                 if (st.prevMain != null && !st.prevMain.isEmpty()) {
+                    try { VillagerBrain.notifyManualHandSet(vill, EquipmentSlot.MAINHAND, st.prevMain.copy(), "eat_test_restore_prev"); } catch (Throwable ignored) {}
                     vill.setItemInHand(InteractionHand.MAIN_HAND, st.prevMain.copy());
                 }
 
