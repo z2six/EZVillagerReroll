@@ -56,6 +56,11 @@ public final class ClientSyncedConfig {
         public double plantWhispererMinPct, plantWhispererMaxPct;
         public double rangerMinPct, rangerMaxPct;
 
+        // modules
+        public boolean enableMerchantModule;
+        public boolean enableCombatModule;
+        public boolean enableFarmingModule;
+
         @Override
         public String toString() {
             return "Snapshot{" +
@@ -92,6 +97,7 @@ public final class ClientSyncedConfig {
                     ", efficiency=[" + efficiencyMinPct + "," + efficiencyMaxPct + "]" +
                     ", plantWhisperer=[" + plantWhispererMinPct + "," + plantWhispererMaxPct + "]" +
                     ", ranger=[" + rangerMinPct + "," + rangerMaxPct + "]" +
+                    ", modules=[merchant=" + enableMerchantModule + ",combat=" + enableCombatModule + ",farming=" + enableFarmingModule + "]" +
                     '}';
         }
     }
@@ -219,6 +225,11 @@ public final class ClientSyncedConfig {
             if (raMin > raMax) { double tmp = raMin; raMin = raMax; raMax = tmp; }
             s.rangerMinPct = raMin;
             s.rangerMaxPct = raMax;
+
+            // module toggles (server authoritative)
+            s.enableMerchantModule = msg.enableMerchantModule;
+            s.enableCombatModule = msg.enableCombatModule;
+            s.enableFarmingModule = msg.enableFarmingModule;
 
             last = s;
 

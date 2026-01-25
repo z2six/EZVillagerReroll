@@ -383,10 +383,28 @@ public final class VillagerInfoScreen extends Screen {
                 Component.literal("History"), Tab.HISTORY);
 
         this.addRenderableWidget(tabOverviewBtn);
-        this.addRenderableWidget(tabMerchantBtn);
-        this.addRenderableWidget(tabCombatBtn);
-        this.addRenderableWidget(tabFarmingBtn);
+        boolean showMerchant = true;
+        boolean showCombat = true;
+        boolean showFarming = true;
+        try {
+            var cfg = ClientSyncedConfig.get();
+            if (cfg != null) {
+                showMerchant = cfg.enableMerchantModule;
+                showCombat = cfg.enableCombatModule;
+                showFarming = cfg.enableFarmingModule;
+            }
+        } catch (Throwable ignored) {}
+
+        if (showMerchant) this.addRenderableWidget(tabMerchantBtn);
+        if (showCombat) this.addRenderableWidget(tabCombatBtn);
+        if (showFarming) this.addRenderableWidget(tabFarmingBtn);
         this.addRenderableWidget(tabHistoryBtn);
+
+        if ((!showMerchant && this.currentTab == Tab.MERCHANT)
+                || (!showCombat && this.currentTab == Tab.COMBAT)
+                || (!showFarming && this.currentTab == Tab.FARMING)) {
+            this.currentTab = Tab.OVERVIEW;
+        }
 
         // Kick initial request immediately (snapshot mode does not query server)
         if (!respawnMode) {

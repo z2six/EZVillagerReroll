@@ -302,8 +302,20 @@ public final class RecruitVillagerScreen extends Screen {
         int col1X = left + 16;
         int col2X = col1X + colW + colGap;
 
-        gg.drawString(this.font, "Merchant stats", col1X, statsTop, 0xFFFFFFFF);
-        gg.drawString(this.font, "Combat stats", col2X, statsTop, 0xFFFFFFFF);
+        boolean showMerchant = true;
+        boolean showCombat = true;
+        boolean showFarming = true;
+        try {
+            var cfg = ClientSyncedConfig.get();
+            if (cfg != null) {
+                showMerchant = cfg.enableMerchantModule;
+                showCombat = cfg.enableCombatModule;
+                showFarming = cfg.enableFarmingModule;
+            }
+        } catch (Throwable ignored) {}
+
+        if (showMerchant) gg.drawString(this.font, "Merchant stats", col1X, statsTop, 0xFFFFFFFF);
+        if (showCombat) gg.drawString(this.font, "Combat stats", col2X, statsTop, 0xFFFFFFFF);
 
         int lineY = statsTop + 14;
         int lh = this.font.lineHeight + 3;
@@ -315,25 +327,31 @@ public final class RecruitVillagerScreen extends Screen {
             gg.drawString(this.font, s, col2X, lineY, c);
         } else {
             // Merchant column (tooltips EXACTLY like VillagerInfoScreen)
-            drawStatLine(gg, col1X, lineY + lh * 0, StatKind.GENEROSITY, generosity, C_GENEROSITY, mouseX, mouseY);
-            drawStatLine(gg, col1X, lineY + lh * 1, StatKind.TIMELINESS, timeliness, C_TIMELINESS, mouseX, mouseY);
-            drawStatLine(gg, col1X, lineY + lh * 2, StatKind.INTELLECT, intellect, C_INTELLECT, mouseX, mouseY);
-            drawStatLine(gg, col1X, lineY + lh * 3, StatKind.HOARDER, hoarder, C_HOARDER, mouseX, mouseY);
+            if (showMerchant) {
+                drawStatLine(gg, col1X, lineY + lh * 0, StatKind.GENEROSITY, generosity, C_GENEROSITY, mouseX, mouseY);
+                drawStatLine(gg, col1X, lineY + lh * 1, StatKind.TIMELINESS, timeliness, C_TIMELINESS, mouseX, mouseY);
+                drawStatLine(gg, col1X, lineY + lh * 2, StatKind.INTELLECT, intellect, C_INTELLECT, mouseX, mouseY);
+                drawStatLine(gg, col1X, lineY + lh * 3, StatKind.HOARDER, hoarder, C_HOARDER, mouseX, mouseY);
+            }
 
             // Combat column
-            drawStatLine(gg, col2X, lineY + lh * 0, StatKind.VITALITY, vitality, C_VITALITY, mouseX, mouseY);
-            drawStatLine(gg, col2X, lineY + lh * 1, StatKind.AGILITY, agility, C_AGILITY, mouseX, mouseY);
-            drawStatLine(gg, col2X, lineY + lh * 2, StatKind.STRENGTH, strength, C_STRENGTH, mouseX, mouseY);
-            drawStatLine(gg, col2X, lineY + lh * 3, StatKind.ARMOR, armor, C_ARMOR, mouseX, mouseY);
+            if (showCombat) {
+                drawStatLine(gg, col2X, lineY + lh * 0, StatKind.VITALITY, vitality, C_VITALITY, mouseX, mouseY);
+                drawStatLine(gg, col2X, lineY + lh * 1, StatKind.AGILITY, agility, C_AGILITY, mouseX, mouseY);
+                drawStatLine(gg, col2X, lineY + lh * 2, StatKind.STRENGTH, strength, C_STRENGTH, mouseX, mouseY);
+                drawStatLine(gg, col2X, lineY + lh * 3, StatKind.ARMOR, armor, C_ARMOR, mouseX, mouseY);
+            }
 
             // Farming (two columns, two rows)
-            int farmTop = lineY + lh * 4 + 8;
-            gg.drawString(this.font, "Farming stats", col1X, farmTop, 0xFFFFFFFF);
-            int farmY = farmTop + 14;
-            drawStatLine(gg, col1X, farmY + lh * 0, StatKind.MOTIVATION, motivation, C_MOTIVATION, mouseX, mouseY);
-            drawStatLine(gg, col1X, farmY + lh * 1, StatKind.EFFICIENCY, efficiency, C_EFFICIENCY, mouseX, mouseY);
-            drawStatLine(gg, col2X, farmY + lh * 0, StatKind.PLANT_WHISPERER, plantWhisperer, C_PLANTWHISPERER, mouseX, mouseY);
-            drawStatLine(gg, col2X, farmY + lh * 1, StatKind.RANGER, ranger, C_RANGER, mouseX, mouseY);
+            if (showFarming) {
+                int farmTop = lineY + lh * 4 + 8;
+                gg.drawString(this.font, "Farming stats", col1X, farmTop, 0xFFFFFFFF);
+                int farmY = farmTop + 14;
+                drawStatLine(gg, col1X, farmY + lh * 0, StatKind.MOTIVATION, motivation, C_MOTIVATION, mouseX, mouseY);
+                drawStatLine(gg, col1X, farmY + lh * 1, StatKind.EFFICIENCY, efficiency, C_EFFICIENCY, mouseX, mouseY);
+                drawStatLine(gg, col2X, farmY + lh * 0, StatKind.PLANT_WHISPERER, plantWhisperer, C_PLANTWHISPERER, mouseX, mouseY);
+                drawStatLine(gg, col2X, farmY + lh * 1, StatKind.RANGER, ranger, C_RANGER, mouseX, mouseY);
+            }
         }
 
         // Render widgets manually (buttons), WITHOUT re-drawing background.

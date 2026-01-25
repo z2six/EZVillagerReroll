@@ -92,6 +92,7 @@ public final class VillagerManualFarmingGoal extends Goal {
         try {
             if (vill == null) return false;
             if (!(vill.level() instanceof ServerLevel)) return false;
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return false;
             if (!RecruitService.isRecruited(vill)) return false;
             if (VillagerBrain.isUiPaused(vill)) return false;
             if (VillagerBrain.isStorageActive(vill)) return false;
@@ -774,7 +775,11 @@ public final class VillagerManualFarmingGoal extends Goal {
                 } catch (Throwable ignored) {}
 
                 boolean ok = false;
-                try { ok = level.destroyBlock(targetPos, true, vill); } catch (Throwable ignored) { ok = false; }
+                try {
+                    ok = destroyBlockWithFakePlayer(level, targetPos, vill);
+                } catch (Throwable ignored) {
+                    try { ok = destroyBlockWithTool(level, targetPos, vill, vill.getMainHandItem()); } catch (Throwable ignored2) { ok = false; }
+                }
                 if (ok) {
                     try { org.z2six.villageroverhaul.server.VillagerHistoryService.addFarmingHarvested(vill, 1, true); } catch (Throwable ignored) {}
                 }
@@ -789,6 +794,56 @@ public final class VillagerManualFarmingGoal extends Goal {
         } catch (Throwable ignored) {
             action = Action.NONE;
         }
+    }
+
+    /**
+     * Break a block "as a player" so modded tools/loot behave like a real harvest (Fortune, etc).
+     *
+     * <p>We intentionally never add this FakePlayer to the world/playerlist (no minimap / tab list presence).</p>
+     */
+    private static boolean destroyBlockWithFakePlayer(ServerLevel level, BlockPos pos, Villager vill) {
+        if (level == null || vill == null || pos == null) return false;
+
+        // Keep this stable per-villager to avoid FakePlayer state clashes between multiple villagers harvesting at once.
+        java.util.UUID fpUuid = java.util.UUID.nameUUIDFromBytes(
+            ("villageroverhaul:manual_farm:" + vill.getUUID()).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        );
+        com.mojang.authlib.GameProfile profile = new com.mojang.authlib.GameProfile(fpUuid, "VO_Farmer");
+        net.neoforged.neoforge.common.util.FakePlayer fp = net.neoforged.neoforge.common.util.FakePlayerFactory.get(level, profile);
+
+        // Keep location/rotation current for distance/permission checks inside destroyBlock().
+        try { fp.moveTo(vill.getX(), vill.getY(), vill.getZ(), vill.getYRot(), vill.getXRot()); } catch (Throwable ignored) {}
+
+        // Temporarily equip the villager's current mainhand tool. Use the same ItemStack instance so durability/breakage reflects.
+        ItemStack prevMain = ItemStack.EMPTY;
+        try { prevMain = fp.getMainHandItem().copy(); } catch (Throwable ignored) { prevMain = ItemStack.EMPTY; }
+        try { fp.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, vill.getMainHandItem()); } catch (Throwable ignored) {}
+
+        boolean ok = false;
+        try { ok = fp.gameMode.destroyBlock(pos); } catch (Throwable ignored) { ok = false; }
+
+        // Restore FakePlayer state.
+        try { fp.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, prevMain); } catch (Throwable ignored) {}
+        return ok;
+    }
+
+    private static boolean destroyBlockWithTool(ServerLevel level, BlockPos pos, net.minecraft.world.entity.Entity entity, ItemStack tool) {
+        BlockState blockState = level.getBlockState(pos);
+        if (blockState.isAir()) return false;
+
+        net.minecraft.world.level.material.FluidState fluidState = level.getFluidState(pos);
+        if (!(blockState.getBlock() instanceof net.minecraft.world.level.block.BaseFireBlock)) {
+            level.levelEvent(2001, pos, net.minecraft.world.level.block.Block.getId(blockState));
+        }
+
+        net.minecraft.world.level.block.entity.BlockEntity blockEntity = blockState.hasBlockEntity() ? level.getBlockEntity(pos) : null;
+        net.minecraft.world.level.block.Block.dropResources(blockState, level, pos, blockEntity, entity, tool == null ? ItemStack.EMPTY : tool);
+
+        boolean ok = level.setBlock(pos, fluidState.createLegacyBlock(), 3);
+        if (ok) {
+            level.gameEvent(net.minecraft.world.level.gameevent.GameEvent.BLOCK_DESTROY, pos, net.minecraft.world.level.gameevent.GameEvent.Context.of(entity, blockState));
+        }
+        return ok;
     }
 
     private void tickTill(ServerLevel level) {

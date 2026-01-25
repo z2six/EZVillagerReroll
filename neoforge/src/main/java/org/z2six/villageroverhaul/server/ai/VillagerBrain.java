@@ -338,7 +338,9 @@ public final class VillagerBrain {
 
             // Passive out-of-combat healing: IDLE/FOLLOW/PATROL only, 80% threshold.
             // Kept here because this runs once per villager per server tick via VillagerRenderStateMixin.
-            try { VillagerCombatDirector.tickPassiveEat(vill); } catch (Throwable ignored) {}
+            if (org.z2six.villageroverhaul.config.ServerConfig.enableCombatModule) {
+                try { VillagerCombatDirector.tickPassiveEat(vill); } catch (Throwable ignored) {}
+            }
 
             // IMPORTANT: restore-on-clear logic removed. We only compute render flags here now.
             byte flags = VillagerRenderFlags.computeFromEquipment(vill);
@@ -1272,6 +1274,7 @@ public final class VillagerBrain {
     public static boolean isManualFarmingControlling(Villager vill) {
         try {
             if (vill == null) return false;
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return false;
             if (!isManualFarmingActive(vill)) return false;
             if (!(vill.level() instanceof ServerLevel sl)) return false;
 
@@ -1299,6 +1302,7 @@ public final class VillagerBrain {
     public static boolean isStorageActive(Villager vill) {
         try {
             if (vill == null) return false;
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return false;
             CompoundTag root = getOrCreateRoot(vill);
             return root.getBoolean(K_STORAGE_ACTIVE);
         } catch (Throwable ignored) {

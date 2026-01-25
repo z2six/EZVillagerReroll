@@ -80,6 +80,7 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] start_req player={} containerId={} offerIdx={}",
                     sp.getGameProfile().getName(), msg.containerId(), msg.offerIndex());
@@ -94,6 +95,7 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] stop_req player={} containerId={}",
                     sp.getGameProfile().getName(), msg.containerId());
@@ -116,6 +118,7 @@ public final class ServerHandlers {
     public static void handleReroll(PacketRequestReroll msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             // HARD GATE: villager trader must be recruited AND owned by this player.
             try {
@@ -147,6 +150,7 @@ public final class ServerHandlers {
     public static void handleRerollCooldownQuery(PacketRerollCooldownQuery msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             // If current trader is a villager and not owner, do not leak cooldown.
             try {
@@ -169,6 +173,7 @@ public final class ServerHandlers {
     public static void handleToggleTradeLock(PacketToggleTradeLock msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             int idx = msg.tradeIndex();
             if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
@@ -213,6 +218,10 @@ public final class ServerHandlers {
     public static void handleSearchCatalogQuery(PacketSearchCatalogQuery msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) {
+                ctx.reply(PacketSearchCatalogData.minimal(msg.villagerEntityId(), List.of()));
+                return;
+            }
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) {
@@ -328,6 +337,7 @@ public final class ServerHandlers {
     public static void handleStartAutoSearch(PacketStartAutoSearch msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -347,6 +357,7 @@ public final class ServerHandlers {
     public static void handleCancelAutoSearch(PacketCancelAutoSearch msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -370,6 +381,7 @@ public final class ServerHandlers {
     public static void handlePayAutoSearchSettlement(PacketPayAutoSearchSettlement msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -497,6 +509,7 @@ public final class ServerHandlers {
     public static void handleDeclineAutoSearchSettlement(PacketDeclineAutoSearchSettlement msg, IPayloadContext ctx) {
         try {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableMerchantModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -819,6 +832,11 @@ public final class ServerHandlers {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
+            if (!ServerConfig.enableCombatModule) {
+                ctx.reply(new PacketVillagerCombatModeData(msg.villagerEntityId(), "off"));
+                return;
+            }
+
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) {
                 ctx.reply(new PacketVillagerCombatModeData(msg.villagerEntityId(), "off"));
@@ -836,9 +854,23 @@ public final class ServerHandlers {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) {
+                ctx.reply(new PacketVillagerManualFarmingModeData(msg.villagerEntityId(), false));
+                return;
+            }
+
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) {
                 ctx.reply(new PacketVillagerManualFarmingModeData(msg.villagerEntityId(), false));
+                return;
+            }
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                ctx.reply(new PacketVillagerManualFarmingModeData(vill.getId(), false));
+                return;
+            }
+            if (!RecruitService.isRecruited(vill)) {
+                ctx.reply(new PacketVillagerManualFarmingModeData(vill.getId(), false));
                 return;
             }
 
@@ -852,6 +884,8 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -1122,6 +1156,7 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableCombatModule) return;
 
             int id = msg.villagerEntityId();
             Villager vill = resolveVillagerFor(sp, id);
@@ -1160,6 +1195,10 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableCombatModule) {
+                ctx.reply(new PacketCombatSettingsData(msg.villagerEntityId(), msg.global(), new net.minecraft.nbt.CompoundTag()));
+                return;
+            }
 
             if (msg.global()) {
                 CombatSettings settings = CombatSettingsService.getGlobal(sp.serverLevel());
@@ -1192,6 +1231,7 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableCombatModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -1217,6 +1257,7 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableCombatModule) return;
 
             int id = msg.villagerEntityId();
             Villager vill = resolveVillagerFor(sp, id);
@@ -1244,6 +1285,7 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableCombatModule) return;
 
             int id = msg.villagerEntityId();
             Villager vill = resolveVillagerFor(sp, id);
@@ -1269,6 +1311,7 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!ServerConfig.enableCombatModule) return;
 
             CombatSettings settings = CombatSettings.fromTag(msg.settings());
 
@@ -1357,6 +1400,11 @@ public final class ServerHandlers {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) {
+                ctx.reply(new PacketFarmingSettingsData(msg.villagerEntityId(), new net.minecraft.nbt.CompoundTag()));
+                return;
+            }
+
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) {
                 ctx.reply(new PacketFarmingSettingsData(msg.villagerEntityId(), new net.minecraft.nbt.CompoundTag()));
@@ -1389,6 +1437,8 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -1459,6 +1509,8 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -1536,6 +1588,8 @@ public final class ServerHandlers {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return;
+
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
 
@@ -1611,6 +1665,8 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;

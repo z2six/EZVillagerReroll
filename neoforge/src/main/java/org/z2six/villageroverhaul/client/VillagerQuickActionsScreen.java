@@ -15,6 +15,7 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeCommand;
@@ -283,6 +284,11 @@ public final class VillagerQuickActionsScreen extends Screen {
     private void applyGateToWidgets() {
         try {
             boolean controls = ClientUI.canUseControlsForVillager(villagerEntityId);
+            boolean showMerchant = true;
+            try {
+                var cfg = ClientSyncedConfig.get();
+                if (cfg != null) showMerchant = cfg.enableMerchantModule;
+            } catch (Throwable ignored) { showMerchant = true; }
 
             // Info always allowed
             infoBtn.active = true;
@@ -290,7 +296,7 @@ public final class VillagerQuickActionsScreen extends Screen {
 
             // Controls gated
             rerollBtn.active = false; // disabled here by design (no MerchantScreen)
-            rerollBtn.visible = controls;
+            rerollBtn.visible = controls && showMerchant;
             invBtn.active = controls;
             invBtn.visible = controls;
             cmdBtn.active = controls;
@@ -348,25 +354,38 @@ public final class VillagerQuickActionsScreen extends Screen {
 
     private void setCommandsVisible(boolean v) {
         try {
+            boolean showCombat = true;
+            boolean showFarming = true;
+            try {
+                var cfg = ClientSyncedConfig.get();
+                if (cfg != null) {
+                    showCombat = cfg.enableCombatModule;
+                    showFarming = cfg.enableFarmingModule;
+                }
+            } catch (Throwable ignored) {
+                showCombat = true;
+                showFarming = true;
+            }
+
             setWidgetVisible(commandsBackdrop, v);
             setWidgetVisible(movementHeaderIcon, v);
-            setWidgetVisible(combatHeaderIcon, v);
-            setWidgetVisible(farmingHeaderIcon, v);
+            setWidgetVisible(combatHeaderIcon, v && showCombat);
+            setWidgetVisible(farmingHeaderIcon, v && showFarming);
 
             setWidgetVisible(mvNeutral, v);
             setWidgetVisible(mvIdle, v);
             setWidgetVisible(mvFollow, v);
             setWidgetVisible(mvPatrol, v);
 
-            setWidgetVisible(cbFlee, v);
-            setWidgetVisible(cbDefend, v);
-            setWidgetVisible(cbAggressive, v);
-            setWidgetVisible(cbSettings, v);
+            setWidgetVisible(cbFlee, v && showCombat);
+            setWidgetVisible(cbDefend, v && showCombat);
+            setWidgetVisible(cbAggressive, v && showCombat);
+            setWidgetVisible(cbSettings, v && showCombat);
 
-            setWidgetVisible(fmManual, v);
-            setWidgetVisible(fmDeposit, v);
-            setWidgetVisible(fmWithdraw, v);
-            setWidgetVisible(fmSettings, v);
+            setWidgetVisible(fmManual, v && showFarming);
+            setWidgetVisible(fmDeposit, v && showFarming);
+            setWidgetVisible(fmWithdraw, v && showFarming);
+            setWidgetVisible(fmSettings, v && showFarming);
 
             // When collapsing, also clear highlights back to default
             if (!v) {

@@ -89,9 +89,25 @@ public final class RecruitService {
                 ran = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
             }
 
-            int sum = g + t + i + h + vit + agi + str + arm + mot + eff + pw + ran; // [-1200..1200]
-            if (sum < -1200) sum = -1200;
-            if (sum > 1200) sum = 1200;
+            int sum = 0;
+            int statCount = 0;
+            if (ServerConfig.enableMerchantModule) {
+                sum += g + t + i + h;
+                statCount += 4;
+            }
+            if (ServerConfig.enableCombatModule) {
+                sum += vit + agi + str + arm;
+                statCount += 4;
+            }
+            if (ServerConfig.enableFarmingModule) {
+                sum += mot + eff + pw + ran;
+                statCount += 4;
+            }
+            if (statCount <= 0) statCount = 1;
+            int minSum = -100 * statCount;
+            int maxSum = 100 * statCount;
+            if (sum < minSum) sum = minSum;
+            if (sum > maxSum) sum = maxSum;
 
             int minCost = Math.max(0, ServerConfig.recruitCostMin);
             int maxCost = Math.max(0, ServerConfig.recruitCostMax);
@@ -99,7 +115,7 @@ public final class RecruitService {
 
             if (minCost == maxCost) return minCost;
 
-            double alpha = (sum + 1200.0) / 2400.0;
+            double alpha = (sum - (double) minSum) / ((double) maxSum - (double) minSum);
             if (alpha < 0.0) alpha = 0.0;
             if (alpha > 1.0) alpha = 1.0;
 

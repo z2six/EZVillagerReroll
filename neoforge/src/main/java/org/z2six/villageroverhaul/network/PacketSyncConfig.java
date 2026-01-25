@@ -81,6 +81,11 @@ public final class PacketSyncConfig implements CustomPacketPayload {
     public double rangerMinPct;
     public double rangerMaxPct;
 
+    // modules
+    public boolean enableMerchantModule;
+    public boolean enableCombatModule;
+    public boolean enableFarmingModule;
+
     public PacketSyncConfig() {}
 
     public static final StreamCodec<FriendlyByteBuf, PacketSyncConfig> STREAM_CODEC = new StreamCodec<>() {
@@ -164,14 +169,19 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             p.motivationMinPct = -20.0;
             p.motivationMaxPct = 20.0;
 
-            p.efficiencyMinPct = -100.0;
-            p.efficiencyMaxPct = 100.0;
+            p.efficiencyMinPct = -20.0;
+            p.efficiencyMaxPct = 20.0;
 
             p.plantWhispererMinPct = -20.0;
             p.plantWhispererMaxPct = 20.0;
 
             p.rangerMinPct = -20.0;
             p.rangerMaxPct = 20.0;
+
+            // module defaults
+            p.enableMerchantModule = true;
+            p.enableCombatModule = true;
+            p.enableFarmingModule = true;
 
             // trait bounds
             try { p.generosityMinPct = buf.readDouble(); } catch (Throwable ignored) {}
@@ -233,6 +243,11 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             try { p.plantWhispererMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.rangerMinPct = buf.readDouble(); } catch (Throwable ignored) {}
             try { p.rangerMaxPct = buf.readDouble(); } catch (Throwable ignored) {}
+
+            // modules (append-only)
+            try { p.enableMerchantModule = buf.readBoolean(); } catch (Throwable ignored) { p.enableMerchantModule = true; }
+            try { p.enableCombatModule = buf.readBoolean(); } catch (Throwable ignored) { p.enableCombatModule = true; }
+            try { p.enableFarmingModule = buf.readBoolean(); } catch (Throwable ignored) { p.enableFarmingModule = true; }
 
             return p;
         }
@@ -314,6 +329,11 @@ public final class PacketSyncConfig implements CustomPacketPayload {
             buf.writeDouble(p.plantWhispererMaxPct);
             buf.writeDouble(p.rangerMinPct);
             buf.writeDouble(p.rangerMaxPct);
+
+            // modules (append-only)
+            buf.writeBoolean(p.enableMerchantModule);
+            buf.writeBoolean(p.enableCombatModule);
+            buf.writeBoolean(p.enableFarmingModule);
         }
     };
 

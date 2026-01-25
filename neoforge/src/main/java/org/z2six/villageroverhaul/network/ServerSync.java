@@ -87,6 +87,11 @@ public final class ServerSync {
             pkt.rangerMinPct = ServerConfig.rangerMinPct;
             pkt.rangerMaxPct = ServerConfig.rangerMaxPct;
 
+            // modules
+            pkt.enableMerchantModule = ServerConfig.enableMerchantModule;
+            pkt.enableCombatModule = ServerConfig.enableCombatModule;
+            pkt.enableFarmingModule = ServerConfig.enableFarmingModule;
+
             sp.connection.send(new ClientboundCustomPayloadPacket(pkt));
 
             VillagerOverhaul.LOG().debug(

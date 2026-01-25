@@ -25,6 +25,7 @@ public final class FarmingSettingsScreen extends Screen {
     private final int villagerEntityId;
 
     private FarmingSettings settings = new FarmingSettings();
+    private boolean farmingModuleEnabled = true;
 
     // When we open a child editor screen, Minecraft will re-init this screen when it becomes active again.
     // We must preserve the local draft instead of reloading from cache/server (otherwise edits are lost).
@@ -105,6 +106,13 @@ public final class FarmingSettingsScreen extends Screen {
     @Override
     protected void init() {
         super.init();
+
+        try {
+            var cfg = ClientSyncedConfig.get();
+            farmingModuleEnabled = (cfg == null) || cfg.enableFarmingModule;
+        } catch (Throwable ignored) {
+            farmingModuleEnabled = true;
+        }
 
         int left = (this.width - PANEL_W) / 2;
         int top = (this.height - PANEL_H) / 2;
@@ -297,6 +305,33 @@ public final class FarmingSettingsScreen extends Screen {
         applyToWidgets();
         updateTabVisibility();
 
+        if (!farmingModuleEnabled) {
+            // Keep only navigation; server will reject updates anyway.
+            if (btnSave != null) btnSave.active = false;
+            if (btnTabLogistics != null) btnTabLogistics.visible = false;
+            if (btnTabManual != null) btnTabManual.visible = false;
+            switchTab(Tab.LOGISTICS);
+            // Hide everything except Back/Save (save is disabled).
+            if (btnDepositRules != null) btnDepositRules.visible = false;
+            if (btnWithdrawRules != null) btnWithdrawRules.visible = false;
+            if (btnPickupRules != null) btnPickupRules.visible = false;
+            if (btnRegisterDepositChest != null) btnRegisterDepositChest.visible = false;
+            if (btnRegisterWithdrawChest != null) btnRegisterWithdrawChest.visible = false;
+            if (btnTillSoilToggle != null) btnTillSoilToggle.visible = false;
+            if (timeoutBox != null) timeoutBox.visible = false;
+            if (retryBox != null) retryBox.visible = false;
+
+            if (btnHarvestRules != null) btnHarvestRules.visible = false;
+            if (btnPlantRules != null) btnPlantRules.visible = false;
+            if (manualTimeoutBox != null) manualTimeoutBox.visible = false;
+            if (manualRetryBox != null) manualRetryBox.visible = false;
+            if (manualRangeBox != null) manualRangeBox.visible = false;
+            if (btnBonemealToggle != null) btnBonemealToggle.visible = false;
+            if (btnDropOtherToggle != null) btnDropOtherToggle.visible = false;
+            if (btnRangeShapeToggle != null) btnRangeShapeToggle.visible = false;
+            if (btnWorkstationRegister != null) btnWorkstationRegister.visible = false;
+        }
+
         // Reset the "keep draft" latch after we used it.
         preserveLocalDraftOnNextInit = false;
         hasInitializedOnce = true;
@@ -311,6 +346,7 @@ public final class FarmingSettingsScreen extends Screen {
     }
 
     private void updateTabVisibility() {
+        if (!farmingModuleEnabled) return;
         boolean isLog = activeTab == Tab.LOGISTICS;
 
         if (btnTabLogistics != null) btnTabLogistics.active = !isLog;
@@ -532,6 +568,11 @@ public final class FarmingSettingsScreen extends Screen {
 
         Font font = Minecraft.getInstance().font;
         gg.drawString(font, "Farming Settings", left + PAD, top + PAD + 5, 0xFFFFFFFF, true);
+        if (!farmingModuleEnabled) {
+            gg.drawString(font, "Farming module disabled by server", left + PAD, top + PAD + 50, 0xFFFF7777, false);
+            super.render(gg, mouseX, mouseY, partialTick);
+            return;
+        }
 
         // Keep labels aligned with init() rows.
         int rowY = top + PAD + 50;

@@ -71,6 +71,7 @@ public final class VillagerStorageGoal extends Goal {
         try {
             if (vill == null) return false;
             if (vill.level().isClientSide()) return false;
+            if (!ServerConfig.enableFarmingModule) return false;
             if (VillagerBrain.isUiPaused(vill)) return false;
             if (VillagerBrain.isCombatEngaged(vill)) return false;
 

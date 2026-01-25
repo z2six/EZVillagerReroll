@@ -22,6 +22,14 @@ public final class ServerConfig {
     private static final ModConfigSpec.Builder B = new ModConfigSpec.Builder();
 
     // ---------------------------------------------------------------------
+    // MODULES
+    // ---------------------------------------------------------------------
+
+    public static final ModConfigSpec.BooleanValue ENABLE_MERCHANT_MODULE;
+    public static final ModConfigSpec.BooleanValue ENABLE_COMBAT_MODULE;
+    public static final ModConfigSpec.BooleanValue ENABLE_FARMING_MODULE;
+
+    // ---------------------------------------------------------------------
     // COST
     // ---------------------------------------------------------------------
 
@@ -158,6 +166,25 @@ public final class ServerConfig {
     // ---------------------------------------------------------------------
 
     static {
+        // ----------------------------
+        // Module toggles
+        // ----------------------------
+        B.push("modules");
+
+        ENABLE_MERCHANT_MODULE =
+                B.comment("Enable Merchant module (rerolls, locks, auto-search).")
+                        .define("enableMerchantModule", true);
+
+        ENABLE_COMBAT_MODULE =
+                B.comment("Enable Combat module (combat modes, combat stats and AI).")
+                        .define("enableCombatModule", true);
+
+        ENABLE_FARMING_MODULE =
+                B.comment("Enable Farming module (deposit/withdraw, manual farming).")
+                        .define("enableFarmingModule", true);
+
+        B.pop();
+
         B.push("cost");
 
         COST_ITEM_OR_TAG =
@@ -606,6 +633,10 @@ public final class ServerConfig {
     public static boolean preferWallet = true;
     public static boolean autoPreferLCIfPresent = true;
 
+    public static boolean enableMerchantModule = true;
+    public static boolean enableCombatModule = true;
+    public static boolean enableFarmingModule = true;
+
     public static int freeOffers = 2;
     public static int costPerOffer = 8;
     public static int maxDeductibleLockedOffers = 1;
@@ -690,6 +721,10 @@ public final class ServerConfig {
 
     private static void reload(String reason) {
         try {
+            enableMerchantModule = ENABLE_MERCHANT_MODULE.get();
+            enableCombatModule = ENABLE_COMBAT_MODULE.get();
+            enableFarmingModule = ENABLE_FARMING_MODULE.get();
+
             costSpec = COST_ITEM_OR_TAG.get();
             preferWallet = PREFER_WALLET.get();
             autoPreferLCIfPresent = AUTO_DEFAULT_LC_IF_PRESENT.get();
@@ -802,8 +837,9 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} modules=[merchant={},combat={},farming={}] costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
+                    enableMerchantModule, enableCombatModule, enableFarmingModule,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
@@ -860,6 +896,9 @@ public final class ServerConfig {
 
     private static int computeHash() {
         int h = 1;
+        h = 31 * h + (enableMerchantModule ? 1 : 0);
+        h = 31 * h + (enableCombatModule ? 1 : 0);
+        h = 31 * h + (enableFarmingModule ? 1 : 0);
         h = 31 * h + Objects.hashCode(costSpec);
         h = 31 * h + (preferWallet ? 1 : 0);
         h = 31 * h + (autoPreferLCIfPresent ? 1 : 0);

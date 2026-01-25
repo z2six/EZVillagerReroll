@@ -266,10 +266,15 @@ public final class ClientUI {
     private static void setUiButtonsVisible(Screen screen, boolean controlsVisibleAndEnabled) {
         try {
             Button b;
+            boolean showMerchant = true;
+            try {
+                ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+                if (cfg != null) showMerchant = cfg.enableMerchantModule;
+            } catch (Throwable ignored) { showMerchant = true; }
 
             // Controls gated
             b = REROLL_BUTTONS.get(screen);
-            if (b != null) { b.visible = controlsVisibleAndEnabled; b.active = controlsVisibleAndEnabled; }
+            if (b != null) { b.visible = controlsVisibleAndEnabled && showMerchant; b.active = controlsVisibleAndEnabled && showMerchant; }
 
             b = INVENTORY_BUTTONS.get(screen);
             if (b != null) { b.visible = controlsVisibleAndEnabled; b.active = controlsVisibleAndEnabled; }
@@ -845,6 +850,32 @@ public final class ClientUI {
                                 }
                             }
 
+                            // Hide module rows if the server disabled them.
+                            try {
+                                ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+                                boolean showCombat = cfg == null || cfg.enableCombatModule;
+                                boolean showFarming = cfg == null || cfg.enableFarmingModule;
+
+                                if (icons != null && icons.size() >= 3) {
+                                    RowHeaderIconWidget combatIcon = icons.get(1);
+                                    if (combatIcon != null) { combatIcon.visible = next && showCombat; combatIcon.active = false; }
+                                    RowHeaderIconWidget farmingIcon = icons.get(2);
+                                    if (farmingIcon != null) { farmingIcon.visible = next && showFarming; farmingIcon.active = false; }
+                                }
+
+                                // Button order: movement(4), combat(4), farming(4)
+                                if (subs != null && subs.size() >= 12) {
+                                    for (int i = 4; i < 8; i++) {
+                                        Button b = subs.get(i);
+                                        if (b != null) { b.visible = next && showCombat; b.active = next && showCombat; }
+                                    }
+                                    for (int i = 8; i < 12; i++) {
+                                        Button b = subs.get(i);
+                                        if (b != null) { b.visible = next && showFarming; b.active = next && showFarming; }
+                                    }
+                                }
+                            } catch (Throwable ignored) {}
+
                             updateCommandsMainButtonVisual(screen);
 
                             VillagerOverhaul.LOG().debug("[VillagerOverhaul] Commands palette toggled expanded={} (villagerEntityId={})",
@@ -1312,6 +1343,32 @@ public final class ClientUI {
                     backdrop.visible = expanded;
                     backdrop.active = false;
                 }
+
+                // Hide module rows if the server disabled them.
+                try {
+                    ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+                    boolean showCombat = cfg == null || cfg.enableCombatModule;
+                    boolean showFarming = cfg == null || cfg.enableFarmingModule;
+
+                    if (icons != null && icons.size() >= 3) {
+                        RowHeaderIconWidget combatIcon = icons.get(1);
+                        if (combatIcon != null) { combatIcon.visible = expanded && showCombat; combatIcon.active = false; }
+                        RowHeaderIconWidget farmingIcon = icons.get(2);
+                        if (farmingIcon != null) { farmingIcon.visible = expanded && showFarming; farmingIcon.active = false; }
+                    }
+
+                    // Button order: movement(4), combat(4), farming(4)
+                    if (subs != null && subs.size() >= 12) {
+                        for (int i = 4; i < 8; i++) {
+                            Button b = subs.get(i);
+                            if (b != null) { b.visible = expanded && showCombat; b.active = expanded && showCombat; }
+                        }
+                        for (int i = 8; i < 12; i++) {
+                            Button b = subs.get(i);
+                            if (b != null) { b.visible = expanded && showFarming; b.active = expanded && showFarming; }
+                        }
+                    }
+                } catch (Throwable ignored) {}
             } catch (Throwable ignored) {}
 
             // Update main Commands button color (green only while expanded)
