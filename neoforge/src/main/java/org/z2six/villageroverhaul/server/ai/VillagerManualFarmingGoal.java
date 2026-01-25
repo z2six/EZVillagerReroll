@@ -172,7 +172,10 @@ public final class VillagerManualFarmingGoal extends Goal {
 
             // If it's not work time, just roam around naturally.
             if (!doWork) {
-                clearAction();
+                // Do not clear roaming/navigation each tick during night-time roaming, otherwise the villager
+                // will only "nudge" a tiny bit and never actually walk anywhere.
+                if (action != Action.ROAM && action != Action.NONE) clearAction();
+                action = Action.ROAM;
                 tickRoam(level, center, range, circular);
                 return;
             }

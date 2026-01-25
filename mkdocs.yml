@@ -1,4 +1,4 @@
-﻿site_name: Villager Overhaul
+site_name: Villager Overhaul
 site_description: Merchant, Guard, and Farmer improvements for NeoForge 1.21.1+
 theme:
   name: material
@@ -37,6 +37,7 @@ nav:
       - Modes & Commands: guards/modes.md
       - Loadouts & Equipment: guards/loadouts.md
       - Combat Stats: guards/stats.md
+      - Combat AI Behavior: guards/ai.md
   - Farmers:
       - Overview: farmers/index.md
       - Logistics (Chests): farmers/logistics.md
