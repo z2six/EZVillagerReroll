@@ -18,6 +18,7 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
@@ -28,6 +29,9 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerEatTest;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerForceBlock;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
@@ -159,6 +163,8 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingChest(msg, ctx)));
             r.playToServer(PacketRegisterFarmingWithdrawChest.TYPE, PacketRegisterFarmingWithdrawChest.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingWithdrawChest(msg, ctx)));
+            r.playToServer(PacketRegisterFarmingWorkstation.TYPE, PacketRegisterFarmingWorkstation.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingWorkstation(msg, ctx)));
 
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
@@ -242,6 +248,8 @@ public final class Network {
                     (msg, ctx) -> handleVillagerCommandServer(msg, ctx));
             r.playToServer(PacketVillagerCombatCommand.TYPE, PacketVillagerCombatCommand.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerCombatCommandServer(msg, ctx));
+            r.playToServer(PacketVillagerManualFarmingModeCommand.TYPE, PacketVillagerManualFarmingModeCommand.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerManualFarmingModeCommand(msg, ctx)));
             r.playToServer(PacketCombatSettingsQuery.TYPE, PacketCombatSettingsQuery.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCombatSettingsQuery(msg, ctx)));
             r.playToServer(PacketCombatSettingsSync.TYPE, PacketCombatSettingsSync.STREAM_CODEC,
@@ -266,11 +274,15 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerModeQuery(msg, ctx)));
             r.playToServer(PacketVillagerCombatModeQuery.TYPE, PacketVillagerCombatModeQuery.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerCombatModeQuery(msg, ctx)));
+            r.playToServer(PacketVillagerManualFarmingModeQuery.TYPE, PacketVillagerManualFarmingModeQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerManualFarmingModeQuery(msg, ctx)));
 
             r.playToClient(PacketVillagerModeData.TYPE, PacketVillagerModeData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onVillagerModeData", msg, ctx));
             r.playToClient(PacketVillagerCombatModeData.TYPE, PacketVillagerCombatModeData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onVillagerCombatModeData", msg, ctx));
+            r.playToClient(PacketVillagerManualFarmingModeData.TYPE, PacketVillagerManualFarmingModeData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onVillagerManualFarmingModeData", msg, ctx));
             r.playToClient(PacketCombatSettingsData.TYPE, PacketCombatSettingsData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onCombatSettingsData", msg, ctx));
 

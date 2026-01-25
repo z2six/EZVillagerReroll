@@ -30,6 +30,7 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
@@ -39,6 +40,9 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerForceBlock;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
@@ -469,6 +473,12 @@ public final class ServerHandlers {
                     Long.toUnsignedString(lockMaskAfter)
             );
 
+            // Keep client UI lock outlines in sync even if the MerchantScreen instance did not re-init.
+            try {
+                long sanitized = TradeLockState.sanitizeMaskForSize(lockMaskAfter, safeOfferSize(vill));
+                org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(vill, sanitized);
+            } catch (Throwable ignored) {}
+
             ctx.reply(new PacketAutoSearchSettlementCleared(vill.getId()));
 
         } catch (Throwable t) {
@@ -813,6 +823,57 @@ public final class ServerHandlers {
         } catch (Throwable ignored) {}
     }
 
+    public static void handleVillagerManualFarmingModeQuery(PacketVillagerManualFarmingModeQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) {
+                ctx.reply(new PacketVillagerManualFarmingModeData(msg.villagerEntityId(), false));
+                return;
+            }
+
+            boolean enabled = VillagerBrain.isManualFarmingActive(vill);
+            ctx.reply(new PacketVillagerManualFarmingModeData(vill.getId(), enabled));
+
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleVillagerManualFarmingModeCommand(PacketVillagerManualFarmingModeCommand msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) return;
+
+            VillagerBrain.ensureAttached(vill);
+
+            boolean enable = msg.enabled();
+            if (enable) {
+                // Remember previous movement mode and temporarily clear movement behavior/highlight.
+                VillagerBrain.rememberPrevModeForManualFarming(vill);
+                VillagerBrain.setMode(vill, VillagerBrain.Mode.NEUTRAL);
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            } else {
+                // Restore previous movement mode after turning manual farming off.
+                VillagerBrain.restorePrevModeAfterManualFarming(vill);
+            }
+
+            VillagerBrain.setManualFarmingActive(vill, enable);
+
+            ctx.reply(new PacketVillagerManualFarmingModeData(vill.getId(), enable));
+            try {
+                var mode = VillagerBrain.getMode(vill);
+                ctx.reply(new PacketVillagerModeData(vill.getId(), mode == null ? "neutral" : mode.id));
+            } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
     private static boolean tryChargePlayer(ServerPlayer sp, int cost) {
         try {
             boolean isTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
@@ -1004,6 +1065,15 @@ public final class ServerHandlers {
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCommand denied (player={} villager={} cmd={})",
                         sp.getGameProfile().getName(), vill.getUUID(), msg.command());
+                return;
+            }
+
+            // Manual Farming is an exclusive "movement replacement" mode: ignore movement commands while active.
+            if (VillagerBrain.isManualFarmingActive(vill)) {
+                try {
+                    var mode = VillagerBrain.getMode(vill);
+                    ctx.reply(new PacketVillagerModeData(vill.getId(), mode == null ? "neutral" : mode.id));
+                } catch (Throwable ignored) {}
                 return;
             }
 
@@ -1272,6 +1342,7 @@ public final class ServerHandlers {
             }
 
             var settings = FarmingSettingsService.getSettings(vill);
+            try { settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill); } catch (Throwable ignored) {}
             ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleFarmingSettingsQuery failed", t);
@@ -1304,6 +1375,21 @@ public final class ServerHandlers {
                 settings.withdrawRules.clear();
                 settings.withdrawRules.addAll(wd);
             } catch (Throwable ignored) {}
+
+            try {
+                var mh = FarmingSettingsService.sanitizeItemIds(settings.manualHarvestItemIds);
+                settings.manualHarvestItemIds.clear();
+                settings.manualHarvestItemIds.addAll(mh);
+
+                var mp = FarmingSettingsService.sanitizeItemIds(settings.manualPlantItemIds);
+                settings.manualPlantItemIds.clear();
+                settings.manualPlantItemIds.addAll(mp);
+
+                settings.manualRange = Math.max(1, Math.min(64, settings.manualRange));
+            } catch (Throwable ignored) {}
+
+            // Derived / server-owned
+            try { settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill); } catch (Throwable ignored) {}
             FarmingSettingsService.setSettings(vill, settings);
 
             ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
@@ -1398,6 +1484,32 @@ public final class ServerHandlers {
         }
     }
 
+    public static void handleRegisterFarmingWorkstation(PacketRegisterFarmingWorkstation msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            var pos = msg.pos();
+            var level = sp.serverLevel();
+            if (level == null) return;
+            if (pos == null) return;
+
+            String dim = "";
+            try { dim = String.valueOf(level.dimension().location()); } catch (Throwable ignored) { dim = ""; }
+            FarmingSettingsService.setRegisteredWorkstation(vill, dim, pos.getX(), pos.getY(), pos.getZ());
+            try {
+                var settings = FarmingSettingsService.getSettings(vill);
+                settings.manualWorkstationRegistered = true;
+                ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
+            } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
     // =====================
     // PERMISSION GATE
     // =====================
@@ -1434,24 +1546,20 @@ public final class ServerHandlers {
                         if (rid != null) {
                             Object cache = sp.server.getProfileCache();
                             if (cache != null) {
-                                try {
-                                    java.lang.reflect.Method mGet = cache.getClass().getMethod("get", java.util.UUID.class);
-                                    Object opt = mGet.invoke(cache, rid);
-                                    if (opt instanceof java.util.Optional<?> o && o.isPresent()) {
-                                        Object gp = o.get();
-                                        try {
-                                            java.lang.reflect.Method mName = gp.getClass().getMethod("getName");
-                                            Object n = mName.invoke(gp);
-                                            if (n instanceof String s) byName = s;
-                                        } catch (Throwable ignored2) {}
-                                    }
-                                } catch (Throwable ignored) {}
+                                java.lang.reflect.Method mGet = cache.getClass().getMethod("get", java.util.UUID.class);
+                                Object opt = mGet.invoke(cache, rid);
+                                if (opt instanceof java.util.Optional<?> o && o.isPresent()) {
+                                    Object gp = o.get();
+                                    java.lang.reflect.Method mName = gp.getClass().getMethod("getName");
+                                    Object n = mName.invoke(gp);
+                                    if (n instanceof String s) byName = s;
+                                }
                             }
                         }
                     } catch (Throwable ignored) {}
                 }
-            }
 
+            }
             ctx.reply(new PacketRecruitGateData(id, true, recruited, canUse, byName == null ? "" : byName));
 
         } catch (Throwable t) {

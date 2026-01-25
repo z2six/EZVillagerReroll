@@ -24,9 +24,6 @@ public final class TradeLockSyncService {
             MinecraftServer server = vill.getServer();
             if (server == null) return;
 
-            int villEntityId = vill.getId();
-            PacketTradeLocks pkt = new PacketTradeLocks(villEntityId, mask);
-
             int sent = 0;
 
             for (ServerPlayer sp : server.getPlayerList().getPlayers()) {
@@ -36,6 +33,8 @@ public final class TradeLockSyncService {
                     if (trader != vill) continue;
 
                     if (sp.connection != null) {
+                        // IMPORTANT: ClientTradeLockCache is keyed by MerchantMenu.containerId (NOT villager entityId).
+                        PacketTradeLocks pkt = new PacketTradeLocks(mm.containerId, mask);
                         sp.connection.send(new ClientboundCustomPayloadPacket(pkt));
                         sent++;
                     }

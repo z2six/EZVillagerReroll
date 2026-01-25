@@ -338,6 +338,10 @@ public final class ServerEvents {
             } catch (Throwable ignored) {}
 
             try {
+                VillagerBrain.tickManualPlantAnimations();
+            } catch (Throwable ignored) {}
+
+            try {
                 VillagerCombatLoadoutService.tick(server);
             } catch (Throwable ignored) {}
 

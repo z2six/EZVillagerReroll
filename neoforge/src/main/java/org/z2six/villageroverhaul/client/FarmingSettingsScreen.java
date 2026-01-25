@@ -27,10 +27,29 @@ public final class FarmingSettingsScreen extends Screen {
     private boolean preserveLocalDraftOnNextInit = false;
     private boolean hasInitializedOnce = false;
 
+    private enum Tab { LOGISTICS, MANUAL }
+    private Tab activeTab = Tab.LOGISTICS;
+
+    private Button btnTabLogistics;
+    private Button btnTabManual;
+
+    // Logistics tab widgets
     private EditBox timeoutBox;
     private EditBox retryBox;
     private Button btnDepositRules;
     private Button btnWithdrawRules;
+
+    // Manual tab widgets
+    private EditBox manualTimeoutBox;
+    private EditBox manualRetryBox;
+    private Button btnHarvestRules;
+    private Button btnPlantRules;
+    private Button btnBonemealToggle;
+    private Button btnDropOtherToggle;
+    private EditBox manualRangeBox;
+    private Button btnRangeShapeToggle;
+    private Button btnWorkstationRegister;
+
     private Button btnSave;
     private Button btnBack;
 
@@ -91,31 +110,109 @@ public final class FarmingSettingsScreen extends Screen {
                 .build();
         addRenderableWidget(btnSave);
 
-        int rowY = top + PAD + 40;
+        // Tabs (below title)
+        int tabY = top + PAD + 22;
+        btnTabLogistics = Button.builder(Component.literal("Logistics"), b -> switchTab(Tab.LOGISTICS))
+                .pos(left + PAD, tabY)
+                .size(92, 18)
+                .build();
+        addRenderableWidget(btnTabLogistics);
+
+        btnTabManual = Button.builder(Component.literal("Manual farming"), b -> switchTab(Tab.MANUAL))
+                .pos(left + PAD + 92 + 6, tabY)
+                .size(120, 18)
+                .build();
+        addRenderableWidget(btnTabManual);
+
+        // Extra breathing room under tabs.
+        int rowY = top + PAD + 50;
         int labelX = left + PAD;
 
-        btnDepositRules = Button.builder(Component.literal("Edit..."), b -> openDepositRules())
-                .pos(left + PANEL_W - PAD - 72, rowY)
-                .size(72, 18)
+        // ------------------------------------------------------------
+        // Logistics tab
+        // ------------------------------------------------------------
+        int innerW = PANEL_W - (PAD * 2);
+        int halfW = (innerW - 6) / 2;
+
+        // Row 1: buttons (instead of label + edit button rows)
+        btnDepositRules = Button.builder(Component.literal("Deposit rules"), b -> openDepositRules())
+                .pos(left + PAD, rowY)
+                .size(halfW, 18)
                 .build();
         addRenderableWidget(btnDepositRules);
 
-        int row2Y = rowY + 22;
-        btnWithdrawRules = Button.builder(Component.literal("Edit..."), b -> openWithdrawRules())
-                .pos(left + PANEL_W - PAD - 72, row2Y)
-                .size(72, 18)
+        btnWithdrawRules = Button.builder(Component.literal("Withdraw rules"), b -> openWithdrawRules())
+                .pos(left + PAD + halfW + 6, rowY)
+                .size(halfW, 18)
                 .build();
         addRenderableWidget(btnWithdrawRules);
 
-        int row3Y = row2Y + 22;
-        timeoutBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Timeout"));
+        int row2Y = rowY + 22;
+        timeoutBox = new EditBox(this.font, labelX + 178, row2Y, 50, 18, Component.literal("Timeout"));
         timeoutBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
         addRenderableWidget(timeoutBox);
 
-        int row4Y = row3Y + 22;
-        retryBox = new EditBox(this.font, labelX + 178, row4Y, 50, 18, Component.literal("Retry"));
+        int row3Y = row2Y + 22;
+        retryBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Retry"));
         retryBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
         addRenderableWidget(retryBox);
+
+        // ------------------------------------------------------------
+        // Manual tab
+        // ------------------------------------------------------------
+        // Row 1: buttons (instead of label + separate edit button rows)
+        btnHarvestRules = Button.builder(Component.literal("Harvest rules"), b -> openManualHarvestRules())
+                .pos(left + PAD, rowY)
+                .size(halfW, 18)
+                .build();
+        addRenderableWidget(btnHarvestRules);
+
+        btnPlantRules = Button.builder(Component.literal("Planting rules"), b -> openManualPlantRules())
+                .pos(left + PAD + halfW + 6, rowY)
+                .size(halfW, 18)
+                .build();
+        addRenderableWidget(btnPlantRules);
+
+        // Row 2-4: same as before (labels rendered, widgets here)
+        manualTimeoutBox = new EditBox(this.font, labelX + 178, row2Y, 50, 18, Component.literal("Timeout"));
+        manualTimeoutBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
+        addRenderableWidget(manualTimeoutBox);
+
+        manualRetryBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Retry"));
+        manualRetryBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
+        addRenderableWidget(manualRetryBox);
+
+        int row4Y = row3Y + 22;
+        manualRangeBox = new EditBox(this.font, labelX + 178, row4Y, 50, 18, Component.literal("Range"));
+        manualRangeBox.setFilter(s -> s != null && s.matches("\\d{0,4}"));
+        addRenderableWidget(manualRangeBox);
+
+        btnRangeShapeToggle = Button.builder(Component.literal("Circular"), b -> toggleRangeShape())
+                .pos(labelX + 178 + 54, row4Y)
+                .size(72, 18)
+                .build();
+        addRenderableWidget(btnRangeShapeToggle);
+
+        // Row 5: compact action/toggles
+        int row5Y = row4Y + 22;
+        btnWorkstationRegister = Button.builder(Component.literal("Register Workstation [ ]"), b -> beginWorkstationRegister())
+                .pos(left + PAD, row5Y)
+                .size(innerW, 18)
+                .build();
+        addRenderableWidget(btnWorkstationRegister);
+
+        int row6Y = row5Y + 22;
+        btnBonemealToggle = Button.builder(Component.literal("Use Bonemeal [ ]"), b -> toggleBonemeal())
+                .pos(left + PAD, row6Y)
+                .size(halfW, 18)
+                .build();
+        addRenderableWidget(btnBonemealToggle);
+
+        btnDropOtherToggle = Button.builder(Component.literal("Toss other items [ ]"), b -> toggleDropOtherItems())
+                .pos(left + PAD + halfW + 6, row6Y)
+                .size(halfW, 18)
+                .build();
+        addRenderableWidget(btnDropOtherToggle);
 
         // Load cached settings and/or query server, unless we're returning from the item editor with a local draft.
         if (!(hasInitializedOnce && preserveLocalDraftOnNextInit)) {
@@ -133,16 +230,55 @@ public final class FarmingSettingsScreen extends Screen {
         }
 
         applyToWidgets();
+        updateTabVisibility();
 
         // Reset the "keep draft" latch after we used it.
         preserveLocalDraftOnNextInit = false;
         hasInitializedOnce = true;
     }
 
+    private void switchTab(Tab t) {
+        if (t == null) t = Tab.LOGISTICS;
+        readFromWidgets();
+        activeTab = t;
+        applyToWidgets();
+        updateTabVisibility();
+    }
+
+    private void updateTabVisibility() {
+        boolean isLog = activeTab == Tab.LOGISTICS;
+
+        if (btnTabLogistics != null) btnTabLogistics.active = !isLog;
+        if (btnTabManual != null) btnTabManual.active = isLog;
+
+        if (btnDepositRules != null) btnDepositRules.visible = isLog;
+        if (btnWithdrawRules != null) btnWithdrawRules.visible = isLog;
+        if (timeoutBox != null) timeoutBox.visible = isLog;
+        if (retryBox != null) retryBox.visible = isLog;
+
+        if (btnHarvestRules != null) btnHarvestRules.visible = !isLog;
+        if (btnPlantRules != null) btnPlantRules.visible = !isLog;
+        if (manualTimeoutBox != null) manualTimeoutBox.visible = !isLog;
+        if (manualRetryBox != null) manualRetryBox.visible = !isLog;
+        if (btnBonemealToggle != null) btnBonemealToggle.visible = !isLog;
+        if (btnDropOtherToggle != null) btnDropOtherToggle.visible = !isLog;
+        if (manualRangeBox != null) manualRangeBox.visible = !isLog;
+        if (btnRangeShapeToggle != null) btnRangeShapeToggle.visible = !isLog;
+        if (btnWorkstationRegister != null) btnWorkstationRegister.visible = !isLog;
+    }
+
     private void applyToWidgets() {
         try {
             if (timeoutBox != null) timeoutBox.setValue(String.valueOf(Math.max(1, settings.timeoutSeconds)));
             if (retryBox != null) retryBox.setValue(String.valueOf(Math.max(1, settings.retryAfterSeconds)));
+
+            if (manualTimeoutBox != null) manualTimeoutBox.setValue(String.valueOf(Math.max(1, settings.manualTimeoutSeconds)));
+            if (manualRetryBox != null) manualRetryBox.setValue(String.valueOf(Math.max(1, settings.manualRetryAfterSeconds)));
+            if (btnWorkstationRegister != null) btnWorkstationRegister.setMessage(Component.literal("Register Workstation [" + (settings.manualWorkstationRegistered ? "x" : " ") + "]"));
+            if (btnBonemealToggle != null) btnBonemealToggle.setMessage(Component.literal("Use Bonemeal [" + (settings.manualUseBonemeal ? "x" : " ") + "]"));
+            if (btnDropOtherToggle != null) btnDropOtherToggle.setMessage(Component.literal("Toss other items [" + (settings.manualDropOtherItems ? "x" : " ") + "]"));
+            if (manualRangeBox != null) manualRangeBox.setValue(String.valueOf(Math.max(1, settings.manualRange)));
+            if (btnRangeShapeToggle != null) btnRangeShapeToggle.setMessage(Component.literal(settings.manualRangeCircular ? "Circular" : "Square"));
         } catch (Throwable ignored) {}
     }
 
@@ -165,6 +301,33 @@ public final class FarmingSettingsScreen extends Screen {
                 retry = 60;
             }
             settings.retryAfterSeconds = Math.max(1, retry);
+
+            int mTimeout = 10;
+            try {
+                String raw = manualTimeoutBox == null ? "" : manualTimeoutBox.getValue();
+                mTimeout = raw == null || raw.isBlank() ? 10 : Integer.parseInt(raw.trim());
+            } catch (Throwable ignored) {
+                mTimeout = 10;
+            }
+            settings.manualTimeoutSeconds = Math.max(1, mTimeout);
+
+            int mRetry = 10;
+            try {
+                String raw = manualRetryBox == null ? "" : manualRetryBox.getValue();
+                mRetry = raw == null || raw.isBlank() ? 10 : Integer.parseInt(raw.trim());
+            } catch (Throwable ignored) {
+                mRetry = 10;
+            }
+            settings.manualRetryAfterSeconds = Math.max(1, mRetry);
+
+            int range = 10;
+            try {
+                String raw = manualRangeBox == null ? "" : manualRangeBox.getValue();
+                range = raw == null || raw.isBlank() ? 10 : Integer.parseInt(raw.trim());
+            } catch (Throwable ignored) {
+                range = 10;
+            }
+            settings.manualRange = Math.max(1, range);
         } catch (Throwable ignored) {}
     }
 
@@ -185,6 +348,54 @@ public final class FarmingSettingsScreen extends Screen {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
             mc.setScreen(new FarmingItemRulesEditorScreen(this, settings.withdrawRules, "Withdraw rules"));
+        } catch (Throwable ignored) {}
+    }
+
+    private void openManualHarvestRules() {
+        try {
+            readFromWidgets();
+            preserveLocalDraftOnNextInit = true;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+            mc.setScreen(new FarmingManualItemListEditorScreen(this, settings.manualHarvestItemIds, "Harvest rules"));
+        } catch (Throwable ignored) {}
+    }
+
+    private void openManualPlantRules() {
+        try {
+            readFromWidgets();
+            preserveLocalDraftOnNextInit = true;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+            mc.setScreen(new FarmingManualItemListEditorScreen(this, settings.manualPlantItemIds, "Planting rules"));
+        } catch (Throwable ignored) {}
+    }
+
+    private void toggleDropOtherItems() {
+        try {
+            settings.manualDropOtherItems = !settings.manualDropOtherItems;
+            applyToWidgets();
+        } catch (Throwable ignored) {}
+    }
+
+    private void toggleBonemeal() {
+        try {
+            settings.manualUseBonemeal = !settings.manualUseBonemeal;
+            applyToWidgets();
+        } catch (Throwable ignored) {}
+    }
+
+    private void toggleRangeShape() {
+        try {
+            settings.manualRangeCircular = !settings.manualRangeCircular;
+            applyToWidgets();
+        } catch (Throwable ignored) {}
+    }
+
+    private void beginWorkstationRegister() {
+        try {
+            readFromWidgets();
+            ClientUI.beginWorkstationRegistration(villagerEntityId);
         } catch (Throwable ignored) {}
     }
 
@@ -214,22 +425,37 @@ public final class FarmingSettingsScreen extends Screen {
         Font font = Minecraft.getInstance().font;
         gg.drawString(font, "Farming Settings", left + PAD, top + PAD + 5, 0xFFFFFFFF, true);
 
-        int rowY = top + PAD + 44;
-        gg.drawString(font, "Deposit rules:", left + PAD, rowY + 4, 0xFFBFBFBF, false);
+        // Keep labels aligned with init() rows.
+        int rowY = top + PAD + 50;
+        boolean isLog = activeTab == Tab.LOGISTICS;
 
-        int row2Y = rowY + 22;
-        gg.drawString(font, "Withdraw rules:", left + PAD, row2Y + 4, 0xFFBFBFBF, false);
+        if (isLog) {
+            // Row 1 has buttons, no labels needed.
+            int row2Y = rowY + 22;
+            gg.drawString(font, "Timeout (seconds):", left + PAD, row2Y + 4, 0xFFBFBFBF, false);
 
-        int row3Y = row2Y + 22;
-        gg.drawString(font, "Timeout (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
+            int row3Y = row2Y + 22;
+            gg.drawString(font, "Retry after (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
 
-        int row4Y = row3Y + 22;
-        gg.drawString(font, "Retry after (seconds):", left + PAD, row4Y + 4, 0xFFBFBFBF, false);
+            int infoY = row3Y + 22;
+            int dep = settings == null || settings.depositRules == null ? 0 : settings.depositRules.size();
+            int wd = settings == null || settings.withdrawRules == null ? 0 : settings.withdrawRules.size();
+            gg.drawString(font, "Deposit: " + dep + " | Withdraw: " + wd, left + PAD, infoY, 0xFFBFBFBF, false);
+        } else {
+            int row2Y = rowY + 22;
+            gg.drawString(font, "Timeout (seconds):", left + PAD, row2Y + 4, 0xFFBFBFBF, false);
 
-        int infoY = row4Y + 22;
-        int dep = settings == null || settings.depositRules == null ? 0 : settings.depositRules.size();
-        int wd = settings == null || settings.withdrawRules == null ? 0 : settings.withdrawRules.size();
-        gg.drawString(font, "Deposit: " + dep + " | Withdraw: " + wd, left + PAD, infoY, 0xFFBFBFBF, false);
+            int row3Y = row2Y + 22;
+            gg.drawString(font, "Retry after (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
+
+            int row4Y = row3Y + 22;
+            gg.drawString(font, "Range:", left + PAD, row4Y + 4, 0xFFBFBFBF, false);
+
+            int infoY = row4Y + 66;
+            int h = settings == null || settings.manualHarvestItemIds == null ? 0 : settings.manualHarvestItemIds.size();
+            int p = settings == null || settings.manualPlantItemIds == null ? 0 : settings.manualPlantItemIds.size();
+            gg.drawString(font, "Harvest: " + h + " | Planting: " + p, left + PAD, infoY, 0xFFBFBFBF, false);
+        }
 
         super.render(gg, mouseX, mouseY, partialTick);
     }

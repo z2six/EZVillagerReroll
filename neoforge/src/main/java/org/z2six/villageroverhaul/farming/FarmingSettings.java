@@ -16,6 +16,17 @@ public final class FarmingSettings {
     private static final String K_DEPOSIT_RULES = "depositRules";
     private static final String K_WITHDRAW_RULES = "withdrawRules";
 
+    // Manual farming (new)
+    private static final String K_MANUAL_TIMEOUT_SECONDS = "manualTimeoutSeconds";
+    private static final String K_MANUAL_RETRY_SECONDS = "manualRetryAfterSeconds";
+    private static final String K_MANUAL_DROP_OTHER = "manualDropOtherItems";
+    private static final String K_MANUAL_RANGE = "manualRange";
+    private static final String K_MANUAL_RANGE_CIRCULAR = "manualRangeCircular";
+    private static final String K_MANUAL_USE_BONEMEAL = "manualUseBonemeal";
+    private static final String K_MANUAL_WORKSTATION_REGISTERED = "manualWorkstationRegistered";
+    private static final String K_MANUAL_HARVEST_ITEMS = "manualHarvestItems";
+    private static final String K_MANUAL_PLANT_ITEMS = "manualPlantItems";
+
     // Legacy (pre per-item thresholds)
     private static final String K_RULES_LEGACY = "rules"; // old per-item list (deposit-only)
     private static final String K_STACKS_LEGACY = "stacks"; // old global stacks (deposit-only)
@@ -30,6 +41,17 @@ public final class FarmingSettings {
     public int retryAfterSeconds = 60;
     public final List<ItemRule> depositRules = new ArrayList<>();
     public final List<ItemRule> withdrawRules = new ArrayList<>();
+
+    // Manual farming defaults (requested: 10s/10s)
+    public int manualTimeoutSeconds = 10;
+    public int manualRetryAfterSeconds = 10;
+    public boolean manualDropOtherItems = false;
+    public int manualRange = 10;
+    public boolean manualRangeCircular = true;
+    public boolean manualUseBonemeal = false;
+    public boolean manualWorkstationRegistered = false;
+    public final List<String> manualHarvestItemIds = new ArrayList<>();
+    public final List<String> manualPlantItemIds = new ArrayList<>();
 
     public static final class ItemRule {
         public String itemId = "";
@@ -80,6 +102,118 @@ public final class FarmingSettings {
         } catch (Throwable ignored) {
             s.retryAfterSeconds = 60;
         }
+
+        // Manual farming
+        try {
+            if (tag.contains(K_MANUAL_TIMEOUT_SECONDS, Tag.TAG_INT)) {
+                int t = tag.getInt(K_MANUAL_TIMEOUT_SECONDS);
+                s.manualTimeoutSeconds = Math.max(1, t);
+            } else {
+                s.manualTimeoutSeconds = 10;
+            }
+        } catch (Throwable ignored) {
+            s.manualTimeoutSeconds = 10;
+        }
+
+        try {
+            if (tag.contains(K_MANUAL_RETRY_SECONDS, Tag.TAG_INT)) {
+                int t = tag.getInt(K_MANUAL_RETRY_SECONDS);
+                s.manualRetryAfterSeconds = Math.max(1, t);
+            } else {
+                s.manualRetryAfterSeconds = 10;
+            }
+        } catch (Throwable ignored) {
+            s.manualRetryAfterSeconds = 10;
+        }
+
+        try {
+            if (tag.contains(K_MANUAL_DROP_OTHER, Tag.TAG_BYTE)) {
+                s.manualDropOtherItems = tag.getBoolean(K_MANUAL_DROP_OTHER);
+            } else {
+                s.manualDropOtherItems = false;
+            }
+        } catch (Throwable ignored) {
+            s.manualDropOtherItems = false;
+        }
+
+        try {
+            if (tag.contains(K_MANUAL_RANGE, Tag.TAG_INT)) {
+                int r = tag.getInt(K_MANUAL_RANGE);
+                s.manualRange = Math.max(1, r);
+            } else {
+                s.manualRange = 10;
+            }
+        } catch (Throwable ignored) {
+            s.manualRange = 10;
+        }
+
+        try {
+            if (tag.contains(K_MANUAL_RANGE_CIRCULAR, Tag.TAG_BYTE)) {
+                s.manualRangeCircular = tag.getBoolean(K_MANUAL_RANGE_CIRCULAR);
+            } else {
+                s.manualRangeCircular = true;
+            }
+        } catch (Throwable ignored) {
+            s.manualRangeCircular = true;
+        }
+
+        try {
+            if (tag.contains(K_MANUAL_USE_BONEMEAL, Tag.TAG_BYTE)) {
+                s.manualUseBonemeal = tag.getBoolean(K_MANUAL_USE_BONEMEAL);
+            } else {
+                s.manualUseBonemeal = false;
+            }
+        } catch (Throwable ignored) {
+            s.manualUseBonemeal = false;
+        }
+
+        try {
+            if (tag.contains(K_MANUAL_WORKSTATION_REGISTERED, Tag.TAG_BYTE)) {
+                s.manualWorkstationRegistered = tag.getBoolean(K_MANUAL_WORKSTATION_REGISTERED);
+            } else {
+                s.manualWorkstationRegistered = false;
+            }
+        } catch (Throwable ignored) {
+            s.manualWorkstationRegistered = false;
+        }
+
+        s.manualHarvestItemIds.clear();
+        s.manualPlantItemIds.clear();
+        try {
+            if (tag.contains(K_MANUAL_HARVEST_ITEMS, Tag.TAG_LIST)) {
+                ListTag list = tag.getList(K_MANUAL_HARVEST_ITEMS, Tag.TAG_STRING);
+                int n = Math.min(512, list.size());
+                for (int i = 0; i < n; i++) {
+                    String raw = list.getString(i);
+                    if (raw == null) continue;
+                    String norm = raw.trim().toLowerCase(Locale.ROOT);
+                    if (norm.isEmpty()) continue;
+                    boolean exists = false;
+                    for (String e : s.manualHarvestItemIds) {
+                        if (e != null && e.equalsIgnoreCase(norm)) { exists = true; break; }
+                    }
+                    if (!exists) s.manualHarvestItemIds.add(norm);
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            if (tag.contains(K_MANUAL_PLANT_ITEMS, Tag.TAG_LIST)) {
+                ListTag list = tag.getList(K_MANUAL_PLANT_ITEMS, Tag.TAG_STRING);
+                int n = Math.min(512, list.size());
+                for (int i = 0; i < n; i++) {
+                    String raw = list.getString(i);
+                    if (raw == null) continue;
+                    String norm = raw.trim().toLowerCase(Locale.ROOT);
+                    if (norm.isEmpty()) continue;
+                    boolean exists = false;
+                    for (String e : s.manualPlantItemIds) {
+                        if (e != null && e.equalsIgnoreCase(norm)) { exists = true; break; }
+                    }
+                    if (!exists) s.manualPlantItemIds.add(norm);
+                }
+            }
+        } catch (Throwable ignored) {}
 
         s.depositRules.clear();
         s.withdrawRules.clear();
@@ -198,6 +332,36 @@ public final class FarmingSettings {
         tag.putLong(K_UPDATED_AT, Math.max(0L, updatedAt));
         tag.putInt(K_TIMEOUT_SECONDS, Math.max(1, timeoutSeconds));
         tag.putInt(K_RETRY_SECONDS, Math.max(1, retryAfterSeconds));
+
+        tag.putInt(K_MANUAL_TIMEOUT_SECONDS, Math.max(1, manualTimeoutSeconds));
+        tag.putInt(K_MANUAL_RETRY_SECONDS, Math.max(1, manualRetryAfterSeconds));
+        tag.putBoolean(K_MANUAL_DROP_OTHER, manualDropOtherItems);
+        tag.putInt(K_MANUAL_RANGE, Math.max(1, manualRange));
+        tag.putBoolean(K_MANUAL_RANGE_CIRCULAR, manualRangeCircular);
+        tag.putBoolean(K_MANUAL_USE_BONEMEAL, manualUseBonemeal);
+        tag.putBoolean(K_MANUAL_WORKSTATION_REGISTERED, manualWorkstationRegistered);
+
+        ListTag mh = new ListTag();
+        int mhN = Math.min(512, manualHarvestItemIds.size());
+        for (int i = 0; i < mhN; i++) {
+            String raw = manualHarvestItemIds.get(i);
+            if (raw == null) continue;
+            String norm = raw.trim().toLowerCase(Locale.ROOT);
+            if (norm.isEmpty()) continue;
+            mh.add(net.minecraft.nbt.StringTag.valueOf(norm));
+        }
+        tag.put(K_MANUAL_HARVEST_ITEMS, mh);
+
+        ListTag mp = new ListTag();
+        int mpN = Math.min(512, manualPlantItemIds.size());
+        for (int i = 0; i < mpN; i++) {
+            String raw = manualPlantItemIds.get(i);
+            if (raw == null) continue;
+            String norm = raw.trim().toLowerCase(Locale.ROOT);
+            if (norm.isEmpty()) continue;
+            mp.add(net.minecraft.nbt.StringTag.valueOf(norm));
+        }
+        tag.put(K_MANUAL_PLANT_ITEMS, mp);
 
         ListTag depositList = new ListTag();
         int n = Math.min(512, depositRules.size());

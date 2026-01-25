@@ -24,6 +24,7 @@ import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
@@ -644,6 +645,14 @@ public final class ClientNetworkHandlers {
         ctx.enqueueWork(() -> {
             try {
                 org.z2six.villageroverhaul.client.ClientUI.acceptVillagerCombatModeData(msg);
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    public static void onVillagerManualFarmingModeData(PacketVillagerManualFarmingModeData msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                org.z2six.villageroverhaul.client.ClientUI.acceptVillagerManualFarmingModeData(msg);
             } catch (Throwable ignored) {}
         });
     }

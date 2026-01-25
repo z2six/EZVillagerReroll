@@ -35,6 +35,12 @@ public final class FarmingSettingsService {
     private static final String K_WZ = "wz";
     private static final String K_WIS_ENDER = "wisEnder";
 
+    // Manual farming workstation
+    private static final String K_MDIM = "mdim";
+    private static final String K_MX = "mx";
+    private static final String K_MY = "my";
+    private static final String K_MZ = "mz";
+
     public static FarmingSettings getSettings(Villager vill) {
         try {
             if (vill == null) return new FarmingSettings();
@@ -126,6 +132,42 @@ public final class FarmingSettingsService {
         }
     }
 
+    public static void setRegisteredWorkstation(Villager vill, String dimId, int x, int y, int z) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.putString(K_MDIM, dimId == null ? "" : dimId);
+            root.putInt(K_MX, x);
+            root.putInt(K_MY, y);
+            root.putInt(K_MZ, z);
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean hasRegisteredWorkstation(Villager vill) {
+        try {
+            if (vill == null) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            String dim = root.getString(K_MDIM);
+            return dim != null && !dim.isBlank();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public record RegisteredWorkstation(String dimId, int x, int y, int z) {}
+
+    public static RegisteredWorkstation getRegisteredWorkstation(Villager vill) {
+        try {
+            if (vill == null) return null;
+            CompoundTag root = getOrCreateRoot(vill);
+            String dim = root.getString(K_MDIM);
+            if (dim == null || dim.isBlank()) return null;
+            return new RegisteredWorkstation(dim, root.getInt(K_MX), root.getInt(K_MY), root.getInt(K_MZ));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     public static List<FarmingSettings.ItemRule> sanitizeRules(List<FarmingSettings.ItemRule> rules) {
         List<FarmingSettings.ItemRule> out = new ArrayList<>();
         if (rules == null) return out;
@@ -153,6 +195,35 @@ public final class FarmingSettingsService {
             int stacks = Math.max(0, r.stacksThreshold);
             int keep = Math.max(0, r.keepStacks);
             out.add(new FarmingSettings.ItemRule(raw, stacks, keep));
+        }
+
+        return out;
+    }
+
+    public static List<String> sanitizeItemIds(List<String> itemIds) {
+        List<String> out = new ArrayList<>();
+        if (itemIds == null) return out;
+
+        int n = Math.min(512, itemIds.size());
+        for (int i = 0; i < n; i++) {
+            String raw = itemIds.get(i);
+            if (raw == null) continue;
+            String norm = raw.trim().toLowerCase(Locale.ROOT);
+            if (norm.isEmpty()) continue;
+
+            try {
+                ResourceLocation.parse(norm);
+            } catch (Throwable ignored) {
+                continue;
+            }
+
+            boolean exists = false;
+            for (String e : out) {
+                if (e != null && e.equalsIgnoreCase(norm)) { exists = true; break; }
+            }
+            if (exists) continue;
+
+            out.add(norm);
         }
 
         return out;

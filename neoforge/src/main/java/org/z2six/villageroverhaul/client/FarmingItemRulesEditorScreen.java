@@ -52,6 +52,7 @@ public final class FarmingItemRulesEditorScreen extends Screen {
     private int rightPanelH;
 
     private String selectedId = "";
+    private boolean suppressBoxApply = false;
 
     // Match VillagerInfoScreen sizing for consistent UI.
     private static final int PANEL_W = 316;
@@ -171,12 +172,12 @@ public final class FarmingItemRulesEditorScreen extends Screen {
         triggerBox = new EditBox(this.font, triggerX, editY, boxW, 16, Component.literal("Trigger"));
         triggerBox.setFilter(s -> s != null && s.matches("\\d{0,3}"));
         addRenderableWidget(triggerBox);
-        try { triggerBox.setResponder(s -> applySelectedFromBoxes()); } catch (Throwable ignored) {}
+        try { triggerBox.setResponder(s -> { if (!suppressBoxApply) applySelectedFromBoxes(); }); } catch (Throwable ignored) {}
 
         keepBox = new EditBox(this.font, keepX, editY, boxW, 16, Component.literal("Keep"));
         keepBox.setFilter(s -> s != null && s.matches("\\d{0,3}"));
         addRenderableWidget(keepBox);
-        try { keepBox.setResponder(s -> applySelectedFromBoxes()); } catch (Throwable ignored) {}
+        try { keepBox.setResponder(s -> { if (!suppressBoxApply) applySelectedFromBoxes(); }); } catch (Throwable ignored) {}
 
         removeBtn = Button.builder(Component.literal("X"), b -> removeSelected())
                 .pos(removeX, editY)
@@ -245,6 +246,7 @@ public final class FarmingItemRulesEditorScreen extends Screen {
         try {
             FarmingSettings.ItemRule r = findRule(selectedId);
             boolean has = r != null;
+            suppressBoxApply = true;
             if (triggerBox != null) {
                 triggerBox.setEditable(has);
                 triggerBox.setValue(has ? String.valueOf(Math.max(0, r.stacksThreshold)) : "");
@@ -257,7 +259,11 @@ public final class FarmingItemRulesEditorScreen extends Screen {
                 removeBtn.active = has;
                 removeBtn.visible = true;
             }
+            suppressBoxApply = false;
         } catch (Throwable ignored) {}
+        finally {
+            suppressBoxApply = false;
+        }
     }
 
     private void applySelectedFromBoxes() {

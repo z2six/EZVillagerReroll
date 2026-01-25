@@ -17,6 +17,8 @@ import net.minecraft.world.item.Items;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
@@ -44,7 +46,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     private Button cbFlee, cbDefend, cbAggressive, cbSettings;
 
     // Farming buttons
-    private Button fmDeposit, fmWithdraw, fmSettings;
+    private Button fmManual, fmDeposit, fmWithdraw, fmSettings;
 
     // Backdrop + header icons (like ClientUI)
     private CommandsBackdropWidget commandsBackdrop;
@@ -60,6 +62,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     private static final long MODE_STALE_MS = 1000L;
     private long lastModeQueryMs = 0L;
     private long lastCombatModeQueryMs = 0L;
+    private long lastManualFarmingQueryMs = 0L;
 
     // Visual green used in ClientUI
     private static final int GREEN_RGB = 0x58E766;
@@ -83,6 +86,7 @@ public final class VillagerQuickActionsScreen extends Screen {
         // Ask server modes right away (for highlight)
         trySendModeQueryIfNeeded(true);
         trySendCombatModeQueryIfNeeded(true);
+        trySendManualFarmingModeQueryIfNeeded(true);
 
         final int w = 18, h = 18;
         final int gap = 2;
@@ -242,17 +246,21 @@ public final class VillagerQuickActionsScreen extends Screen {
             // Row 3 (Farming): icon then buttons
             int fmX0 = row3X + w + gap;
 
-            fmDeposit = Button.builder(Component.literal("D"), b -> onFarmingRegisterDepositChest())
+            fmManual = Button.builder(Component.literal("M"), b -> onFarmingManualToggle())
                     .pos(fmX0 + 0 * (w + gap), row3Y).size(w, h).build();
-            fmWithdraw = Button.builder(Component.literal("W"), b -> onFarmingRegisterWithdrawChest())
+            fmDeposit = Button.builder(Component.literal("D"), b -> onFarmingRegisterDepositChest())
                     .pos(fmX0 + 1 * (w + gap), row3Y).size(w, h).build();
-            fmSettings = Button.builder(Component.literal("\u26ED"), b -> onFarmingSettings())
+            fmWithdraw = Button.builder(Component.literal("W"), b -> onFarmingRegisterWithdrawChest())
                     .pos(fmX0 + 2 * (w + gap), row3Y).size(w, h).build();
+            fmSettings = Button.builder(Component.literal("\u26ED"), b -> onFarmingSettings())
+                    .pos(fmX0 + 3 * (w + gap), row3Y).size(w, h).build();
 
+            fmManual.setTooltip(Tooltip.create(Component.literal("Manual Farming")));
             fmDeposit.setTooltip(Tooltip.create(Component.literal("Register deposit chest")));
             fmWithdraw.setTooltip(Tooltip.create(Component.literal("Register withdraw chest")));
             fmSettings.setTooltip(Tooltip.create(Component.literal("Farming settings")));
 
+            addRenderableWidget(fmManual);
             addRenderableWidget(fmDeposit);
             addRenderableWidget(fmWithdraw);
             addRenderableWidget(fmSettings);
@@ -354,6 +362,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             setWidgetVisible(cbAggressive, v);
             setWidgetVisible(cbSettings, v);
 
+            setWidgetVisible(fmManual, v);
             setWidgetVisible(fmDeposit, v);
             setWidgetVisible(fmWithdraw, v);
             setWidgetVisible(fmSettings, v);
@@ -386,6 +395,24 @@ public final class VillagerQuickActionsScreen extends Screen {
             updateCommandsMainButtonVisual();
 
             ClientUI.beginWithdrawChestRegistration(villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
+    private void onFarmingManualToggle() {
+        try {
+            if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
+
+            commandsExpanded = false;
+            setCommandsVisible(false);
+            updateCommandsMainButtonVisual();
+
+            boolean cur = readManualFarmingEnabledFromClientUI(villagerEntityId);
+            boolean next = !cur;
+            ClientNetwork.sendToServer(new PacketVillagerManualFarmingModeCommand(villagerEntityId, next));
+
+            // Force-refresh highlight quickly.
+            trySendManualFarmingModeQueryIfNeeded(true);
+            updateCommandButtonsHighlight();
         } catch (Throwable ignored) {}
     }
 
@@ -548,6 +575,7 @@ public final class VillagerQuickActionsScreen extends Screen {
         // Keep mode highlight in sync
         trySendModeQueryIfNeeded(false);
         trySendCombatModeQueryIfNeeded(false);
+        trySendManualFarmingModeQueryIfNeeded(false);
 
         // Only bother styling if palette visible
         if (commandsExpanded) {
@@ -591,6 +619,16 @@ public final class VillagerQuickActionsScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
+    private void trySendManualFarmingModeQueryIfNeeded(boolean force) {
+        try {
+            long now = System.currentTimeMillis();
+            if (!force && (now - lastManualFarmingQueryMs) < MODE_STALE_MS) return;
+            lastManualFarmingQueryMs = now;
+
+            ClientNetwork.sendToServer(new PacketVillagerManualFarmingModeQuery(villagerEntityId));
+        } catch (Throwable ignored) {}
+    }
+
     private void updateCommandButtonsHighlight() {
         try {
             String movementMode = readModeIdFromClientUI(villagerEntityId);
@@ -614,8 +652,27 @@ public final class VillagerQuickActionsScreen extends Screen {
                 default -> "off";
             };
 
-            applyHighlightKey(MOVEMENT_BTNS, movementKey);
+            boolean manual = readManualFarmingEnabledFromClientUI(villagerEntityId);
+            if (manual) {
+                // Manual farming is exclusive: clear movement highlights while enabled.
+                for (Button b : MOVEMENT_BTNS.values()) {
+                    if (b == null) continue;
+                    String glyph = "";
+                    try { glyph = b.getMessage() == null ? "" : b.getMessage().getString(); } catch (Throwable ignored) {}
+                    b.setMessage(Component.literal(glyph));
+                }
+            } else {
+                applyHighlightKey(MOVEMENT_BTNS, movementKey);
+            }
+
             applyHighlightKey(COMBAT_BTNS, combatKey);
+
+            if (fmManual != null) {
+                String glyph = "";
+                try { glyph = fmManual.getMessage() == null ? "M" : fmManual.getMessage().getString(); } catch (Throwable ignored) { glyph = "M"; }
+                if (manual) fmManual.setMessage(Component.literal(glyph).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(GREEN_RGB))));
+                else fmManual.setMessage(Component.literal(glyph));
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -656,6 +713,11 @@ public final class VillagerQuickActionsScreen extends Screen {
                 String glyph = "";
                 try { glyph = b.getMessage() == null ? "" : b.getMessage().getString(); } catch (Throwable ignored) {}
                 b.setMessage(Component.literal(glyph));
+            }
+            if (fmManual != null) {
+                String glyph = "";
+                try { glyph = fmManual.getMessage() == null ? "M" : fmManual.getMessage().getString(); } catch (Throwable ignored) { glyph = "M"; }
+                fmManual.setMessage(Component.literal(glyph));
             }
         } catch (Throwable ignored) {}
     }
@@ -709,6 +771,31 @@ public final class VillagerQuickActionsScreen extends Screen {
 
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean readManualFarmingEnabledFromClientUI(int villagerId) {
+        try {
+            // ClientUI has:
+            // private static final Map<Integer, Boolean> MANUAL_FARMING_ENABLED = new WeakHashMap<>();
+            Class<?> clz = Class.forName("org.z2six.villageroverhaul.client.ClientUI");
+
+            Field f = null;
+            try {
+                f = clz.getDeclaredField("MANUAL_FARMING_ENABLED");
+            } catch (NoSuchFieldException ignored) {}
+
+            if (f == null) return false;
+            f.setAccessible(true);
+
+            Object mapObj = f.get(null);
+            if (!(mapObj instanceof Map<?, ?> m)) return false;
+
+            Object v = m.get(villagerId);
+            return (v instanceof Boolean b) && b;
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 

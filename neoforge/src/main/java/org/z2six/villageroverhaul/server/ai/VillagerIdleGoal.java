@@ -32,6 +32,7 @@ public final class VillagerIdleGoal extends Goal {
         return vill != null
                 && VillagerBrain.getMode(vill) == VillagerBrain.Mode.IDLE
                 && !VillagerBrain.isStorageActive(vill)
+                && !VillagerBrain.isManualFarmingActive(vill)
                 && !VillagerBrain.isCombatEngaged(vill)
                 && !VillagerBrain.isUiPaused(vill);
     }

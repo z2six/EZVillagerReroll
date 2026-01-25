@@ -13,6 +13,7 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.server.FarmingSettingsService;
@@ -367,10 +368,12 @@ public final class VillagerStorageGoal extends Goal {
             if (chestInv == null) return false;
 
             var settings = FarmingSettingsService.getSettings(vill);
-            if (settings == null || settings.withdrawRules == null || settings.withdrawRules.isEmpty()) return true;
+            if (settings == null) return true;
 
             Container inv = getVillagerInventory();
             if (inv == null) return false;
+
+            if (settings.withdrawRules == null || settings.withdrawRules.isEmpty()) return true;
 
             // Remaining-to-take: withdraw excess so the chest ends at keep.
             java.util.Map<Item, Integer> remainingToTake = new java.util.HashMap<>();
@@ -451,6 +454,9 @@ public final class VillagerStorageGoal extends Goal {
                     level.playSound(null, targetPos, SoundEvents.CHEST_OPEN, SoundSource.BLOCKS, 0.5f, 1.0f);
                 }
             } catch (Throwable ignored) {}
+
+            // Hand swing synced with the chest opening animation (not with the actual item transfer).
+            try { VillagerBrain.triggerManualPlantAnimation(vill, Items.CHEST.getDefaultInstance(), 10); } catch (Throwable ignored) {}
 
             chestOpened = true;
         } catch (Throwable ignored) {}

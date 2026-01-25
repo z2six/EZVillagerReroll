@@ -37,6 +37,9 @@ import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeQuery;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeData;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
@@ -58,6 +61,7 @@ import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
+import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
@@ -114,10 +118,13 @@ public final class ClientUI {
     private static final Map<Integer, String> MODE_ID = new WeakHashMap<>();
     private static final Map<Integer, Long> COMBAT_MODE_AT = new WeakHashMap<>();
     private static final Map<Integer, String> COMBAT_MODE_ID = new WeakHashMap<>();
+    private static final Map<Integer, Long> MANUAL_FARMING_AT = new WeakHashMap<>();
+    private static final Map<Integer, Boolean> MANUAL_FARMING_ENABLED = new WeakHashMap<>();
     // Movement buttons per screen: key is "neutral"/"idle"/"follow"/"patrol"
     private static final Map<Screen, Map<String, Button>> MOVEMENT_BTNS = new WeakHashMap<>();
     // Combat buttons per screen: key is "flee"/"defend"/"aggressive"
     private static final Map<Screen, Map<String, Button>> COMBAT_BTNS = new WeakHashMap<>();
+    private static final Map<Screen, Button> MANUAL_FARM_BTN = new WeakHashMap<>();
 
     private static final class RecruitStateSnap {
         final boolean recruited;
@@ -145,6 +152,9 @@ public final class ClientUI {
     // Chest registration flow (farming command)
     private static int PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
     private static boolean PENDING_CHEST_REGISTER_WITHDRAW = false;
+
+    // Manual farming workstation registration flow (from settings screen)
+    private static int PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
     private static long CHEST_REGISTER_MESSAGE_UNTIL_MS = 0L;
     private static String CHEST_REGISTER_MESSAGE = "";
 
@@ -185,6 +195,14 @@ public final class ClientUI {
             if (p == null) return;
             COMBAT_MODE_ID.put(p.villagerEntityId(), p.combatModeId() == null ? "off" : p.combatModeId());
             COMBAT_MODE_AT.put(p.villagerEntityId(), System.currentTimeMillis());
+        } catch (Throwable ignored) {}
+    }
+
+    public static void acceptVillagerManualFarmingModeData(PacketVillagerManualFarmingModeData p) {
+        try {
+            if (p == null) return;
+            MANUAL_FARMING_ENABLED.put(p.villagerEntityId(), p.enabled());
+            MANUAL_FARMING_AT.put(p.villagerEntityId(), System.currentTimeMillis());
         } catch (Throwable ignored) {}
     }
 
@@ -348,12 +366,25 @@ public final class ClientUI {
     private static void onPlayerRightClickBlock(final PlayerInteractEvent.RightClickBlock e) {
         try {
             if (e == null) return;
-            if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0) return;
             if (e.getLevel() == null || !e.getLevel().isClientSide()) return;
             if (e.getHand() != InteractionHand.MAIN_HAND) return;
 
             BlockPos pos = e.getPos();
             if (pos == null) return;
+
+            // Workstation registration: ANY block
+            if (PENDING_WORKSTATION_REGISTER_VILLAGER_ID > 0) {
+                int id = PENDING_WORKSTATION_REGISTER_VILLAGER_ID;
+                PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+                try {
+                    ClientNetwork.sendToServer(PacketRegisterFarmingWorkstation.of(id, pos));
+                } catch (Throwable ignored) {}
+
+                setChestRegisterMessage("Workstation registered", 2200);
+                return;
+            }
+
+            if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0) return;
 
             boolean isChest = false;
             try {
@@ -384,7 +415,7 @@ public final class ClientUI {
     private static void onKeyInput(final InputEvent.Key e) {
         try {
             if (e == null) return;
-            if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0) return;
+            if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0 && PENDING_WORKSTATION_REGISTER_VILLAGER_ID <= 0) return;
 
             int key = e.getKey();
             int action = e.getAction();
@@ -395,7 +426,8 @@ public final class ClientUI {
 
             PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_WITHDRAW = false;
-            setChestRegisterMessage("Chest registration canceled", 2200);
+            PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+            setChestRegisterMessage("Registration canceled", 2200);
 
             // Keep player ingame (don't open pause menu)
             try {
@@ -479,6 +511,25 @@ public final class ClientUI {
             PENDING_CHEST_REGISTER_VILLAGER_ID = villagerEntityId;
             PENDING_CHEST_REGISTER_WITHDRAW = true;
             setChestRegisterMessage("Please open a chest to register it for withdrawals", 1000000L);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void beginWorkstationRegistration(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc != null) {
+                mc.setScreen(null);
+                if (mc.player != null) {
+                    try {
+                        mc.player.closeContainer();
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            PENDING_WORKSTATION_REGISTER_VILLAGER_ID = villagerEntityId;
+            setChestRegisterMessage("RMB on a block to register workstation", 1000000L);
         } catch (Throwable ignored) {}
     }
 
@@ -853,7 +904,7 @@ public final class ClientUI {
 
                 String[] movement = new String[] { "Neutral", "Idle", "Follow", "Patrol" };
                 String[] combat   = new String[] { "Flee", "Defend", "Aggressive", "Settings" };
-                String[] farming  = new String[] { "Deposit", "Withdraw", "Settings" };
+                String[] farming  = new String[] { "Manual", "Deposit", "Withdraw", "Settings" };
 
                 int movementBlockH = movement.length * h + (movement.length - 1) * gap;
                 int combatBlockH   = combat.length   * h + (combat.length   - 1) * gap;
@@ -1106,7 +1157,8 @@ public final class ClientUI {
 
                     boolean isSettings = "Settings".equalsIgnoreCase(label);
                     boolean isWithdraw = "Withdraw".equalsIgnoreCase(label);
-                    String glyph = isSettings ? "\u26ED" : (isWithdraw ? "W" : "D");
+                    boolean isManual = "Manual".equalsIgnoreCase(label);
+                    String glyph = isSettings ? "\u26ED" : (isManual ? "M" : (isWithdraw ? "W" : "D"));
 
                     Button b = Button.builder(Component.literal(glyph), bbtn -> {
                                 try {
@@ -1115,6 +1167,17 @@ public final class ClientUI {
 
                                     if (isSettings) {
                                         openFarmingSettings(screen, villagerEntityId);
+                                        return;
+                                    }
+
+                                    if (isManual) {
+                                        boolean cur = Boolean.TRUE.equals(MANUAL_FARMING_ENABLED.get(villagerEntityId));
+                                        boolean next = !cur;
+                                        ClientNetwork.sendToServer(new PacketVillagerManualFarmingModeCommand(villagerEntityId, next));
+
+                                        MANUAL_FARMING_ENABLED.put(villagerEntityId, next);
+                                        MANUAL_FARMING_AT.put(villagerEntityId, System.currentTimeMillis());
+                                        updateManualFarmingButtonVisual(screen);
                                         return;
                                     }
 
@@ -1140,6 +1203,7 @@ public final class ClientUI {
                             .build();
 
                     if (isSettings) setSimpleTooltip(b, "Farming settings");
+                    else if (isManual) setSimpleTooltip(b, "Manual Farming");
                     else if (isWithdraw) setSimpleTooltip(b, "Register withdraw chest");
                     else setSimpleTooltip(b, "Register deposit chest");
                     b.visible = false;
@@ -1147,6 +1211,10 @@ public final class ClientUI {
 
                     e.addListener(b);
                     subs.add(b);
+
+                    if (isManual) {
+                        MANUAL_FARM_BTN.put(screen, b);
+                    }
                 }
 
                 COMMANDS_SUB_BUTTONS.put(screen, subs);
@@ -1202,8 +1270,10 @@ public final class ClientUI {
             // ============================================================
             trySendModeQueryIfNeeded(screen);
             trySendCombatModeQueryIfNeeded(screen);
+            trySendManualFarmingModeQueryIfNeeded(screen);
             updateMovementButtonsVisual(screen);
             updateCombatButtonsVisual(screen);
+            updateManualFarmingButtonVisual(screen);
 
             boolean expanded = controlsEnabled && isCommandsExpanded(screen);
 
@@ -1341,6 +1411,7 @@ public final class ClientUI {
             // movement/combat highlight buttons cache
             MOVEMENT_BTNS.remove(e.getScreen());
             COMBAT_BTNS.remove(e.getScreen());
+            MANUAL_FARM_BTN.remove(e.getScreen());
 
             if (e.getScreen() instanceof MerchantScreen ms) {
                 try { AutoTradeService.stop("screen_closed"); } catch (Throwable ignored) {}
@@ -2422,12 +2493,31 @@ public final class ClientUI {
         } catch (Throwable ignored) {}
     }
 
+    private static void trySendManualFarmingModeQueryIfNeeded(MerchantScreen screen) {
+        try {
+            if (screen == null) return;
+
+            int id = resolveTraderEntityId(screen);
+            if (id <= 0) return;
+
+            Long at = MANUAL_FARMING_AT.get(id);
+            long age = (at == null) ? Long.MAX_VALUE : (System.currentTimeMillis() - at);
+            if (age < MODE_STALE_MS) return;
+
+            ClientNetwork.sendToServer(new PacketVillagerManualFarmingModeQuery(id));
+        } catch (Throwable ignored) {}
+    }
+
     private static void updateMovementButtonsVisual(MerchantScreen screen) {
         try {
             if (screen == null) return;
 
             int villId = resolveTraderEntityId(screen);
             if (villId <= 0) return;
+
+            // Manual farming is an exclusive "movement replacement" mode: do not highlight movement buttons.
+            boolean manual = false;
+            try { manual = Boolean.TRUE.equals(MANUAL_FARMING_ENABLED.get(villId)); } catch (Throwable ignored) { manual = false; }
 
             String mode = MODE_ID.get(villId);
             if (mode == null) mode = "neutral";
@@ -2457,7 +2547,7 @@ public final class ClientUI {
                     glyph = "";
                 }
 
-                if (key != null && key.equals(activeKey)) {
+                if (!manual && key != null && key.equals(activeKey)) {
                     b.setMessage(Component.literal(glyph).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(greenRgb))));
                 } else {
                     b.setMessage(Component.literal(glyph)); // default
@@ -2506,6 +2596,31 @@ public final class ClientUI {
                 } else {
                     b.setMessage(Component.literal(glyph)); // default
                 }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void updateManualFarmingButtonVisual(MerchantScreen screen) {
+        try {
+            if (screen == null) return;
+
+            Button b = MANUAL_FARM_BTN.get(screen);
+            if (b == null) return;
+
+            int villId = resolveTraderEntityId(screen);
+            if (villId <= 0) return;
+
+            boolean enabled = false;
+            try { enabled = Boolean.TRUE.equals(MANUAL_FARMING_ENABLED.get(villId)); } catch (Throwable ignored) { enabled = false; }
+
+            String glyph;
+            try { glyph = (b.getMessage() == null) ? "M" : b.getMessage().getString(); } catch (Throwable ignored) { glyph = "M"; }
+
+            int greenRgb = 0x58E766;
+            if (enabled) {
+                b.setMessage(Component.literal(glyph).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(greenRgb))));
+            } else {
+                b.setMessage(Component.literal(glyph));
             }
         } catch (Throwable ignored) {}
     }

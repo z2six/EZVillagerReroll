@@ -21,6 +21,7 @@ import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import org.z2six.villageroverhaul.Constants;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 import org.z2six.villageroverhaul.server.RecruitService;
@@ -59,6 +60,18 @@ public final class VillagerBrain {
     private static final String K_UI_PAUSED_UNTIL = "ui_paused_until";
     private static final String K_FORCE_BLOCK_UNTIL = "force_block_until";
     private static final String K_STORAGE_ACTIVE = "storage_active";
+    private static final String K_MANUAL_FARMING_ACTIVE = "manual_farming_active";
+    private static final String K_MANUAL_FARMING_PREV_MODE = "manual_farming_prev_mode";
+
+    // Manual farming planting animation (server-side temporary hand override)
+    private static final java.util.Set<Villager> MANUAL_PLANT_ANIM_VILLS =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    private static final java.util.Map<Villager, net.minecraft.world.item.ItemStack> MANUAL_PLANT_ANIM_PREV_MAIN =
+            new java.util.WeakHashMap<>();
+    private static final java.util.Map<Villager, Long> MANUAL_PLANT_ANIM_UNTIL =
+            new java.util.WeakHashMap<>();
+    private static final java.util.Map<Villager, net.minecraft.world.item.ItemStack> MANUAL_PLANT_ANIM_VISUAL_MAIN =
+            new java.util.WeakHashMap<>();
 
     // Patrol sub-root
     private static final String K_PATROL = "patrol";
@@ -1091,8 +1104,8 @@ public final class VillagerBrain {
             }
 
             if (!hasGoal(vill, VillagerIdleGoal.class)) {
-                // Leave slot 3 open for higher-priority storage module (added below).
-                vill.goalSelector.addGoal(4, new VillagerIdleGoal(vill));
+                // Keep idle lower priority than storage/manual/commands.
+                vill.goalSelector.addGoal(8, new VillagerIdleGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
             }
 
@@ -1104,6 +1117,12 @@ public final class VillagerBrain {
             if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
                 vill.goalSelector.addGoal(5, new VillagerPatrolSetupFollowGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerManualFarmingGoal.class)) {
+                // Keep below combat/movement goals; when enabled it explicitly blocks those goals in canUse().
+                vill.goalSelector.addGoal(9, new VillagerManualFarmingGoal(vill));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerManualFarmingGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerFollowGoal.class)) {
@@ -1157,6 +1176,7 @@ public final class VillagerBrain {
             if (!RecruitService.isRecruited(vill)) return true;
             if (isUiPaused(vill)) return false;
             if (isStorageActive(vill)) return false;
+            if (isManualFarmingActive(vill)) return false;
             if (getMode(vill) != Mode.NEUTRAL) return false;
             return !isCombatEngaged(vill);
         } catch (Throwable t) {
@@ -1181,6 +1201,47 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    public static void setManualFarmingActive(Villager vill, boolean active) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (active) root.putBoolean(K_MANUAL_FARMING_ACTIVE, true);
+            else root.remove(K_MANUAL_FARMING_ACTIVE);
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean isManualFarmingActive(Villager vill) {
+        try {
+            if (vill == null) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            return root.getBoolean(K_MANUAL_FARMING_ACTIVE);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static void rememberPrevModeForManualFarming(Villager vill) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (root.contains(K_MANUAL_FARMING_PREV_MODE, Tag.TAG_STRING)) return;
+
+            Mode cur = getMode(vill);
+            root.putString(K_MANUAL_FARMING_PREV_MODE, cur == null ? Mode.NEUTRAL.id : cur.id);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void restorePrevModeAfterManualFarming(Villager vill) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.contains(K_MANUAL_FARMING_PREV_MODE, Tag.TAG_STRING)) return;
+            String prev = root.getString(K_MANUAL_FARMING_PREV_MODE);
+            root.remove(K_MANUAL_FARMING_PREV_MODE);
+            setMode(vill, Mode.fromId(prev));
+        } catch (Throwable ignored) {}
     }
 
     public static void setUiPaused(Villager vill, boolean paused) {
@@ -1273,6 +1334,121 @@ public final class VillagerBrain {
             return true;
         } catch (Throwable ignored) {}
         return false;
+    }
+
+    public static void triggerManualPlantAnimation(Villager vill, ItemStack visualMainHand, int ticks) {
+        try {
+            if (vill == null) return;
+            if (!(vill.level() instanceof ServerLevel sl)) return;
+
+            // If villager already has something in-hand, arms already render; just swing.
+            try {
+                ItemStack main = vill.getMainHandItem();
+                ItemStack off = vill.getOffhandItem();
+                boolean hasHands = (main != null && !main.isEmpty()) || (off != null && !off.isEmpty());
+                if (hasHands) {
+                    bumpSwingSeq(vill);
+                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant_anim swing_only villager={} entityId={} (hands already non-empty)",
+                            vill.getUUID(), vill.getId());
+                    return;
+                }
+            } catch (Throwable ignored) {}
+
+            ItemStack visual = (visualMainHand == null) ? ItemStack.EMPTY : visualMainHand.copy();
+            if (visual.isEmpty()) return;
+            visual.setCount(1);
+
+            // Save previous mainhand once for this animation session.
+            if (!MANUAL_PLANT_ANIM_PREV_MAIN.containsKey(vill)) {
+                ItemStack prev = vill.getMainHandItem();
+                MANUAL_PLANT_ANIM_PREV_MAIN.put(vill, prev == null ? ItemStack.EMPTY : prev.copy());
+            }
+
+            // Apply visual item so custom arms layer is enabled client-side.
+            vill.setItemInHand(InteractionHand.MAIN_HAND, visual);
+            MANUAL_PLANT_ANIM_VISUAL_MAIN.put(vill, visual.copy());
+
+            long until = sl.getGameTime() + Math.max(1, ticks);
+            MANUAL_PLANT_ANIM_UNTIL.put(vill, until);
+            MANUAL_PLANT_ANIM_VILLS.add(vill);
+
+            // Force an immediate render-flag update so the very next frame can show arms (otherwise it waits for next tickRenderDecisions pass).
+            try { tickRenderDecisions(vill); } catch (Throwable ignored) {}
+
+            // Trigger the custom swing anim (client uses our synced swing-seq, not vanilla swing state).
+            bumpSwingSeq(vill);
+
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant_anim start villager={} entityId={} item={} ticks={} until={}",
+                    vill.getUUID(), vill.getId(), String.valueOf(visual.getItem()), ticks, until);
+
+        } catch (Throwable ignored) {}
+    }
+
+    private static void bumpSwingSeq(Villager vill) {
+        try {
+            if (!(vill instanceof VillagerOverhaulSwingAccess acc)) return;
+            int prev = acc.ezvr$getSwingSeq();
+            int next = prev + 1;
+            acc.ezvr$setSwingSeq(next);
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] swing_seq villager={} entityId={} {}->{}",
+                    vill.getUUID(), vill.getId(), prev, next);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void tickManualPlantAnimations() {
+        try {
+            if (MANUAL_PLANT_ANIM_VILLS.isEmpty()) return;
+
+            java.util.Iterator<Villager> it = MANUAL_PLANT_ANIM_VILLS.iterator();
+            while (it.hasNext()) {
+                Villager vill = it.next();
+                if (vill == null || !(vill.level() instanceof ServerLevel sl)) {
+                    it.remove();
+                    MANUAL_PLANT_ANIM_PREV_MAIN.remove(vill);
+                    MANUAL_PLANT_ANIM_UNTIL.remove(vill);
+                    MANUAL_PLANT_ANIM_VISUAL_MAIN.remove(vill);
+                    continue;
+                }
+
+                Long until = MANUAL_PLANT_ANIM_UNTIL.get(vill);
+                if (until == null || until <= 0L) {
+                    it.remove();
+                    MANUAL_PLANT_ANIM_PREV_MAIN.remove(vill);
+                    MANUAL_PLANT_ANIM_UNTIL.remove(vill);
+                    MANUAL_PLANT_ANIM_VISUAL_MAIN.remove(vill);
+                    continue;
+                }
+
+                long now = sl.getGameTime();
+                if (now < until) continue;
+
+                // Only restore if mainhand is still the visual stack we set (don't fight combat/other modules).
+                ItemStack visual = MANUAL_PLANT_ANIM_VISUAL_MAIN.get(vill);
+                ItemStack cur = vill.getMainHandItem();
+                boolean stillVisual = false;
+                try {
+                    stillVisual = visual != null
+                            && !visual.isEmpty()
+                            && cur != null
+                            && !cur.isEmpty()
+                            && ItemStack.isSameItemSameComponents(cur, visual);
+                } catch (Throwable ignored) { stillVisual = false; }
+
+                if (stillVisual) {
+                    ItemStack prev = MANUAL_PLANT_ANIM_PREV_MAIN.get(vill);
+                    vill.setItemInHand(InteractionHand.MAIN_HAND, prev == null ? ItemStack.EMPTY : prev);
+                    try { tickRenderDecisions(vill); } catch (Throwable ignored) {}
+                }
+
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant_anim end villager={} entityId={} restored={}",
+                        vill.getUUID(), vill.getId(), stillVisual);
+
+                it.remove();
+                MANUAL_PLANT_ANIM_PREV_MAIN.remove(vill);
+                MANUAL_PLANT_ANIM_UNTIL.remove(vill);
+                MANUAL_PLANT_ANIM_VISUAL_MAIN.remove(vill);
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static void forceBlockStart(Villager vill) {
