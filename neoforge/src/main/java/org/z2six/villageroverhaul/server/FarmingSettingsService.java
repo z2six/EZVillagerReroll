@@ -221,6 +221,25 @@ public final class FarmingSettingsService {
 
     public static int getEffectiveManualFarmingRange(Villager vill) {
         try {
+            int maxAllowed = getMaxManualFarmingRange(vill);
+            int requested = maxAllowed;
+            try {
+                FarmingSettings s = getSettings(vill);
+                if (s != null) requested = Math.max(1, s.manualRange);
+            } catch (Throwable ignored) {
+                requested = maxAllowed;
+            }
+            int out = Math.min(requested, maxAllowed);
+            if (out < 1) out = 1;
+            if (out > 64) out = 64;
+            return out;
+        } catch (Throwable ignored) {
+            return Math.max(1, Math.min(64, ServerConfig.manualFarmBaseRange));
+        }
+    }
+
+    public static int getMaxManualFarmingRange(Villager vill) {
+        try {
             int base = Math.max(1, Math.min(64, ServerConfig.manualFarmBaseRange));
             double pct = 0.0;
             try { pct = VillagerTraitEffects.rangerPct(vill); } catch (Throwable ignored) { pct = 0.0; }

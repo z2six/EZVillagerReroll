@@ -60,6 +60,7 @@ public final class VillagerManualFarmingGoal extends Goal {
         PLANT,
         BONEMEAL,
         HARVEST,
+        TILL,
         ROAM
     }
 
@@ -190,6 +191,7 @@ public final class VillagerManualFarmingGoal extends Goal {
                 case PLANT -> tickPlant(level, settings);
                 case BONEMEAL -> tickBonemeal(level, settings);
                 case HARVEST -> tickHarvest(level, settings);
+                case TILL -> tickTill(level);
                 case ROAM, NONE -> tickRoam(level, center, range, circular);
             }
 
@@ -467,6 +469,15 @@ public final class VillagerManualFarmingGoal extends Goal {
                 BlockState st = level.getBlockState(targetPos);
                 return st != null && !st.isAir() && isMature(st);
             }
+            if (action == Action.TILL) {
+                if (targetPos == null) return false;
+                BlockState st = level.getBlockState(targetPos);
+                if (st == null) return false;
+                Block b = st.getBlock();
+                if (b != Blocks.DIRT && b != Blocks.GRASS_BLOCK) return false;
+                if (!level.getBlockState(targetPos.above()).isAir()) return false;
+                return isHoldingHoe();
+            }
             return true;
         } catch (Throwable ignored) {
             return false;
@@ -532,10 +543,31 @@ public final class VillagerManualFarmingGoal extends Goal {
                 }
             }
 
-            // 5) Roam
+            // 5) Till dirt -> farmland (lowest priority)
+            if (settings.manualTillSoil && isHoldingHoe()) {
+                BlockPos dirt = findNearestTillableDirt(level, center, range, circular);
+                if (dirt != null) {
+                    action = Action.TILL;
+                    actionStartGameTime = level.getGameTime();
+                    targetPos = dirt;
+                    return;
+                }
+            }
+
+            // 6) Roam
             action = Action.ROAM;
             actionStartGameTime = 0L;
         } catch (Throwable ignored) {}
+    }
+
+    private boolean isHoldingHoe() {
+        try {
+            ItemStack st = vill.getMainHandItem();
+            if (st == null || st.isEmpty()) return false;
+            return st.getItem() instanceof net.minecraft.world.item.HoeItem;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private void tickPickup(ServerLevel level, FarmingSettings settings) {
@@ -759,6 +791,68 @@ public final class VillagerManualFarmingGoal extends Goal {
         }
     }
 
+    private void tickTill(ServerLevel level) {
+        try {
+            if (targetPos == null) {
+                action = Action.NONE;
+                return;
+            }
+
+            if (!isHoldingHoe()) {
+                action = Action.NONE;
+                targetPos = null;
+                return;
+            }
+
+            BlockState st = level.getBlockState(targetPos);
+            if (st == null) {
+                action = Action.NONE;
+                targetPos = null;
+                return;
+            }
+            Block b = st.getBlock();
+            if (b != Blocks.DIRT && b != Blocks.GRASS_BLOCK) {
+                action = Action.NONE;
+                targetPos = null;
+                return;
+            }
+            if (!level.getBlockState(targetPos.above()).isAir()) {
+                action = Action.NONE;
+                targetPos = null;
+                return;
+            }
+
+            double tx = targetPos.getX() + 0.5;
+            double ty = targetPos.getY() + 0.5;
+            double tz = targetPos.getZ() + 0.5;
+
+            try { vill.getLookControl().setLookAt(tx, ty, tz, 30.0f, 30.0f); } catch (Throwable ignored) {}
+
+            double distSqr = vill.distanceToSqr(tx, ty, tz);
+            if (distSqr <= 4.0) {
+                try {
+                    try { ensureLoadoutMainhandEquipped("manual_farm_till"); } catch (Throwable ignored) {}
+                    try { VillagerBrain.signalSwing(vill, net.minecraft.world.InteractionHand.MAIN_HAND, "manual_farm_till"); } catch (Throwable ignored) {}
+                    try { vill.swing(net.minecraft.world.InteractionHand.MAIN_HAND, true); } catch (Throwable ignored) {
+                        try { vill.swing(net.minecraft.world.InteractionHand.MAIN_HAND); } catch (Throwable ignored2) {}
+                    }
+                } catch (Throwable ignored) {}
+
+                try { level.setBlock(targetPos, Blocks.FARMLAND.defaultBlockState(), 3); } catch (Throwable ignored) {}
+
+                action = Action.NONE;
+                targetPos = null;
+                return;
+            }
+
+            vill.getNavigation().moveTo(tx, ty, tz, SPEED_MULT);
+            applyFinalApproachAssist(new net.minecraft.world.phys.Vec3(tx, ty, tz));
+
+        } catch (Throwable ignored) {
+            action = Action.NONE;
+        }
+    }
+
     private void tickRoam(ServerLevel level, net.minecraft.world.phys.Vec3 center, int range, boolean circular) {
         try {
             if (level == null) return;
@@ -878,6 +972,40 @@ public final class VillagerManualFarmingGoal extends Goal {
                         if (!level.getBlockState(above).isAir()) continue;
 
                         double d = vill.distanceToSqr(p.getX() + 0.5, p.getY() + 1.0, p.getZ() + 0.5);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = p;
+                        }
+                    }
+                }
+            }
+
+            return best;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private BlockPos findNearestTillableDirt(ServerLevel level, net.minecraft.world.phys.Vec3 center, int range, boolean circular) {
+        try {
+            BlockPos base = BlockPos.containing(center.x, center.y, center.z);
+            int r = Math.max(1, range);
+
+            BlockPos best = null;
+            double bestDist = Double.MAX_VALUE;
+
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (circular && (dx * dx + dz * dz) > (r * r)) continue;
+                    for (int dy = -1; dy <= 1; dy++) {
+                        BlockPos p = base.offset(dx, dy, dz);
+                        BlockState st = level.getBlockState(p);
+                        if (st == null) continue;
+                        Block b = st.getBlock();
+                        if (b != Blocks.DIRT && b != Blocks.GRASS_BLOCK) continue;
+                        if (!level.getBlockState(p.above()).isAir()) continue;
+
+                        double d = vill.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5);
                         if (d < bestDist) {
                             bestDist = d;
                             best = p;

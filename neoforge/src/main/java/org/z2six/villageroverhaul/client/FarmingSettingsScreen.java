@@ -11,9 +11,11 @@ import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.farming.FarmingSettings;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
+import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
+import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 
 public final class FarmingSettingsScreen extends Screen {
 
@@ -41,10 +43,14 @@ public final class FarmingSettingsScreen extends Screen {
     private Button btnDepositRules;
     private Button btnWithdrawRules;
     private Button btnPickupRules;
+    private Button btnRegisterDepositChest;
+    private Button btnRegisterWithdrawChest;
+    private Button btnTillSoilToggle;
 
     // Manual tab widgets
     private EditBox manualTimeoutBox;
     private EditBox manualRetryBox;
+    private EditBox manualRangeBox;
     private Button btnHarvestRules;
     private Button btnPlantRules;
     private Button btnBonemealToggle;
@@ -62,6 +68,9 @@ public final class FarmingSettingsScreen extends Screen {
 
     private static final int PANEL_BG = 0xCC0B0B0B;
     private static final int PANEL_BORDER = 0xFF3A3A3A;
+
+    private static final int TIME_BOX_W = 34;
+    private static final int RANGE_BOX_W = 32;
 
     public FarmingSettingsScreen(Screen parent, int villagerEntityId) {
         super(Component.literal("Farming Settings"));
@@ -140,6 +149,11 @@ public final class FarmingSettingsScreen extends Screen {
         int innerW = PANEL_W - (PAD * 2);
         int halfW = (innerW - 6) / 2;
 
+        // Shared row positions for both tabs (manual tab uses row2/3/4 for its timeout/retry/range).
+        int row2Y = rowY + 22;
+        int row3Y = row2Y + 22;
+        int row4Y = row3Y + 22;
+
         // Row 1: buttons (instead of label + edit button rows)
         btnDepositRules = Button.builder(Component.literal("Deposit rules"), b -> openDepositRules())
                 .pos(left + PAD, rowY)
@@ -155,25 +169,50 @@ public final class FarmingSettingsScreen extends Screen {
         btnWithdrawRules.setTooltip(Tooltip.create(Component.literal("Configure what items to withdraw and when.\nRule: trigger stacks + keep stacks (kept in chest).")));
         addRenderableWidget(btnWithdrawRules);
 
-        int row2Y = rowY + 22;
-        timeoutBox = new EditBox(this.font, labelX + 178, row2Y, 50, 18, Component.literal("Timeout"));
+        // Row 2: register chests (status)
+        btnRegisterDepositChest = Button.builder(Component.literal("Register Deposit [ ]"), b -> beginDepositChestRegister())
+                .pos(left + PAD, row2Y)
+                .size(halfW, 18)
+                .build();
+        btnRegisterDepositChest.setTooltip(Tooltip.create(Component.literal("Register a deposit chest.\nAfter clicking, RMB a chest within the villager's work area.")));
+        addRenderableWidget(btnRegisterDepositChest);
+
+        btnRegisterWithdrawChest = Button.builder(Component.literal("Register Withdraw [ ]"), b -> beginWithdrawChestRegister())
+                .pos(left + PAD + halfW + 6, row2Y)
+                .size(halfW, 18)
+                .build();
+        btnRegisterWithdrawChest.setTooltip(Tooltip.create(Component.literal("Register a withdraw chest.\nAfter clicking, RMB a chest within the villager's work area.")));
+        addRenderableWidget(btnRegisterWithdrawChest);
+
+        // Row 3: timeout
+        timeoutBox = new EditBox(this.font, labelX + 178, row3Y, TIME_BOX_W, 18, Component.literal("Timeout"));
         timeoutBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
         timeoutBox.setTooltip(Tooltip.create(Component.literal("Storage timeout in seconds.\nIf moving/depositing/withdrawing takes longer than this, it fails and stops.")));
         addRenderableWidget(timeoutBox);
 
-        int row3Y = row2Y + 22;
-        retryBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Retry"));
+        // Row 4: retry
+        retryBox = new EditBox(this.font, labelX + 178, row4Y, TIME_BOX_W, 18, Component.literal("Retry"));
         retryBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
         retryBox.setTooltip(Tooltip.create(Component.literal("Storage retry delay in seconds.\nAfter a failure, the villager will try again after this delay.")));
         addRenderableWidget(retryBox);
 
-        int row4Y = row3Y + 22;
+        // Row 5: pickup rules + till toggle
+        int logRow5Y = row4Y + 22;
+        int tillW = 108;
+        int pickupW = innerW - tillW - 6;
         btnPickupRules = Button.builder(Component.literal("Pickup rules"), b -> openPickupRules())
-                .pos(left + PAD, row4Y)
-                .size(innerW, 18)
+                .pos(left + PAD, logRow5Y)
+                .size(pickupW, 18)
                 .build();
         btnPickupRules.setTooltip(Tooltip.create(Component.literal("Configure which items the villager may pick up while manual farming.\nEmpty list = pick up all items (within the workstation area).")));
         addRenderableWidget(btnPickupRules);
+
+        btnTillSoilToggle = Button.builder(Component.literal("Till soil [ ]"), b -> toggleTillSoil())
+                .pos(left + PAD + pickupW + 6, logRow5Y)
+                .size(tillW, 18)
+                .build();
+        btnTillSoilToggle.setTooltip(Tooltip.create(Component.literal("If enabled, the villager turns Dirt/Grass into Farmland in its work area (requires a hoe).\nThis is the lowest priority action and follows the manual farming timeout/retry rules.")));
+        addRenderableWidget(btnTillSoilToggle);
 
         // ------------------------------------------------------------
         // Manual tab
@@ -194,21 +233,26 @@ public final class FarmingSettingsScreen extends Screen {
         addRenderableWidget(btnPlantRules);
 
         // Row 2-4: same as before (labels rendered, widgets here)
-        manualTimeoutBox = new EditBox(this.font, labelX + 178, row2Y, 50, 18, Component.literal("Timeout"));
+        manualTimeoutBox = new EditBox(this.font, labelX + 178, row2Y, TIME_BOX_W, 18, Component.literal("Timeout"));
         manualTimeoutBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
         manualTimeoutBox.setTooltip(Tooltip.create(Component.literal("Manual farming timeout in seconds.\nIf an action takes too long (stuck path), it fails and the villager roams until retry.")));
         addRenderableWidget(manualTimeoutBox);
 
-        manualRetryBox = new EditBox(this.font, labelX + 178, row3Y, 50, 18, Component.literal("Retry"));
+        manualRetryBox = new EditBox(this.font, labelX + 178, row3Y, TIME_BOX_W, 18, Component.literal("Retry"));
         manualRetryBox.setFilter(s -> s != null && s.matches("\\d{0,5}"));
         manualRetryBox.setTooltip(Tooltip.create(Component.literal("Manual farming retry delay in seconds after a failure.")));
         addRenderableWidget(manualRetryBox);
 
+        manualRangeBox = new EditBox(this.font, labelX + 178, row4Y, RANGE_BOX_W, 18, Component.literal("Range"));
+        manualRangeBox.setFilter(s -> s != null && s.matches("\\d{0,3}"));
+        manualRangeBox.setTooltip(Tooltip.create(Component.literal("Manual farming range around the workstation.\nClamped by the villager's Ranger stat + server config.")));
+        addRenderableWidget(manualRangeBox);
+
         btnRangeShapeToggle = Button.builder(Component.literal("Circular"), b -> toggleRangeShape())
-                .pos(labelX + 178, row4Y)
-                .size(118, 18)
+                .pos(labelX + 178 + RANGE_BOX_W + 6, row4Y)
+                .size(72, 18)
                 .build();
-        btnRangeShapeToggle.setTooltip(Tooltip.create(Component.literal("Work area shape around the workstation.\nRange size is server-defined and modified by the villager's Ranger stat.")));
+        btnRangeShapeToggle.setTooltip(Tooltip.create(Component.literal("Work area shape around the workstation.\nCircular uses distance; Square uses X/Z bounds.")));
         addRenderableWidget(btnRangeShapeToggle);
 
         // Row 5: compact action/toggles
@@ -277,11 +321,15 @@ public final class FarmingSettingsScreen extends Screen {
         if (btnPickupRules != null) btnPickupRules.visible = isLog;
         if (timeoutBox != null) timeoutBox.visible = isLog;
         if (retryBox != null) retryBox.visible = isLog;
+        if (btnRegisterDepositChest != null) btnRegisterDepositChest.visible = isLog;
+        if (btnRegisterWithdrawChest != null) btnRegisterWithdrawChest.visible = isLog;
+        if (btnTillSoilToggle != null) btnTillSoilToggle.visible = isLog;
 
         if (btnHarvestRules != null) btnHarvestRules.visible = !isLog;
         if (btnPlantRules != null) btnPlantRules.visible = !isLog;
         if (manualTimeoutBox != null) manualTimeoutBox.visible = !isLog;
         if (manualRetryBox != null) manualRetryBox.visible = !isLog;
+        if (manualRangeBox != null) manualRangeBox.visible = !isLog;
         if (btnBonemealToggle != null) btnBonemealToggle.visible = !isLog;
         if (btnDropOtherToggle != null) btnDropOtherToggle.visible = !isLog;
         if (btnRangeShapeToggle != null) btnRangeShapeToggle.visible = !isLog;
@@ -295,10 +343,14 @@ public final class FarmingSettingsScreen extends Screen {
 
             if (manualTimeoutBox != null) manualTimeoutBox.setValue(String.valueOf(Math.max(1, settings.manualTimeoutSeconds)));
             if (manualRetryBox != null) manualRetryBox.setValue(String.valueOf(Math.max(1, settings.manualRetryAfterSeconds)));
+            if (manualRangeBox != null) manualRangeBox.setValue(String.valueOf(Math.max(1, settings.manualRange)));
             if (btnWorkstationRegister != null) btnWorkstationRegister.setMessage(Component.literal("Register Workstation [" + (settings.manualWorkstationRegistered ? "x" : " ") + "]"));
             if (btnBonemealToggle != null) btnBonemealToggle.setMessage(Component.literal("Use Bonemeal [" + (settings.manualUseBonemeal ? "x" : " ") + "]"));
             if (btnDropOtherToggle != null) btnDropOtherToggle.setMessage(Component.literal("Toss other items [" + (settings.manualDropOtherItems ? "x" : " ") + "]"));
             if (btnRangeShapeToggle != null) btnRangeShapeToggle.setMessage(Component.literal(settings.manualRangeCircular ? "Circular" : "Square"));
+            if (btnRegisterDepositChest != null) btnRegisterDepositChest.setMessage(Component.literal("Register Deposit [" + (settings.hasDepositChest ? "x" : " ") + "]"));
+            if (btnRegisterWithdrawChest != null) btnRegisterWithdrawChest.setMessage(Component.literal("Register Withdraw [" + (settings.hasWithdrawChest ? "x" : " ") + "]"));
+            if (btnTillSoilToggle != null) btnTillSoilToggle.setMessage(Component.literal("Till soil [" + (settings.manualTillSoil ? "x" : " ") + "]"));
         } catch (Throwable ignored) {}
     }
 
@@ -339,6 +391,19 @@ public final class FarmingSettingsScreen extends Screen {
                 mRetry = 10;
             }
             settings.manualRetryAfterSeconds = Math.max(1, mRetry);
+
+            int mr = 10;
+            try {
+                String raw = manualRangeBox == null ? "" : manualRangeBox.getValue();
+                mr = raw == null || raw.isBlank() ? 10 : Integer.parseInt(raw.trim());
+            } catch (Throwable ignored) {
+                mr = 10;
+            }
+            int max = getMaxManualRangeClient();
+            if (mr > max) mr = max;
+            if (mr < 1) mr = 1;
+            if (mr > 64) mr = 64;
+            settings.manualRange = mr;
 
         } catch (Throwable ignored) {}
     }
@@ -414,10 +479,31 @@ public final class FarmingSettingsScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
+    private void toggleTillSoil() {
+        try {
+            settings.manualTillSoil = !settings.manualTillSoil;
+            applyToWidgets();
+        } catch (Throwable ignored) {}
+    }
+
     private void beginWorkstationRegister() {
         try {
             readFromWidgets();
             ClientUI.beginWorkstationRegistration(villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
+    private void beginDepositChestRegister() {
+        try {
+            readFromWidgets();
+            ClientUI.beginChestRegistration(villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
+    private void beginWithdrawChestRegister() {
+        try {
+            readFromWidgets();
+            ClientUI.beginWithdrawChestRegistration(villagerEntityId);
         } catch (Throwable ignored) {}
     }
 
@@ -453,15 +539,15 @@ public final class FarmingSettingsScreen extends Screen {
 
         if (isLog) {
             // Row 1 has buttons, no labels needed.
-            int row2Y = rowY + 22;
-            gg.drawString(font, "Timeout (seconds):", left + PAD, row2Y + 4, 0xFFBFBFBF, false);
+            int row3Y = rowY + 44;
+            gg.drawString(font, "Timeout (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
 
-            int row3Y = row2Y + 22;
-            gg.drawString(font, "Retry after (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
+            int row4Y = row3Y + 22;
+            gg.drawString(font, "Retry after (seconds):", left + PAD, row4Y + 4, 0xFFBFBFBF, false);
 
             // Row 4 is the "Pickup rules" button.
-            int row4Y = row3Y + 22;
-            int infoY = row4Y + 22;
+            int row5Y = row4Y + 22;
+            int infoY = row5Y + 22;
             int dep = settings == null || settings.depositRules == null ? 0 : settings.depositRules.size();
             int wd = settings == null || settings.withdrawRules == null ? 0 : settings.withdrawRules.size();
             int pu = settings == null || settings.pickupItemIds == null ? 0 : settings.pickupItemIds.size();
@@ -474,13 +560,8 @@ public final class FarmingSettingsScreen extends Screen {
             gg.drawString(font, "Retry after (seconds):", left + PAD, row3Y + 4, 0xFFBFBFBF, false);
 
             int row4Y = row3Y + 22;
-            int baseRange = 10;
-            try {
-                ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
-                if (cfg != null) baseRange = Math.max(1, cfg.manualFarmBaseRange);
-            } catch (Throwable ignored) { baseRange = 10; }
-            gg.drawString(font, "Range: " + baseRange + " (modified by Ranger)", left + PAD, row4Y + 4, 0xFFBFBFBF, false);
-            gg.drawString(font, "Work area shape:", left + PAD, row4Y + 26, 0xFFBFBFBF, false);
+            int max = getMaxManualRangeClient();
+            gg.drawString(font, "Range (max " + max + "):", left + PAD, row4Y + 4, 0xFFBFBFBF, false);
 
             int infoY = row4Y + 66;
             int h = settings == null || settings.manualHarvestItemIds == null ? 0 : settings.manualHarvestItemIds.size();
@@ -502,5 +583,38 @@ public final class FarmingSettingsScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    private int getMaxManualRangeClient() {
+        try {
+            int base = 10;
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg != null) base = Math.max(1, Math.min(64, cfg.manualFarmBaseRange));
+
+            PacketVillagerStatsData snap = ClientVillagerStatsCache.get(villagerEntityId);
+            int pts = 0;
+            if (snap != null && snap.ok()) pts = snap.ranger();
+            if (pts < -100) pts = -100;
+            if (pts > 100) pts = 100;
+
+            double minPct = cfg == null ? 0.0 : cfg.rangerMinPct;
+            double maxPct = cfg == null ? 0.0 : cfg.rangerMaxPct;
+
+            double t = (pts + 100.0) / 200.0;
+            if (t < 0.0) t = 0.0;
+            if (t > 1.0) t = 1.0;
+            double pct = minPct + (maxPct - minPct) * t;
+
+            double mult = 1.0 + (pct / 100.0);
+            if (Double.isNaN(mult) || Double.isInfinite(mult)) mult = 1.0;
+            if (mult < 0.0) mult = 0.0;
+
+            long out = Math.round(base * mult);
+            if (out < 1L) out = 1L;
+            if (out > 64L) out = 64L;
+            return (int) out;
+        } catch (Throwable ignored) {
+            return 10;
+        }
     }
 }

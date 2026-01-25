@@ -29,7 +29,7 @@ public final class RecruitVillagerScreen extends Screen {
 
     // Room for 2 columns of text
     private static final int W = 320;
-    private static final int H = 190;
+    private static final int H = 226;
 
     private static final long STATS_QUERY_DEBOUNCE_MS = 750;
 
@@ -45,6 +45,12 @@ public final class RecruitVillagerScreen extends Screen {
     private static final int C_STRENGTH = 0xFFFF7A2F; // orange-red
     private static final int C_ARMOR    = 0xFFB0B0B0; // silver
 
+    // Farming colors (MATCH VillagerInfoScreen)
+    private static final int C_MOTIVATION     = 0xFF8BE04C; // lime
+    private static final int C_EFFICIENCY     = 0xFF64D8FF; // sky
+    private static final int C_PLANTWHISPERER = 0xFF6FD2A8; // mint
+    private static final int C_RANGER         = 0xFFFFC857; // amber
+
     private final int villagerEntityId;
 
     private int cost;
@@ -58,6 +64,7 @@ public final class RecruitVillagerScreen extends Screen {
 
     private int generosity = 0, timeliness = 0, intellect = 0, hoarder = 0;
     private int vitality = 0, agility = 0, strength = 0, armor = 0;
+    private int motivation = 0, efficiency = 0, plantWhisperer = 0, ranger = 0;
 
     private long lastStatsQueryMs = 0L;
     private boolean sentStatsQuery = false;
@@ -81,13 +88,24 @@ public final class RecruitVillagerScreen extends Screen {
         VITALITY("Vitality"),
         AGILITY("Agility"),
         STRENGTH("Strength"),
-        ARMOR("Armor");
+        ARMOR("Armor"),
+
+        // Farming
+        MOTIVATION("Motivation"),
+        EFFICIENCY("Efficiency"),
+        PLANT_WHISPERER("Plant Whisperer"),
+        RANGER("Ranger");
 
         final String label;
         StatKind(String label) { this.label = label; }
 
         boolean isMerchant() {
             return this == GENEROSITY || this == TIMELINESS || this == INTELLECT || this == HOARDER;
+        }
+
+        boolean isPercentBased() {
+            return this == GENEROSITY || this == TIMELINESS || this == INTELLECT
+                    || this == MOTIVATION || this == EFFICIENCY || this == PLANT_WHISPERER || this == RANGER;
         }
     }
 
@@ -216,6 +234,11 @@ public final class RecruitVillagerScreen extends Screen {
             this.strength = VillagerStatsService.clampPoints(snap.strength());
             this.armor    = VillagerStatsService.clampPoints(snap.armor());
 
+            this.motivation = VillagerStatsService.clampPoints(snap.motivation());
+            this.efficiency = VillagerStatsService.clampPoints(snap.efficiency());
+            this.plantWhisperer = VillagerStatsService.clampPoints(snap.plantWhisperer());
+            this.ranger = VillagerStatsService.clampPoints(snap.ranger());
+
             this.hasStats = true;
             this.statsUnavailable = false;
 
@@ -302,6 +325,15 @@ public final class RecruitVillagerScreen extends Screen {
             drawStatLine(gg, col2X, lineY + lh * 1, StatKind.AGILITY, agility, C_AGILITY, mouseX, mouseY);
             drawStatLine(gg, col2X, lineY + lh * 2, StatKind.STRENGTH, strength, C_STRENGTH, mouseX, mouseY);
             drawStatLine(gg, col2X, lineY + lh * 3, StatKind.ARMOR, armor, C_ARMOR, mouseX, mouseY);
+
+            // Farming (two columns, two rows)
+            int farmTop = lineY + lh * 4 + 8;
+            gg.drawString(this.font, "Farming stats", col1X, farmTop, 0xFFFFFFFF);
+            int farmY = farmTop + 14;
+            drawStatLine(gg, col1X, farmY + lh * 0, StatKind.MOTIVATION, motivation, C_MOTIVATION, mouseX, mouseY);
+            drawStatLine(gg, col1X, farmY + lh * 1, StatKind.EFFICIENCY, efficiency, C_EFFICIENCY, mouseX, mouseY);
+            drawStatLine(gg, col2X, farmY + lh * 0, StatKind.PLANT_WHISPERER, plantWhisperer, C_PLANTWHISPERER, mouseX, mouseY);
+            drawStatLine(gg, col2X, farmY + lh * 1, StatKind.RANGER, ranger, C_RANGER, mouseX, mouseY);
         }
 
         // Render widgets manually (buttons), WITHOUT re-drawing background.
@@ -396,7 +428,7 @@ public final class RecruitVillagerScreen extends Screen {
             return lines;
         }
 
-        if (kind.isMerchant()) {
+        if (kind.isPercentBased()) {
             Double pct = pointsToPercentFromServerConfig(kind, points);
 
             if (pct == null) {
@@ -446,6 +478,11 @@ public final class RecruitVillagerScreen extends Screen {
                 yield "Offers " + formatSignedInt(delta);
             }
 
+            case MOTIVATION -> "Work window " + formatSignedPercent1(safeFinite(traitPctOrUnused));
+            case EFFICIENCY -> "Consume " + formatSignedPercent1(-safeFinite(traitPctOrUnused));
+            case PLANT_WHISPERER -> "Chance " + formatSignedPercent1(safeFinite(traitPctOrUnused));
+            case RANGER -> "Range " + formatSignedPercent1(safeFinite(traitPctOrUnused));
+
             case VITALITY -> {
                 Double hp = pointsToVitalityHpDeltaFromServerConfig(points);
                 if (hp == null) yield "Max health (syncing…)";
@@ -494,6 +531,18 @@ public final class RecruitVillagerScreen extends Screen {
                 double m = 1.0 + (p / 100.0);
                 if (m < 0.0) m = 0.0;
                 yield "Multiplier: x" + formatMultiplier(m) + " (XP)";
+            }
+            case MOTIVATION -> {
+                double m = 1.0 + (p / 100.0);
+                if (m < 0.0) m = 0.0;
+                yield "Multiplier: x" + formatMultiplier(m) + " (work window)";
+            }
+            case EFFICIENCY -> null;
+            case PLANT_WHISPERER -> null;
+            case RANGER -> {
+                double m = 1.0 + (p / 100.0);
+                if (m < 0.0) m = 0.0;
+                yield "Multiplier: x" + formatMultiplier(m) + " (range)";
             }
             default -> null;
         };
@@ -550,6 +599,11 @@ public final class RecruitVillagerScreen extends Screen {
             case AGILITY  -> List.of("Affects movement speed.", "Higher = faster, lower = slower.");
             case STRENGTH -> List.of("Affects attack damage.", "Higher = stronger, lower = weaker.");
             case ARMOR    -> List.of("Affects armor value.", "Higher = tankier, lower = squishier.");
+
+            case MOTIVATION -> List.of("Affects how long the villager works each day.", "Higher = longer work window.");
+            case EFFICIENCY -> List.of("Affects seed/bonemeal consumption.", "Higher = may not consume; lower = may consume extra.");
+            case PLANT_WHISPERER -> List.of("Affects passive crop-boost chance.", "Higher = more frequent growth boosts.");
+            case RANGER -> List.of("Affects maximum farming range.", "Higher = larger range, lower = smaller.");
         };
 
         List<Component> out = new ArrayList<>(raw.size());
@@ -567,6 +621,10 @@ public final class RecruitVillagerScreen extends Screen {
             case AGILITY    -> C_AGILITY;
             case STRENGTH   -> C_STRENGTH;
             case ARMOR      -> C_ARMOR;
+            case MOTIVATION -> C_MOTIVATION;
+            case EFFICIENCY -> C_EFFICIENCY;
+            case PLANT_WHISPERER -> C_PLANTWHISPERER;
+            case RANGER -> C_RANGER;
         };
         return argb & 0x00FFFFFF;
     }
@@ -583,6 +641,10 @@ public final class RecruitVillagerScreen extends Screen {
                 case GENEROSITY -> { min = cfg.generosityMinPct; max = cfg.generosityMaxPct; }
                 case TIMELINESS -> { min = cfg.timelinessMinPct; max = cfg.timelinessMaxPct; }
                 case INTELLECT  -> { min = cfg.intellectMinPct; max = cfg.intellectMaxPct; }
+                case MOTIVATION -> { min = cfg.motivationMinPct; max = cfg.motivationMaxPct; }
+                case EFFICIENCY -> { min = cfg.efficiencyMinPct; max = cfg.efficiencyMaxPct; }
+                case PLANT_WHISPERER -> { min = cfg.plantWhispererMinPct; max = cfg.plantWhispererMaxPct; }
+                case RANGER -> { min = cfg.rangerMinPct; max = cfg.rangerMaxPct; }
                 default -> { return null; }
             }
 

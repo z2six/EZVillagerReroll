@@ -152,6 +152,27 @@ public final class RespawnService {
         }
     }
 
+    /**
+     * Remove a respawn snapshot from the owner's list (server authoritative).
+     * Returns true only if the entry existed and was removed.
+     */
+    public static boolean purgeForOwner(ServerPlayer sp, ServerLevel level, UUID respawnId) {
+        try {
+            if (sp == null || level == null || respawnId == null) return false;
+            RespawnSavedData data = RespawnSavedData.get(level);
+            Map<UUID, RespawnSavedData.Snapshot> map = data.byOwner().get(sp.getUUID());
+            if (map == null || map.isEmpty()) return false;
+
+            RespawnSavedData.Snapshot removed = map.remove(respawnId);
+            if (removed == null) return false;
+            if (map.isEmpty()) data.byOwner().remove(sp.getUUID());
+            data.setDirty();
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     public static boolean tryPayEmeralds(ServerPlayer sp, int cost) {
         try {
             if (sp == null) return false;
@@ -208,11 +229,34 @@ public final class RespawnService {
             if (sp == null || level == null || snap == null) return null;
             if (anchorPos == null) anchorPos = sp.blockPosition();
 
+            // Consume the snapshot up-front to prevent duplication spam (multi-packet / hacked client).
+            // If payment/spawn fails, we restore the snapshot.
+            RespawnSavedData data = RespawnSavedData.get(level);
+            Map<UUID, RespawnSavedData.Snapshot> map = data.byOwner().get(sp.getUUID());
+            if (map == null || snap.respawnId == null) return null;
+            if (map.remove(snap.respawnId) == null) return null;
+            if (map.isEmpty()) data.byOwner().remove(sp.getUUID());
+            data.setDirty();
+
             int cost = computeRespawnCost(snap.recruitCostAtDeath);
-            if (!tryPayEmeralds(sp, cost)) return null;
+            if (!tryPayEmeralds(sp, cost)) {
+                try {
+                    Map<UUID, RespawnSavedData.Snapshot> back = data.byOwner().computeIfAbsent(sp.getUUID(), k -> new LinkedHashMap<>());
+                    back.put(snap.respawnId, snap);
+                    data.setDirty();
+                } catch (Throwable ignored) {}
+                return null;
+            }
 
             Villager v = EntityType.VILLAGER.create(level);
-            if (v == null) return null;
+            if (v == null) {
+                try {
+                    Map<UUID, RespawnSavedData.Snapshot> back = data.byOwner().computeIfAbsent(sp.getUUID(), k -> new LinkedHashMap<>());
+                    back.put(snap.respawnId, snap);
+                    data.setDirty();
+                } catch (Throwable ignored) {}
+                return null;
+            }
 
             CompoundTag tag = (snap.villagerNbt == null) ? new CompoundTag() : snap.villagerNbt.copy();
             tag.remove("UUID");
@@ -293,17 +337,6 @@ public final class RespawnService {
             v.moveTo(x, y, z, sp.getYRot(), 0.0f);
 
             level.addFreshEntity(v);
-
-            // Remove snapshot after a successful respawn to prevent duplication spam.
-            try {
-                RespawnSavedData data = RespawnSavedData.get(level);
-                Map<UUID, RespawnSavedData.Snapshot> map = data.byOwner().get(sp.getUUID());
-                if (map != null) {
-                    map.remove(snap.respawnId);
-                    if (map.isEmpty()) data.byOwner().remove(sp.getUUID());
-                    data.setDirty();
-                }
-            } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [respawn] respawned villager rid={} for player={} cost={}",
                     snap.respawnId, sp.getGameProfile().getName(), cost);

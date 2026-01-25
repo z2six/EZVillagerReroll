@@ -1376,7 +1376,10 @@ public final class ServerHandlers {
                     settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
                 }
             } catch (Throwable ignored) {}
-            ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
+            net.minecraft.nbt.CompoundTag tag = settings.toTag();
+            try { tag.putBoolean("__hasDepositChest", FarmingSettingsService.hasRegisteredChest(vill)); } catch (Throwable ignored) {}
+            try { tag.putBoolean("__hasWithdrawChest", FarmingSettingsService.hasRegisteredWithdrawChest(vill)); } catch (Throwable ignored) {}
+            ctx.reply(new PacketFarmingSettingsData(vill.getId(), tag));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleFarmingSettingsQuery failed", t);
         }
@@ -1425,6 +1428,14 @@ public final class ServerHandlers {
                 settings.manualRange = Math.max(1, Math.min(64, settings.manualRange));
             } catch (Throwable ignored) {}
 
+            // Server-authoritative clamp: player can set a smaller range, but never above villager's max (Ranger + config).
+            try {
+                int maxAllowed = FarmingSettingsService.getMaxManualFarmingRange(vill);
+                if (settings.manualRange > maxAllowed) settings.manualRange = maxAllowed;
+                if (settings.manualRange < 1) settings.manualRange = 1;
+                if (settings.manualRange > 64) settings.manualRange = 64;
+            } catch (Throwable ignored) {}
+
             // Derived / server-owned
             try {
                 if (vill.level() instanceof ServerLevel sl) {
@@ -1435,7 +1446,10 @@ public final class ServerHandlers {
             } catch (Throwable ignored) {}
             FarmingSettingsService.setSettings(vill, settings);
 
-            ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
+            net.minecraft.nbt.CompoundTag tag = settings.toTag();
+            try { tag.putBoolean("__hasDepositChest", FarmingSettingsService.hasRegisteredChest(vill)); } catch (Throwable ignored) {}
+            try { tag.putBoolean("__hasWithdrawChest", FarmingSettingsService.hasRegisteredWithdrawChest(vill)); } catch (Throwable ignored) {}
+            ctx.reply(new PacketFarmingSettingsData(vill.getId(), tag));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleFarmingSettingsUpdate failed", t);
         }
@@ -1499,6 +1513,18 @@ public final class ServerHandlers {
             }
 
             FarmingSettingsService.setRegisteredChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
+            try {
+                var st = FarmingSettingsService.getSettings(vill);
+                if (vill.level() instanceof ServerLevel sl) {
+                    st.manualWorkstationRegistered = (FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null);
+                } else {
+                    st.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
+                }
+                net.minecraft.nbt.CompoundTag tag = st.toTag();
+                try { tag.putBoolean("__hasDepositChest", true); } catch (Throwable ignored) {}
+                try { tag.putBoolean("__hasWithdrawChest", FarmingSettingsService.hasRegisteredWithdrawChest(vill)); } catch (Throwable ignored) {}
+                ctx.reply(new PacketFarmingSettingsData(vill.getId(), tag));
+            } catch (Throwable ignored) {}
             try { ctx.reply(new PacketFarmingOverlayText("Deposit chest registered", 2200)); } catch (Throwable ignored) {}
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterFarmingChest failed", t);
@@ -1563,6 +1589,18 @@ public final class ServerHandlers {
             }
 
             FarmingSettingsService.setRegisteredWithdrawChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
+            try {
+                var st = FarmingSettingsService.getSettings(vill);
+                if (vill.level() instanceof ServerLevel sl) {
+                    st.manualWorkstationRegistered = (FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null);
+                } else {
+                    st.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
+                }
+                net.minecraft.nbt.CompoundTag tag = st.toTag();
+                try { tag.putBoolean("__hasDepositChest", FarmingSettingsService.hasRegisteredChest(vill)); } catch (Throwable ignored) {}
+                try { tag.putBoolean("__hasWithdrawChest", true); } catch (Throwable ignored) {}
+                ctx.reply(new PacketFarmingSettingsData(vill.getId(), tag));
+            } catch (Throwable ignored) {}
             try { ctx.reply(new PacketFarmingOverlayText("Withdraw chest registered", 2200)); } catch (Throwable ignored) {}
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterFarmingWithdrawChest failed", t);
@@ -1594,7 +1632,10 @@ public final class ServerHandlers {
             try {
                 var settings = FarmingSettingsService.getSettings(vill);
                 settings.manualWorkstationRegistered = true;
-                ctx.reply(new PacketFarmingSettingsData(vill.getId(), settings.toTag()));
+                net.minecraft.nbt.CompoundTag tag = settings.toTag();
+                try { tag.putBoolean("__hasDepositChest", FarmingSettingsService.hasRegisteredChest(vill)); } catch (Throwable ignored) {}
+                try { tag.putBoolean("__hasWithdrawChest", FarmingSettingsService.hasRegisteredWithdrawChest(vill)); } catch (Throwable ignored) {}
+                ctx.reply(new PacketFarmingSettingsData(vill.getId(), tag));
             } catch (Throwable ignored) {}
             try { ctx.reply(new PacketFarmingOverlayText("Workstation registered", 2200)); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}

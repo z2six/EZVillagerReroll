@@ -24,9 +24,14 @@ public final class FarmingSettings {
     private static final String K_MANUAL_RANGE = "manualRange";
     private static final String K_MANUAL_RANGE_CIRCULAR = "manualRangeCircular";
     private static final String K_MANUAL_USE_BONEMEAL = "manualUseBonemeal";
+    private static final String K_MANUAL_TILL_SOIL = "manualTillSoil";
     private static final String K_MANUAL_WORKSTATION_REGISTERED = "manualWorkstationRegistered";
     private static final String K_MANUAL_HARVEST_ITEMS = "manualHarvestItems";
     private static final String K_MANUAL_PLANT_ITEMS = "manualPlantItems";
+
+    // Derived / server-only flags (sent to client for UI, never persisted by toTag()).
+    private static final String K_DERIVED_HAS_DEPOSIT_CHEST = "__hasDepositChest";
+    private static final String K_DERIVED_HAS_WITHDRAW_CHEST = "__hasWithdrawChest";
 
     // Legacy (pre per-item thresholds)
     private static final String K_RULES_LEGACY = "rules"; // old per-item list (deposit-only)
@@ -51,9 +56,14 @@ public final class FarmingSettings {
     public int manualRange = 10;
     public boolean manualRangeCircular = true;
     public boolean manualUseBonemeal = false;
+    public boolean manualTillSoil = false;
     public boolean manualWorkstationRegistered = false;
     public final List<String> manualHarvestItemIds = new ArrayList<>();
     public final List<String> manualPlantItemIds = new ArrayList<>();
+
+    // Derived / informational (not saved)
+    public boolean hasDepositChest = false;
+    public boolean hasWithdrawChest = false;
 
     public static final class ItemRule {
         public String itemId = "";
@@ -170,6 +180,16 @@ public final class FarmingSettings {
         }
 
         try {
+            if (tag.contains(K_MANUAL_TILL_SOIL, Tag.TAG_BYTE)) {
+                s.manualTillSoil = tag.getBoolean(K_MANUAL_TILL_SOIL);
+            } else {
+                s.manualTillSoil = false;
+            }
+        } catch (Throwable ignored) {
+            s.manualTillSoil = false;
+        }
+
+        try {
             if (tag.contains(K_MANUAL_WORKSTATION_REGISTERED, Tag.TAG_BYTE)) {
                 s.manualWorkstationRegistered = tag.getBoolean(K_MANUAL_WORKSTATION_REGISTERED);
             } else {
@@ -177,6 +197,26 @@ public final class FarmingSettings {
             }
         } catch (Throwable ignored) {
             s.manualWorkstationRegistered = false;
+        }
+
+        try {
+            if (tag.contains(K_DERIVED_HAS_DEPOSIT_CHEST, Tag.TAG_BYTE)) {
+                s.hasDepositChest = tag.getBoolean(K_DERIVED_HAS_DEPOSIT_CHEST);
+            } else {
+                s.hasDepositChest = false;
+            }
+        } catch (Throwable ignored) {
+            s.hasDepositChest = false;
+        }
+
+        try {
+            if (tag.contains(K_DERIVED_HAS_WITHDRAW_CHEST, Tag.TAG_BYTE)) {
+                s.hasWithdrawChest = tag.getBoolean(K_DERIVED_HAS_WITHDRAW_CHEST);
+            } else {
+                s.hasWithdrawChest = false;
+            }
+        } catch (Throwable ignored) {
+            s.hasWithdrawChest = false;
         }
 
         s.manualHarvestItemIds.clear();
@@ -361,6 +401,7 @@ public final class FarmingSettings {
         tag.putInt(K_MANUAL_RANGE, Math.max(1, manualRange));
         tag.putBoolean(K_MANUAL_RANGE_CIRCULAR, manualRangeCircular);
         tag.putBoolean(K_MANUAL_USE_BONEMEAL, manualUseBonemeal);
+        tag.putBoolean(K_MANUAL_TILL_SOIL, manualTillSoil);
         tag.putBoolean(K_MANUAL_WORKSTATION_REGISTERED, manualWorkstationRegistered);
 
         ListTag mh = new ListTag();

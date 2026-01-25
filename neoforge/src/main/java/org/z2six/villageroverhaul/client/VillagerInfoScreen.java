@@ -48,6 +48,7 @@ import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesData;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnExecute;
+import org.z2six.villageroverhaul.network.respawn.PacketRespawnPurge;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 import java.util.ArrayList;
@@ -76,6 +77,7 @@ public final class VillagerInfoScreen extends Screen {
     private LivingEntity cachedEntity;
     private Button backBtn;
     private Button respawnBtn;
+    private Button purgeBtn;
 
     private boolean hasStats = false;
     private boolean statsUnavailable = false;
@@ -332,6 +334,22 @@ public final class VillagerInfoScreen extends Screen {
 
         if (respawnMode) {
             final int respawnW = 100;
+            final int purgeW = 60;
+
+            purgeBtn = Button.builder(Component.literal("Purge"), b -> {
+                        try {
+                            ClientNetwork.sendToServer(new PacketRespawnPurge(
+                                    respawnAnchorPos.getX(), respawnAnchorPos.getY(), respawnAnchorPos.getZ(),
+                                    respawnIdMsb, respawnIdLsb
+                            ));
+                        } catch (Throwable ignored) {}
+                    })
+                    .pos(left + PANEL_W - PAD - 58 - 4 - respawnW - 4 - purgeW, top + PAD)
+                    .size(purgeW, 18)
+                    .build();
+            purgeBtn.setTooltip(Tooltip.create(Component.literal("Remove this villager from the respawn list.")));
+            this.addRenderableWidget(purgeBtn);
+
             respawnBtn = Button.builder(Component.literal("Respawn (" + respawnCost + ")"), b -> {
                         try {
                             ClientNetwork.sendToServer(new PacketRespawnExecute(
