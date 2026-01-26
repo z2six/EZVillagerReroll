@@ -5,9 +5,12 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
@@ -19,15 +22,22 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.neoforge.event.ServerChatEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenChestRules;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenTeachMenu;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcWaitState;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.recruit.PacketOpenRecruitScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.ServerSync;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
+import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.server.RespawnService;
+import org.z2six.villageroverhaul.server.CustomCommandsService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
@@ -72,6 +82,9 @@ public final class ServerEvents {
             // respawn anchor RMB handler
             bus.addListener(ServerEvents::onRightClickBlock);
 
+            // Custom Commands: chat triggers
+            bus.addListener(ServerEvents::onServerChat);
+
             // villager/merchant stat initialization
             VillagerStatsEvents.register(bus);
 
@@ -114,6 +127,41 @@ public final class ServerEvents {
 
             var level = sp.serverLevel();
             if (level == null || level.isClientSide()) return;
+
+            // ============================================================
+            // Custom Commands (teaching) intercepts
+            // ============================================================
+            try {
+                Villager taught = resolveTeachingVillager(sp);
+                if (taught != null && RecruitService.isRecruited(taught)
+                        && org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(taught, sp)) {
+                    var session = CustomCommandsService.getSessionFor(sp, taught);
+                    if (session != null) {
+                        // Record: entity interaction (only for kind=interact)
+                        if (session.waitingKind == 0) {
+                            if (CustomCommandsService.recordInteractEntity(sp, taught, e.getTarget())) {
+                                try { level.playSound(null, taught.blockPosition(), SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 1.0f, 1.1f); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketCcWaitState(taught.getId(), false))); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketFarmingOverlayText("Recorded. Teach the Villager what to do...", 1000000))); } catch (Throwable ignored) {}
+                                e.setCanceled(true);
+                                e.setCancellationResult(InteractionResult.SUCCESS);
+                                return;
+                            }
+                        }
+
+                        // Right-click the taught villager to open the teach menu (only when not waiting).
+                        if (e.getTarget() instanceof Villager v2 && v2.getUUID().equals(taught.getUUID())) {
+                            if (session.waitingKind < 0) {
+                                try { level.playSound(null, taught.blockPosition(), SoundEvents.VILLAGER_AMBIENT, SoundSource.NEUTRAL, 0.8f, 1.0f); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketCcOpenTeachMenu(taught.getId()))); } catch (Throwable ignored) {}
+                                e.setCanceled(true);
+                                e.setCancellationResult(InteractionResult.SUCCESS);
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
 
             if (!(e.getTarget() instanceof Villager vill)) return;
 
@@ -226,6 +274,52 @@ public final class ServerEvents {
             var level = sp.serverLevel();
             if (level == null || level.isClientSide()) return;
 
+            // ============================================================
+            // Custom Commands (teaching) intercepts
+            // ============================================================
+            try {
+                Villager taught = resolveTeachingVillager(sp);
+                if (taught != null && RecruitService.isRecruited(taught)
+                        && org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(taught, sp)) {
+                    var session = CustomCommandsService.getSessionFor(sp, taught);
+                    if (session != null) {
+                        if (session.waitingKind == 0) {
+                            if (CustomCommandsService.recordInteractBlock(sp, taught, level, e.getPos())) {
+                                try { level.playSound(null, taught.blockPosition(), SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 1.0f, 1.1f); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketCcWaitState(taught.getId(), false))); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketFarmingOverlayText("Recorded. Teach the Villager what to do...", 1000000))); } catch (Throwable ignored) {}
+                                // Cancel block use so we don't accidentally place/use while recording.
+                                e.setCanceled(true);
+                                e.setCancellationResult(InteractionResult.SUCCESS);
+                                return;
+                            }
+                        } else if (session.waitingKind == 1) {
+                            if (CustomCommandsService.recordWithdrawChest(sp, taught, level, e.getPos())) {
+                                try { level.playSound(null, taught.blockPosition(), SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 1.0f, 1.1f); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketCcWaitState(taught.getId(), false))); } catch (Throwable ignored) {}
+                                int si = CustomCommandsService.getSessionLastStepIndex(sp, taught);
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketFarmingOverlayText("Select items to withdraw...", 1000000))); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketCcOpenChestRules(taught.getId(), si, 1))); } catch (Throwable ignored) {}
+                                e.setCanceled(true);
+                                e.setCancellationResult(InteractionResult.SUCCESS);
+                                return;
+                            }
+                        } else if (session.waitingKind == 2) {
+                            if (CustomCommandsService.recordDepositChest(sp, taught, level, e.getPos())) {
+                                try { level.playSound(null, taught.blockPosition(), SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 1.0f, 1.1f); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketCcWaitState(taught.getId(), false))); } catch (Throwable ignored) {}
+                                int si = CustomCommandsService.getSessionLastStepIndex(sp, taught);
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketFarmingOverlayText("Select items to deposit...", 1000000))); } catch (Throwable ignored) {}
+                                try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketCcOpenChestRules(taught.getId(), si, 2))); } catch (Throwable ignored) {}
+                                e.setCanceled(true);
+                                e.setCancellationResult(InteractionResult.SUCCESS);
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+
             var pos = e.getPos();
             if (pos == null) return;
             if (level.getBlockState(pos).getBlock() != Blocks.RESPAWN_ANCHOR) return;
@@ -256,6 +350,100 @@ public final class ServerEvents {
             e.setCancellationResult(InteractionResult.SUCCESS);
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] onRightClickBlock failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void onServerChat(ServerChatEvent e) {
+        try {
+            if (e == null) return;
+            if (!(e.getPlayer() instanceof ServerPlayer sp)) return;
+            if (sp.serverLevel() == null) return;
+
+            String raw = "";
+            try { raw = e.getMessage().getString(); } catch (Throwable ignored) { raw = ""; }
+            if (raw == null) raw = "";
+            String msg = raw.trim();
+            if (msg.isEmpty()) return;
+            if (msg.startsWith("/")) return;
+
+            var level = sp.serverLevel();
+
+            final double radius = Math.max(1.0, (double) ServerConfig.customCommandsChatRadius);
+            double bestDist2 = Double.MAX_VALUE;
+            Villager bestVill = null;
+            int bestActionIdx = -1;
+
+            for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(radius))) {
+                if (vill == null) continue;
+                if (!RecruitService.isRecruited(vill)) continue;
+                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+                if (CustomCommandsService.isExecuting(vill)) continue;
+                if (CustomCommandsService.isVillagerTeaching(vill)) continue;
+
+                var actions = CustomCommandsService.getActionsMeta(vill);
+                if (actions == null || actions.isEmpty()) continue;
+
+                for (int i = 0; i < actions.size(); i++) {
+                    var a = actions.get(i);
+                    if (a == null) continue;
+                    if (!CustomCommandsService.matchesCommand(a, msg)) continue;
+
+                    double d2 = vill.distanceToSqr(sp);
+                    if (d2 < bestDist2) {
+                        bestDist2 = d2;
+                        bestVill = vill;
+                        bestActionIdx = i;
+                    }
+                }
+            }
+
+            if (bestVill != null && bestActionIdx >= 0) {
+                long now = level.getGameTime();
+                if (CustomCommandsService.canStartAction(bestVill, bestActionIdx, now)) {
+                    CustomCommandsService.startExecution(bestVill, bestActionIdx);
+                } else {
+                    // Queue a retry without requiring the player to re-send the chat message.
+                    var meta = CustomCommandsService.getActionMeta(bestVill, bestActionIdx);
+                    long delayUntil = now;
+                    try {
+                        if (meta != null) {
+                            long lastFail = meta.lastFailGameTime();
+                            long retryTicks = Math.max(0L, (long) meta.retryAfterSeconds() * 20L);
+                            if (lastFail > 0L && retryTicks > 0L) delayUntil = Math.max(now, lastFail + retryTicks);
+                        }
+                    } catch (Throwable ignored) {}
+                    CustomCommandsService.queueExecution(bestVill, bestActionIdx, delayUntil);
+                }
+            }
+
+        } catch (Throwable ignored) {}
+    }
+
+    private static Villager resolveTeachingVillager(ServerPlayer sp) {
+        try {
+            if (sp == null) return null;
+            CustomCommandsService.TeachSession s = CustomCommandsService.getSession(sp);
+            if (s == null) return null;
+            try {
+                Entity ent = sp.serverLevel().getEntity(s.villagerEntityId);
+                if (ent instanceof Villager v && v.getUUID().equals(s.villagerUuid)) return v;
+            } catch (Throwable ignored) {}
+
+            // Fallback: resolve by UUID across all levels (in case of chunk/dimension quirks).
+            try {
+                if (sp.server != null) {
+                    for (var lvl : sp.server.getAllLevels()) {
+                        try {
+                            Entity ent = lvl.getEntity(s.villagerUuid);
+                            if (ent instanceof Villager v && v.getUUID().equals(s.villagerUuid)) return v;
+                        } catch (Throwable ignored) {}
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            return null;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 

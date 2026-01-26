@@ -27,6 +27,7 @@ import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 import org.z2six.villageroverhaul.server.FarmingSettingsService;
 import org.z2six.villageroverhaul.server.RecruitService;
+import org.z2six.villageroverhaul.server.CustomCommandsService;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -1196,6 +1197,16 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerStorageGoal (villager={})", vill.getUUID());
             }
 
+            if (!hasGoal(vill, VillagerCustomCommandsExecuteGoal.class)) {
+                vill.goalSelector.addGoal(4, new VillagerCustomCommandsExecuteGoal(vill));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCustomCommandsExecuteGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerCustomCommandsTeachFollowGoal.class)) {
+                vill.goalSelector.addGoal(4, new VillagerCustomCommandsTeachFollowGoal(vill));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCustomCommandsTeachFollowGoal (villager={})", vill.getUUID());
+            }
+
             if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
                 vill.goalSelector.addGoal(5, new VillagerPatrolSetupFollowGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
@@ -1258,6 +1269,8 @@ public final class VillagerBrain {
             if (!RecruitService.isRecruited(vill)) return true;
             if (isUiPaused(vill)) return false;
             if (isStorageActive(vill)) return false;
+            if (CustomCommandsService.isExecuting(vill)) return false;
+            if (CustomCommandsService.isVillagerTeaching(vill)) return false;
             if (isManualFarmingControlling(vill)) return false;
             if (getMode(vill) != Mode.NEUTRAL) return false;
             return !isCombatEngaged(vill);

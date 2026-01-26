@@ -59,6 +59,9 @@ public final class VillagerCombatLoadoutService {
     private static final long ENFORCE_EVERY_TICKS = 10L;
 
     private static final String PD_OFFHAND_BROKE_TICK = "ezvr_loadout_off_broke_tick";
+    private static final String PD_FORCE_EQUIP_UNTIL = "ezvr_loadout_force_until";
+    private static final String PD_FORCE_EQUIP_ALLOW_OFF = "ezvr_loadout_force_allow_off";
+    private static final String PD_FORCE_EQUIP_ACTIVE = "ezvr_loadout_force_active";
 
     private static final Set<Villager> TRACKED =
             Collections.newSetFromMap(new WeakHashMap<>());
@@ -66,6 +69,92 @@ public final class VillagerCombatLoadoutService {
     private static final Map<Villager, Long> LAST_ENFORCE_AT = new WeakHashMap<>();
 
     private VillagerCombatLoadoutService() {}
+
+    /**
+     * Forces the villager's loadout items into the real hands for a short duration, then lets normal loadout logic
+     * restore state after the timer expires.
+     *
+     * <p>Used for visuals (player-arms rendering) during scripted interactions like Custom Commands.</p>
+     */
+    public static void forceEquipForTicks(Villager vill, int ticks, boolean includeOffhand, String reason) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            ticks = Math.max(1, Math.min(20 * 10, ticks)); // clamp to 1..10s
+
+            long now = 0L;
+            try { now = vill.level().getGameTime(); } catch (Throwable ignored) { now = 0L; }
+
+            try {
+                var pd = vill.getPersistentData();
+                if (pd != null) {
+                    pd.putLong(PD_FORCE_EQUIP_UNTIL, now + (long) ticks);
+                    pd.putBoolean(PD_FORCE_EQUIP_ALLOW_OFF, includeOffhand);
+                    pd.putBoolean(PD_FORCE_EQUIP_ACTIVE, false);
+                }
+            } catch (Throwable ignored) {}
+
+            enforceNow(vill, reason == null ? "force" : reason);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void forceEquipBegin(Villager vill, boolean includeOffhand, String reason) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            var pd = vill.getPersistentData();
+            if (pd == null) return;
+            pd.putBoolean(PD_FORCE_EQUIP_ACTIVE, true);
+            pd.putBoolean(PD_FORCE_EQUIP_ALLOW_OFF, includeOffhand);
+            pd.remove(PD_FORCE_EQUIP_UNTIL);
+            enforceNow(vill, reason == null ? "force_begin" : reason);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void forceEquipEnd(Villager vill, String reason) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            var pd = vill.getPersistentData();
+            if (pd == null) return;
+            pd.remove(PD_FORCE_EQUIP_UNTIL);
+            pd.remove(PD_FORCE_EQUIP_ALLOW_OFF);
+            pd.remove(PD_FORCE_EQUIP_ACTIVE);
+            enforceNow(vill, reason == null ? "force_end" : reason);
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isForceEquipActive(Villager vill) {
+        try {
+            if (vill == null) return false;
+            if (vill.level() == null) return false;
+            var pd = vill.getPersistentData();
+            if (pd == null) return false;
+            if (pd.getBoolean(PD_FORCE_EQUIP_ACTIVE)) return true;
+            if (!pd.contains(PD_FORCE_EQUIP_UNTIL)) return false;
+            long until = pd.getLong(PD_FORCE_EQUIP_UNTIL);
+            long now = vill.level().getGameTime();
+            if (now <= until) return true;
+            // expired -> cleanup
+            pd.remove(PD_FORCE_EQUIP_UNTIL);
+            pd.remove(PD_FORCE_EQUIP_ALLOW_OFF);
+            pd.remove(PD_FORCE_EQUIP_ACTIVE);
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isForceEquipAllowOffhand(Villager vill) {
+        try {
+            if (vill == null) return false;
+            var pd = vill.getPersistentData();
+            if (pd == null) return false;
+            return pd.getBoolean(PD_FORCE_EQUIP_ALLOW_OFF);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
 
     public static void enforceNow(Villager vill, String reason) {
         try {
@@ -241,6 +330,25 @@ public final class VillagerCombatLoadoutService {
                 if (VillagerBrain.isUiPaused(vill)) continue;
 
                 long now = vill.level().getGameTime();
+
+                // If a short-lived visual equip is requested, enforce every tick so the swap-back happens promptly.
+                try {
+                    var pd = vill.getPersistentData();
+                    if (pd != null && (pd.contains(PD_FORCE_EQUIP_UNTIL) || pd.getBoolean(PD_FORCE_EQUIP_ACTIVE))) {
+                        if (pd.contains(PD_FORCE_EQUIP_UNTIL)) {
+                            long until = pd.getLong(PD_FORCE_EQUIP_UNTIL);
+                            if (now > until) {
+                                pd.remove(PD_FORCE_EQUIP_UNTIL);
+                                pd.remove(PD_FORCE_EQUIP_ALLOW_OFF);
+                                pd.remove(PD_FORCE_EQUIP_ACTIVE);
+                            }
+                        }
+                        LAST_ENFORCE_AT.put(vill, now);
+                        enforce(vill, "force_tick");
+                        continue;
+                    }
+                } catch (Throwable ignored) {}
+
                 Long last = LAST_ENFORCE_AT.get(vill);
                 if (last != null && (now - last) < ENFORCE_EVERY_TICKS) continue;
                 LAST_ENFORCE_AT.put(vill, now);
@@ -272,6 +380,23 @@ public final class VillagerCombatLoadoutService {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerCombatLoadoutService.prepareForInventoryOpen failed", t);
         }
+    }
+
+    /**
+     * Respawn snapshots can capture transient UI flags (menu open / ui paused).
+     * Clear those so the loadout system starts enforcing normally again.
+     */
+    public static void resetAfterRespawn(Villager vill) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+
+            track(vill);
+            CompoundTag root = getOrCreate(vill);
+            root.putBoolean(K_MENU_OPEN, false);
+            root.putBoolean(K_WAS_ACTIVE, false);
+            LAST_ENFORCE_AT.remove(vill);
+        } catch (Throwable ignored) {}
     }
 
     public static void onInventoryMenuClosed(Villager vill, Container menuLoadoutContainerOrNull) {
@@ -375,6 +500,8 @@ public final class VillagerCombatLoadoutService {
     private static boolean isActiveState(Villager vill) {
         try {
             if (vill == null) return false;
+            // Temporary visual equip (e.g. scripted interactions).
+            if (isForceEquipActive(vill)) return true;
             // Active means we should equip the registered combat loadout into real hands.
             // This must depend on *engagement*, not on the villager's configured combat mode setting.
             //
@@ -406,6 +533,9 @@ public final class VillagerCombatLoadoutService {
                         && !VillagerBrain.isCombatEngaged(vill)
                         && VillagerBrain.getMode(vill) != VillagerBrain.Mode.PATROL;
             } catch (Throwable ignored) { manualFarmOnly = false; }
+            try {
+                if (manualFarmOnly && isForceEquipActive(vill) && isForceEquipAllowOffhand(vill)) manualFarmOnly = false;
+            } catch (Throwable ignored) {}
 
             // If we are active and have GUI loadout items (e.g. just closed the menu),
             // promote GUI -> EQ (canonical) and clear GUI.

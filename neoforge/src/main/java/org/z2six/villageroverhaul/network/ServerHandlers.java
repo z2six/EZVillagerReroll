@@ -7,6 +7,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
@@ -32,6 +33,25 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcAddWaypoint;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcAddWaitStep;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginRecord;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginTeaching;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcCancelRecord;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcDeleteAction;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcListData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcListQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcSaveTaughtAction;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcSetChestRules;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcStopTeaching;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionMeta;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepRules;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepWait;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcWaitState;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
@@ -64,7 +84,10 @@ import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
 import org.z2six.villageroverhaul.server.FarmingSettingsService;
+import org.z2six.villageroverhaul.server.CustomCommandsService;
 import org.z2six.villageroverhaul.combat.CombatSettings;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 
 // patrol packets
 
@@ -75,6 +98,15 @@ import java.util.UUID;
 public final class ServerHandlers {
 
     private ServerHandlers() {}
+
+    private static void playVillagerSound(Villager vill, SoundEvent sound, float volume, float pitch) {
+        try {
+            if (vill == null || sound == null) return;
+            var level = vill.level();
+            if (level == null) return;
+            level.playSound(null, vill.blockPosition(), sound, SoundSource.NEUTRAL, volume, pitch);
+        } catch (Throwable ignored) {}
+    }
 
     public static void handleAutoTradeStart(PacketAutoTradeStart msg, IPayloadContext ctx) {
         try {
@@ -1694,6 +1726,316 @@ public final class ServerHandlers {
                 ctx.reply(new PacketFarmingSettingsData(vill.getId(), tag));
             } catch (Throwable ignored) {}
             try { ctx.reply(new PacketFarmingOverlayText("Workstation registered", 2200)); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    // =============================
+    // CUSTOM COMMANDS (CC)
+    // =============================
+
+    public static void handleCcBeginTeaching(PacketCcBeginTeaching msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.beginTeaching(sp, vill, msg.editIndex());
+            playVillagerSound(vill, SoundEvents.VILLAGER_AMBIENT, 0.8f, 1.0f);
+
+            try { ctx.reply(new PacketCcWaitState(vill.getId(), false)); } catch (Throwable ignored) {}
+            try { ctx.reply(new PacketFarmingOverlayText("Teach the Villager what to do...", 1000000)); } catch (Throwable ignored) {}
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleCcBeginTeaching failed", t);
+        }
+    }
+
+    public static void handleCcStopTeaching(PacketCcStopTeaching msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) {
+                // Best-effort cleanup even if the villager entity isn't currently resolvable (chunk unload / dimension change).
+                try { CustomCommandsService.stopTeaching(sp); } catch (Throwable ignored) {}
+                try { ctx.reply(new PacketCcWaitState(msg.villagerEntityId(), false)); } catch (Throwable ignored) {}
+                try { ctx.reply(new PacketFarmingOverlayText("Teaching canceled", 1800)); } catch (Throwable ignored) {}
+                return;
+            }
+
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.stopTeaching(sp, vill);
+            playVillagerSound(vill, SoundEvents.VILLAGER_NO, 1.0f, 0.95f);
+
+            try { ctx.reply(new PacketCcWaitState(vill.getId(), false)); } catch (Throwable ignored) {}
+            try { ctx.reply(new PacketFarmingOverlayText("Teaching canceled", 1800)); } catch (Throwable ignored) {}
+
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcAddWaypoint(PacketCcAddWaypoint msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.addWaypointStep(sp, vill);
+            playVillagerSound(vill, SoundEvents.VILLAGER_YES, 1.0f, 1.1f);
+            try { ctx.reply(new PacketFarmingOverlayText("Waypoint added", 1200)); } catch (Throwable ignored) {}
+
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcAddWaitStep(PacketCcAddWaitStep msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.addWaitStep(sp, vill, msg.seconds());
+            playVillagerSound(vill, SoundEvents.VILLAGER_YES, 1.0f, 1.1f);
+            try { ctx.reply(new PacketFarmingOverlayText("Recorded. Teach the Villager what to do...", 1000000)); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcBeginRecord(PacketCcBeginRecord msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            int kind = msg.kind();
+            if (kind < 0 || kind > 2) kind = 0;
+
+            CustomCommandsService.setWaiting(sp, vill, kind);
+            playVillagerSound(vill, SoundEvents.VILLAGER_AMBIENT, 0.8f, 1.0f);
+            try { ctx.reply(new PacketCcWaitState(vill.getId(), true)); } catch (Throwable ignored) {}
+
+            String text = "Show the Villager what to interact with or press ESC to cancel";
+            if (kind == 1) text = "Show the Villager what chest to take items from or press ESC to cancel";
+            if (kind == 2) text = "Show the Villager what chest to deposit items into or press ESC to cancel";
+
+            try { ctx.reply(new PacketFarmingOverlayText(text, 1000000)); } catch (Throwable ignored) {}
+
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcCancelRecord(PacketCcCancelRecord msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.setWaiting(sp, vill, -1);
+            playVillagerSound(vill, SoundEvents.VILLAGER_NO, 1.0f, 0.95f);
+            try { ctx.reply(new PacketCcWaitState(vill.getId(), false)); } catch (Throwable ignored) {}
+            try { ctx.reply(new PacketFarmingOverlayText("Recording canceled", 1800)); } catch (Throwable ignored) {}
+            try { ctx.reply(new PacketFarmingOverlayText("Teach the Villager what to do...", 1000000)); } catch (Throwable ignored) {}
+
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcTeachSessionQuery(PacketCcTeachSessionQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            var tag = CustomCommandsService.buildTeachSessionData(sp, vill);
+            ctx.reply(new PacketCcTeachSessionData(vill.getId(), tag));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcSaveTaughtAction(PacketCcSaveTaughtAction msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.saveFromSession(
+                    sp,
+                    vill,
+                    msg.title(),
+                    msg.command(),
+                    msg.caseSensitive(),
+                    msg.description(),
+                    msg.timeoutSeconds(),
+                    msg.retryAfterSeconds(),
+                    msg.stopAfterRetries(),
+                    msg.editIndex()
+            );
+            CustomCommandsService.stopTeaching(sp, vill);
+            playVillagerSound(vill, SoundEvents.VILLAGER_YES, 1.0f, 1.2f);
+
+            try { ctx.reply(new PacketCcWaitState(vill.getId(), false)); } catch (Throwable ignored) {}
+            try { ctx.reply(new PacketFarmingOverlayText("Saved", 1600)); } catch (Throwable ignored) {}
+
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcUpdateActionMeta(PacketCcUpdateActionMeta msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.updateActionMeta(
+                    vill,
+                    msg.actionIndex(),
+                    msg.title(),
+                    msg.command(),
+                    msg.caseSensitive(),
+                    msg.description(),
+                    msg.timeoutSeconds(),
+                    msg.retryAfterSeconds(),
+                    msg.stopAfterRetries()
+            );
+            playVillagerSound(vill, SoundEvents.VILLAGER_YES, 1.0f, 1.1f);
+
+            try { ctx.reply(new PacketFarmingOverlayText("Saved", 1600)); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcDeleteAction(PacketCcDeleteAction msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.deleteAction(vill, msg.actionIndex());
+            playVillagerSound(vill, SoundEvents.VILLAGER_NO, 1.0f, 1.0f);
+            try { ctx.reply(new PacketFarmingOverlayText("Forgot teaching", 1600)); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcUpdateActionStepWait(PacketCcUpdateActionStepWait msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.updateActionStepWait(vill, msg.actionIndex(), msg.stepIndex(), msg.seconds());
+            playVillagerSound(vill, SoundEvents.VILLAGER_YES, 1.0f, 1.1f);
+            try { ctx.reply(new PacketFarmingOverlayText("Saved", 1200)); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcUpdateActionStepRules(PacketCcUpdateActionStepRules msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            java.util.List<CustomCommandsService.ItemCountRule> rules = new java.util.ArrayList<>();
+            if (msg.rules() != null) {
+                for (PacketCcUpdateActionStepRules.Rule r : msg.rules()) {
+                    if (r == null) continue;
+                    String id = r.itemId() == null ? "" : r.itemId().trim();
+                    if (id.isBlank()) continue;
+                    int cnt = Math.max(0, r.count());
+                    rules.add(new CustomCommandsService.ItemCountRule(id, cnt));
+                }
+            }
+            CustomCommandsService.updateActionStepRules(vill, msg.actionIndex(), msg.stepIndex(), rules);
+            playVillagerSound(vill, SoundEvents.VILLAGER_YES, 1.0f, 1.1f);
+            try { ctx.reply(new PacketFarmingOverlayText("Saved", 1200)); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcSetChestRules(PacketCcSetChestRules msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            var session = CustomCommandsService.getSessionFor(sp, vill);
+            if (session == null) return;
+
+            int stepIndex = msg.stepIndex();
+            java.util.List<CustomCommandsService.ItemCountRule> rules = new java.util.ArrayList<>();
+            if (msg.rules() != null) {
+                for (PacketCcSetChestRules.Rule r : msg.rules()) {
+                    if (r == null) continue;
+                    String id = r.itemId() == null ? "" : r.itemId().trim();
+                    if (id.isBlank()) continue;
+                    int cnt = Math.max(0, r.count());
+                    rules.add(new CustomCommandsService.ItemCountRule(id, cnt));
+                }
+            }
+            CustomCommandsService.setSessionChestRules(sp, vill, stepIndex, rules);
+            playVillagerSound(vill, SoundEvents.VILLAGER_YES, 1.0f, 1.1f);
+
+            try { ctx.reply(new PacketFarmingOverlayText("Recorded. Teach the Villager what to do...", 1000000)); } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcListQuery(PacketCcListQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            ctx.reply(new PacketCcListData(vill.getId(), CustomCommandsService.buildListData(vill)));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcActionDetailQuery(PacketCcActionDetailQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            ctx.reply(new PacketCcActionDetailData(vill.getId(), msg.index(), CustomCommandsService.buildActionDetailData(vill, msg.index())));
         } catch (Throwable ignored) {}
     }
 

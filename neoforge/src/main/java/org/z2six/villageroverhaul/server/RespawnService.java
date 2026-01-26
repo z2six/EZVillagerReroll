@@ -303,6 +303,8 @@ public final class RespawnService {
             try { VillagerStatsService.ensureStats(v); } catch (Throwable ignored) {}
             try { VillagerCombatAttributeService.applyCombatModifiers(v); } catch (Throwable ignored) {}
             try { VillagerBrain.ensureAttached(v); } catch (Throwable ignored) {}
+            try { VillagerBrain.setUiPaused(v, false); } catch (Throwable ignored) {}
+            try { org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService.resetAfterRespawn(v); } catch (Throwable ignored) {}
 
             // By default, equipment is lost on respawn.
             if (!ServerConfig.respawnKeepEquipment) {

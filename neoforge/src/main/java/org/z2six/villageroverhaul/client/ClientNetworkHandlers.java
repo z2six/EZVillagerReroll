@@ -21,6 +21,12 @@ import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
 import org.z2six.villageroverhaul.network.PacketSyncConfig;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcListData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenTeachMenu;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenChestRules;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcWaitState;
 import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
@@ -174,6 +180,90 @@ public final class ClientNetworkHandlers {
             });
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onFarmingOverlayText enqueue failed", t);
+        }
+    }
+
+    public static void onCcOpenTeachMenu(PacketCcOpenTeachMenu msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+                    mc.setScreen(new CustomCommandsTeachMenuScreen(msg.villagerEntityId()));
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onCcOpenTeachMenu failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onCcOpenTeachMenu enqueue failed", t);
+        }
+    }
+
+    public static void onCcWaitState(PacketCcWaitState msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    ClientUI.setCustomCommandsWaiting(msg.villagerEntityId(), msg.waiting());
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    public static void onCcTeachSessionData(PacketCcTeachSessionData msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    CustomCommandsClientCache.putTeachSession(msg.villagerEntityId(), msg.data());
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    public static void onCcListData(PacketCcListData msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    CustomCommandsClientCache.putList(msg.villagerEntityId(), msg.data());
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    public static void onCcActionDetailData(PacketCcActionDetailData msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    CustomCommandsClientCache.putDetail(msg.villagerEntityId(), msg.index(), msg.data());
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    public static void onCcOpenChestRules(PacketCcOpenChestRules msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    // A chest UI might open at the same time; request a deferred open on tick to ensure we win focus.
+                    CustomCommandsClientCache.requestOpenChestRules(msg.villagerEntityId(), msg.stepIndex(), msg.kind());
+                    try { Minecraft mc = Minecraft.getInstance(); if (mc != null) mc.setScreen(null); } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onCcOpenChestRules failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onCcOpenChestRules enqueue failed", t);
         }
     }
 

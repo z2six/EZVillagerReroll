@@ -20,6 +20,27 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcAddWaypoint;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcAddWaitStep;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginRecord;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginTeaching;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcCancelRecord;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcDeleteAction;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcListData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcListQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenChestRules;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenTeachMenu;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcSaveTaughtAction;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcSetChestRules;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcStopTeaching;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionMeta;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepRules;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepWait;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcWaitState;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
@@ -170,6 +191,40 @@ public final class Network {
             r.playToServer(PacketRegisterFarmingWorkstation.TYPE, PacketRegisterFarmingWorkstation.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingWorkstation(msg, ctx)));
 
+            // ============================
+            // Custom Commands (CC) serverbound
+            // ============================
+            r.playToServer(PacketCcBeginTeaching.TYPE, PacketCcBeginTeaching.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcBeginTeaching(msg, ctx)));
+            r.playToServer(PacketCcStopTeaching.TYPE, PacketCcStopTeaching.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcStopTeaching(msg, ctx)));
+            r.playToServer(PacketCcAddWaypoint.TYPE, PacketCcAddWaypoint.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcAddWaypoint(msg, ctx)));
+            r.playToServer(PacketCcAddWaitStep.TYPE, PacketCcAddWaitStep.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcAddWaitStep(msg, ctx)));
+            r.playToServer(PacketCcBeginRecord.TYPE, PacketCcBeginRecord.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcBeginRecord(msg, ctx)));
+            r.playToServer(PacketCcCancelRecord.TYPE, PacketCcCancelRecord.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcCancelRecord(msg, ctx)));
+            r.playToServer(PacketCcTeachSessionQuery.TYPE, PacketCcTeachSessionQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcTeachSessionQuery(msg, ctx)));
+            r.playToServer(PacketCcSaveTaughtAction.TYPE, PacketCcSaveTaughtAction.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcSaveTaughtAction(msg, ctx)));
+            r.playToServer(PacketCcUpdateActionMeta.TYPE, PacketCcUpdateActionMeta.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcUpdateActionMeta(msg, ctx)));
+            r.playToServer(PacketCcDeleteAction.TYPE, PacketCcDeleteAction.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcDeleteAction(msg, ctx)));
+            r.playToServer(PacketCcUpdateActionStepWait.TYPE, PacketCcUpdateActionStepWait.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcUpdateActionStepWait(msg, ctx)));
+            r.playToServer(PacketCcUpdateActionStepRules.TYPE, PacketCcUpdateActionStepRules.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcUpdateActionStepRules(msg, ctx)));
+            r.playToServer(PacketCcSetChestRules.TYPE, PacketCcSetChestRules.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcSetChestRules(msg, ctx)));
+            r.playToServer(PacketCcListQuery.TYPE, PacketCcListQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcListQuery(msg, ctx)));
+            r.playToServer(PacketCcActionDetailQuery.TYPE, PacketCcActionDetailQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcActionDetailQuery(msg, ctx)));
+
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTooltipData", msg, ctx));
@@ -191,6 +246,20 @@ public final class Network {
                     (msg, ctx) -> dispatchToClientHandler("onFarmingSettingsData", msg, ctx));
             r.playToClient(PacketFarmingOverlayText.TYPE, PacketFarmingOverlayText.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onFarmingOverlayText", msg, ctx));
+
+            // custom commands UI data
+            r.playToClient(PacketCcOpenTeachMenu.TYPE, PacketCcOpenTeachMenu.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCcOpenTeachMenu", msg, ctx));
+            r.playToClient(PacketCcWaitState.TYPE, PacketCcWaitState.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCcWaitState", msg, ctx));
+            r.playToClient(PacketCcTeachSessionData.TYPE, PacketCcTeachSessionData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCcTeachSessionData", msg, ctx));
+            r.playToClient(PacketCcListData.TYPE, PacketCcListData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCcListData", msg, ctx));
+            r.playToClient(PacketCcActionDetailData.TYPE, PacketCcActionDetailData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCcActionDetailData", msg, ctx));
+            r.playToClient(PacketCcOpenChestRules.TYPE, PacketCcOpenChestRules.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCcOpenChestRules", msg, ctx));
 
             // auto-search completion notification
             r.playToClient(PacketAutoSearchDone.TYPE, PacketAutoSearchDone.STREAM_CODEC,

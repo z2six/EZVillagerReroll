@@ -3210,3 +3210,6 @@ runs
 /.gradle_user/wrapper/dists/gradle-8.10-bin/deqhafrv1ntovfmgh0nh3npr9/gradle-8.10-bin.zip.part
 /.gradle_user/wrapper/dists/CACHEDIR.TAG
 /.gradle_user/
+
+# (Temporary) Ignore accidental nested NeoForge source root created by tooling.
+neoforge/src/neoforge/

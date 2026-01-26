@@ -30,6 +30,12 @@ public final class ServerConfig {
     public static final ModConfigSpec.BooleanValue ENABLE_FARMING_MODULE;
 
     // ---------------------------------------------------------------------
+    // CUSTOM COMMANDS
+    // ---------------------------------------------------------------------
+
+    public static final ModConfigSpec.IntValue CUSTOM_COMMANDS_CHAT_RADIUS;
+
+    // ---------------------------------------------------------------------
     // COST
     // ---------------------------------------------------------------------
 
@@ -182,6 +188,17 @@ public final class ServerConfig {
         ENABLE_FARMING_MODULE =
                 B.comment("Enable Farming module (deposit/withdraw, manual farming).")
                         .define("enableFarmingModule", true);
+
+        B.pop();
+
+        B.push("custom_commands");
+
+        CUSTOM_COMMANDS_CHAT_RADIUS =
+                B.comment("""
+                        Chat trigger radius for Custom Commands.
+                        Only villagers within this range of the player will listen to chat commands.
+                        """)
+                        .defineInRange("chatRadius", 26, 1, 128);
 
         B.pop();
 
@@ -636,6 +653,7 @@ public final class ServerConfig {
     public static boolean enableMerchantModule = true;
     public static boolean enableCombatModule = true;
     public static boolean enableFarmingModule = true;
+    public static int customCommandsChatRadius = 26;
 
     public static int freeOffers = 2;
     public static int costPerOffer = 8;
@@ -724,6 +742,7 @@ public final class ServerConfig {
             enableMerchantModule = ENABLE_MERCHANT_MODULE.get();
             enableCombatModule = ENABLE_COMBAT_MODULE.get();
             enableFarmingModule = ENABLE_FARMING_MODULE.get();
+            customCommandsChatRadius = Math.max(1, Math.min(128, CUSTOM_COMMANDS_CHAT_RADIUS.get()));
 
             costSpec = COST_ITEM_OR_TAG.get();
             preferWallet = PREFER_WALLET.get();

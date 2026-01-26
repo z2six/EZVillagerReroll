@@ -4,6 +4,7 @@ package org.z2six.villageroverhaul.server.ai;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
@@ -21,6 +22,11 @@ public final class VillagerIdleGoal extends Goal {
     // "natural" idle scanning
     private int nextLookChangeTicks = 0;
     private float targetYawDeg = 0.0f;
+
+    // When a player is nearby: always track with HEAD, but only turn BODY occasionally.
+    private int nextBodyTurnTicks = 0;
+    private int bodyTurnTicksLeft = 0;
+    private float bodyTargetYawDeg = 0.0f;
 
     public VillagerIdleGoal(Villager vill) {
         this.vill = vill;
@@ -51,12 +57,20 @@ public final class VillagerIdleGoal extends Goal {
             targetYawDeg = vill.getYRot();
             nextLookChangeTicks = 10 + vill.getRandom().nextInt(30);
         } catch (Throwable ignored) {}
+
+        try {
+            nextBodyTurnTicks = 20 + vill.getRandom().nextInt(41); // 1..3 seconds
+            bodyTurnTicksLeft = 0;
+            bodyTargetYawDeg = vill.getYRot();
+        } catch (Throwable ignored) {}
     }
 
     @Override
     public void tick() {
         stopMovement();
-        doIdleLookAround();
+        if (!lookAtNearbyPlayer()) {
+            doIdleLookAround();
+        }
     }
 
     @Override
@@ -76,6 +90,49 @@ public final class VillagerIdleGoal extends Goal {
             try { vill.zza = 0.0f; } catch (Throwable ignored) {}
             try { vill.xxa = 0.0f; } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}
+    }
+
+    private boolean lookAtNearbyPlayer() {
+        try {
+            if (vill == null) return false;
+            if (vill.getTarget() != null) return false;
+            if (vill.level() == null) return false;
+
+            Player p = null;
+            double best = 6.0 * 6.0;
+            for (Player cand : vill.level().players()) {
+                if (cand == null) continue;
+                if (cand.isSpectator()) continue;
+                double d = cand.distanceToSqr(vill);
+                if (d <= best) {
+                    best = d;
+                    p = cand;
+                }
+            }
+            if (p == null) return false;
+
+            // If something else is forcing attention, don't fight it.
+            try { vill.getLookControl().setLookAt(p, 30.0f, 30.0f); } catch (Throwable ignored) {}
+
+            // Body turning: only occasionally (random 1..3s), but when it turns, do it smoothly.
+            if (bodyTurnTicksLeft > 0) {
+                float curYaw = vill.getYRot();
+                float newYaw = Mth.approachDegrees(curYaw, bodyTargetYawDeg, 6.0f);
+                vill.setYRot(newYaw);
+                vill.yRotO = newYaw;
+                bodyTurnTicksLeft--;
+            } else {
+                if (nextBodyTurnTicks-- <= 0) {
+                    bodyTargetYawDeg = (float)(Mth.atan2(p.getZ() - vill.getZ(), p.getX() - vill.getX()) * (180F / Math.PI)) - 90.0f;
+                    bodyTurnTicksLeft = 12; // ~0.6s of turning at 20tps
+                    nextBodyTurnTicks = 20 + vill.getRandom().nextInt(41); // 1..3 seconds
+                }
+            }
+
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /**

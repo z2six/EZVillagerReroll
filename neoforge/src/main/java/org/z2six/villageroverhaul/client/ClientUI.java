@@ -62,6 +62,8 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcCancelRecord;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginTeaching;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
@@ -155,6 +157,7 @@ public final class ClientUI {
 
     // Manual farming workstation registration flow (from settings screen)
     private static int PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+    private static int PENDING_CC_RECORD_VILLAGER_ID = -1;
     private static long CHEST_REGISTER_MESSAGE_UNTIL_MS = 0L;
     private static String CHEST_REGISTER_MESSAGE = "";
 
@@ -436,7 +439,9 @@ public final class ClientUI {
     private static void onKeyInput(final InputEvent.Key e) {
         try {
             if (e == null) return;
-            if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0 && PENDING_WORKSTATION_REGISTER_VILLAGER_ID <= 0) return;
+            if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0
+                    && PENDING_WORKSTATION_REGISTER_VILLAGER_ID <= 0
+                    && PENDING_CC_RECORD_VILLAGER_ID <= 0) return;
 
             int key = e.getKey();
             int action = e.getAction();
@@ -444,6 +449,18 @@ public final class ClientUI {
 
             // GLFW_KEY_ESCAPE = 256 (avoid direct GLFW dependency)
             if (key != 256) return;
+
+            if (PENDING_CC_RECORD_VILLAGER_ID > 0) {
+                int vid = PENDING_CC_RECORD_VILLAGER_ID;
+                PENDING_CC_RECORD_VILLAGER_ID = -1;
+                try { ClientNetwork.sendToServer(new PacketCcCancelRecord(vid)); } catch (Throwable ignored) {}
+                setChestRegisterMessage("Recording canceled", 1800);
+                try {
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc != null) mc.setScreen(null);
+                } catch (Throwable ignored2) {}
+                return;
+            }
 
             PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_WITHDRAW = false;
@@ -498,6 +515,17 @@ public final class ClientUI {
     public static void showFarmingOverlayText(String msg, int durationMs) {
         try {
             setChestRegisterMessage(msg, (long) durationMs);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void setCustomCommandsWaiting(int villagerEntityId, boolean waiting) {
+        try {
+            if (villagerEntityId <= 0) return;
+            if (waiting) {
+                PENDING_CC_RECORD_VILLAGER_ID = villagerEntityId;
+            } else {
+                if (PENDING_CC_RECORD_VILLAGER_ID == villagerEntityId) PENDING_CC_RECORD_VILLAGER_ID = -1;
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -856,15 +884,15 @@ public final class ClientUI {
                                 boolean showCombat = cfg == null || cfg.enableCombatModule;
                                 boolean showFarming = cfg == null || cfg.enableFarmingModule;
 
-                                if (icons != null && icons.size() >= 3) {
+                                if (icons != null && icons.size() >= 4) {
                                     RowHeaderIconWidget combatIcon = icons.get(1);
                                     if (combatIcon != null) { combatIcon.visible = next && showCombat; combatIcon.active = false; }
                                     RowHeaderIconWidget farmingIcon = icons.get(2);
                                     if (farmingIcon != null) { farmingIcon.visible = next && showFarming; farmingIcon.active = false; }
                                 }
 
-                                // Button order: movement(4), combat(4), farming(4)
-                                if (subs != null && subs.size() >= 12) {
+                                // Button order: movement(4), combat(4), farming(4), custom(2)
+                                if (subs != null && subs.size() >= 14) {
                                     for (int i = 4; i < 8; i++) {
                                         Button b = subs.get(i);
                                         if (b != null) { b.visible = next && showCombat; b.active = next && showCombat; }
@@ -960,33 +988,37 @@ public final class ClientUI {
                 String[] movement = new String[] { "Neutral", "Idle", "Follow", "Patrol" };
                 String[] combat   = new String[] { "Flee", "Defend", "Aggressive", "Settings" };
                 String[] farming  = new String[] { "Manual", "Deposit", "Withdraw", "Settings" };
+                String[] custom   = new String[] { "Teach", "List" };
 
                 int movementBlockH = movement.length * h + (movement.length - 1) * gap;
                 int combatBlockH   = combat.length   * h + (combat.length   - 1) * gap;
                 int farmingBlockH  = farming.length  * h + (farming.length  - 1) * gap;
+                int customBlockH   = custom.length   * h + (custom.length   - 1) * gap;
 
-                int movementStartY = cmdCenterY - (movementBlockH / 2);
+                int topRowBlockH = Math.max(movementBlockH, farmingBlockH);
+                int bottomRowBlockH = Math.max(combatBlockH, customBlockH);
+
+                // Gap between top row blocks and bottom row headers.
+                final int sectionGap = 6;
+
+                int contentH = (h + headerGap + topRowBlockH) + sectionGap + (h + headerGap + bottomRowBlockH);
+                int contentTopY = cmdCenterY - (contentH / 2);
+
+                int headerAY = contentTopY;
+                int headerCY = contentTopY;
+                int movementStartY = headerAY + h + headerGap;
                 int farmingStartY  = movementStartY;
 
-                int headerAY = movementStartY - (h + headerGap);
-                int headerCY = headerAY;
-
-                // Combat stack below movement in the same column.
-                final int sectionGap = 6;
-                int headerBY = movementStartY + movementBlockH + sectionGap;
+                int headerBY = movementStartY + topRowBlockH + sectionGap;
+                int headerDY = headerBY;
                 int combatStartY = headerBY + h + headerGap;
-
-                int topY = Math.min(headerAY, headerCY);
-                int bottomY = Math.max(
-                        Math.max(movementStartY + movementBlockH, farmingStartY + farmingBlockH),
-                        combatStartY + combatBlockH
-                );
+                int customStartY = combatStartY;
 
                 int contentW = (2 * w) + gap;    // two columns
                 int panelW = (panelPad * 2) + contentW + (panelBorder * 2);
-                int panelH = (panelPad * 2) + (bottomY - topY) + (panelBorder * 2);
+                int panelH = (panelPad * 2) + contentH + (panelBorder * 2);
 
-                int panelY = topY - panelPad - panelBorder;
+                int panelY = contentTopY - panelPad - panelBorder;
 
                 // Content positions inside panel
                 int contentX = panelX + panelBorder + panelPad;
@@ -1001,7 +1033,7 @@ public final class ClientUI {
                 COMMANDS_BACKDROPS.put(screen, backdrop);
 
                 // Header icon widgets (non-buttons)
-                List<RowHeaderIconWidget> headerIcons = new ArrayList<>(3);
+                List<RowHeaderIconWidget> headerIcons = new ArrayList<>(4);
 
                 RowHeaderIconWidget movementIcon = new RowHeaderIconWidget(colAX, headerAY, w, h, new ItemStack(Items.LEATHER_BOOTS));
                 movementIcon.visible = false;
@@ -1024,10 +1056,17 @@ public final class ClientUI {
                 e.addListener(farmingIcon);
                 headerIcons.add(farmingIcon);
 
+                RowHeaderIconWidget customIcon = new RowHeaderIconWidget(colBX, headerDY, w, h, new ItemStack(Items.REDSTONE));
+                customIcon.visible = false;
+                customIcon.active = false;
+                setSimpleTooltip(customIcon, "Custom commands");
+                e.addListener(customIcon);
+                headerIcons.add(customIcon);
+
                 COMMANDS_HEADER_ICONS.put(screen, headerIcons);
 
                 // Sub buttons
-                List<Button> subs = new ArrayList<>(movement.length + combat.length + farming.length);
+                List<Button> subs = new ArrayList<>(movement.length + combat.length + farming.length + custom.length);
 
                 // Movement column
                 for (int i = 0; i < movement.length; i++) {
@@ -1264,6 +1303,49 @@ public final class ClientUI {
                     }
                 }
 
+                // Custom Commands column (stacked under Farming)
+                for (int i = 0; i < custom.length; i++) {
+                    final String label = custom[i];
+                    int by = customStartY + i * (h + gap);
+
+                    boolean isTeach = "Teach".equalsIgnoreCase(label);
+                    String glyph = isTeach ? "T" : "L";
+
+                    Button b = Button.builder(Component.literal(glyph), bbtn -> {
+                                try {
+                                    int villagerEntityId = resolveTraderEntityId(screen);
+                                    if (villagerEntityId <= 0) return;
+
+                                    Minecraft mc = Minecraft.getInstance();
+                                    if (mc == null) return;
+
+                                    if (isTeach) {
+                                        ClientNetwork.sendToServer(new PacketCcBeginTeaching(villagerEntityId, -1));
+                                        try { if (mc.player != null) mc.player.closeContainer(); } catch (Throwable ignored) {}
+                                        mc.setScreen(null);
+                                    } else {
+                                        mc.setScreen(new CustomCommandsListScreen(screen, villagerEntityId));
+                                    }
+                                } catch (Throwable ignored) {}
+
+                                try {
+                                    bbtn.setFocused(false);
+                                    Screen scr = Minecraft.getInstance().screen;
+                                    if (scr != null && scr.getFocused() == bbtn) scr.setFocused(null);
+                                } catch (Throwable ignored) {}
+                            })
+                            .pos(colBX, by).size(w, h)
+                            .createNarration(s -> Component.literal(label))
+                            .build();
+
+                    setSimpleTooltip(b, isTeach ? "Teach" : "List");
+                    b.visible = false;
+                    b.active = false;
+
+                    e.addListener(b);
+                    subs.add(b);
+                }
+
                 COMMANDS_SUB_BUTTONS.put(screen, subs);
 
             } catch (Throwable t) {
@@ -1350,15 +1432,15 @@ public final class ClientUI {
                     boolean showCombat = cfg == null || cfg.enableCombatModule;
                     boolean showFarming = cfg == null || cfg.enableFarmingModule;
 
-                    if (icons != null && icons.size() >= 3) {
+                    if (icons != null && icons.size() >= 4) {
                         RowHeaderIconWidget combatIcon = icons.get(1);
                         if (combatIcon != null) { combatIcon.visible = expanded && showCombat; combatIcon.active = false; }
                         RowHeaderIconWidget farmingIcon = icons.get(2);
                         if (farmingIcon != null) { farmingIcon.visible = expanded && showFarming; farmingIcon.active = false; }
                     }
 
-                    // Button order: movement(4), combat(4), farming(4)
-                    if (subs != null && subs.size() >= 12) {
+                    // Button order: movement(4), combat(4), farming(4), custom(2)
+                    if (subs != null && subs.size() >= 14) {
                         for (int i = 4; i < 8; i++) {
                             Button b = subs.get(i);
                             if (b != null) { b.visible = expanded && showCombat; b.active = expanded && showCombat; }
@@ -2734,6 +2816,10 @@ public final class ClientUI {
 
             try {
                 AutoTradeService.clientTick();
+            } catch (Throwable ignored) {}
+
+            try {
+                CustomCommandsClientCache.clientTick();
             } catch (Throwable ignored) {}
 
             try {
