@@ -44,6 +44,8 @@ public final class CustomCommandsActionDetailScreen extends Screen {
     private EditBox stopBox;
     private Button caseBtn;
     private boolean caseSensitive = true;
+    private Button chainBtn;
+    private boolean chain = false;
 
     private final List<CompoundTag> steps = new ArrayList<>();
     private final List<CompoundTag> actualSteps = new ArrayList<>();
@@ -114,6 +116,14 @@ public final class CustomCommandsActionDetailScreen extends Screen {
         caseBtn.setTooltip(Tooltip.create(Component.literal("If enabled, uppercase/lowercase must match exactly.")));
         addRenderableWidget(caseBtn);
 
+        chainBtn = Button.builder(Component.literal("Chain []"), b -> {
+                    chain = !chain;
+                    updateChainButton();
+                })
+                .pos(left + 10 + 144, top + 94).size(90, 18).build();
+        chainBtn.setTooltip(Tooltip.create(Component.literal("If enabled, villagers can pass this command through a chain to reach far away villagers.")));
+        addRenderableWidget(chainBtn);
+
         int smallW = 46;
         int rowY = top + 116;
         timeoutBox = new EditBox(this.font, left + 62, rowY, smallW, 18, Component.literal("Timeout"));
@@ -172,10 +182,12 @@ public final class CustomCommandsActionDetailScreen extends Screen {
             try { commandBox.setValue(tag.getString("c")); } catch (Throwable ignored) {}
             try { descBox.setValue(tag.getString("d")); } catch (Throwable ignored) {}
             try { caseSensitive = tag.getBoolean("case"); } catch (Throwable ignored) {}
+            try { chain = tag.getBoolean("chain"); } catch (Throwable ignored) {}
             try { timeoutBox.setValue(String.valueOf(tag.getInt("to"))); } catch (Throwable ignored) {}
             try { retryBox.setValue(String.valueOf(tag.getInt("ra"))); } catch (Throwable ignored) {}
             try { stopBox.setValue(String.valueOf(tag.getInt("stop"))); } catch (Throwable ignored) {}
             updateCaseButton();
+            updateChainButton();
 
             steps.clear();
             actualSteps.clear();
@@ -458,11 +470,19 @@ public final class CustomCommandsActionDetailScreen extends Screen {
                     titleBox == null ? "" : titleBox.getValue(),
                     commandBox == null ? "" : commandBox.getValue(),
                     caseSensitive,
+                    chain,
                     descBox == null ? "" : descBox.getValue(),
                     timeout,
                     retry,
                     stop
             ));
+        } catch (Throwable ignored) {}
+    }
+
+    private void updateChainButton() {
+        try {
+            if (chainBtn == null) return;
+            chainBtn.setMessage(Component.literal("Chain " + (chain ? "[x]" : "[]")));
         } catch (Throwable ignored) {}
     }
 

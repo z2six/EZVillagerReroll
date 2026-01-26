@@ -22,11 +22,13 @@ import org.z2six.villageroverhaul.network.PacketSyncConfig;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenTeachMenu;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenChestRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcWaitState;
+import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsData;
 import org.z2six.villageroverhaul.network.tooltip.PacketTooltipData;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
@@ -265,6 +267,34 @@ public final class ClientNetworkHandlers {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onCcOpenChestRules enqueue failed", t);
         }
+    }
+
+    public static void onCcChatListenData(PacketCcChatListenData msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+                    if (mc.screen instanceof CustomCommandsSettingsScreen s) {
+                        s.applyData(msg.listen(), msg.pass(), msg.passRange());
+                    }
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    public static void onPlayerChatCommandsData(PacketPlayerChatCommandsData msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    PlayerChatCommandsClientCache.put(msg.data());
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
     }
 
     public static void onOpenBusyScreen(PacketOpenBusyScreen msg, IPayloadContext ctx) {

@@ -16,10 +16,6 @@ Common reasons:
 - You are not the **owner** (someone else recruited it).
 - The server has disabled the relevant module (Merchant/Combat/Farming) in server config.
 
-## Why can't I recruit this villager?
-
-Recruiting only opens for **unemployed** villagers (profession = none) and not for babies.
-
 ## Can villagers block with shields?
 
 Yes. Put a shield (or any item with block use animation) in the Combat Offhand loadout slot and enable blocking in Combat Settings.

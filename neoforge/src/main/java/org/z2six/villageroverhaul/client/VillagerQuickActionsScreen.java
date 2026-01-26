@@ -51,7 +51,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     private Button fmManual, fmDeposit, fmWithdraw, fmSettings;
 
     // Custom Commands buttons
-    private Button ccTeach, ccList;
+    private Button ccTeach, ccList, ccSettings;
 
     // Backdrop + header icons (like ClientUI)
     private CommandsBackdropWidget commandsBackdrop;
@@ -285,12 +285,16 @@ public final class VillagerQuickActionsScreen extends Screen {
                     .pos(ccX0 + 0 * (w + gap), row2Y).size(w, h).build();
             ccList = Button.builder(Component.literal("L"), b -> onCustomCommandsList())
                     .pos(ccX0 + 1 * (w + gap), row2Y).size(w, h).build();
+            ccSettings = Button.builder(Component.literal("\u26ED"), b -> onCustomCommandsSettings())
+                    .pos(ccX0 + 2 * (w + gap), row2Y).size(w, h).build();
 
             ccTeach.setTooltip(Tooltip.create(Component.literal("Teach")));
             ccList.setTooltip(Tooltip.create(Component.literal("List")));
+            ccSettings.setTooltip(Tooltip.create(Component.literal("Custom Commands settings")));
 
             addRenderableWidget(ccTeach);
             addRenderableWidget(ccList);
+            addRenderableWidget(ccSettings);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] QuickActions failed building commands palette", t);
@@ -415,6 +419,7 @@ public final class VillagerQuickActionsScreen extends Screen {
 
             setWidgetVisible(ccTeach, v);
             setWidgetVisible(ccList, v);
+            setWidgetVisible(ccSettings, v);
 
             // When collapsing, also clear highlights back to default
             if (!v) {
@@ -473,6 +478,13 @@ public final class VillagerQuickActionsScreen extends Screen {
         try {
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
             if (this.minecraft != null) this.minecraft.setScreen(new CustomCommandsListScreen(this, villagerEntityId));
+        } catch (Throwable ignored) {}
+    }
+
+    private void onCustomCommandsSettings() {
+        try {
+            if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return;
+            if (this.minecraft != null) this.minecraft.setScreen(new CustomCommandsSettingsScreen(this, villagerEntityId));
         } catch (Throwable ignored) {}
     }
 

@@ -58,7 +58,16 @@ public final class VillagerBrain {
     // -------------------------
     private static final String K_COMBAT_MODE = "combat_mode";
     private static final String K_COMBAT_PRE_FLEE = "combat_pre_flee";
+    private static final String K_COMBAT_PRE_HELP = "combat_pre_help";
     private static final String K_FLEE_THREAT = "flee_threat";
+
+    // Help return snapshot (return to previous position when HELP ends)
+    private static final String K_HELP_SNAP_MODE = "help_snap_mode";
+    private static final String K_HELP_SNAP_DIM = "help_snap_dim";
+    private static final String K_HELP_SNAP_X = "help_snap_x";
+    private static final String K_HELP_SNAP_Y = "help_snap_y";
+    private static final String K_HELP_SNAP_Z = "help_snap_z";
+    private static final String K_HELP_RETURN_ACTIVE = "help_return_active";
 
     private static final String K_UI_PAUSED_UNTIL = "ui_paused_until";
     private static final String K_FORCE_BLOCK_UNTIL = "force_block_until";
@@ -138,7 +147,8 @@ public final class VillagerBrain {
         OFF("off"),
         FLEE("flee"),
         DEFEND("defend"),
-        AGGRESSIVE("aggressive");
+        AGGRESSIVE("aggressive"),
+        HELP("help");
 
         public final String id;
         CombatMode(String id) { this.id = id; }
@@ -230,6 +240,12 @@ public final class VillagerBrain {
                 root.remove(K_COMBAT_PRE_FLEE);
             }
 
+            if (mode == CombatMode.HELP && prev != CombatMode.HELP) {
+                root.putString(K_COMBAT_PRE_HELP, prev.id);
+            } else if (mode != CombatMode.HELP) {
+                root.remove(K_COMBAT_PRE_HELP);
+            }
+
             root.putString(K_COMBAT_MODE, mode.id);
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatMode set (villager={}, mode={})", vill.getUUID(), mode.id);
@@ -253,6 +269,21 @@ public final class VillagerBrain {
             // If there was no previous mode (or it was OFF), fall back to DEFEND so we still fight back.
             if (prev == CombatMode.FLEE || prev == CombatMode.OFF) prev = CombatMode.DEFEND;
 
+            setCombatMode(vill, prev);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean exitHelpToPreviousCombatMode(Villager vill) {
+        try {
+            if (vill == null) return false;
+            if (getCombatMode(vill) != CombatMode.HELP) return false;
+
+            CompoundTag root = getOrCreateRoot(vill);
+            CombatMode prev = CombatMode.fromId(root.getString(K_COMBAT_PRE_HELP));
+            if (prev == CombatMode.HELP) prev = CombatMode.OFF;
             setCombatMode(vill, prev);
             return true;
         } catch (Throwable ignored) {
@@ -310,6 +341,107 @@ public final class VillagerBrain {
         ensureAttached(vill);
         setCombatMode(vill, CombatMode.AGGRESSIVE);
         return true;
+    }
+
+    public static boolean combatHelp(Villager vill) {
+        if (vill == null) return false;
+        if (!isControllable(vill)) return false;
+        ensureAttached(vill);
+        try {
+            // Snapshot what the villager was doing so we can return when HELP finishes.
+            // Skip if already in HELP mode.
+            if (getCombatMode(vill) != CombatMode.HELP) {
+                snapshotHelpReturn(vill);
+            }
+        } catch (Throwable ignored) {}
+        setCombatMode(vill, CombatMode.HELP);
+        return true;
+    }
+
+    private static void snapshotHelpReturn(Villager vill) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            Mode m = getMode(vill);
+            root.putString(K_HELP_SNAP_MODE, m == null ? Mode.NEUTRAL.id : m.id);
+            try { root.putString(K_HELP_SNAP_DIM, String.valueOf(vill.level().dimension().location())); } catch (Throwable ignored) { root.putString(K_HELP_SNAP_DIM, ""); }
+            try {
+                Vec3 p = vill.position();
+                root.putDouble(K_HELP_SNAP_X, p.x);
+                root.putDouble(K_HELP_SNAP_Y, p.y);
+                root.putDouble(K_HELP_SNAP_Z, p.z);
+            } catch (Throwable ignored) {}
+            root.putBoolean(K_HELP_RETURN_ACTIVE, false);
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean isHelpReturnActive(Villager vill) {
+        try {
+            if (vill == null) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            return root.getBoolean(K_HELP_RETURN_ACTIVE);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static void scheduleHelpReturnIfNeeded(Villager vill) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+            CompoundTag root = getOrCreateRoot(vill);
+
+            // If the villager was following the player, do not return to a fixed point.
+            Mode snapMode = Mode.fromId(root.getString(K_HELP_SNAP_MODE));
+            if (snapMode == Mode.FOLLOW) {
+                root.putBoolean(K_HELP_RETURN_ACTIVE, false);
+                return;
+            }
+
+            // Only schedule if we have a snapshot.
+            if (!root.contains(K_HELP_SNAP_X, Tag.TAG_DOUBLE)) return;
+            root.putBoolean(K_HELP_RETURN_ACTIVE, true);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void clearHelpReturn(Villager vill) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.putBoolean(K_HELP_RETURN_ACTIVE, false);
+        } catch (Throwable ignored) {}
+    }
+
+    public static Vec3 getHelpReturnPos(Villager vill) {
+        try {
+            if (vill == null) return null;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.contains(K_HELP_SNAP_X, Tag.TAG_DOUBLE)) return null;
+            return new Vec3(root.getDouble(K_HELP_SNAP_X), root.getDouble(K_HELP_SNAP_Y), root.getDouble(K_HELP_SNAP_Z));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static String getHelpReturnDim(Villager vill) {
+        try {
+            if (vill == null) return "";
+            CompoundTag root = getOrCreateRoot(vill);
+            return root.getString(K_HELP_SNAP_DIM);
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    public static Mode getHelpReturnMode(Villager vill) {
+        try {
+            if (vill == null) return Mode.NEUTRAL;
+            CompoundTag root = getOrCreateRoot(vill);
+            return Mode.fromId(root.getString(K_HELP_SNAP_MODE));
+        } catch (Throwable ignored) {
+            return Mode.NEUTRAL;
+        }
     }
 
     /**
@@ -1176,6 +1308,11 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCombatFleeGoal (villager={})", vill.getUUID());
             }
 
+            if (!hasGoal(vill, VillagerCombatHelpGoal.class)) {
+                vill.goalSelector.addGoal(1, new VillagerCombatHelpGoal(vill));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCombatHelpGoal (villager={})", vill.getUUID());
+            }
+
             if (!hasGoal(vill, VillagerCombatDefendGoal.class)) {
                 vill.goalSelector.addGoal(1, new VillagerCombatDefendGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCombatDefendGoal (villager={})", vill.getUUID());
@@ -1210,6 +1347,12 @@ public final class VillagerBrain {
             if (!hasGoal(vill, VillagerPatrolSetupFollowGoal.class)) {
                 vill.goalSelector.addGoal(5, new VillagerPatrolSetupFollowGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerPatrolSetupFollowGoal (villager={})", vill.getUUID());
+            }
+
+            if (!hasGoal(vill, VillagerHelpReturnGoal.class)) {
+                // Help return should run before normal movement goals, but never during combat.
+                vill.goalSelector.addGoal(5, new VillagerHelpReturnGoal(vill));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerHelpReturnGoal (villager={})", vill.getUUID());
             }
 
             if (!hasGoal(vill, VillagerManualFarmingGoal.class)) {

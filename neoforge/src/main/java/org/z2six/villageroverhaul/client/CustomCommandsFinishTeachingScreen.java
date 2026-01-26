@@ -32,11 +32,18 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
     private EditBox retryBox;
     private EditBox stopBox;
     private Button caseBtn;
+    private Button chainBtn;
     private boolean caseSensitive = true;
+    private boolean chain = false;
 
     private int editIndex = -1;
     private final List<CompoundTag> steps = new ArrayList<>();
     private int scroll = 0;
+    private boolean scrollDragging = false;
+    private int scrollDragOffsetY = 0;
+
+    private static final int SCROLLBAR_W = 6;
+    private static final int SCROLLBAR_PAD = 3;
 
     public CustomCommandsFinishTeachingScreen(Screen parent, int villagerEntityId) {
         super(Component.literal("Finish teaching"));
@@ -78,6 +85,14 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
                 .pos(left + 10, top + 94).size(140, 18).build();
         caseBtn.setTooltip(Tooltip.create(Component.literal("If enabled, uppercase/lowercase must match exactly.")));
         addRenderableWidget(caseBtn);
+
+        chainBtn = Button.builder(Component.literal("Chain []"), b -> {
+                    chain = !chain;
+                    updateChainButton();
+                })
+                .pos(left + 10 + 144, top + 94).size(90, 18).build();
+        chainBtn.setTooltip(Tooltip.create(Component.literal("If enabled, villagers can pass this command through a chain to reach far away villagers.")));
+        addRenderableWidget(chainBtn);
 
         int smallW = 46;
         int rowY = top + 116;
@@ -130,10 +145,12 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
             try { descBox.setValue(tag.getString("desc")); } catch (Throwable ignored) {}
             try { commandBox.setValue(tag.getString("cmd")); } catch (Throwable ignored) {}
             try { caseSensitive = tag.getBoolean("case"); } catch (Throwable ignored) {}
+            try { chain = tag.getBoolean("chain"); } catch (Throwable ignored) {}
             try { timeoutBox.setValue(String.valueOf(tag.getInt("timeout"))); } catch (Throwable ignored) {}
             try { retryBox.setValue(String.valueOf(tag.getInt("retry"))); } catch (Throwable ignored) {}
             try { stopBox.setValue(String.valueOf(tag.getInt("stop"))); } catch (Throwable ignored) {}
             updateCaseButton();
+            updateChainButton();
 
             steps.clear();
             if (tag.contains("steps", Tag.TAG_LIST)) {
@@ -177,6 +194,72 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
         if (scroll < 0) scroll = 0;
         if (scroll > maxScroll) scroll = maxScroll;
         return true;
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button != 0) return super.mouseClicked(mouseX, mouseY, button);
+
+        int left = (this.width - PANEL_W) / 2;
+        int top = (this.height - PANEL_H) / 2;
+        int listX = left + 10;
+        int listY = top + 152;
+        int listW = PANEL_W - 20;
+        int trackX = listX + listW - SCROLLBAR_W;
+        int trackY = listY;
+        int trackH = STEPS_ROWS_VISIBLE * ROW_H;
+
+        int maxScroll = Math.max(0, steps.size() - STEPS_ROWS_VISIBLE);
+        if (maxScroll > 0 && mouseX >= trackX && mouseX <= trackX + SCROLLBAR_W && mouseY >= trackY && mouseY <= trackY + trackH) {
+            int thumbH = Math.max(10, (int) Math.round((double) trackH * (double) STEPS_ROWS_VISIBLE / (double) Math.max(STEPS_ROWS_VISIBLE, steps.size())));
+            int thumbY = trackY + (int) Math.round((double) (trackH - thumbH) * ((double) scroll / (double) maxScroll));
+            if (mouseY >= thumbY && mouseY <= thumbY + thumbH) {
+                scrollDragging = true;
+                scrollDragOffsetY = (int) mouseY - thumbY;
+                return true;
+            }
+            int y = (int) mouseY - trackY - (thumbH / 2);
+            double frac = (trackH - thumbH) <= 0 ? 0.0 : (double) y / (double) (trackH - thumbH);
+            frac = Math.max(0.0, Math.min(1.0, frac));
+            scroll = (int) Math.round(frac * (double) maxScroll);
+            if (scroll < 0) scroll = 0;
+            if (scroll > maxScroll) scroll = maxScroll;
+            return true;
+        }
+
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (!scrollDragging) return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+
+        int left = (this.width - PANEL_W) / 2;
+        int top = (this.height - PANEL_H) / 2;
+        int listY = top + 152;
+        int trackY = listY;
+        int trackH = STEPS_ROWS_VISIBLE * ROW_H;
+
+        int maxScroll = Math.max(0, steps.size() - STEPS_ROWS_VISIBLE);
+        if (maxScroll <= 0) return true;
+
+        int thumbH = Math.max(10, (int) Math.round((double) trackH * (double) STEPS_ROWS_VISIBLE / (double) Math.max(STEPS_ROWS_VISIBLE, steps.size())));
+        int newThumbY = (int) mouseY - scrollDragOffsetY;
+        int minY = trackY;
+        int maxY = trackY + trackH - thumbH;
+        if (newThumbY < minY) newThumbY = minY;
+        if (newThumbY > maxY) newThumbY = maxY;
+        double frac = (maxY - minY) <= 0 ? 0.0 : (double) (newThumbY - minY) / (double) (maxY - minY);
+        scroll = (int) Math.round(frac * (double) maxScroll);
+        if (scroll < 0) scroll = 0;
+        if (scroll > maxScroll) scroll = maxScroll;
+        return true;
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0) scrollDragging = false;
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     private Component formatStep(CompoundTag t) {
@@ -255,6 +338,18 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
             gg.drawString(this.font, formatStep(steps.get(idx)), listX, listY + (i * rowH), 0xFFFFFFFF);
         }
 
+        int maxScroll = Math.max(0, steps.size() - STEPS_ROWS_VISIBLE);
+        if (maxScroll > 0) {
+            int trackX = listX + (PANEL_W - 20) - SCROLLBAR_W;
+            int trackY = listY;
+            int trackH = STEPS_ROWS_VISIBLE * ROW_H;
+            gg.fill(trackX, trackY, trackX + SCROLLBAR_W, trackY + trackH, 0x33000000);
+
+            int thumbH = Math.max(10, (int) Math.round((double) trackH * (double) STEPS_ROWS_VISIBLE / (double) Math.max(STEPS_ROWS_VISIBLE, steps.size())));
+            int thumbY = trackY + (int) Math.round((double) (trackH - thumbH) * ((double) scroll / (double) maxScroll));
+            gg.fill(trackX, thumbY, trackX + SCROLLBAR_W, thumbY + thumbH, 0xAA888888);
+        }
+
         super.render(gg, mouseX, mouseY, partialTick);
     }
 
@@ -262,6 +357,13 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
         try {
             if (caseBtn == null) return;
             caseBtn.setMessage(Component.literal("Case sensitive " + (caseSensitive ? "[x]" : "[]")));
+        } catch (Throwable ignored) {}
+    }
+
+    private void updateChainButton() {
+        try {
+            if (chainBtn == null) return;
+            chainBtn.setMessage(Component.literal("Chain " + (chain ? "[x]" : "[]")));
         } catch (Throwable ignored) {}
     }
 
@@ -287,6 +389,7 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
                     titleBox == null ? "" : titleBox.getValue(),
                     commandBox == null ? "" : commandBox.getValue(),
                     caseSensitive,
+                    chain,
                     descBox == null ? "" : descBox.getValue(),
                     timeout,
                     retry,

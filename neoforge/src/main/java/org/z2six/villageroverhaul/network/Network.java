@@ -27,6 +27,9 @@ import org.z2six.villageroverhaul.network.customcommands.PacketCcAddWaitStep;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginRecord;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginTeaching;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcCancelRecord;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenSet;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcDeleteAction;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListQuery;
@@ -41,6 +44,9 @@ import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionMet
 import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepWait;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcWaitState;
+import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsData;
+import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsQuery;
+import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsUpdate;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsUpdate;
@@ -218,6 +224,18 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcUpdateActionStepWait(msg, ctx)));
             r.playToServer(PacketCcUpdateActionStepRules.TYPE, PacketCcUpdateActionStepRules.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcUpdateActionStepRules(msg, ctx)));
+            r.playToServer(PacketCcChatListenQuery.TYPE, PacketCcChatListenQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcChatListenQuery(msg, ctx)));
+            r.playToServer(PacketCcChatListenSet.TYPE, PacketCcChatListenSet.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcChatListenSet(msg, ctx)));
+
+            // ============================
+            // Player Chat Commands serverbound
+            // ============================
+            r.playToServer(PacketPlayerChatCommandsQuery.TYPE, PacketPlayerChatCommandsQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handlePlayerChatCommandsQuery(msg, ctx)));
+            r.playToServer(PacketPlayerChatCommandsUpdate.TYPE, PacketPlayerChatCommandsUpdate.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handlePlayerChatCommandsUpdate(msg, ctx)));
             r.playToServer(PacketCcSetChestRules.TYPE, PacketCcSetChestRules.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcSetChestRules(msg, ctx)));
             r.playToServer(PacketCcListQuery.TYPE, PacketCcListQuery.STREAM_CODEC,
@@ -260,6 +278,12 @@ public final class Network {
                     (msg, ctx) -> dispatchToClientHandler("onCcActionDetailData", msg, ctx));
             r.playToClient(PacketCcOpenChestRules.TYPE, PacketCcOpenChestRules.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onCcOpenChestRules", msg, ctx));
+            r.playToClient(PacketCcChatListenData.TYPE, PacketCcChatListenData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCcChatListenData", msg, ctx));
+
+            // player chat command config UI
+            r.playToClient(PacketPlayerChatCommandsData.TYPE, PacketPlayerChatCommandsData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onPlayerChatCommandsData", msg, ctx));
 
             // auto-search completion notification
             r.playToClient(PacketAutoSearchDone.TYPE, PacketAutoSearchDone.STREAM_CODEC,

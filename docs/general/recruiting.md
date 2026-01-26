@@ -1,15 +1,18 @@
-﻿# Recruiting & Ownership
+﻿!!! note
+The Merchants pages are written at version 3.6B.1. It's possible that there are newer versions available that have made adjustments to these mechanics.
+
+# Recruiting & Ownership
 
 Villager Overhaul uses recruiting to assign ownership. Most mod features are only available to the player who recruited the villager.
 
 ## How to recruit a villager
 
-1. Find an **unemployed** villager (profession = none).
+1. Find a villager.
 2. Right-click the villager to open the Recruit screen.
 3. Pay the emerald cost and confirm.
 
-!!! important
-    Recruiting is only available for **unemployed** villagers. If the villager already has a profession (Farmer, Librarian, etc.), the recruit screen will not open.
+!!! note
+    Recruit cost is based on all of its stats
 
 ## What ownership does
 

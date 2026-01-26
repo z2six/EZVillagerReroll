@@ -1,4 +1,7 @@
-﻿# Merchants
+﻿!!! note
+The Merchants pages are written at version 3.6B.1. It's possible that there are newer versions available that have made adjustments to these mechanics.
+
+# Merchants
 
 The Merchant module is the “trading QoL + balance” part of Villager Overhaul.
 

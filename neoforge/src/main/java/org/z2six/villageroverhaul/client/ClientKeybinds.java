@@ -8,6 +8,7 @@ import org.lwjgl.glfw.GLFW;
 public final class ClientKeybinds {
 
     private static KeyMapping OPEN_GLOBAL_COMBAT_SETTINGS;
+    private static KeyMapping OPEN_PLAYER_CHAT_COMMANDS;
 
     private ClientKeybinds() {}
 
@@ -18,11 +19,27 @@ public final class ClientKeybinds {
                 "key.categories.ezvr"
         );
         e.register(OPEN_GLOBAL_COMBAT_SETTINGS);
+
+        // Unbound by default (players can bind it in Controls).
+        OPEN_PLAYER_CHAT_COMMANDS = new KeyMapping(
+                "key.ezvr.chat_commands",
+                GLFW.GLFW_KEY_UNKNOWN,
+                "key.categories.ezvr"
+        );
+        e.register(OPEN_PLAYER_CHAT_COMMANDS);
     }
 
     public static boolean consumeOpenGlobalCombatSettings() {
         try {
             return OPEN_GLOBAL_COMBAT_SETTINGS != null && OPEN_GLOBAL_COMBAT_SETTINGS.consumeClick();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static boolean consumeOpenPlayerChatCommands() {
+        try {
+            return OPEN_PLAYER_CHAT_COMMANDS != null && OPEN_PLAYER_CHAT_COMMANDS.consumeClick();
         } catch (Throwable t) {
             return false;
         }

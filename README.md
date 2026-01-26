@@ -7,8 +7,9 @@ Welcome to **Villager Overhaul**. This mod adds a bunch of QoL features to tradi
 Why this mod? Simply put:
 
 *   Mojang clearly forgot about Villagers 🥲
-*   Give people a reason to stick with one/a few villagers, rather than dozens
-*   Make villagers more _alive_, giving them more purpose and turning your areas into living, breathing cities
+*   Each Villager is unique, giving the player new ideas to make use of its skills
+*   Make villagers more _alive_ and give them a purpose other than being prisoners at Steve's mercy
+*   Villagers will now turn your areas into living, breathing cities
 
 Trading features consume emeralds. The default configuration tries to be _balanced_, but everything is fully configurable, of course.
 
@@ -22,13 +23,16 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 
 ## Chat commands
 
-![alt text](https://media.forgecdn.net/attachments/description/1338090/description_670bc07c-3c99-43aa-92dc-7cdf094a109d.gif)
+![](https://files.catbox.moe/c4gcz8.gif)
 
 *   Teach your villager to do stuff by showing them what to do
 *   Save the sequence of actions (like a macro) and set a chat message
 *   Type the chat message, if the Villager is in range it will do what you taught it
+*   Shout "help" or "follow" to make nearby villagers stop what they're doing and do what they're told!
 
-## Guards Feature
+## Guard Features
+
+<span style="color:#fe8181">Vitality</span> | <span style="color:#acfdf3">Agility</span> | <span style="color:#fdcc66">Strength</span> | <span style="color:#d6d6d6">Armor</span>
 
 *   Give villagers fully functioning equipment (armor, sword, shield)
 *   Each villager spawns with 4 randomized custom Combat stats
@@ -39,7 +43,9 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 *   Fully customize when villagers engage in combat (individually or globally)
 *   Customize each villager’s combat AI
 
-## Better Trading
+## Merchant features
+
+<span style="color:#81fc5c">Generosity</span> | <span style="color:#3598db">Timeliness</span>| <span style="color:#b96ad9">Intellect</span> | <span style="color:#fdcc66">Hoarder</span>
 
 *   Reroll trades at any villager level in exchange for emeralds
 *   Lock specific trades so they won’t get rerolled
@@ -47,10 +53,11 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 *   Automatic trading (example: quickly trade all paper for emeralds) (CTRL+Click on a sell-type trade)
 *   Each villager spawns with 4 randomized custom Merchant stats
 
-## Better Farming
+## Farming Features
+
+<span style="color:#fdcc66">Motivation</span> | <span style="color:#acfdf3">Efficiency</span> | <span style="color:#81fc5c">Plant Whisperer</span> | <span style="color:#8c98fd">Ranger</span>
 
 *   Manual Farming mode: smarter than vanilla farming, works with any modded item that requires Farmland (Nether Wart + Soul Sand is supported too, though)
-*   Each villager spawns with 4 randomized custom Farming stats
 *   Instruct your villager to only farm one specific thing. It will ignore everything else
 *   Villager can use Hoe (with Fortune enchant)
 *   Register a deposit and withdrawal chest for each villager
@@ -62,6 +69,7 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 *   Villagers will take Bonemeal from Withdraw chest and use it on crops
 *   Planting seeds gives EXP
 *   Villager auto-crafting is disabled (e.g. turning Wheat into Bread)
+*   Each villager spawns with 4 randomized custom Farming stats
 
 ## General Features
 
@@ -71,10 +79,9 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 *   Villager information GUI showing stats, history, attributes, and more
 *   Server config is hot-loaded — no server restart required
 
-![](https://media.forgecdn.net/attachments/description/1338090/description_f4d2c34e-59b6-43ce-bead-96ab544354be.png)
-
 ## How to Use
 
+0.  📝 Read the wiki! 😉
 1.  👪 Find a villager (or breed one)
 2.  💎 Right-click to recruit it (if you like its stats)
 3.  🖱️ Right-click it again — the mod’s buttons will now appear

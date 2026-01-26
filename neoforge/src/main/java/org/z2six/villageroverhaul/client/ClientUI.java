@@ -988,7 +988,7 @@ public final class ClientUI {
                 String[] movement = new String[] { "Neutral", "Idle", "Follow", "Patrol" };
                 String[] combat   = new String[] { "Flee", "Defend", "Aggressive", "Settings" };
                 String[] farming  = new String[] { "Manual", "Deposit", "Withdraw", "Settings" };
-                String[] custom   = new String[] { "Teach", "List" };
+                String[] custom   = new String[] { "Teach", "List", "Settings" };
 
                 int movementBlockH = movement.length * h + (movement.length - 1) * gap;
                 int combatBlockH   = combat.length   * h + (combat.length   - 1) * gap;
@@ -1309,7 +1309,9 @@ public final class ClientUI {
                     int by = customStartY + i * (h + gap);
 
                     boolean isTeach = "Teach".equalsIgnoreCase(label);
-                    String glyph = isTeach ? "T" : "L";
+                    boolean isList = "List".equalsIgnoreCase(label);
+                    boolean isSettings = "Settings".equalsIgnoreCase(label);
+                    String glyph = isTeach ? "T" : (isList ? "L" : "\u26ED");
 
                     Button b = Button.builder(Component.literal(glyph), bbtn -> {
                                 try {
@@ -1323,8 +1325,10 @@ public final class ClientUI {
                                         ClientNetwork.sendToServer(new PacketCcBeginTeaching(villagerEntityId, -1));
                                         try { if (mc.player != null) mc.player.closeContainer(); } catch (Throwable ignored) {}
                                         mc.setScreen(null);
-                                    } else {
+                                    } else if (isList) {
                                         mc.setScreen(new CustomCommandsListScreen(screen, villagerEntityId));
+                                    } else if (isSettings) {
+                                        mc.setScreen(new CustomCommandsSettingsScreen(screen, villagerEntityId));
                                     }
                                 } catch (Throwable ignored) {}
 
@@ -1338,7 +1342,9 @@ public final class ClientUI {
                             .createNarration(s -> Component.literal(label))
                             .build();
 
-                    setSimpleTooltip(b, isTeach ? "Teach" : "List");
+                    if (isTeach) setSimpleTooltip(b, "Teach");
+                    else if (isList) setSimpleTooltip(b, "List");
+                    else setSimpleTooltip(b, "Custom Commands settings");
                     b.visible = false;
                     b.active = false;
 
@@ -2826,6 +2832,15 @@ public final class ClientUI {
                 if (ClientKeybinds.consumeOpenGlobalCombatSettings()) {
                     if (mc.screen == null) {
                         openGlobalCombatSettings();
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            try {
+                if (ClientKeybinds.consumeOpenPlayerChatCommands()) {
+                    // Treat this as a global player UI, not tied to a villager.
+                    if (mc.screen == null) {
+                        mc.setScreen(new PlayerChatCommandsScreen(null));
                     }
                 }
             } catch (Throwable ignored) {}

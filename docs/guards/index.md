@@ -1,3 +1,6 @@
+!!! note
+    The Guards pages are written at version 3.6B.1. It's possible that there are newer versions available that have made adjustments to these mechanics.
+
 # Guards (Combat Module)
 
 The Guard module lets recruited villagers fight using real gear (armor, weapons, shields) and a configurable combat AI.

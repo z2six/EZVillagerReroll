@@ -16,6 +16,7 @@ public record PacketCcUpdateActionMeta(
         String title,
         String command,
         boolean caseSensitive,
+        boolean chain,
         String description,
         int timeoutSeconds,
         int retryAfterSeconds,
@@ -33,6 +34,7 @@ public record PacketCcUpdateActionMeta(
                         buf.writeUtf(msg.title() == null ? "" : msg.title(), 64);
                         buf.writeUtf(msg.command() == null ? "" : msg.command(), 64);
                         buf.writeBoolean(msg.caseSensitive());
+                        buf.writeBoolean(msg.chain());
                         buf.writeUtf(msg.description() == null ? "" : msg.description(), 256);
                         buf.writeVarInt(msg.timeoutSeconds());
                         buf.writeVarInt(msg.retryAfterSeconds());
@@ -43,6 +45,7 @@ public record PacketCcUpdateActionMeta(
                             buf.readVarInt(),
                             buf.readUtf(64),
                             buf.readUtf(64),
+                            buf.readBoolean(),
                             buf.readBoolean(),
                             buf.readUtf(256),
                             buf.readVarInt(),

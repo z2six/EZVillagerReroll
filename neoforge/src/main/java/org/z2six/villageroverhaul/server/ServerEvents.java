@@ -44,6 +44,7 @@ import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
 import org.z2six.villageroverhaul.server.AutoTradeServerService;
 
 import java.util.List;
+import java.util.UUID;
 
 public final class ServerEvents {
 
@@ -368,31 +369,98 @@ public final class ServerEvents {
 
             var level = sp.serverLevel();
 
-            final double radius = Math.max(1.0, (double) ServerConfig.customCommandsChatRadius);
+            // Chat commands (module-level) have priority over per-villager taught macros.
+            if (tryHandlePlayerChatCommands(sp, msg)) return;
+
+            final int baseRadius = Math.max(1, ServerConfig.customCommandsChatRadius);
+
+            // Phase 1: find the best matching macro within the player's local radius.
+            java.util.ArrayList<Villager> starters = new java.util.ArrayList<>();
+            for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(baseRadius))) {
+                if (vill == null) continue;
+                if (!RecruitService.isRecruited(vill)) continue;
+                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+                if (!CustomCommandsService.isChatListening(vill)) continue;
+                if (CustomCommandsService.isExecuting(vill)) continue;
+                if (CustomCommandsService.isVillagerTeaching(vill)) continue;
+                starters.add(vill);
+            }
+
             double bestDist2 = Double.MAX_VALUE;
             Villager bestVill = null;
             int bestActionIdx = -1;
 
-            for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(radius))) {
-                if (vill == null) continue;
-                if (!RecruitService.isRecruited(vill)) continue;
-                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
-                if (CustomCommandsService.isExecuting(vill)) continue;
-                if (CustomCommandsService.isVillagerTeaching(vill)) continue;
-
+            for (Villager vill : starters) {
                 var actions = CustomCommandsService.getActionsMeta(vill);
                 if (actions == null || actions.isEmpty()) continue;
-
                 for (int i = 0; i < actions.size(); i++) {
                     var a = actions.get(i);
                     if (a == null) continue;
                     if (!CustomCommandsService.matchesCommand(a, msg)) continue;
-
                     double d2 = vill.distanceToSqr(sp);
                     if (d2 < bestDist2) {
                         bestDist2 = d2;
                         bestVill = vill;
                         bestActionIdx = i;
+                    }
+                }
+            }
+
+            // Phase 2: chain propagation for macros that have "Chain" enabled.
+            if (bestVill == null && !starters.isEmpty()) {
+                java.util.HashSet<java.util.UUID> seen = new java.util.HashSet<>();
+                java.util.ArrayDeque<Villager> q = new java.util.ArrayDeque<>();
+                for (Villager v : starters) {
+                    if (v == null) continue;
+                    seen.add(v.getUUID());
+                    q.add(v);
+                }
+
+                int safety = 0;
+                while (!q.isEmpty() && seen.size() < 512 && safety++ < 2000) {
+                    Villager cur = q.poll();
+                    if (cur == null) continue;
+
+                    // Check for chain-enabled macros on ANY villager in the connected graph.
+                    try {
+                        var actions = CustomCommandsService.getActionsMeta(cur);
+                        if (actions != null && !actions.isEmpty()) {
+                            for (int i = 0; i < actions.size(); i++) {
+                                var a = actions.get(i);
+                                if (a == null) continue;
+                                if (!a.chain()) continue;
+                                if (!CustomCommandsService.matchesCommand(a, msg)) continue;
+
+                                double d2 = cur.distanceToSqr(sp);
+                                if (d2 < bestDist2) {
+                                    bestDist2 = d2;
+                                    bestVill = cur;
+                                    bestActionIdx = i;
+                                }
+                            }
+                        }
+                    } catch (Throwable ignored) {}
+
+                    // Expand graph only if THIS villager is allowed to pass chat commands further.
+                    if (!CustomCommandsService.isChatPassing(cur)) continue;
+
+                    int passRange = CustomCommandsService.getChatPassRange(cur);
+                    if (passRange < 1) passRange = baseRadius;
+                    if (passRange > baseRadius) passRange = baseRadius;
+
+                    for (Villager next : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
+                        if (next == null) continue;
+                        java.util.UUID id = next.getUUID();
+                        if (id == null || seen.contains(id)) continue;
+
+                        if (!RecruitService.isRecruited(next)) continue;
+                        if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(next, sp)) continue;
+                        if (!CustomCommandsService.isChatListening(next)) continue;
+                        if (CustomCommandsService.isExecuting(next)) continue;
+                        if (CustomCommandsService.isVillagerTeaching(next)) continue;
+
+                        seen.add(id);
+                        q.add(next);
                     }
                 }
             }
@@ -417,6 +485,230 @@ public final class ServerEvents {
             }
 
         } catch (Throwable ignored) {}
+    }
+
+    private static boolean tryHandlePlayerChatCommands(ServerPlayer sp, String msg) {
+        try {
+            if (sp == null || msg == null) return false;
+            if (sp.server == null) return false;
+            if (sp.serverLevel() == null) return false;
+
+            org.z2six.villageroverhaul.server.PlayerChatCommandsSavedData sd =
+                    org.z2six.villageroverhaul.server.PlayerChatCommandsSavedData.get(sp.server);
+            org.z2six.villageroverhaul.server.PlayerChatCommandsSavedData.Config cfg = sd.getOrCreate(sp.getUUID());
+            if (cfg == null) return false;
+
+            String m = msg.trim();
+            if (m.isEmpty()) return false;
+
+            int max = Math.max(1, ServerConfig.customCommandsChatRadius);
+            int range = cfg.range;
+            if (range < 1) range = 1;
+            if (range > max) range = max;
+
+            boolean chain = cfg.chain;
+            boolean caseSensitive = cfg.caseSensitive;
+
+            if (ServerConfig.enableCombatModule && matches(cfg.help, m, caseSensitive)) {
+                var targets = collectOwnedVillagersForChat(sp, range, chain);
+                if (targets.isEmpty()) return false;
+
+                try { org.z2six.villageroverhaul.server.HelpChatCommandService.activateFromPlayerContext(sp); } catch (Throwable ignored) {}
+                for (Villager v : targets) {
+                    try { org.z2six.villageroverhaul.server.ai.VillagerBrain.combatHelp(v); } catch (Throwable ignored) {}
+                }
+                return true;
+            }
+
+            if (matches(cfg.neutral, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.NEUTRAL);
+            if (matches(cfg.idle, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.IDLE);
+            if (matches(cfg.follow, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.FOLLOW);
+            if (matches(cfg.patrol, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.PATROL);
+            if (ServerConfig.enableFarmingModule && matches(cfg.manualFarming, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.MANUAL_FARMING);
+            if (ServerConfig.enableCombatModule && matches(cfg.flee, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.FLEE);
+            if (ServerConfig.enableCombatModule && matches(cfg.defend, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.DEFEND);
+            if (ServerConfig.enableCombatModule && matches(cfg.aggressive, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.AGGRESSIVE);
+
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private enum ModeSwitch {
+        NEUTRAL,
+        IDLE,
+        FOLLOW,
+        PATROL,
+        MANUAL_FARMING,
+        FLEE,
+        DEFEND,
+        AGGRESSIVE
+    }
+
+    private static boolean applyModeSwitch(ServerPlayer sp, int range, boolean chain, ModeSwitch mode) {
+        try {
+            if (sp == null || mode == null) return false;
+            List<Villager> targets = collectOwnedVillagersForChat(sp, range, chain);
+            if (targets.isEmpty()) return false;
+
+            for (Villager vill : targets) {
+                if (vill == null) continue;
+                if (!RecruitService.isRecruited(vill)) continue;
+                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+
+                switch (mode) {
+                    case NEUTRAL -> {
+                        // Any movement command should stop manual farming.
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) {
+                            try {
+                                org.z2six.villageroverhaul.server.ai.VillagerBrain.setManualFarmingActive(vill, false);
+                                org.z2six.villageroverhaul.server.ai.VillagerBrain.clearPrevModeForManualFarming(vill);
+                            } catch (Throwable ignored) {}
+                        }
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.neutral(vill);
+                    }
+                    case IDLE -> {
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) {
+                            try {
+                                org.z2six.villageroverhaul.server.ai.VillagerBrain.setManualFarmingActive(vill, false);
+                                org.z2six.villageroverhaul.server.ai.VillagerBrain.clearPrevModeForManualFarming(vill);
+                            } catch (Throwable ignored) {}
+                        }
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.idle(vill);
+                    }
+                    case FOLLOW -> {
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) {
+                            try {
+                                org.z2six.villageroverhaul.server.ai.VillagerBrain.setManualFarmingActive(vill, false);
+                                org.z2six.villageroverhaul.server.ai.VillagerBrain.clearPrevModeForManualFarming(vill);
+                            } catch (Throwable ignored) {}
+                        }
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.follow(vill, sp);
+                    }
+                    case PATROL -> {
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) {
+                            try {
+                                org.z2six.villageroverhaul.server.ai.VillagerBrain.setManualFarmingActive(vill, false);
+                                org.z2six.villageroverhaul.server.ai.VillagerBrain.clearPrevModeForManualFarming(vill);
+                            } catch (Throwable ignored) {}
+                        }
+                        try {
+                            if (org.z2six.villageroverhaul.server.ai.VillagerBrain.hasAnySavedPatrolRoutes(vill)) {
+                                var routes = org.z2six.villageroverhaul.server.ai.VillagerBrain.listSavedPatrolRoutes(vill);
+                                if (routes != null && !routes.isEmpty()) {
+                                    org.z2six.villageroverhaul.server.ai.VillagerBrain.startPatrolRoute(vill, routes.get(0).id());
+                                    break;
+                                }
+                            }
+                        } catch (Throwable ignored) {}
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.idle(vill);
+                    }
+                    case MANUAL_FARMING -> {
+                        if (!ServerConfig.enableFarmingModule) break;
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) break;
+
+                        // Eligibility gate: manual farming requires a workstation + Farmer profession.
+                        boolean ok = true;
+                        try {
+                            if (vill.getVillagerData() == null || vill.getVillagerData().getProfession() != net.minecraft.world.entity.npc.VillagerProfession.FARMER) ok = false;
+                        } catch (Throwable ignored) {
+                            ok = false;
+                        }
+                        try {
+                            if (ok && sp.serverLevel() != null && org.z2six.villageroverhaul.server.FarmingSettingsService.getEffectiveWorkstation(sp.serverLevel(), vill) == null) ok = false;
+                        } catch (Throwable ignored) {
+                            ok = false;
+                        }
+
+                        if (!ok) break;
+
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.ensureAttached(vill);
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.rememberPrevModeForManualFarming(vill);
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.setMode(vill, org.z2six.villageroverhaul.server.ai.VillagerBrain.Mode.NEUTRAL);
+                        try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                        org.z2six.villageroverhaul.server.ai.VillagerBrain.setManualFarmingActive(vill, true);
+                    }
+                    case FLEE -> org.z2six.villageroverhaul.server.ai.VillagerBrain.combatFlee(vill);
+                    case DEFEND -> org.z2six.villageroverhaul.server.ai.VillagerBrain.combatDefend(vill);
+                    case AGGRESSIVE -> org.z2six.villageroverhaul.server.ai.VillagerBrain.combatAggressive(vill);
+                }
+            }
+
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean matches(String phrase, String msg, boolean caseSensitive) {
+        if (phrase == null) return false;
+        String p = phrase.trim();
+        if (p.isEmpty()) return false;
+        if (caseSensitive) return p.equals(msg);
+        return p.equalsIgnoreCase(msg);
+    }
+
+    private static List<Villager> collectOwnedVillagersForChat(ServerPlayer sp, int range, boolean chain) {
+        try {
+            if (sp == null || sp.serverLevel() == null) return List.of();
+            if (range < 1) range = 1;
+
+            UUID owner = sp.getUUID();
+            var level = sp.serverLevel();
+
+            java.util.ArrayList<Villager> initial = new java.util.ArrayList<>();
+            for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(range))) {
+                if (vill == null) continue;
+                if (!RecruitService.isRecruited(vill)) continue;
+                UUID r = RecruitService.getRecruiterUuid(vill);
+                if (r == null || !r.equals(owner)) continue;
+                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+                if (!CustomCommandsService.isChatListening(vill)) continue;
+                initial.add(vill);
+            }
+
+            if (!chain) return initial;
+
+            java.util.HashSet<UUID> seen = new java.util.HashSet<>();
+            java.util.ArrayDeque<Villager> q = new java.util.ArrayDeque<>();
+            for (Villager v : initial) {
+                if (v == null) continue;
+                seen.add(v.getUUID());
+                q.add(v);
+            }
+
+            java.util.ArrayList<Villager> out = new java.util.ArrayList<>(initial);
+            while (!q.isEmpty() && out.size() < 256) {
+                Villager cur = q.poll();
+                if (cur == null) continue;
+
+                // Per-villager "pass" settings control whether this villager spreads chat commands further.
+                if (!CustomCommandsService.isChatPassing(cur)) continue;
+                int passRange = CustomCommandsService.getChatPassRange(cur);
+                if (passRange < 1) passRange = range;
+
+                for (Villager vill : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
+                    if (vill == null) continue;
+                    UUID id = vill.getUUID();
+                    if (id == null || seen.contains(id)) continue;
+                    if (!RecruitService.isRecruited(vill)) continue;
+                    UUID r = RecruitService.getRecruiterUuid(vill);
+                    if (r == null || !r.equals(owner)) continue;
+                    if (!CustomCommandsService.isChatListening(vill)) continue;
+                    if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+
+                    seen.add(id);
+                    out.add(vill);
+                    q.add(vill);
+                    if (out.size() >= 256) break;
+                }
+            }
+
+            return out;
+        } catch (Throwable ignored) {
+            return List.of();
+        }
     }
 
     private static Villager resolveTeachingVillager(ServerPlayer sp) {
@@ -551,6 +843,10 @@ public final class ServerEvents {
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] ServerEvents: AutoTradeServerService.tick failed", t);
             }
+
+            try {
+                HelpChatCommandService.tick(server);
+            } catch (Throwable ignored) {}
 
             try {
                 long gt = server.overworld().getGameTime();

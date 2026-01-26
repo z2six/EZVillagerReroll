@@ -37,6 +37,7 @@ public final class CustomCommandsService {
     private static final String K_DESC = "desc";
     private static final String K_CMD = "cmd";
     private static final String K_CASE = "case";
+    private static final String K_CHAIN = "chain";
     private static final String K_TIMEOUT = "timeout";
     private static final String K_RETRY = "retry";
     private static final String K_LAST_FAIL = "last_fail";
@@ -64,6 +65,9 @@ public final class CustomCommandsService {
     private static final String K_EXEC_FAIL_COUNT = "exec_fail_count";
 
     private static final String K_STOP_AFTER = "stop_after_retries";
+    private static final String K_LISTEN_CHAT = "listen_chat";
+    private static final String K_PASS_CHAT = "pass_chat";
+    private static final String K_PASS_RANGE = "pass_range";
 
     private static final int MAX_ACTIONS = 64;
     private static final int MAX_STEPS_PER_ACTION = 128;
@@ -118,6 +122,7 @@ public final class CustomCommandsService {
             String title,
             String command,
             boolean caseSensitive,
+            boolean chain,
             String description,
             int timeoutSeconds,
             int retryAfterSeconds,
@@ -136,6 +141,7 @@ public final class CustomCommandsService {
         public String descDraft = "";
         public String commandDraft = "";
         public boolean caseSensitive = true;
+        public boolean chain = false;
         public int timeoutSeconds = 10;
         public int retryAfterSeconds = 10;
         public int stopAfterRetries = 0;
@@ -195,6 +201,7 @@ public final class CustomCommandsService {
                     s.descDraft = existing.description();
                     s.commandDraft = existing.command();
                     s.caseSensitive = existing.caseSensitive();
+                    s.chain = existing.chain();
                     s.timeoutSeconds = existing.timeoutSeconds();
                     s.retryAfterSeconds = existing.retryAfterSeconds();
                     s.stopAfterRetries = existing.stopAfterRetries();
@@ -499,11 +506,11 @@ public final class CustomCommandsService {
     }
 
     public static void saveFromSession(ServerPlayer sp, Villager vill, String title, String desc, int editIndex) {
-        saveFromSession(sp, vill, title, "", true, desc, 10, 10, 0, editIndex);
+        saveFromSession(sp, vill, title, "", true, false, desc, 10, 10, 0, editIndex);
     }
 
     public static void saveFromSession(ServerPlayer sp, Villager vill, String title, String command, boolean caseSensitive,
-                                       String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries, int editIndex) {
+                                       boolean chain, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries, int editIndex) {
         try {
             if (sp == null || vill == null) return;
             TeachSession s = getSessionFor(sp, vill);
@@ -524,6 +531,7 @@ public final class CustomCommandsService {
             action.putString(K_TITLE, t);
             action.putString(K_CMD, c);
             action.putBoolean(K_CASE, caseSensitive);
+            action.putBoolean(K_CHAIN, chain);
             action.putString(K_DESC, d);
             action.putInt(K_TIMEOUT, to);
             action.putInt(K_RETRY, ra);
@@ -547,6 +555,7 @@ public final class CustomCommandsService {
             s.descDraft = d;
             s.commandDraft = c;
             s.caseSensitive = caseSensitive;
+            s.chain = chain;
             s.timeoutSeconds = to;
             s.retryAfterSeconds = ra;
             s.stopAfterRetries = sa;
@@ -556,7 +565,7 @@ public final class CustomCommandsService {
     }
 
     public static void updateActionMeta(Villager vill, int index, String title, String command, boolean caseSensitive,
-                                        String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries) {
+                                        boolean chain, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries) {
         try {
             if (vill == null) return;
             CompoundTag root = getOrCreateRoot(vill);
@@ -580,6 +589,7 @@ public final class CustomCommandsService {
             action.putString(K_TITLE, t);
             action.putString(K_CMD, c);
             action.putBoolean(K_CASE, caseSensitive);
+            action.putBoolean(K_CHAIN, chain);
             action.putString(K_DESC, d);
             action.putInt(K_TIMEOUT, to);
             action.putInt(K_RETRY, ra);
@@ -715,6 +725,7 @@ public final class CustomCommandsService {
             out.putString("desc", s.descDraft == null ? "" : s.descDraft);
             out.putString("cmd", s.commandDraft == null ? "" : s.commandDraft);
             out.putBoolean("case", s.caseSensitive);
+            out.putBoolean("chain", s.chain);
             out.putInt("timeout", s.timeoutSeconds);
             out.putInt("retry", s.retryAfterSeconds);
             out.putInt("stop", s.stopAfterRetries);
@@ -736,6 +747,7 @@ public final class CustomCommandsService {
                 e.putString("t", a.title() == null ? "" : a.title());
                 e.putString("c", a.command() == null ? "" : a.command());
                 e.putBoolean("case", a.caseSensitive());
+                e.putBoolean("chain", a.chain());
                 e.putString("d", a.description() == null ? "" : a.description());
                 e.putInt("to", a.timeoutSeconds());
                 e.putInt("ra", a.retryAfterSeconds());
@@ -757,6 +769,7 @@ public final class CustomCommandsService {
             out.putString("t", a.title() == null ? "" : a.title());
             out.putString("c", a.command() == null ? "" : a.command());
             out.putBoolean("case", a.caseSensitive());
+            out.putBoolean("chain", a.chain());
             out.putString("d", a.description() == null ? "" : a.description());
             out.putInt("to", a.timeoutSeconds());
             out.putInt("ra", a.retryAfterSeconds());
@@ -921,11 +934,12 @@ public final class CustomCommandsService {
 
     private static TaughtActionMeta decodeActionMeta(CompoundTag a) {
         try {
-            if (a == null) return new TaughtActionMeta("", "", true, "", 10, 10, 0, 0L, List.of());
+            if (a == null) return new TaughtActionMeta("", "", true, false, "", 10, 10, 0, 0L, List.of());
             String t = a.getString(K_TITLE);
             String c = a.getString(K_CMD);
             if (c == null || c.isBlank()) c = t;
             boolean cs = a.contains(K_CASE) ? a.getBoolean(K_CASE) : true;
+            boolean ch = a.getBoolean(K_CHAIN);
             String d = a.getString(K_DESC);
             int to = a.contains(K_TIMEOUT) ? a.getInt(K_TIMEOUT) : 10;
             int ra = a.contains(K_RETRY) ? a.getInt(K_RETRY) : 10;
@@ -938,9 +952,9 @@ public final class CustomCommandsService {
             if (sa < 0) sa = 0;
             if (sa > 1000) sa = 1000;
             ListTag st = a.contains(K_STEPS, Tag.TAG_LIST) ? a.getList(K_STEPS, Tag.TAG_COMPOUND) : new ListTag();
-            return new TaughtActionMeta(t, c, cs, d, to, ra, sa, lf, decodeSteps(st));
+            return new TaughtActionMeta(t, c, cs, ch, d, to, ra, sa, lf, decodeSteps(st));
         } catch (Throwable ignored) {
-            return new TaughtActionMeta("", "", true, "", 10, 10, 0, 0L, List.of());
+            return new TaughtActionMeta("", "", true, false, "", 10, 10, 0, 0L, List.of());
         }
     }
 
@@ -950,6 +964,70 @@ public final class CustomCommandsService {
         CompoundTag root = new CompoundTag();
         pd.put(TAG_ROOT, root);
         return root;
+    }
+
+    public static boolean isChatListening(Villager vill) {
+        try {
+            if (vill == null) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.contains(K_LISTEN_CHAT, Tag.TAG_BYTE)) {
+                root.putBoolean(K_LISTEN_CHAT, true);
+                return true;
+            }
+            return root.getBoolean(K_LISTEN_CHAT);
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    public static void setChatListening(Villager vill, boolean listen) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.putBoolean(K_LISTEN_CHAT, listen);
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean isChatPassing(Villager vill) {
+        try {
+            if (vill == null) return false;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.contains(K_PASS_CHAT, Tag.TAG_BYTE)) {
+                root.putBoolean(K_PASS_CHAT, false);
+                return false;
+            }
+            return root.getBoolean(K_PASS_CHAT);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static int getChatPassRange(Villager vill) {
+        try {
+            if (vill == null) return 6;
+            CompoundTag root = getOrCreateRoot(vill);
+            int v = root.contains(K_PASS_RANGE, Tag.TAG_INT) ? root.getInt(K_PASS_RANGE) : 6;
+            if (v < 1) v = 1;
+            int max = Math.max(1, org.z2six.villageroverhaul.config.ServerConfig.customCommandsChatRadius);
+            if (v > max) v = max;
+            if (!root.contains(K_PASS_RANGE, Tag.TAG_INT)) root.putInt(K_PASS_RANGE, v);
+            return v;
+        } catch (Throwable ignored) {
+            return 6;
+        }
+    }
+
+    public static void setChatPassing(Villager vill, boolean pass, int range) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.putBoolean(K_PASS_CHAT, pass);
+            int v = range;
+            if (v < 1) v = 1;
+            int max = Math.max(1, org.z2six.villageroverhaul.config.ServerConfig.customCommandsChatRadius);
+            if (v > max) v = max;
+            root.putInt(K_PASS_RANGE, v);
+        } catch (Throwable ignored) {}
     }
 
     public static boolean isExecuting(Villager vill) {

@@ -52,6 +52,12 @@ import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionMet
 import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepWait;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcWaitState;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenSet;
+import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsData;
+import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsQuery;
+import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsUpdate;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsQuery;
 import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsSync;
@@ -85,6 +91,7 @@ import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
 import org.z2six.villageroverhaul.server.FarmingSettingsService;
 import org.z2six.villageroverhaul.server.CustomCommandsService;
+import org.z2six.villageroverhaul.server.PlayerChatCommandsSavedData;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -1887,6 +1894,7 @@ public final class ServerHandlers {
                     msg.title(),
                     msg.command(),
                     msg.caseSensitive(),
+                    msg.chain(),
                     msg.description(),
                     msg.timeoutSeconds(),
                     msg.retryAfterSeconds(),
@@ -1917,6 +1925,7 @@ public final class ServerHandlers {
                     msg.title(),
                     msg.command(),
                     msg.caseSensitive(),
+                    msg.chain(),
                     msg.description(),
                     msg.timeoutSeconds(),
                     msg.retryAfterSeconds(),
@@ -2036,6 +2045,77 @@ public final class ServerHandlers {
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
 
             ctx.reply(new PacketCcActionDetailData(vill.getId(), msg.index(), CustomCommandsService.buildActionDetailData(vill, msg.index())));
+        } catch (Throwable ignored) {}
+    }
+
+    // =====================
+    // Custom Commands: per-villager chat listen toggle
+    // =====================
+
+    public static void handleCcChatListenQuery(PacketCcChatListenQuery msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            ctx.reply(new PacketCcChatListenData(
+                    vill.getId(),
+                    CustomCommandsService.isChatListening(vill),
+                    CustomCommandsService.isChatPassing(vill),
+                    CustomCommandsService.getChatPassRange(vill)
+            ));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcChatListenSet(PacketCcChatListenSet msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            CustomCommandsService.setChatListening(vill, msg.listen());
+            CustomCommandsService.setChatPassing(vill, msg.pass(), msg.passRange());
+            ctx.reply(new PacketCcChatListenData(
+                    vill.getId(),
+                    CustomCommandsService.isChatListening(vill),
+                    CustomCommandsService.isChatPassing(vill),
+                    CustomCommandsService.getChatPassRange(vill)
+            ));
+        } catch (Throwable ignored) {}
+    }
+
+    // =====================
+    // Player Chat Commands (per-player settings)
+    // =====================
+
+    public static void handlePlayerChatCommandsQuery(PacketPlayerChatCommandsQuery msg, IPayloadContext ctx) {
+        try {
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            PlayerChatCommandsSavedData sd = PlayerChatCommandsSavedData.get(sp.server);
+            PlayerChatCommandsSavedData.Config cfg = sd.getOrCreate(sp.getUUID());
+            ctx.reply(new PacketPlayerChatCommandsData(PlayerChatCommandsSavedData.toTag(cfg)));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handlePlayerChatCommandsUpdate(PacketPlayerChatCommandsUpdate msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            PlayerChatCommandsSavedData sd = PlayerChatCommandsSavedData.get(sp.server);
+            PlayerChatCommandsSavedData.Config cfg = PlayerChatCommandsSavedData.fromTag(msg.data());
+
+            int max = Math.max(1, ServerConfig.customCommandsChatRadius);
+            if (cfg.range < 1) cfg.range = 1;
+            if (cfg.range > max) cfg.range = max;
+
+            sd.update(sp.getUUID(), cfg);
+            ctx.reply(new PacketPlayerChatCommandsData(PlayerChatCommandsSavedData.toTag(cfg)));
         } catch (Throwable ignored) {}
     }
 

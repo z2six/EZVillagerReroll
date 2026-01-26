@@ -513,10 +513,14 @@ public final class VillagerCombatLoadoutService {
 
             if (VillagerBrain.isManualFarmingControlling(vill)) return true;
 
+            VillagerBrain.CombatMode cm = VillagerBrain.getCombatMode(vill);
+            // HELP is a temporary chat-driven combat mode; always show loadout while it's active.
+            if (cm == VillagerBrain.CombatMode.HELP) return true;
+
             if (!VillagerBrain.isCombatEngaged(vill)) return false;
 
-            VillagerBrain.CombatMode cm = VillagerBrain.getCombatMode(vill);
-            return cm == VillagerBrain.CombatMode.DEFEND || cm == VillagerBrain.CombatMode.AGGRESSIVE;
+            return cm == VillagerBrain.CombatMode.DEFEND
+                    || cm == VillagerBrain.CombatMode.AGGRESSIVE;
         } catch (Throwable ignored) {
             return false;
         }
