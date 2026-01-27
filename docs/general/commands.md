@@ -3,6 +3,7 @@
 ## Keybinds
 
 - `K`: open global combat settings (client-side keybind).
+- *(Unbound by default)*: open **Player Chat Commands** (bind it in Controls under the Villager Overhaul category).
 
 ## Server commands (OP-only)
 

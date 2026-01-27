@@ -43,6 +43,10 @@ nav:
       - Logistics (Chests): farmers/logistics.md
       - Manual Farming: farmers/manual_farming.md
       - Farming Stats: farmers/stats.md
+  - Custom Commands:
+      - Overview: custom_commands/index.md
+      - Teachings (Macros): custom_commands/teachings.md
+      - Chat Commands & Local Chat: custom_commands/chat.md
   - General:
       - Recruiting & Ownership: general/recruiting.md
       - Respawning: general/respawning.md

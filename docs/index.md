@@ -23,6 +23,7 @@ Villager Overhaul is a NeoForge mod that adds three big systems for recruited vi
 - [Merchants](merchants/index.md): trading QoL + balance (rerolls, locking, auto-search).
 - [Guards](guards/index.md): combat modes, triggers/filters, gear, blocking, eating.
 - [Farmers](farmers/index.md): chests logistics and manual farming automation.
+- [Custom Commands](custom_commands/index.md): teach villagers action sequences and trigger them from chat.
 
 ## Server owners
 

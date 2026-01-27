@@ -54,6 +54,14 @@ See: [Guards](../guards/index.md)
 
 See: [Farmers](../farmers/index.md)
 
+### Chat / Custom Commands
+
+- Localized chat (range-limited messages)
+- Shout / Whisper (prefix-based variants)
+- Custom Commands chat radius (how far villagers can hear you for chat triggers)
+
+See: [Custom Commands](../custom_commands/index.md)
+
 ??? tip "Where are the time-of-day ticks?"
     Minecraft day time is 24000 ticks:
 
