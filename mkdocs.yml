@@ -46,10 +46,11 @@ nav:
   - Custom Commands:
       - Overview: custom_commands/index.md
       - Teachings (Macros): custom_commands/teachings.md
-      - Chat Commands & Local Chat: custom_commands/chat.md
+      - Chat Commands: custom_commands/chat.md
   - General:
       - Recruiting & Ownership: general/recruiting.md
       - Respawning: general/respawning.md
       - Keybinds & Commands: general/commands.md
+      - Localized Chat: general/localized_chat.md
       - Server Config: general/config.md
       - FAQ: general/faq.md

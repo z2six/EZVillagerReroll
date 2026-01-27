@@ -1,11 +1,9 @@
-# Chat Commands & Local Chat
+# Chat Commands
 
 Villager Overhaul uses chat in two ways:
 
 1. **Teachings (macros)**: per-villager, owner-only, triggered by a phrase you set on the teaching.
 2. **Player Chat Commands**: a player-wide panel where you can bind phrases to common villager modes and actions.
-
-It also includes an optional **Localized Chat** system (with Shout/Whisper) so chat-based features work reliably on servers.
 
 ---
 
@@ -82,35 +80,5 @@ Each villager has its own Custom Commands permissions:
 
 This is useful for “relay villagers” in big builds.
 
----
-
-## Localized Chat (server feature)
-
-Villager Overhaul can localize chat so players only hear messages within a range.
-
-### Normal messages
-
-If enabled by the server:
-
-- Your normal chat is only sent to players within **Localized Chat range** (3D sphere).
-
-### Shout
-
-Shout is a server-wide broadcast:
-
-- Use the server-configured shout prefix (default `!`), e.g. `!Open the gates`
-- Costs hunger (server configurable)
-- Displays in **orange**
-
-### Whisper
-
-Whisper is ultra-local:
-
-- Use the server-configured whisper prefix (default `#`), e.g. `#psst`
-- Only players within **whisper range** (3D sphere) see it
-- Displays in **gray italics**
-
-!!! tip
-    Villager triggers run on the *message without the prefix*.
-    Example: `!help` still triggers your Help chat command as if you typed `help`.
-
+!!! note
+    For Shout/Whisper/Localized chat settings, see: [Localized Chat](../general/localized_chat.md).

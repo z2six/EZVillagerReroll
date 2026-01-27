@@ -37,5 +37,5 @@ In the villager UI, look for the **Custom Commands** row (redstone dust texture)
 ## Next pages
 
 - [Teachings (Macros)](teachings.md)
-- [Chat Commands & Local Chat](chat.md)
-
+- [Chat Commands](chat.md)
+- [Localized Chat](../general/localized_chat.md)
