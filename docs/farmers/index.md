@@ -1,5 +1,5 @@
 ﻿!!! note
-The Farmers pages are written at version 3.6B.1. It's possible that there are newer versions available that have made adjustments to these mechanics.
+    The Farmers pages are written at version 3.6B.1. It's possible that there are newer versions available that have made adjustments to these mechanics.
 
 # Farmers
 
