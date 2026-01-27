@@ -892,7 +892,7 @@ public final class VillagerInfoScreen extends Screen {
             try {
                 int ix = respawnBtn.getX() + respawnBtn.getWidth() - 16 - 3;
                 int iy = respawnBtn.getY() + 1;
-                gg.renderItem(new ItemStack(Items.EMERALD), ix, iy);
+                gg.renderItem(ClientCostIcon.costIcon(), ix, iy);
             } catch (Throwable ignored) {}
         }
 

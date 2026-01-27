@@ -14,7 +14,6 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
@@ -574,8 +573,10 @@ public final class AutoSearchPaymentScreen extends Screen {
             setButtonsActive(true);
 
             String r = reason == null ? "" : reason.trim();
-            if ("not_enough_emeralds".equalsIgnoreCase(r) || "not_enough".equalsIgnoreCase(r)) {
-                statusLineOverride = Component.literal("Not enough emeralds.").withStyle(ChatFormatting.RED);
+            if ("not_enough_emeralds".equalsIgnoreCase(r)
+                    || "not_enough_currency".equalsIgnoreCase(r)
+                    || "not_enough".equalsIgnoreCase(r)) {
+                statusLineOverride = Component.literal("Not enough currency.").withStyle(ChatFormatting.RED);
             } else {
                 statusLineOverride = Component.literal("Payment failed.").withStyle(ChatFormatting.RED);
             }
@@ -719,8 +720,7 @@ public final class AutoSearchPaymentScreen extends Screen {
                         Component.literal(String.valueOf(vUnits)).withStyle(ChatFormatting.AQUA)
                                 .append(Component.literal(" Rerolls ").withStyle(ChatFormatting.GRAY))
                                 .append(Component.literal("(").withStyle(ChatFormatting.DARK_GRAY))
-                                .append(Component.literal(formatEmeraldsFromV(vUnits)).withStyle(ChatFormatting.GOLD))
-                                .append(Component.literal(" emeralds").withStyle(ChatFormatting.DARK_GRAY))
+                                .append(ClientCostIcon.costText(formatEmeraldsFromV(vUnits)))
                                 .append(Component.literal(")").withStyle(ChatFormatting.DARK_GRAY))
                 );
             }
@@ -1004,9 +1004,9 @@ public final class AutoSearchPaymentScreen extends Screen {
             int iconX = x + wLabel + wValue + pad;
             int iconY = y - 4;
 
-            ItemStack em = new ItemStack(Items.EMERALD);
-            gg.renderItem(em, iconX, iconY);
-            gg.renderItemDecorations(this.font, em, iconX, iconY);
+            ItemStack icon = ClientCostIcon.costIcon();
+            gg.renderItem(icon, iconX, iconY);
+            gg.renderItemDecorations(this.font, icon, iconX, iconY);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] AutoSearchPaymentScreen.drawCostLineWithEmerald failed (soft): {}", t.toString());

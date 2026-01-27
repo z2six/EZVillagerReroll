@@ -11,9 +11,9 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
+import org.z2six.villageroverhaul.logic.PaymentUtil;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 import java.util.*;
@@ -173,57 +173,6 @@ public final class RespawnService {
         }
     }
 
-    public static boolean tryPayEmeralds(ServerPlayer sp, int cost) {
-        try {
-            if (sp == null) return false;
-            int need = Math.max(0, cost);
-            if (need <= 0) return true;
-
-            int have = 0;
-            for (ItemStack s : sp.getInventory().items) {
-                if (s == null || s.isEmpty()) continue;
-                if (s.is(Items.EMERALD)) have += s.getCount();
-                if (have >= need) break;
-            }
-            if (have < need) {
-                for (ItemStack s : sp.getInventory().offhand) {
-                    if (s == null || s.isEmpty()) continue;
-                    if (s.is(Items.EMERALD)) have += s.getCount();
-                    if (have >= need) break;
-                }
-            }
-            if (have < need) return false;
-
-            int rem = need;
-            for (int i = 0; i < sp.getInventory().items.size() && rem > 0; i++) {
-                ItemStack s = sp.getInventory().items.get(i);
-                if (s == null || s.isEmpty()) continue;
-                if (!s.is(Items.EMERALD)) continue;
-
-                int take = Math.min(rem, s.getCount());
-                s.shrink(take);
-                rem -= take;
-                if (s.isEmpty()) sp.getInventory().items.set(i, ItemStack.EMPTY);
-            }
-
-            for (int i = 0; i < sp.getInventory().offhand.size() && rem > 0; i++) {
-                ItemStack s = sp.getInventory().offhand.get(i);
-                if (s == null || s.isEmpty()) continue;
-                if (!s.is(Items.EMERALD)) continue;
-
-                int take = Math.min(rem, s.getCount());
-                s.shrink(take);
-                rem -= take;
-                if (s.isEmpty()) sp.getInventory().offhand.set(i, ItemStack.EMPTY);
-            }
-
-            sp.getInventory().setChanged();
-            return rem <= 0;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
     public static Villager respawn(ServerPlayer sp, ServerLevel level, RespawnSavedData.Snapshot snap, BlockPos anchorPos) {
         try {
             if (sp == null || level == null || snap == null) return null;
@@ -239,7 +188,7 @@ public final class RespawnService {
             data.setDirty();
 
             int cost = computeRespawnCost(snap.recruitCostAtDeath);
-            if (!tryPayEmeralds(sp, cost)) {
+            if (!PaymentUtil.tryCharge(sp, cost)) {
                 try {
                     Map<UUID, RespawnSavedData.Snapshot> back = data.byOwner().computeIfAbsent(sp.getUUID(), k -> new LinkedHashMap<>());
                     back.put(snap.respawnId, snap);

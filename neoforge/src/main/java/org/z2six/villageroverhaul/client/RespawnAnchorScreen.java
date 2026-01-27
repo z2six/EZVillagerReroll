@@ -11,7 +11,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnInfoQuery;
@@ -20,7 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * UI shown when the player uses an emerald on a respawn anchor.
+ * UI shown when the player uses the configured currency item on a respawn anchor.
  */
 public final class RespawnAnchorScreen extends Screen {
 
@@ -84,7 +83,7 @@ public final class RespawnAnchorScreen extends Screen {
         int end = Math.min(total, start + visible);
 
         boolean tooltip = false;
-        ItemStack emerald = new ItemStack(Items.EMERALD);
+        ItemStack currencyIcon = ClientCostIcon.costIcon();
 
         for (int i = start; i < end; i++) {
             int row = i - start;
@@ -111,7 +110,7 @@ public final class RespawnAnchorScreen extends Screen {
             String costStr = String.valueOf(cost);
             int costX = listX + listW - 6 - 16 - 3 - this.font.width(costStr);
             gg.drawString(this.font, costStr, costX, y + 7, 0xFF66FF66, false);
-            gg.renderItem(emerald, costX + this.font.width(costStr) + 3, y + 3);
+            gg.renderItem(currencyIcon, costX + this.font.width(costStr) + 3, y + 3);
 
             if (e.deaths() > 0) {
                 gg.drawString(this.font, "Died " + e.deaths() + "x", listX + 220, y + 7, 0xFF777777, false);

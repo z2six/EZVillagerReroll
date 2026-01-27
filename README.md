@@ -32,7 +32,7 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 
 ## Guard Features
 
-<span style="color:#fe8181">Vitality</span> | <span style="color:#acfdf3">Agility</span> | <span style="color:#fdcc66">Strength</span> | <span style="color:#d6d6d6">Armor</span>
+<span style="color: #fe8181;">Vitality</span> | <span style="color: #acfdf3;">Agility</span> | <span style="color: #fdcc66;">Strength</span> | <span style="color: #d6d6d6;">Armor</span>
 
 *   Give villagers fully functioning equipment (armor, sword, shield)
 *   Each villager spawns with 4 randomized custom Combat stats
@@ -45,7 +45,7 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 
 ## Merchant features
 
-<span style="color:#81fc5c">Generosity</span> | <span style="color:#3598db">Timeliness</span>| <span style="color:#b96ad9">Intellect</span> | <span style="color:#fdcc66">Hoarder</span>
+<span style="color: #81fc5c;">Generosity</span> | <span style="color: #3598db;">Timeliness</span>| <span style="color: #b96ad9;">Intellect</span> | <span style="color: #fdcc66;">Hoarder</span>
 
 *   Reroll trades at any villager level in exchange for emeralds
 *   Lock specific trades so they won’t get rerolled
@@ -55,7 +55,7 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 
 ## Farming Features
 
-<span style="color:#fdcc66">Motivation</span> | <span style="color:#acfdf3">Efficiency</span> | <span style="color:#81fc5c">Plant Whisperer</span> | <span style="color:#8c98fd">Ranger</span>
+<span style="color: #fdcc66;">Motivation</span> | <span style="color: #acfdf3;">Efficiency</span> | <span style="color: #81fc5c;">Plant Whisperer</span> | <span style="color: #8c98fd;">Ranger</span>
 
 *   Manual Farming mode: smarter than vanilla farming, works with any modded item that requires Farmland (Nether Wart + Soul Sand is supported too, though)
 *   Instruct your villager to only farm one specific thing. It will ignore everything else
@@ -77,14 +77,19 @@ Please visit: [https://z2six.github.io/VillagerOverhaul](https://z2six.github.io
 *   Villagers can be respawned
 *   Other players cannot run commands, rerolls, etc. on villagers you recruited
 *   Villager information GUI showing stats, history, attributes, and more
+*   Localized chat with shouting and whisper function, due to incompatibility with the popular (and very cool) mod.
 *   Server config is hot-loaded — no server restart required
 
 ## How to Use
 
-0.  📝 Read the wiki! 😉
-1.  👪 Find a villager (or breed one)
-2.  💎 Right-click to recruit it (if you like its stats)
-3.  🖱️ Right-click it again — the mod’s buttons will now appear
-4.  📊 Configure `villageroverhaul-server.toml` to rebalance everything
-5.  ⚙️ Press **K** to set default villager combat AI settings
-6.  👻 Perfect villager died? Right-click a **Respawn Anchor** while holding an emerald
+1.  📝 Read the wiki! 😉
+2.  👪 Find a villager (or breed one)
+3.  💎 Right-click to recruit it (if you like its stats)
+4.  🖱️ Right-click it again — the mod’s buttons will now appear
+5.  📊 Configure `villageroverhaul-server.toml` to rebalance everything
+6.  ⚙️ Press **K** to set default villager combat AI settings
+7.  👻 Perfect villager died? Right-click a **Respawn Anchor** while holding an emerald
+
+## Important incompatibilities
+
+1. Localized Chat (hence, this mod adds the same features)

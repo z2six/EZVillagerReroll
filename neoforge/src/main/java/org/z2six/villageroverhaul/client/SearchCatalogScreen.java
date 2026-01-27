@@ -13,7 +13,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
@@ -959,9 +958,9 @@ public final class SearchCatalogScreen extends Screen {
                     int iconY = y + Math.max(0, (this.font.lineHeight - INLINE_ICON_SIZE) / 2) - 3;
 
                     try {
-                        ItemStack em = new ItemStack(Items.EMERALD);
-                        gg.renderItem(em, iconX, iconY);
-                        gg.renderItemDecorations(this.font, em, iconX, iconY);
+                        ItemStack icon = ClientCostIcon.costIcon();
+                        gg.renderItem(icon, iconX, iconY);
+                        gg.renderItemDecorations(this.font, icon, iconX, iconY);
                     } catch (Throwable t) {
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] renderHourlyPreviewLine emerald draw failed (soft): {}", t.toString());
                     }
@@ -1075,8 +1074,7 @@ public final class SearchCatalogScreen extends Screen {
                             Component.literal(String.valueOf(vUnits)).withStyle(ChatFormatting.AQUA)
                                     .append(Component.literal(" Rerolls ").withStyle(ChatFormatting.GRAY))
                                     .append(Component.literal("(").withStyle(ChatFormatting.DARK_GRAY))
-                                    .append(Component.literal(formatEmeraldsFromV(vUnits)).withStyle(ChatFormatting.GOLD))
-                                    .append(Component.literal(" emeralds").withStyle(ChatFormatting.DARK_GRAY))
+                                    .append(ClientCostIcon.costText(formatEmeraldsFromV(vUnits)))
                                     .append(Component.literal(")").withStyle(ChatFormatting.DARK_GRAY))
                     );
                 }

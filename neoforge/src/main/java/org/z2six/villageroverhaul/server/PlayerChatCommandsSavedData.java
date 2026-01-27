@@ -29,6 +29,8 @@ public final class PlayerChatCommandsSavedData extends SavedData {
         public boolean caseSensitive = false;
 
         public String help = "";
+        public String equip = "";
+        public String stash = "";
         public String neutral = "";
         public String idle = "";
         public String follow = "";
@@ -136,6 +138,8 @@ public final class PlayerChatCommandsSavedData extends SavedData {
             cfg.chain = t.getBoolean("chain");
             cfg.caseSensitive = t.getBoolean("caseSensitive");
             cfg.help = safeStr(t.getString("help"));
+            cfg.equip = safeStr(t.getString("equip"));
+            cfg.stash = safeStr(t.getString("stash"));
             cfg.neutral = safeStr(t.getString("neutral"));
             cfg.idle = safeStr(t.getString("idle"));
             cfg.follow = safeStr(t.getString("follow"));
@@ -154,6 +158,8 @@ public final class PlayerChatCommandsSavedData extends SavedData {
         t.putBoolean("chain", cfg.chain);
         t.putBoolean("caseSensitive", cfg.caseSensitive);
         t.putString("help", safeStr(cfg.help));
+        t.putString("equip", safeStr(cfg.equip));
+        t.putString("stash", safeStr(cfg.stash));
         t.putString("neutral", safeStr(cfg.neutral));
         t.putString("idle", safeStr(cfg.idle));
         t.putString("follow", safeStr(cfg.follow));

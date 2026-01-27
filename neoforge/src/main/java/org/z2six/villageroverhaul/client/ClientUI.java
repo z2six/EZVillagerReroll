@@ -1880,7 +1880,7 @@ public final class ClientUI {
                     .append(Component.literal("Cost: ").withStyle(ChatFormatting.GOLD))
                     .append(Component.literal(String.valueOf(baseCost)))
                     .append(Component.literal(" × ")));
-            plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
+            plan.icons.add(new TooltipIcon(lineIdx, ClientCostIcon.costIcon()));
         } else {
             int lineIdx = plan.lines.size();
 
@@ -1900,7 +1900,7 @@ public final class ClientUI {
                     .append(adjustedPart)
                     .append(Component.literal(" × ")));
 
-            plan.icons.add(new TooltipIcon(lineIdx, new ItemStack(Items.EMERALD)));
+            plan.icons.add(new TooltipIcon(lineIdx, ClientCostIcon.costIcon()));
 
             // --- Generosity line: custom label color 0xFF42D16C, value stays green/red ---
             String sign = (generosityPct > 0.0) ? "-" : "+";
@@ -1954,7 +1954,7 @@ public final class ClientUI {
 
         // keep emerald icon if it is meaningful
         if (paidOffers > 0 && costPerOffer > 0) {
-            plan.icons.add(new TooltipIcon(lineIdxFreePaid, new ItemStack(Items.EMERALD)));
+            plan.icons.add(new TooltipIcon(lineIdxFreePaid, ClientCostIcon.costIcon()));
         }
 
         // Affordability (unchanged)

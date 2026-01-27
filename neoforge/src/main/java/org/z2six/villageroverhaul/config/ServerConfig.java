@@ -36,6 +36,21 @@ public final class ServerConfig {
     public static final ModConfigSpec.IntValue CUSTOM_COMMANDS_CHAT_RADIUS;
 
     // ---------------------------------------------------------------------
+    // CHAT
+    // ---------------------------------------------------------------------
+
+    public static final ModConfigSpec.BooleanValue LOCALIZED_CHAT_ENABLED;
+    public static final ModConfigSpec.IntValue LOCALIZED_CHAT_RANGE;
+
+    public static final ModConfigSpec.BooleanValue SHOUT_ENABLED;
+    public static final ModConfigSpec.IntValue SHOUT_HUNGER_COST;
+    public static final ModConfigSpec.ConfigValue<String> SHOUT_PREFIX;
+
+    public static final ModConfigSpec.BooleanValue WHISPER_ENABLED;
+    public static final ModConfigSpec.IntValue WHISPER_RANGE;
+    public static final ModConfigSpec.ConfigValue<String> WHISPER_PREFIX;
+
+    // ---------------------------------------------------------------------
     // COST
     // ---------------------------------------------------------------------
 
@@ -199,6 +214,67 @@ public final class ServerConfig {
                         Only villagers within this range of the player will listen to chat commands.
                         """)
                         .defineInRange("chatRadius", 26, 1, 128);
+
+        B.pop();
+
+        B.push("chat");
+
+        LOCALIZED_CHAT_ENABLED =
+                B.comment("""
+                        If enabled, player chat messages are only broadcast to players within localizedChatRange blocks (3D sphere).
+                        This is a simple built-in replacement for Localized Chat mods, and also keeps VillagerOverhaul chat triggers working.
+                        """)
+                        .define("localizedChatEnabled", true);
+
+        LOCALIZED_CHAT_RANGE =
+                B.comment("""
+                        Localized chat range in blocks (3D sphere).
+                        Default: 26 blocks.
+                        """)
+                        .defineInRange("localizedChatRange", 26, 1, 256);
+
+        SHOUT_ENABLED =
+                B.comment("""
+                        If enabled, players can use shout messages by prefixing chat with '!'. Example: !Hello
+                        Shouts are broadcast server-wide and show in orange.
+                        """)
+                        .define("shoutEnabled", true);
+
+        SHOUT_HUNGER_COST =
+                B.comment("""
+                        Hunger cost (food points) for sending a shout message.
+                        Example: 2 = consumes 1 drumstick.
+                        """)
+                        .defineInRange("shoutHungerCost", 4, 0, 20);
+
+        SHOUT_PREFIX =
+                B.comment("""
+                        Prefix that turns a chat message into a SHOUT.
+                        Default: "!".
+                        Example: "!" or "/shout " (not recommended).
+                        """)
+                        .define("shoutPrefix", "!");
+
+        WHISPER_ENABLED =
+                B.comment("""
+                        If enabled, players can use whisper messages by prefixing chat with '@'. Example: @psst
+                        Whispers are localized (3D sphere) and show in gray italics.
+                        """)
+                        .define("whisperEnabled", true);
+
+        WHISPER_RANGE =
+                B.comment("""
+                        Whisper range in blocks (3D sphere).
+                        Default: 3 blocks.
+                        """)
+                        .defineInRange("whisperRange", 3, 1, 64);
+
+        WHISPER_PREFIX =
+                B.comment("""
+                        Prefix that turns a chat message into a WHISPER.
+                        Default: "#".
+                        """)
+                        .define("whisperPrefix", "#");
 
         B.pop();
 
@@ -654,6 +730,14 @@ public final class ServerConfig {
     public static boolean enableCombatModule = true;
     public static boolean enableFarmingModule = true;
     public static int customCommandsChatRadius = 26;
+    public static boolean localizedChatEnabled = false;
+    public static int localizedChatRange = 26;
+    public static boolean shoutEnabled = false;
+    public static int shoutHungerCost = 2;
+    public static String shoutPrefix = "!";
+    public static boolean whisperEnabled = false;
+    public static int whisperRange = 3;
+    public static String whisperPrefix = "#";
 
     public static int freeOffers = 2;
     public static int costPerOffer = 8;
@@ -743,6 +827,14 @@ public final class ServerConfig {
             enableCombatModule = ENABLE_COMBAT_MODULE.get();
             enableFarmingModule = ENABLE_FARMING_MODULE.get();
             customCommandsChatRadius = Math.max(1, Math.min(128, CUSTOM_COMMANDS_CHAT_RADIUS.get()));
+            localizedChatEnabled = LOCALIZED_CHAT_ENABLED.get();
+            localizedChatRange = Math.max(1, Math.min(256, LOCALIZED_CHAT_RANGE.get()));
+            shoutEnabled = SHOUT_ENABLED.get();
+            shoutHungerCost = Math.max(0, Math.min(20, SHOUT_HUNGER_COST.get()));
+            shoutPrefix = safePrefix(SHOUT_PREFIX.get(), "!");
+            whisperEnabled = WHISPER_ENABLED.get();
+            whisperRange = Math.max(1, Math.min(64, WHISPER_RANGE.get()));
+            whisperPrefix = safePrefix(WHISPER_PREFIX.get(), "#");
 
             costSpec = COST_ITEM_OR_TAG.get();
             preferWallet = PREFER_WALLET.get();
@@ -879,6 +971,19 @@ public final class ServerConfig {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ServerConfig reload failed", t);
+        }
+    }
+
+    private static String safePrefix(String raw, String fallback) {
+        try {
+            if (fallback == null || fallback.isBlank()) fallback = "!";
+            if (raw == null) return fallback;
+            String s = raw.trim();
+            if (s.isEmpty()) return fallback;
+            // Keep it simple/predictable: use only the first character.
+            return String.valueOf(s.charAt(0));
+        } catch (Throwable ignored) {
+            return fallback == null ? "!" : fallback;
         }
     }
 

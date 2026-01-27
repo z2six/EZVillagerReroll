@@ -3,12 +3,9 @@ package org.z2six.villageroverhaul.network;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -88,6 +85,7 @@ import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnExecute;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnInfoQuery;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnPurge;
+import org.z2six.villageroverhaul.logic.PaymentUtil;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
@@ -1185,24 +1183,15 @@ public final class Network {
 
                 int cost = Math.max(0, RecruitService.computeRecruitCost(vill));
                 if (cost > 0) {
-                    boolean paid = tryConsumeItem(sp, Items.EMERALD, cost);
+                    boolean paid = PaymentUtil.tryCharge(sp, cost);
                     if (!paid) {
-                        ctx.reply(new PacketRecruitResult(id, false, false, 0, "Not enough emeralds"));
+                        ctx.reply(new PacketRecruitResult(id, false, false, 0, "Not enough currency"));
                         return;
                     }
                 }
 
                 boolean marked = RecruitService.markRecruited(sp, vill);
                 if (!marked) {
-                    if (cost > 0) {
-                        try {
-                            ItemStack refund = new ItemStack(Items.EMERALD, cost);
-                            boolean added = sp.getInventory().add(refund);
-                            if (!added) {
-                                sp.drop(refund, false);
-                            }
-                        } catch (Throwable ignored) {}
-                    }
                     ctx.reply(new PacketRecruitResult(id, false, false, 0, "Failed to recruit (server error)"));
                     return;
                 }
@@ -1237,45 +1226,6 @@ public final class Network {
             return vill;
         } catch (Throwable t) {
             return null;
-        }
-    }
-
-    private static boolean tryConsumeItem(net.minecraft.server.level.ServerPlayer sp, Item item, int count) {
-        try {
-            if (sp == null || item == null) return false;
-            if (count <= 0) return true;
-
-            Container inv = sp.getInventory();
-            if (inv == null) return false;
-
-            int have = 0;
-            int size = inv.getContainerSize();
-            for (int slot = 0; slot < size; slot++) {
-                ItemStack s = inv.getItem(slot);
-                if (!s.isEmpty() && s.is(item)) have += s.getCount();
-                if (have >= count) break;
-            }
-
-            if (have < count) return false;
-
-            int remaining = count;
-            for (int slot = 0; slot < size && remaining > 0; slot++) {
-                ItemStack s = inv.getItem(slot);
-                if (s.isEmpty() || !s.is(item)) continue;
-
-                int take = Math.min(remaining, s.getCount());
-                s.shrink(take);
-                remaining -= take;
-
-                if (s.isEmpty()) inv.setItem(slot, ItemStack.EMPTY);
-            }
-
-            try { inv.setChanged(); } catch (Throwable ignored) {}
-            return remaining <= 0;
-
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] tryConsumeItem failed (soft): {}", t.toString());
-            return false;
         }
     }
 

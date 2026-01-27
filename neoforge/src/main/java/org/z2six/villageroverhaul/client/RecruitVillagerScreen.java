@@ -11,7 +11,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
@@ -279,8 +278,8 @@ public final class RecruitVillagerScreen extends Screen {
         int costY = top + 30;
         gg.drawString(this.font, "Cost:", left + 16, costY, 0xE0E0E0);
 
-        ItemStack emerald = new ItemStack(Items.EMERALD);
-        gg.renderItem(emerald, left + 60, costY - 4);
+        ItemStack currencyIcon = ClientCostIcon.costIcon();
+        gg.renderItem(currencyIcon, left + 60, costY - 4);
         gg.drawString(this.font, String.valueOf(cost), left + 80, costY, 0xFFFFFF);
 
         // State message

@@ -68,6 +68,7 @@ public final class VillagerBrain {
     private static final String K_HELP_SNAP_Y = "help_snap_y";
     private static final String K_HELP_SNAP_Z = "help_snap_z";
     private static final String K_HELP_RETURN_ACTIVE = "help_return_active";
+    private static final String K_HELP_RETURN_SINCE = "help_return_since"; // long gameTime
 
     private static final String K_UI_PAUSED_UNTIL = "ui_paused_until";
     private static final String K_FORCE_BLOCK_UNTIL = "force_block_until";
@@ -373,6 +374,7 @@ public final class VillagerBrain {
                 root.putDouble(K_HELP_SNAP_Z, p.z);
             } catch (Throwable ignored) {}
             root.putBoolean(K_HELP_RETURN_ACTIVE, false);
+            root.remove(K_HELP_RETURN_SINCE);
         } catch (Throwable ignored) {}
     }
 
@@ -402,6 +404,7 @@ public final class VillagerBrain {
             // Only schedule if we have a snapshot.
             if (!root.contains(K_HELP_SNAP_X, Tag.TAG_DOUBLE)) return;
             root.putBoolean(K_HELP_RETURN_ACTIVE, true);
+            try { root.putLong(K_HELP_RETURN_SINCE, vill.level().getGameTime()); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}
     }
 
@@ -410,6 +413,28 @@ public final class VillagerBrain {
             if (vill == null) return;
             CompoundTag root = getOrCreateRoot(vill);
             root.putBoolean(K_HELP_RETURN_ACTIVE, false);
+            root.remove(K_HELP_RETURN_SINCE);
+        } catch (Throwable ignored) {}
+    }
+
+    public static long getHelpReturnSince(Villager vill) {
+        try {
+            if (vill == null) return 0L;
+            CompoundTag root = getOrCreateRoot(vill);
+            return root.contains(K_HELP_RETURN_SINCE, Tag.TAG_LONG) ? root.getLong(K_HELP_RETURN_SINCE) : 0L;
+        } catch (Throwable ignored) {
+            return 0L;
+        }
+    }
+
+    public static void ensureHelpReturnSince(Villager vill, long nowGameTime) {
+        try {
+            if (vill == null) return;
+            if (nowGameTime <= 0L) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.contains(K_HELP_RETURN_SINCE, Tag.TAG_LONG)) {
+                root.putLong(K_HELP_RETURN_SINCE, nowGameTime);
+            }
         } catch (Throwable ignored) {}
     }
 

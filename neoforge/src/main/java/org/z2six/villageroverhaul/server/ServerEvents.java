@@ -2,7 +2,10 @@
 package org.z2six.villageroverhaul.server;
 
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -325,9 +328,9 @@ public final class ServerEvents {
             if (pos == null) return;
             if (level.getBlockState(pos).getBlock() != Blocks.RESPAWN_ANCHOR) return;
 
-            // Require holding an emerald (as requested).
+            // Require holding the configured currency item.
             ItemStack held = sp.getMainHandItem();
-            if (held == null || held.isEmpty() || !held.is(net.minecraft.world.item.Items.EMERALD)) return;
+            if (held == null || held.isEmpty() || !org.z2six.villageroverhaul.logic.PaymentUtil.matchesCost(held)) return;
 
             List<RespawnSavedData.Snapshot> snaps = RespawnService.listForOwner(sp, level);
             List<PacketOpenRespawnAnchorScreen.Entry> entries = new java.util.ArrayList<>();
@@ -369,118 +372,228 @@ public final class ServerEvents {
 
             var level = sp.serverLevel();
 
+            // Whisper / Shout parsing (prefix-based, similar to localized chat mods).
+            boolean isShout = false;
+            boolean isWhisper = false;
+            String content = msg;
+            try {
+                String spfx = ServerConfig.shoutPrefix == null ? "!" : ServerConfig.shoutPrefix;
+                if (spfx.isBlank()) spfx = "!";
+                String wpfx = ServerConfig.whisperPrefix == null ? "#" : ServerConfig.whisperPrefix;
+                if (wpfx.isBlank()) wpfx = "#";
+
+                if (ServerConfig.shoutEnabled && content.startsWith(spfx)) {
+                    String c = content.substring(spfx.length()).trim();
+                    if (!c.isEmpty()) {
+                        isShout = true;
+                        content = c;
+                    }
+                } else if (ServerConfig.whisperEnabled && content.startsWith(wpfx)) {
+                    String c = content.substring(wpfx.length()).trim();
+                    if (!c.isEmpty()) {
+                        isWhisper = true;
+                        content = c;
+                    }
+                }
+            } catch (Throwable ignored) {}
+
             // Chat commands (module-level) have priority over per-villager taught macros.
-            if (tryHandlePlayerChatCommands(sp, msg)) return;
+            boolean handled = tryHandlePlayerChatCommands(sp, content);
 
             final int baseRadius = Math.max(1, ServerConfig.customCommandsChatRadius);
 
-            // Phase 1: find the best matching macro within the player's local radius.
-            java.util.ArrayList<Villager> starters = new java.util.ArrayList<>();
-            for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(baseRadius))) {
-                if (vill == null) continue;
-                if (!RecruitService.isRecruited(vill)) continue;
-                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
-                if (!CustomCommandsService.isChatListening(vill)) continue;
-                if (CustomCommandsService.isExecuting(vill)) continue;
-                if (CustomCommandsService.isVillagerTeaching(vill)) continue;
-                starters.add(vill);
-            }
+            // Only try taught macros if no module-level chat command matched.
+            if (!handled) {
+                // Phase 1: find the best matching macro within the player's local radius.
+                java.util.ArrayList<Villager> starters = new java.util.ArrayList<>();
+                for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(baseRadius))) {
+                    if (vill == null) continue;
+                    if (!RecruitService.isRecruited(vill)) continue;
+                    if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+                    if (!CustomCommandsService.isChatListening(vill)) continue;
+                    if (CustomCommandsService.isExecuting(vill)) continue;
+                    if (CustomCommandsService.isVillagerTeaching(vill)) continue;
+                    starters.add(vill);
+                }
 
-            double bestDist2 = Double.MAX_VALUE;
-            Villager bestVill = null;
-            int bestActionIdx = -1;
+                double bestDist2 = Double.MAX_VALUE;
+                Villager bestVill = null;
+                int bestActionIdx = -1;
 
-            for (Villager vill : starters) {
-                var actions = CustomCommandsService.getActionsMeta(vill);
-                if (actions == null || actions.isEmpty()) continue;
-                for (int i = 0; i < actions.size(); i++) {
-                    var a = actions.get(i);
-                    if (a == null) continue;
-                    if (!CustomCommandsService.matchesCommand(a, msg)) continue;
-                    double d2 = vill.distanceToSqr(sp);
-                    if (d2 < bestDist2) {
-                        bestDist2 = d2;
-                        bestVill = vill;
-                        bestActionIdx = i;
+                for (Villager vill : starters) {
+                    var actions = CustomCommandsService.getActionsMeta(vill);
+                    if (actions == null || actions.isEmpty()) continue;
+                    for (int i = 0; i < actions.size(); i++) {
+                        var a = actions.get(i);
+                        if (a == null) continue;
+                        if (!CustomCommandsService.matchesCommand(a, content)) continue;
+                        double d2 = vill.distanceToSqr(sp);
+                        if (d2 < bestDist2) {
+                            bestDist2 = d2;
+                            bestVill = vill;
+                            bestActionIdx = i;
+                        }
                     }
                 }
-            }
 
-            // Phase 2: chain propagation for macros that have "Chain" enabled.
-            if (bestVill == null && !starters.isEmpty()) {
-                java.util.HashSet<java.util.UUID> seen = new java.util.HashSet<>();
-                java.util.ArrayDeque<Villager> q = new java.util.ArrayDeque<>();
-                for (Villager v : starters) {
-                    if (v == null) continue;
-                    seen.add(v.getUUID());
-                    q.add(v);
-                }
+                // Phase 2: chain propagation for macros that have "Chain" enabled.
+                if (bestVill == null && !starters.isEmpty()) {
+                    java.util.HashSet<java.util.UUID> seen = new java.util.HashSet<>();
+                    java.util.ArrayDeque<Villager> q = new java.util.ArrayDeque<>();
+                    for (Villager v : starters) {
+                        if (v == null) continue;
+                        seen.add(v.getUUID());
+                        q.add(v);
+                    }
 
-                int safety = 0;
-                while (!q.isEmpty() && seen.size() < 512 && safety++ < 2000) {
-                    Villager cur = q.poll();
-                    if (cur == null) continue;
+                    int safety = 0;
+                    while (!q.isEmpty() && seen.size() < 512 && safety++ < 2000) {
+                        Villager cur = q.poll();
+                        if (cur == null) continue;
 
-                    // Check for chain-enabled macros on ANY villager in the connected graph.
-                    try {
-                        var actions = CustomCommandsService.getActionsMeta(cur);
-                        if (actions != null && !actions.isEmpty()) {
-                            for (int i = 0; i < actions.size(); i++) {
-                                var a = actions.get(i);
-                                if (a == null) continue;
-                                if (!a.chain()) continue;
-                                if (!CustomCommandsService.matchesCommand(a, msg)) continue;
+                        // Check for chain-enabled macros on ANY villager in the connected graph.
+                        try {
+                            var actions = CustomCommandsService.getActionsMeta(cur);
+                            if (actions != null && !actions.isEmpty()) {
+                                for (int i = 0; i < actions.size(); i++) {
+                                    var a = actions.get(i);
+                                    if (a == null) continue;
+                                    if (!a.chain()) continue;
+                                    if (!CustomCommandsService.matchesCommand(a, content)) continue;
 
-                                double d2 = cur.distanceToSqr(sp);
-                                if (d2 < bestDist2) {
-                                    bestDist2 = d2;
-                                    bestVill = cur;
-                                    bestActionIdx = i;
+                                    double d2 = cur.distanceToSqr(sp);
+                                    if (d2 < bestDist2) {
+                                        bestDist2 = d2;
+                                        bestVill = cur;
+                                        bestActionIdx = i;
+                                    }
                                 }
                             }
+                        } catch (Throwable ignored) {}
+
+                        // Expand graph only if THIS villager is allowed to pass chat commands further.
+                        if (!CustomCommandsService.isChatPassing(cur)) continue;
+
+                        int passRange = CustomCommandsService.getChatPassRange(cur);
+                        if (passRange < 1) passRange = baseRadius;
+                        if (passRange > baseRadius) passRange = baseRadius;
+
+                        for (Villager next : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
+                            if (next == null) continue;
+                            java.util.UUID id = next.getUUID();
+                            if (id == null || seen.contains(id)) continue;
+
+                            if (!RecruitService.isRecruited(next)) continue;
+                            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(next, sp)) continue;
+                            if (!CustomCommandsService.isChatListening(next)) continue;
+                            if (CustomCommandsService.isExecuting(next)) continue;
+                            if (CustomCommandsService.isVillagerTeaching(next)) continue;
+
+                            seen.add(id);
+                            q.add(next);
                         }
-                    } catch (Throwable ignored) {}
+                    }
+                }
 
-                    // Expand graph only if THIS villager is allowed to pass chat commands further.
-                    if (!CustomCommandsService.isChatPassing(cur)) continue;
-
-                    int passRange = CustomCommandsService.getChatPassRange(cur);
-                    if (passRange < 1) passRange = baseRadius;
-                    if (passRange > baseRadius) passRange = baseRadius;
-
-                    for (Villager next : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
-                        if (next == null) continue;
-                        java.util.UUID id = next.getUUID();
-                        if (id == null || seen.contains(id)) continue;
-
-                        if (!RecruitService.isRecruited(next)) continue;
-                        if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(next, sp)) continue;
-                        if (!CustomCommandsService.isChatListening(next)) continue;
-                        if (CustomCommandsService.isExecuting(next)) continue;
-                        if (CustomCommandsService.isVillagerTeaching(next)) continue;
-
-                        seen.add(id);
-                        q.add(next);
+                if (bestVill != null && bestActionIdx >= 0) {
+                    long now = level.getGameTime();
+                    if (CustomCommandsService.canStartAction(bestVill, bestActionIdx, now)) {
+                        CustomCommandsService.startExecution(bestVill, bestActionIdx);
+                    } else {
+                        // Queue a retry without requiring the player to re-send the chat message.
+                        var meta = CustomCommandsService.getActionMeta(bestVill, bestActionIdx);
+                        long delayUntil = now;
+                        try {
+                            if (meta != null) {
+                                long lastFail = meta.lastFailGameTime();
+                                long retryTicks = Math.max(0L, (long) meta.retryAfterSeconds() * 20L);
+                                if (lastFail > 0L && retryTicks > 0L) delayUntil = Math.max(now, lastFail + retryTicks);
+                            }
+                        } catch (Throwable ignored) {}
+                        CustomCommandsService.queueExecution(bestVill, bestActionIdx, delayUntil);
                     }
                 }
             }
 
-            if (bestVill != null && bestActionIdx >= 0) {
-                long now = level.getGameTime();
-                if (CustomCommandsService.canStartAction(bestVill, bestActionIdx, now)) {
-                    CustomCommandsService.startExecution(bestVill, bestActionIdx);
-                } else {
-                    // Queue a retry without requiring the player to re-send the chat message.
-                    var meta = CustomCommandsService.getActionMeta(bestVill, bestActionIdx);
-                    long delayUntil = now;
-                    try {
-                        if (meta != null) {
-                            long lastFail = meta.lastFailGameTime();
-                            long retryTicks = Math.max(0L, (long) meta.retryAfterSeconds() * 20L);
-                            if (lastFail > 0L && retryTicks > 0L) delayUntil = Math.max(now, lastFail + retryTicks);
+            // Shout: server-wide broadcast, consumes hunger, orange.
+            if (isShout) {
+                int cost = Math.max(0, ServerConfig.shoutHungerCost);
+                try {
+                    if (cost > 0 && sp.getFoodData() != null) {
+                        int have = sp.getFoodData().getFoodLevel();
+                        if (have < cost) {
+                            try {
+                                sp.connection.send(new ClientboundSystemChatPacket(
+                                        Component.literal("Not enough hunger to shout.").withStyle(ChatFormatting.RED),
+                                        false
+                                ));
+                            } catch (Throwable ignored) {}
+                            try { e.setCanceled(true); } catch (Throwable ignored) {}
+                            return;
                         }
+                        sp.getFoodData().setFoodLevel(Math.max(0, have - cost));
+                    }
+                } catch (Throwable ignored) {}
+
+                Component line = Component.translatable("chat.type.text", sp.getDisplayName(), Component.literal(content))
+                        .withStyle(ChatFormatting.GOLD);
+                try { e.setCanceled(true); } catch (Throwable ignored) {}
+
+                for (ServerPlayer other : level.players()) {
+                    if (other == null || other.connection == null) continue;
+                    try { other.connection.send(new ClientboundSystemChatPacket(line, false)); } catch (Throwable ignored) {}
+                }
+                return;
+            }
+
+            // Whisper: localized (3D sphere), gray italics.
+            if (isWhisper) {
+                int r = Math.max(1, ServerConfig.whisperRange);
+                double r2 = (double) r * (double) r;
+
+                Component line = Component.translatable("chat.type.text", sp.getDisplayName(), Component.literal(content))
+                        .withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC);
+
+                try { e.setCanceled(true); } catch (Throwable ignored) {}
+
+                for (ServerPlayer other : level.players()) {
+                    if (other == null || other.connection == null) continue;
+                    try {
+                        if (other.distanceToSqr(sp) > r2) continue;
                     } catch (Throwable ignored) {}
-                    CustomCommandsService.queueExecution(bestVill, bestActionIdx, delayUntil);
+                    try {
+                        other.connection.send(new ClientboundSystemChatPacket(line, false));
+                    } catch (Throwable ignored) {}
+                }
+                return;
+            }
+
+            // Localized chat: cancel vanilla broadcast and resend to nearby players (3D sphere).
+            if (ServerConfig.localizedChatEnabled) {
+                int r = Math.max(1, ServerConfig.localizedChatRange);
+                double r2 = (double) r * (double) r;
+
+                Component line;
+                try {
+                    Component body = e.getMessage();
+                    // If we stripped a prefix, preserve the stripped content.
+                    if (isShout || isWhisper) body = Component.literal(content);
+                    if (body == null) body = Component.literal(content);
+                    line = Component.translatable("chat.type.text", sp.getDisplayName(), body);
+                } catch (Throwable ignored) {
+                    line = Component.literal(sp.getGameProfile().getName() + ": " + content);
+                }
+
+                try { e.setCanceled(true); } catch (Throwable ignored) {}
+
+                for (ServerPlayer other : level.players()) {
+                    if (other == null || other.connection == null) continue;
+                    try {
+                        if (other.distanceToSqr(sp) > r2) continue;
+                    } catch (Throwable ignored) {}
+                    try {
+                        other.connection.send(new ClientboundSystemChatPacket(line, false));
+                    } catch (Throwable ignored) {}
                 }
             }
 
@@ -520,6 +633,9 @@ public final class ServerEvents {
                 return true;
             }
 
+            if (ServerConfig.enableCombatModule && matches(cfg.equip, m, caseSensitive)) return applyLoadoutSwap(sp, range, chain, true);
+            if (ServerConfig.enableCombatModule && matches(cfg.stash, m, caseSensitive)) return applyLoadoutSwap(sp, range, chain, false);
+
             if (matches(cfg.neutral, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.NEUTRAL);
             if (matches(cfg.idle, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.IDLE);
             if (matches(cfg.follow, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.FOLLOW);
@@ -530,6 +646,42 @@ public final class ServerEvents {
             if (ServerConfig.enableCombatModule && matches(cfg.aggressive, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.AGGRESSIVE);
 
             return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean applyLoadoutSwap(ServerPlayer sp, int range, boolean chain, boolean equip) {
+        try {
+            if (sp == null) return false;
+            List<Villager> targets = collectOwnedVillagersForChat(sp, range, chain);
+            if (targets.isEmpty()) return false;
+
+            boolean any = false;
+            for (Villager vill : targets) {
+                if (vill == null) continue;
+                if (!RecruitService.isRecruited(vill)) continue;
+                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+
+                // Only allowed when villager is not neutral and not in manual farming control.
+                try {
+                    if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) continue;
+                } catch (Throwable ignored) {}
+                try {
+                    if (org.z2six.villageroverhaul.server.ai.VillagerBrain.getMode(vill) == org.z2six.villageroverhaul.server.ai.VillagerBrain.Mode.NEUTRAL) continue;
+                } catch (Throwable ignored) { continue; }
+
+                try {
+                    if (equip) {
+                        org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService.forceEquipBegin(vill, true, "chat_equip");
+                    } else {
+                        org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService.forceEquipEnd(vill, "chat_stash");
+                    }
+                    any = true;
+                } catch (Throwable ignored) {}
+            }
+
+            return any;
         } catch (Throwable ignored) {
             return false;
         }

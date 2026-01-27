@@ -379,8 +379,7 @@ public final class BusyVillagerScreen extends Screen {
                         Component.literal(String.valueOf(vUnits)).withStyle(ChatFormatting.AQUA)
                                 .append(Component.literal(" Rerolls ").withStyle(ChatFormatting.GRAY))
                                 .append(Component.literal("(").withStyle(ChatFormatting.DARK_GRAY))
-                                .append(Component.literal(formatEmeraldsFromV(vUnits)).withStyle(ChatFormatting.GOLD))
-                                .append(Component.literal(" emeralds").withStyle(ChatFormatting.DARK_GRAY))
+                                .append(ClientCostIcon.costText(formatEmeraldsFromV(vUnits)))
                                 .append(Component.literal(")").withStyle(ChatFormatting.DARK_GRAY))
                 );
             }

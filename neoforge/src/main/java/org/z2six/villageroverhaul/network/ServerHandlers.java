@@ -11,18 +11,14 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
-import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
-import org.z2six.villageroverhaul.logic.CostUtil;
-import org.z2six.villageroverhaul.logic.MoneyBridge;
 import org.z2six.villageroverhaul.logic.RerollExecutor;
 import org.z2six.villageroverhaul.logic.RerollState;
 import org.z2six.villageroverhaul.logic.TradeLockState;
-import org.z2six.villageroverhaul.logic.WalletBridge;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.autoReroll.*;
@@ -466,15 +462,19 @@ public final class ServerHandlers {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePayAutoSearchSettlement: charge failed (player={} cost={} villager={})",
                         sp.getGameProfile().getName(), cost, vill.getUUID());
                 try {
-                    ctx.reply(new org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchPaymentFailed(vill.getId(), "not_enough_emeralds"));
+                    ctx.reply(new org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchPaymentFailed(vill.getId(), "not_enough_currency"));
                 } catch (Throwable ignored) {}
                 return;
             }
 
             try {
                 if (cost > 0) {
-                    // Auto-search costs are currently paid in emeralds; store as "emeralds earned from auto rerolls".
-                    org.z2six.villageroverhaul.server.VillagerHistoryService.addEmeraldsFromAutoRerolls(vill, cost);
+                    // Track emeralds only when the configured currency is exactly emerald.
+                    boolean specIsTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
+                    ResourceLocation itemId = specIsTag ? null : ResourceLocation.tryParse(ServerConfig.costSpec);
+                    if (!specIsTag && itemId != null && "minecraft:emerald".equals(itemId.toString())) {
+                        org.z2six.villageroverhaul.server.VillagerHistoryService.addEmeraldsFromAutoRerolls(vill, cost);
+                    }
                 }
             } catch (Throwable ignored) {}
 
@@ -976,19 +976,7 @@ public final class ServerHandlers {
 
     private static boolean tryChargePlayer(ServerPlayer sp, int cost) {
         try {
-            boolean isTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
-            ResourceLocation id = isTag ? null : ResourceLocation.tryParse(ServerConfig.costSpec);
-
-            if (ServerConfig.preferWallet && id != null && MoneyBridge.isLCPresent()) {
-                if (MoneyBridge.tryExtract(sp, id, cost)) return true;
-            }
-
-            if (ServerConfig.preferWallet && id != null && WalletBridge.isLCPresent()) {
-                if (WalletBridge.tryWithdrawFromWallet(sp, id, cost)) return true;
-            }
-
-            Ingredient ing = CostUtil.parseIngredient(ServerConfig.costSpec);
-            return ing != Ingredient.EMPTY && CostUtil.consume(sp, ing, cost);
+            return org.z2six.villageroverhaul.logic.PaymentUtil.tryCharge(sp, cost);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] tryChargePlayer failed (soft): {}", t.toString());

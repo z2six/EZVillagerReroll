@@ -38,6 +38,20 @@ public final class CostUtil {
         try {
             if (count <= 0) return true;
             Inventory inv = sp.getInventory();
+
+            int have = 0;
+            for (int i = 0; i < inv.getContainerSize(); i++) {
+                ItemStack s = inv.getItem(i);
+                if (s.isEmpty()) continue;
+                if (!ing.test(s)) continue;
+                have += s.getCount();
+                if (have >= count) break;
+            }
+            if (have < count) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Not enough items: need {}, have {}", count, have);
+                return false;
+            }
+
             int remaining = count;
 
             for (int i = 0; i < inv.getContainerSize(); i++) {
@@ -51,11 +65,9 @@ public final class CostUtil {
 
                 if (remaining <= 0) break;
             }
-            if (remaining > 0) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Not enough items: need {}, short by {}", count, remaining);
-                return false;
-            }
-            return true;
+
+            try { inv.setChanged(); } catch (Throwable ignored) {}
+            return remaining <= 0;
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] consume() exception", t);
             return false;

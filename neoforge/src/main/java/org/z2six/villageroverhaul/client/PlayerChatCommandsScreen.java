@@ -106,6 +106,8 @@ public final class PlayerChatCommandsScreen extends Screen {
         scrollBar = new SimpleScrollBar(listX + listW + 2, listY, SCROLLBAR_W, listH);
 
         addChatRow(listX, listY, listW, "Help", "help");
+        addChatRow(listX, listY, listW, "Equip", "equip");
+        addChatRow(listX, listY, listW, "Stash", "stash");
         addChatRow(listX, listY, listW, "Neutral", "neutral");
         addChatRow(listX, listY, listW, "Idle", "idle");
         addChatRow(listX, listY, listW, "Follow", "follow");

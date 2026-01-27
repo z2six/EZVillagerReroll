@@ -3,11 +3,13 @@ package org.z2six.villageroverhaul;
 
 import com.mojang.logging.LogUtils;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
@@ -83,40 +85,49 @@ public final class VillagerOverhaul {
 
         try {
             modBus.addListener(this::commonSetup);
-            modBus.addListener(this::clientSetup);
             LOG.info("[VillagerOverhaul] Registered common/client setup listeners on MOD bus.");
         } catch (Throwable t) {
             LOG.error("[VillagerOverhaul] Failed to register setup listeners.", t);
         }
 
-        try {
-            modBus.addListener(ClientKeybinds::onRegisterKeyMappings);
-            LOG.info("[VillagerOverhaul] Registered ClientKeybinds on MOD bus.");
-        } catch (Throwable t) {
-            LOG.error("[VillagerOverhaul] Failed to register ClientKeybinds.", t);
-        }
+        // Client-only listeners MUST NOT be registered on dedicated servers (NeoForge dist safety).
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            try {
+                modBus.addListener(this::clientSetup);
+                LOG.info("[VillagerOverhaul] Registered client setup listener on MOD bus.");
+            } catch (Throwable t) {
+                LOG.error("[VillagerOverhaul] Failed to register client setup listener.", t);
+            }
 
-        // Menu->Screen mapping
-        try {
-            modBus.addListener(this::onRegisterMenuScreens);
-            LOG.info("[VillagerOverhaul] Registered onRegisterMenuScreens listener on MOD bus.");
-        } catch (Throwable t) {
-            LOG.error("[VillagerOverhaul] Failed to register onRegisterMenuScreens listener (continuing).", t);
-        }
+            try {
+                modBus.addListener(ClientKeybinds::onRegisterKeyMappings);
+                LOG.info("[VillagerOverhaul] Registered ClientKeybinds on MOD bus.");
+            } catch (Throwable t) {
+                LOG.error("[VillagerOverhaul] Failed to register ClientKeybinds.", t);
+            }
 
-        // --- RENDER LAYERS + LAYER DEFINITIONS (MOD bus, client-only event types) ---
-        try {
-            modBus.addListener(ClientRenderEvents::onRegisterLayerDefinitions);
-            LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onRegisterLayerDefinitions on MOD bus.");
-        } catch (Throwable t) {
-            LOG.error("[VillagerOverhaul] Failed to register ClientRenderEvents::onRegisterLayerDefinitions on MOD bus.", t);
-        }
+            // Menu->Screen mapping
+            try {
+                modBus.addListener(this::onRegisterMenuScreens);
+                LOG.info("[VillagerOverhaul] Registered onRegisterMenuScreens listener on MOD bus.");
+            } catch (Throwable t) {
+                LOG.error("[VillagerOverhaul] Failed to register onRegisterMenuScreens listener (continuing).", t);
+            }
 
-        try {
-            modBus.addListener(ClientRenderEvents::onAddLayers);
-            LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onAddLayers on MOD bus.");
-        } catch (Throwable t) {
-            LOG.error("[VillagerOverhaul] Failed to register ClientRenderEvents::onAddLayers on MOD bus.", t);
+            // --- RENDER LAYERS + LAYER DEFINITIONS (MOD bus, client-only event types) ---
+            try {
+                modBus.addListener(ClientRenderEvents::onRegisterLayerDefinitions);
+                LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onRegisterLayerDefinitions on MOD bus.");
+            } catch (Throwable t) {
+                LOG.error("[VillagerOverhaul] Failed to register ClientRenderEvents::onRegisterLayerDefinitions on MOD bus.", t);
+            }
+
+            try {
+                modBus.addListener(ClientRenderEvents::onAddLayers);
+                LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onAddLayers on MOD bus.");
+            } catch (Throwable t) {
+                LOG.error("[VillagerOverhaul] Failed to register ClientRenderEvents::onAddLayers on MOD bus.", t);
+            }
         }
 
         // --- GAMEPLAY BUS listeners (NeoForge bus) ---
