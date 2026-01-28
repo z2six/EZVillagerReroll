@@ -102,7 +102,7 @@ public final class CustomCommandsActionDetailScreen extends Screen {
 
         commandBox = new EditBox(this.font, left + 10, top + 50, PANEL_W - 20, 18, Component.literal("Chat Command"));
         commandBox.setMaxLength(64);
-        commandBox.setTooltip(Tooltip.create(Component.literal("What you type in chat to trigger this teaching. Use \"##\" for multiple triggers.")));
+        commandBox.setTooltip(Tooltip.create(Component.literal("What you type in chat to trigger this teaching. Use \"##\" for multiple triggers. Use \"$$text$$\" to match if the message contains text.")));
         addRenderableWidget(commandBox);
 
         descBox = new EditBox(this.font, left + 10, top + 72, PANEL_W - 20, 18, Component.literal("Description"));

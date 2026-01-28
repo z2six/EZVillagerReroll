@@ -934,6 +934,19 @@ public final class CustomCommandsService {
                 if (p == null) continue;
                 String trigger = p.trim();
                 if (trigger.isEmpty()) continue;
+
+                boolean contains = trigger.length() >= 4 && trigger.startsWith("$$") && trigger.endsWith("$$");
+                if (contains) {
+                    String needle = trigger.substring(2, trigger.length() - 2).trim();
+                    if (needle.isEmpty()) continue;
+                    if (cs) {
+                        if (msg.contains(needle)) return true;
+                    } else {
+                        if (msg.toLowerCase(java.util.Locale.ROOT).contains(needle.toLowerCase(java.util.Locale.ROOT))) return true;
+                    }
+                    continue;
+                }
+
                 if (cs ? trigger.equals(msg) : trigger.equalsIgnoreCase(msg)) return true;
             }
             return false;
