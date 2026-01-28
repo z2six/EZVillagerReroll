@@ -3214,3 +3214,4 @@ runs
 # (Temporary) Ignore accidental nested NeoForge source root created by tooling.
 neoforge/src/neoforge/
 /.gradle_user_home/
+/neoforge/.eclipse/

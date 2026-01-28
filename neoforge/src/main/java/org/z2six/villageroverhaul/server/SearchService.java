@@ -1725,11 +1725,34 @@ public final class SearchService {
 
     public static int getSettlementFinalCost(Villager vill) {
         try {
+            if (vill == null) return 0;
             Settlement s = SETTLEMENTS.get(vill.getUUID());
             if (s == null) return 0;
-            return Math.max(0, computeSettlementFinalCostFromV(vill, s));
+
+            int baseCost = Math.max(0, computeSettlementFinalCostFromV(vill, s));
+            return Math.max(0, clampSettlementFinalCost(s, baseCost));
         } catch (Throwable t) {
             return 0;
+        }
+    }
+
+    private static int clampSettlementFinalCost(Settlement s, int cost) {
+        try {
+            if (s == null) return Math.max(0, cost);
+            int c = Math.max(0, cost);
+            if (!ServerConfig.enableMaxAutoSearchCost) return c;
+
+            int hourly = Math.max(0, s.hourlyCost);
+            double mult = ServerConfig.maxAutoSearchCostMultiplier;
+            if (Double.isNaN(mult) || Double.isInfinite(mult) || mult < 0.0) mult = 0.0;
+
+            long max = (long) Math.ceil((double) hourly * mult);
+            if (max < 0L) max = 0L;
+            if (max > Integer.MAX_VALUE) max = Integer.MAX_VALUE;
+
+            return (int) Math.min((long) c, max);
+        } catch (Throwable ignored) {
+            return Math.max(0, cost);
         }
     }
 

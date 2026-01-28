@@ -65,6 +65,9 @@ public final class ServerConfig {
     public static final ModConfigSpec.IntValue AUTO_HOURLY_THRESHOLD;
     public static final ModConfigSpec.DoubleValue AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT;
 
+    public static final ModConfigSpec.BooleanValue ENABLE_MAX_AUTOSEARCH_COST;
+    public static final ModConfigSpec.DoubleValue MAX_AUTOSEARCH_COST_MULTIPLIER;
+
     public static final ModConfigSpec.ConfigValue<List<? extends Number>> LEVEL_COSTS;
 
     // ---------------------------------------------------------------------
@@ -344,6 +347,25 @@ public final class ServerConfig {
                         This affects the HOURLY cost preview and later settlement.
                         """)
                         .defineInRange("autoHourlyDiscountOrIncreasePct", 5.0, 0.0, 100.0);
+
+        ENABLE_MAX_AUTOSEARCH_COST =
+                B.comment("""
+                        If enabled, auto-search settlement cost is clamped to a maximum based on the villager's hourly cost.
+                        maxCost = ceil(hourlyCost * maxAutoSearchCostMultiplier)
+                        
+                        This is applied at payment time and affects existing unpaid settlements.
+                        Default: disabled.
+                        """)
+                        .define("enableMaxAutoSearchCost", false);
+
+        MAX_AUTOSEARCH_COST_MULTIPLIER =
+                B.comment("""
+                        Multiplier used when enableMaxAutoSearchCost is true.
+                        maxCost = ceil(hourlyCost * maxAutoSearchCostMultiplier)
+                        
+                        Example: hourlyCost=22, multiplier=10 => maxCost=220.
+                        """)
+                        .defineInRange("maxAutoSearchCostMultiplier", 10.0, 0.0, 1_000_000.0);
 
         LEVEL_COSTS =
                 B.comment("""
@@ -746,6 +768,9 @@ public final class ServerConfig {
     public static int autoHourlyThreshold = 6;
     public static double autoHourlyDiscountOrIncreasePct = 5.0;
 
+    public static boolean enableMaxAutoSearchCost = false;
+    public static double maxAutoSearchCostMultiplier = 10.0;
+
     public static int recruitCostMin = 8;
     public static int recruitCostMax = 64;
     public static double respawnCostMultiplier = 2.0;
@@ -846,6 +871,12 @@ public final class ServerConfig {
 
             autoHourlyThreshold = Math.max(0, AUTO_HOURLY_THRESHOLD.get());
             autoHourlyDiscountOrIncreasePct = Math.max(0.0, AUTO_HOURLY_DISCOUNT_OR_INCREASE_PCT.get());
+
+            enableMaxAutoSearchCost = ENABLE_MAX_AUTOSEARCH_COST.get();
+            double maxMult;
+            try { maxMult = MAX_AUTOSEARCH_COST_MULTIPLIER.get(); } catch (Throwable ignored) { maxMult = 10.0; }
+            if (Double.isNaN(maxMult) || Double.isInfinite(maxMult) || maxMult < 0.0) maxMult = 0.0;
+            maxAutoSearchCostMultiplier = maxMult;
 
             int rMin = Math.max(0, RECRUIT_COST_MIN.get());
             int rMax = Math.max(0, RECRUIT_COST_MAX.get());
@@ -948,12 +979,13 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} modules=[merchant={},combat={},farming={}] costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} modules=[merchant={},combat={},farming={}] costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} maxAutoSearchCost=[enabled={},mult={}] recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     enableMerchantModule, enableCombatModule, enableFarmingModule,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
+                    enableMaxAutoSearchCost, maxAutoSearchCostMultiplier,
                     recruitCostMin, recruitCostMax,
                     respawnCostMultiplier,
                     cooldownTicks, cooldownTicksAuto, perVillagerDaily, allowAfterTradeUsed,
@@ -1034,6 +1066,9 @@ public final class ServerConfig {
         h = 31 * h + autoHourlyThreshold;
         long pctBits = Double.doubleToLongBits(autoHourlyDiscountOrIncreasePct);
         h = 31 * h + (int) (pctBits ^ (pctBits >>> 32));
+
+        h = 31 * h + (enableMaxAutoSearchCost ? 1 : 0);
+        h = 31 * h + hashD(maxAutoSearchCostMultiplier);
 
         h = 31 * h + recruitCostMin;
         h = 31 * h + recruitCostMax;
