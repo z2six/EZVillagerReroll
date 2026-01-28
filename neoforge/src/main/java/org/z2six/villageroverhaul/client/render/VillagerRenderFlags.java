@@ -5,6 +5,9 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ArmorItem;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 
 /**
@@ -104,6 +107,19 @@ public final class VillagerRenderFlags {
             boolean hasOff = off != null && !off.isEmpty();
 
             boolean shouldRenderCustomArms = (hasMain || hasOff);
+
+            // NEW RULE: If a modded chestplate is equipped, always render custom humanoid arms.
+            // Many modded chestplates include arm/shoulder geometry that expects humanoid arm animation.
+            if (!shouldRenderCustomArms && hasChest) {
+                try {
+                    if (chest.getItem() instanceof ArmorItem ai && ai.getEquipmentSlot() == EquipmentSlot.CHEST) {
+                        ResourceLocation id = BuiltInRegistries.ITEM.getKey(chest.getItem());
+                        if (id != null && !"minecraft".equals(id.getNamespace())) {
+                            shouldRenderCustomArms = true;
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
 
             // NEW: hide hat when helmet equipped
             ItemStack head = safeGetBySlot(vill, EquipmentSlot.HEAD);

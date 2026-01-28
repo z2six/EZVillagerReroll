@@ -60,23 +60,20 @@ public final class ClientRenderEvents {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] No vanilla crossed-arms item layer found to wrap (ok).");
             }
 
-            // --- Armor layer (your existing working one) ---
-            HumanoidModel<LivingEntity> innerArmor = new HumanoidModel<>(e.getEntityModels().bakeLayer(ModelLayers.PLAYER_INNER_ARMOR));
-            HumanoidModel<LivingEntity> outerArmor = new HumanoidModel<>(e.getEntityModels().bakeLayer(ModelLayers.PLAYER_OUTER_ARMOR));
-            villagerRenderer.addLayer(new VillagerHumanoidArmorLayer(villagerRenderer, innerArmor, outerArmor));
+            // Driver humanoid model: shared by arms + armor so modded armor arm parts follow the same animation.
+            HumanoidModel<LivingEntity> driverHumanoid = new HumanoidModel<>(e.getEntityModels().bakeLayer(ModelLayers.ZOMBIE));
 
             // --- Arms model (shared between arms + held-item layers) ---
-            VillagerCombatArmsModel armsModel = new VillagerCombatArmsModel(
-                    e.getEntityModels().bakeLayer(VillagerCombatArmsModel.LAYER_LOCATION)
-            );
-
-            // Driver humanoid model: use a vanilla humanoid biped layer
-            HumanoidModel<LivingEntity> driverHumanoid = new HumanoidModel<>(
-                    e.getEntityModels().bakeLayer(ModelLayers.ZOMBIE)
-            );
+            VillagerCombatArmsModel armsModel = new VillagerCombatArmsModel(e.getEntityModels().bakeLayer(VillagerCombatArmsModel.LAYER_LOCATION));
 
             // --- Custom arms (renders the geometry) ---
+            // Add BEFORE armor so armor renders on top of the arms skin.
             villagerRenderer.addLayer(new VillagerHumanoidArmsLayer(villagerRenderer, armsModel, driverHumanoid));
+
+            // --- Armor layer ---
+            HumanoidModel<LivingEntity> innerArmor = new HumanoidModel<>(e.getEntityModels().bakeLayer(ModelLayers.PLAYER_INNER_ARMOR));
+            HumanoidModel<LivingEntity> outerArmor = new HumanoidModel<>(e.getEntityModels().bakeLayer(ModelLayers.PLAYER_OUTER_ARMOR));
+            villagerRenderer.addLayer(new VillagerHumanoidArmorLayer(villagerRenderer, innerArmor, outerArmor, driverHumanoid, armsModel));
 
             // --- Held items (renders mainhand + offhand anchored to the custom arms pose) ---
             villagerRenderer.addLayer(new VillagerHumanoidHeldItemLayer(villagerRenderer, armsModel));

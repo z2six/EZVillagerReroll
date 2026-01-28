@@ -26,3 +26,6 @@ Yes. If Eating is enabled in Combat Settings and the villager has edible food in
 
 ## Why is my villager still dumb?
 Some AI behaviors are kept by design. For example: not pathing around trapdoors or not knowing how to compute slightly complex paths. It would be possible to create custom AI for, but as I just mentioned: this is on purpose to still make them feel like a "villager".
+
+## Do modded items work?
+Yes, they do work, and there is explicit support (rendering) for modded armors. I tried my best testing as many armors as I could but Villagers do have weird bodies. It could be that one armor piece looks a bit weird. But hey, Villagers have weird bodies. Weird-body positivity!

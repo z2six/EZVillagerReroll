@@ -95,6 +95,28 @@ public final class VillagerCombatArmsModel extends EntityModel<Villager> {
         }
     }
 
+    /**
+     * Copies the currently computed arm rotations into a humanoid armor model's arms.
+     * This allows modded chestplate arm/shoulder geometry to follow the same animation as our custom arms layer,
+     * even when the arms layer uses a different internal driver model.
+     */
+    public void copyArmRotationsTo(ModelPart humanoidRightArm, ModelPart humanoidLeftArm) {
+        try {
+            if (humanoidRightArm != null && this.rightArm != null) {
+                humanoidRightArm.xRot = this.rightArm.xRot;
+                humanoidRightArm.yRot = this.rightArm.yRot;
+                humanoidRightArm.zRot = this.rightArm.zRot;
+            }
+            if (humanoidLeftArm != null && this.leftArm != null) {
+                humanoidLeftArm.xRot = this.leftArm.xRot;
+                humanoidLeftArm.yRot = this.leftArm.yRot;
+                humanoidLeftArm.zRot = this.leftArm.zRot;
+            }
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatArmsModel.copyArmRotationsTo failed (soft): {}", t.toString());
+        }
+    }
+
     public void renderArms(PoseStack poseStack, VertexConsumer consumer, int packedLight, int packedOverlay, int packedColor) {
         try {
             if (this.rightArm != null) this.rightArm.render(poseStack, consumer, packedLight, packedOverlay, packedColor);

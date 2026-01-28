@@ -7,21 +7,34 @@ import net.minecraft.client.model.VillagerModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.Sheets;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ArmorItem;
+import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.armortrim.ArmorTrim;
+import net.neoforged.neoforge.client.ClientHooks;
+import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Renders armor on Villagers using vanilla humanoid armor models (inner/outer),
@@ -56,10 +69,17 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
      * - Legs bigger: LEGS.scaleXYZ = 1.02 .. 1.08
      * - Push outward to reduce robe clipping: z += 0.01 .. 0.03
      */
-    private static final Transform TX_HEAD  = Transform.of(0.0f, -0.075f, 0.000f, 1.000f, 1.000f, 1.000f);
-    private static final Transform TX_CHEST = Transform.of(0.0f, 0.000f, 0.012f, 1.020f, 1.020f, 1.020f);
-    private static final Transform TX_LEGS  = Transform.of(0.0f, 0.000f, 0.010f, 1.020f, 1.020f, 1.020f);
-    private static final Transform TX_FEET  = Transform.of(0.0f, 0.000f, 0.006f, 1.020f, 1.020f, 1.020f);
+    // Helmets from many mods are authored strictly for player proportions; villagers have a taller head/nose.
+    // We apply a small uniform scale for *custom* armor models to reduce head clipping.
+    // Single setting for all helmets (vanilla + modded). Tune here.
+    //
+    // From the perspective of player (villager facing the player), variables are as follows:
+    // x = ??? | y = positive = down | z = ???
+    // sx = width | sy = height | sz = depth
+    private static final Transform TX_HEAD  = Transform.of(0.0f, 0.100f, 0.000f, 1.080f, 1.550f, 1.080f);
+    private static final Transform TX_CHEST = Transform.of(0.0f, 0.000f, 0.012f, 1.060f, 1.060f, 1.250f);
+    private static final Transform TX_LEGS  = Transform.of(0.0f, 0.000f, 0.010f, 1.060f, 1.060f, 1.150f);
+    private static final Transform TX_FEET  = Transform.of(0.0f, 0.000f, 0.006f, 1.060f, 1.060f, 1.150f);
 
     /**
      * Optional per-part transforms (applied just before rendering each ModelPart).
@@ -89,6 +109,13 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
 
     private final HumanoidModel<?> innerModel;
     private final HumanoidModel<?> outerModel;
+    private final HumanoidModel<LivingEntity> driverHumanoid;
+    private final VillagerCombatArmsModel armsModel;
+
+    private TextureAtlas armorTrimAtlas;
+
+    private static final Set<String> EZVR_ARMOR_INFO_LOG_ONCE =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     // Cached accessors for villager model parts (reflection, because mappings drift)
     private final PartAccess villagerParts;
@@ -97,33 +124,28 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
     private static volatile Method MODEL_PART_RENDER_5; // (PoseStack, VertexConsumer, int, int, int)
     private static volatile Method MODEL_PART_RENDER_4; // (PoseStack, VertexConsumer, int, int)
 
-    // Reflection cache for armor material layer access
-    private static volatile Method HOLDER_VALUE;                 // Holder#value()
-    private static volatile Method ARMOR_MATERIAL_LAYERS;        // ArmorMaterial#layers()
-
-    // IMPORTANT: method names differ by mappings/version
-    // NeoForge/MojMap 1.21.1: Layer#texture(boolean), Layer#dyeable()
-    // Yarn-ish: Layer#getTexture(boolean), Layer#isDyeable()
-    private static volatile Method ARMOR_LAYER_TEXTURE;          // texture(boolean) OR getTexture(boolean)
-    private static volatile Method ARMOR_LAYER_DYEABLE;          // dyeable() OR isDyeable()
-
-    // ItemStack component access for dyed color (kept reflective to be robust)
-    private static volatile Class<?> DATA_COMPONENT_TYPE_CLASS;
-    private static volatile Object DYED_COLOR_COMPONENT_KEY;
-    private static volatile Method ITEMSTACK_GET_COMPONENT;
-
     public VillagerHumanoidArmorLayer(RenderLayerParent<Villager, VillagerModel<Villager>> parent,
                                       HumanoidModel<?> innerModel,
-                                      HumanoidModel<?> outerModel) {
+                                      HumanoidModel<?> outerModel,
+                                      HumanoidModel<LivingEntity> driverHumanoid,
+                                      VillagerCombatArmsModel armsModel) {
         super(parent);
         this.innerModel = innerModel;
         this.outerModel = outerModel;
+        this.driverHumanoid = driverHumanoid;
+        this.armsModel = armsModel;
 
         this.villagerParts = new PartAccess(parent.getModel());
 
         warmupModelPartRenderMethods();
-        warmupArmorMaterialLayerReflection();
-        warmupDyedColorReflection();
+
+        try {
+            var mc = net.minecraft.client.Minecraft.getInstance();
+            var mm = mc == null ? null : mc.getModelManager();
+            this.armorTrimAtlas = mm == null ? null : mm.getAtlas(Sheets.ARMOR_TRIMS_SHEET);
+        } catch (Throwable ignored) {
+            this.armorTrimAtlas = null;
+        }
     }
 
     @Override
@@ -140,10 +162,11 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         try {
             if (villager == null) return;
 
-            renderArmorSlot(villager, EquipmentSlot.HEAD, poseStack, buffer, packedLight);
-            renderArmorSlot(villager, EquipmentSlot.CHEST, poseStack, buffer, packedLight);
-            renderArmorSlot(villager, EquipmentSlot.LEGS, poseStack, buffer, packedLight);
-            renderArmorSlot(villager, EquipmentSlot.FEET, poseStack, buffer, packedLight);
+            // Match vanilla HumanoidArmorLayer order
+            renderArmorSlot(villager, EquipmentSlot.CHEST, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+            renderArmorSlot(villager, EquipmentSlot.LEGS, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+            renderArmorSlot(villager, EquipmentSlot.FEET, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+            renderArmorSlot(villager, EquipmentSlot.HEAD, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerHumanoidArmorLayer render failed (soft): {}", t.toString());
@@ -154,7 +177,13 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                                  EquipmentSlot slot,
                                  PoseStack poseStack,
                                  MultiBufferSource buffer,
-                                 int packedLight) {
+                                 int packedLight,
+                                 float limbSwing,
+                                 float limbSwingAmount,
+                                 float partialTick,
+                                 float ageInTicks,
+                                 float netHeadYaw,
+                                 float headPitch) {
         ItemStack stack;
         try {
             stack = vill.getItemBySlot(slot);
@@ -167,29 +196,120 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
 
         // In vanilla terminology: leggings use the "inner" texture/model.
         boolean innerTexture = (slot == EquipmentSlot.LEGS);
-        HumanoidModel<?> model = innerTexture ? innerModel : outerModel;
+        HumanoidModel<?> baseHumanoidModel = innerTexture ? innerModel : outerModel;
 
-        setPartVisibility(model, slot);
-        copyVillagerPoseIntoHumanoid(this.getParentModel(), model);
+        // IMPORTANT: EntityModel.young defaults to TRUE.
+        // If we don't set this explicitly, armor models rendered via renderToBuffer will be treated as "baby"
+        // and get scaled/translated (looks like tiny armor attached around hips/knees).
+        try {
+            baseHumanoidModel.young = vill.isBaby();
+            baseHumanoidModel.riding = vill.isPassenger();
+        } catch (Throwable ignored) {}
 
-        List<ArmorLayer> layers = getArmorMaterialLayersSafe(armor, innerTexture);
-        if (layers.isEmpty()) {
-            if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] No armor layers resolved for item={} slot={} (innerTexture={})",
-                        stack.getItem(), slot, innerTexture);
+        setPartVisibility(baseHumanoidModel, slot);
+        copyVillagerPoseIntoHumanoid(this.getParentModel(), baseHumanoidModel);
+
+        net.minecraft.client.model.Model armorModel;
+        try {
+            armorModel = ClientHooks.getArmorModel(vill, stack, slot, (HumanoidModel) baseHumanoidModel);
+        } catch (Throwable ignored) {
+            armorModel = baseHumanoidModel;
+        }
+
+        boolean useDriverArms = false;
+        try {
+            if (vill instanceof VillagerOverhaulRenderAccess acc) {
+                useDriverArms = VillagerRenderFlags.renderCustomArms(acc.ezvr$getRenderFlags());
             }
+        } catch (Throwable ignored) {
+            useDriverArms = false;
+        }
+
+        HumanoidModel<?> humanoidArmorModel = null;
+        if (armorModel instanceof HumanoidModel<?> hm) {
+            humanoidArmorModel = hm;
+
+            // Critical for modded armor: many armor models default to all parts hidden.
+            try { setPartVisibility(hm, slot); } catch (Throwable ignored) {}
+
+            // Preserve modded model pivots: copy rotations only (not x/y/z).
+            try {
+                hm.young = vill.isBaby();
+                hm.riding = vill.isPassenger();
+            } catch (Throwable ignored) {}
+
+            // Seed head/body/legs from our base model. (Arms are handled AFTER setupModelAnimations below.)
+            try {
+                if (baseHumanoidModel instanceof HumanoidModel<?> base) {
+                    if (base.head != null && hm.head != null) copyPartRot(base.head, hm.head);
+                    if (hm.hat != null && hm.head != null) copyPartRot(hm.head, hm.hat);
+                    if (base.body != null && hm.body != null) copyPartRot(base.body, hm.body);
+                    if (base.rightLeg != null && hm.rightLeg != null) copyPartRot(base.rightLeg, hm.rightLeg);
+                    if (base.leftLeg != null && hm.leftLeg != null) copyPartRot(base.leftLeg, hm.leftLeg);
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // Ensure any replacement model also has correct young/riding state (covers non-humanoid Model impls too).
+        try {
+            if (armorModel instanceof net.minecraft.client.model.EntityModel<?> em) {
+                em.young = vill.isBaby();
+                em.riding = vill.isPassenger();
+            }
+        } catch (Throwable ignored) {}
+
+        IClientItemExtensions extensions = null;
+        try { extensions = IClientItemExtensions.of(stack); } catch (Throwable ignored) { extensions = null; }
+        try {
+            if (extensions != null) {
+                extensions.setupModelAnimations(vill, stack, slot, armorModel, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+            }
+        } catch (Throwable ignored) {}
+
+        // IMPORTANT: Many mods set/overwrite arm part rotations inside setupModelAnimations.
+        // Apply our arm override AFTER that so chestplate arm/shoulder geometry follows the villager arms.
+        try {
+            HumanoidModel<?> hm = humanoidArmorModel;
+            if (hm != null && slot == EquipmentSlot.CHEST) {
+                if (useDriverArms && driverHumanoid != null) {
+                    // Prefer the actual custom-arms model rotations (these already reflect the driver used by the arms layer,
+                    // which may be a PlayerModel instead of the injected driverHumanoid).
+                    if (armsModel != null) {
+                        armsModel.copyArmRotationsTo(hm.rightArm, hm.leftArm);
+                    } else {
+                        if (driverHumanoid.rightArm != null && hm.rightArm != null) copyPartRot(driverHumanoid.rightArm, hm.rightArm);
+                        if (driverHumanoid.leftArm != null && hm.leftArm != null) copyPartRot(driverHumanoid.leftArm, hm.leftArm);
+                    }
+                } else {
+                    // If we are not rendering custom arms, hide armor arms to avoid "hanging arms" during crossed-arms pose.
+                    if (hm.rightArm != null) hm.rightArm.visible = false;
+                    if (hm.leftArm != null) hm.leftArm.visible = false;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        ArmorMaterial material;
+        try {
+            material = armor.getMaterial().value();
+        } catch (Throwable ignored) {
             return;
         }
 
         int overlay = OverlayTexture.NO_OVERLAY;
 
-        // Dye (only used for dyeable layers)
-        int dyeRGB = tryGetDyedLeatherColorRGB(stack);
-        boolean hasDye = (dyeRGB != -1);
+        int fallbackColor = 0xA06540;
+        try { if (extensions != null) fallbackColor = extensions.getDefaultDyeColor(stack); } catch (Throwable ignored) {}
 
-        // Vanilla-ish default leather color when undyed
-        int defaultLeather = 0xA06540;
-        int usedRGB = hasDye ? dyeRGB : defaultLeather;
+        ezvr$infoOnce(
+                "armor_begin:" + String.valueOf(stack.getItem()) + ":" + slot,
+                "[VillagerOverhaul] Armor render begin: item={}, slot={}, modelClass={}, baseModelClass={}, extClass={}, materialLayers={}",
+                String.valueOf(stack.getItem()),
+                String.valueOf(slot),
+                (armorModel == null ? "null" : armorModel.getClass().getName()),
+                (baseHumanoidModel == null ? "null" : baseHumanoidModel.getClass().getName()),
+                (extensions == null ? "null" : extensions.getClass().getName()),
+                (material == null || material.layers() == null ? -1 : material.layers().size())
+        );
 
         // --- SLOT LEVEL TRANSFORM ---
         boolean doTx = ENABLE_ARMOR_TRANSFORMS;
@@ -201,31 +321,223 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                 slotTx.apply(poseStack);
             }
 
-            for (ArmorLayer layer : layers) {
-                if (layer == null || layer.texture == null) continue;
+            List<ArmorMaterial.Layer> layers = material.layers();
+            if (layers == null || layers.isEmpty()) {
+                // Some mods don't populate ArmorMaterial.layers() (or rely on legacy armor texture hooks).
+                // Vanilla HumanoidArmorLayer would render nothing in this case, but players still often work because
+                // mods override Item#getArmorTexture(). We synthesize a single layer so ClientHooks.getArmorTexture()
+                // can call into mod code and return the right texture.
+                ResourceLocation syntheticAsset = deriveSyntheticArmorAsset(stack, slot);
+                ArmorMaterial.Layer synthetic = new ArmorMaterial.Layer(syntheticAsset);
+                layers = List.of(synthetic);
+
+                ezvr$infoOnce(
+                        "armor_layers_empty:" + String.valueOf(stack.getItem()) + ":" + slot,
+                        "[VillagerOverhaul] ArmorMaterial.layers() was empty; using synthetic layer asset={} (item={}, slot={})",
+                        String.valueOf(syntheticAsset),
+                        String.valueOf(stack.getItem()),
+                        String.valueOf(slot)
+                );
+            }
+            for (int layerIdx = 0; layerIdx < layers.size(); layerIdx++) {
+                ArmorMaterial.Layer layer = layers.get(layerIdx);
+                if (layer == null) continue;
 
                 int packedColor = 0xFFFFFFFF;
-                if (layer.dyeable) {
-                    packedColor = FastColor.ARGB32.color(255,
-                            FastColor.ARGB32.red(usedRGB),
-                            FastColor.ARGB32.green(usedRGB),
-                            FastColor.ARGB32.blue(usedRGB));
+                try {
+                    if (extensions != null) {
+                        packedColor = extensions.getArmorLayerTintColor(stack, vill, layer, layerIdx, fallbackColor);
+                    } else if (layer.dyeable()) {
+                        int usedRGB = fallbackColor;
+                        try {
+                            var dyed = stack.get(DataComponents.DYED_COLOR);
+                            if (dyed != null) usedRGB = dyed.rgb();
+                        } catch (Throwable ignored) {}
+                        packedColor = FastColor.ARGB32.color(255,
+                                FastColor.ARGB32.red(usedRGB),
+                                FastColor.ARGB32.green(usedRGB),
+                                FastColor.ARGB32.blue(usedRGB));
+                    }
+                } catch (Throwable ignored) {}
+
+                // Some mods return 0 for non-player entities (which makes armor invisible).
+                // Keep vanilla behavior for players, but for villagers fallback to a sane tint so it renders.
+                if (packedColor == 0) {
+                    int fallbackPacked = 0xFFFFFFFF;
+                    try {
+                        if (layer.dyeable()) {
+                            int usedRGB = fallbackColor;
+                            try {
+                                var dyed = stack.get(DataComponents.DYED_COLOR);
+                                if (dyed != null) usedRGB = dyed.rgb();
+                            } catch (Throwable ignored) {}
+                            fallbackPacked = FastColor.ARGB32.color(255,
+                                    FastColor.ARGB32.red(usedRGB),
+                                    FastColor.ARGB32.green(usedRGB),
+                                    FastColor.ARGB32.blue(usedRGB));
+                        }
+                    } catch (Throwable ignored) {}
+
+                    ezvr$infoOnce(
+                            "armor_tint0:" + String.valueOf(stack.getItem()) + ":" + slot + ":" + layerIdx,
+                            "[VillagerOverhaul] Armor tint was 0; forcing fallback tint so it renders (item={}, slot={}, layerIdx={}, dyeable={})",
+                            String.valueOf(stack.getItem()),
+                            String.valueOf(slot),
+                            layerIdx,
+                            (safeDyeable(layer))
+                    );
+                    packedColor = fallbackPacked;
                 }
 
-                try {
-                    var vc = buffer.getBuffer(RenderType.armorCutoutNoCull(layer.texture));
+                ResourceLocation tex = null;
+                try { tex = ClientHooks.getArmorTexture(vill, stack, layer, innerTexture, slot); } catch (Throwable ignored) { tex = null; }
+                if (tex == null) {
+                    try { tex = layer.texture(innerTexture); } catch (Throwable ignored) { tex = null; }
+                }
+                if (tex == null) continue;
 
-                    // Render visible parts with optional per-part transforms for this slot
-                    renderVisiblePartsWithPerPartTransforms(slot, model, poseStack, vc, packedLight, overlay, packedColor);
+                ezvr$infoOnce(
+                        "armor_layer:" + String.valueOf(stack.getItem()) + ":" + slot + ":" + layerIdx,
+                        "[VillagerOverhaul] Armor layer: item={}, slot={}, layerIdx={}, tex={}, packedColor={}",
+                        String.valueOf(stack.getItem()),
+                        String.valueOf(slot),
+                        layerIdx,
+                        String.valueOf(tex),
+                        String.format("0x%08X", packedColor)
+                );
+
+                try {
+                    var vc = buffer.getBuffer(RenderType.armorCutoutNoCull(tex));
+
+                    // Use our per-part transforms for ANY humanoid armor model so villager-fit scaling is consistent.
+                    // Most modded armor models attach extra bits as children of body/arms/head/legs, so they render too.
+                    if (armorModel instanceof HumanoidModel<?> hm) {
+                        renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, overlay, packedColor);
+                    } else {
+                        armorModel.renderToBuffer(poseStack, vc, packedLight, overlay, packedColor);
+                    }
 
                 } catch (Throwable t) {
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] Armor layer render failed tex={} item={} (soft): {}",
-                            layer.texture, stack.getItem(), t.toString());
+                            tex, stack.getItem(), t.toString());
                 }
             }
+
+            // Trim (vanilla parity)
+            try {
+                ArmorTrim trim = stack.get(DataComponents.TRIM);
+                if (trim != null) {
+                    ezvr$infoOnce(
+                            "armor_trim:" + String.valueOf(stack.getItem()) + ":" + slot,
+                            "[VillagerOverhaul] Armor trim present: item={}, slot={}, pattern={}",
+                            String.valueOf(stack.getItem()),
+                            String.valueOf(slot),
+                            String.valueOf(trim.pattern())
+                    );
+                    renderTrim(armor.getMaterial(), trim, armorModel, poseStack, buffer, packedLight, innerTexture);
+                }
+            } catch (Throwable ignored) {}
+
+            // Glint (vanilla parity)
+            try {
+                if (stack.hasFoil()) {
+                    ezvr$infoOnce(
+                            "armor_glint:" + String.valueOf(stack.getItem()) + ":" + slot,
+                            "[VillagerOverhaul] Armor glint present: item={}, slot={}",
+                            String.valueOf(stack.getItem()),
+                            String.valueOf(slot)
+                    );
+                    var vc = buffer.getBuffer(RenderType.armorEntityGlint());
+                    if (armorModel instanceof HumanoidModel<?> hm) {
+                        renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, overlay, 0xFFFFFFFF);
+                    } else {
+                        armorModel.renderToBuffer(poseStack, vc, packedLight, overlay, 0xFFFFFFFF);
+                    }
+                }
+            } catch (Throwable ignored) {}
         } finally {
             poseStack.popPose();
         }
+    }
+
+    private void renderTrim(net.minecraft.core.Holder<ArmorMaterial> armorMaterialHolder,
+                            ArmorTrim trim,
+                            net.minecraft.client.model.Model armorModel,
+                            PoseStack poseStack,
+                            MultiBufferSource buffer,
+                            int packedLight,
+                            boolean innerTexture) {
+        try {
+            if (trim == null || armorMaterialHolder == null || armorModel == null) return;
+
+            if (this.armorTrimAtlas == null) {
+                try {
+                    var mc = net.minecraft.client.Minecraft.getInstance();
+                    var mm = mc == null ? null : mc.getModelManager();
+                    this.armorTrimAtlas = mm == null ? null : mm.getAtlas(Sheets.ARMOR_TRIMS_SHEET);
+                } catch (Throwable ignored) {
+                    this.armorTrimAtlas = null;
+                }
+            }
+            if (this.armorTrimAtlas == null) return;
+
+            TextureAtlasSprite sprite = this.armorTrimAtlas.getSprite(innerTexture ? trim.innerTexture(armorMaterialHolder) : trim.outerTexture(armorMaterialHolder));
+            var vc = sprite.wrap(buffer.getBuffer(Sheets.armorTrimsSheet(trim.pattern().value().decal())));
+            armorModel.renderToBuffer(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
+        } catch (Throwable ignored) {}
+    }
+
+    private static ResourceLocation deriveSyntheticArmorAsset(ItemStack stack, EquipmentSlot slot) {
+        try {
+            ResourceLocation id = null;
+            try { id = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()); } catch (Throwable ignored) { id = null; }
+            if (id == null) return ResourceLocation.withDefaultNamespace("empty");
+
+            String p = id.getPath();
+            if (slot != null) {
+                // Common suffixes across mods
+                p = switch (slot) {
+                    case HEAD -> stripEnd(p, "_helmet", "_head", "_cap", "_hood");
+                    case CHEST -> stripEnd(p, "_chestplate", "_chest", "_tunic");
+                    case LEGS -> stripEnd(p, "_leggings", "_legs", "_pants");
+                    case FEET -> stripEnd(p, "_boots", "_feet", "_shoes");
+                    default -> p;
+                };
+            }
+            if (p.isBlank()) p = "empty";
+            return ResourceLocation.fromNamespaceAndPath(id.getNamespace(), p);
+        } catch (Throwable ignored) {
+            return ResourceLocation.withDefaultNamespace("empty");
+        }
+    }
+
+    private static String stripEnd(String s, String... suffixes) {
+        try {
+            if (s == null) return "";
+            for (String suf : suffixes) {
+                if (suf == null || suf.isEmpty()) continue;
+                if (s.endsWith(suf)) return s.substring(0, s.length() - suf.length());
+            }
+            return s;
+        } catch (Throwable ignored) {
+            return s == null ? "" : s;
+        }
+    }
+
+    private static boolean safeDyeable(Object layer) {
+        try {
+            if (layer instanceof ArmorMaterial.Layer l) return l.dyeable();
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static void ezvr$infoOnce(String key, String fmt, Object... args) {
+        try {
+            if (!VillagerOverhaul.LOG().isInfoEnabled()) return;
+            if (key == null) return;
+            if (!EZVR_ARMOR_INFO_LOG_ONCE.add(key)) return;
+            VillagerOverhaul.LOG().info(fmt, args);
+        } catch (Throwable ignored) {}
     }
 
     // -----------------------------------------------------------------------------------------
@@ -376,197 +688,6 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
     }
 
     // -----------------------------------------------------------------------------------------
-    // ArmorMaterial.Layer based texture resolution
-    // -----------------------------------------------------------------------------------------
-
-    private static final class ArmorLayer {
-        final ResourceLocation texture;
-        final boolean dyeable;
-
-        ArmorLayer(ResourceLocation texture, boolean dyeable) {
-            this.texture = texture;
-            this.dyeable = dyeable;
-        }
-    }
-
-    private static List<ArmorLayer> getArmorMaterialLayersSafe(ArmorItem armor, boolean innerTexture) {
-        List<ArmorLayer> out = new ArrayList<>();
-        try {
-            if (armor == null) return out;
-
-            Object holder = armor.getMaterial(); // Holder<ArmorMaterial> in MojMap
-            if (holder == null) return out;
-
-            Object material = invokeHolderValue(holder);
-            if (material == null) return out;
-
-            Object layersObj = invokeArmorMaterialLayers(material);
-            if (!(layersObj instanceof List<?> layers)) return out;
-
-            for (Object layer : layers) {
-                if (layer == null) continue;
-
-                ResourceLocation tex = invokeArmorLayerTexture(layer, innerTexture);
-                boolean dyeable = invokeArmorLayerDyeable(layer);
-
-                if (tex != null) {
-                    out.add(new ArmorLayer(tex, dyeable));
-                }
-            }
-
-            if (VillagerOverhaul.LOG().isDebugEnabled()) {
-                if (out.isEmpty()) {
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] ArmorMaterial.layers() produced 0 textures for material={} (innerTexture={})",
-                            safeToString(material), innerTexture);
-                } else {
-                    StringBuilder sb = new StringBuilder();
-                    for (ArmorLayer al : out) {
-                        sb.append(al.texture).append(al.dyeable ? "(dye)" : "(plain)").append(" ");
-                    }
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Armor layers for {} innerTexture={}: {}",
-                            armor, innerTexture, sb.toString().trim());
-                }
-            }
-
-            return out;
-
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] getArmorMaterialLayersSafe failed (soft): {}", t.toString());
-            return out;
-        }
-    }
-
-    private static Object invokeHolderValue(Object holder) {
-        try {
-            // Prefer direct Holder#value() if present
-            try {
-                Method m = holder.getClass().getMethod("value");
-                return m.invoke(holder);
-            } catch (Throwable ignored) {}
-
-            if (HOLDER_VALUE != null) return HOLDER_VALUE.invoke(holder);
-
-            return null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static Object invokeArmorMaterialLayers(Object material) {
-        try {
-            // Record-like accessor: layers()
-            try {
-                Method m = material.getClass().getMethod("layers");
-                return m.invoke(material);
-            } catch (Throwable ignored) {}
-
-            if (ARMOR_MATERIAL_LAYERS != null) return ARMOR_MATERIAL_LAYERS.invoke(material);
-
-            return null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static ResourceLocation invokeArmorLayerTexture(Object layer, boolean innerTexture) {
-        try {
-            // NeoForge/MojMap 1.21.1: texture(boolean)
-            try {
-                Method m = layer.getClass().getMethod("texture", boolean.class);
-                Object v = m.invoke(layer, innerTexture);
-                if (v instanceof ResourceLocation rl) return rl;
-            } catch (Throwable ignored) {}
-
-            // Other mappings: getTexture(boolean)
-            try {
-                Method m = layer.getClass().getMethod("getTexture", boolean.class);
-                Object v = m.invoke(layer, innerTexture);
-                if (v instanceof ResourceLocation rl) return rl;
-            } catch (Throwable ignored) {}
-
-            if (ARMOR_LAYER_TEXTURE != null) {
-                Object v = ARMOR_LAYER_TEXTURE.invoke(layer, innerTexture);
-                if (v instanceof ResourceLocation rl) return rl;
-            }
-
-            return null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static boolean invokeArmorLayerDyeable(Object layer) {
-        try {
-            // NeoForge/MojMap 1.21.1: dyeable()
-            try {
-                Method m = layer.getClass().getMethod("dyeable");
-                Object v = m.invoke(layer);
-                return (v instanceof Boolean b) && b;
-            } catch (Throwable ignored) {}
-
-            // Other mappings: isDyeable()
-            try {
-                Method m = layer.getClass().getMethod("isDyeable");
-                Object v = m.invoke(layer);
-                return (v instanceof Boolean b) && b;
-            } catch (Throwable ignored) {}
-
-            if (ARMOR_LAYER_DYEABLE != null) {
-                Object v = ARMOR_LAYER_DYEABLE.invoke(layer);
-                return (v instanceof Boolean b) && b;
-            }
-
-            return false;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private static void warmupArmorMaterialLayerReflection() {
-        try {
-            // Best-effort soft caching; per-instance reflection above already handles most cases.
-            try {
-                Class<?> holder = Class.forName("net.minecraft.core.Holder");
-                HOLDER_VALUE = holder.getMethod("value");
-            } catch (Throwable ignored) {}
-
-            try {
-                Class<?> armorMaterial = Class.forName("net.minecraft.world.item.ArmorMaterial");
-                ARMOR_MATERIAL_LAYERS = armorMaterial.getMethod("layers");
-            } catch (Throwable ignored) {}
-
-            try {
-                Class<?> layerClz = null;
-                try {
-                    layerClz = Class.forName("net.minecraft.world.item.ArmorMaterial$Layer");
-                } catch (Throwable ignored) {}
-
-                if (layerClz != null) {
-                    // Prefer MojMap: texture(boolean), dyeable()
-                    try {
-                        ARMOR_LAYER_TEXTURE = layerClz.getMethod("texture", boolean.class);
-                    } catch (Throwable ignored) {}
-                    try {
-                        ARMOR_LAYER_DYEABLE = layerClz.getMethod("dyeable");
-                    } catch (Throwable ignored) {}
-
-                    // Fallback names
-                    if (ARMOR_LAYER_TEXTURE == null) {
-                        try {
-                            ARMOR_LAYER_TEXTURE = layerClz.getMethod("getTexture", boolean.class);
-                        } catch (Throwable ignored) {}
-                    }
-                    if (ARMOR_LAYER_DYEABLE == null) {
-                        try {
-                            ARMOR_LAYER_DYEABLE = layerClz.getMethod("isDyeable");
-                        } catch (Throwable ignored) {}
-                    }
-                }
-            } catch (Throwable ignored) {}
-        } catch (Throwable ignored) {}
-    }
-
-    // -----------------------------------------------------------------------------------------
     // Visibility + pose copy
     // -----------------------------------------------------------------------------------------
 
@@ -618,35 +739,27 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         ModelPart vRL   = villagerParts.rightLeg(villagerModel);
         ModelPart vLL   = villagerParts.leftLeg(villagerModel);
 
-        if (vHead != null && humanoid.head != null) copyPart(vHead, humanoid.head);
-        if (humanoid.hat != null && humanoid.head != null) copyPart(humanoid.head, humanoid.hat);
+        // IMPORTANT:
+        // Many modded armor models rely on specific part pivot positions/hierarchies.
+        // Copying ModelPart translations (x/y/z) from VillagerModel into a HumanoidModel can shift the entire
+        // armor set (e.g. helmets ending up at hips) if the armor model uses a different structure.
+        // To preserve mod compatibility, copy rotations only.
+        if (vHead != null && humanoid.head != null) copyPartRot(vHead, humanoid.head);
+        if (humanoid.hat != null && humanoid.head != null) copyPartRot(humanoid.head, humanoid.hat);
 
-        if (vBody != null && humanoid.body != null) copyPart(vBody, humanoid.body);
-        if (vRA != null && humanoid.rightArm != null) copyPart(vRA, humanoid.rightArm);
-        if (vLA != null && humanoid.leftArm != null) copyPart(vLA, humanoid.leftArm);
-        if (vRL != null && humanoid.rightLeg != null) copyPart(vRL, humanoid.rightLeg);
-        if (vLL != null && humanoid.leftLeg != null) copyPart(vLL, humanoid.leftLeg);
+        if (vBody != null && humanoid.body != null) copyPartRot(vBody, humanoid.body);
+        if (vRA != null && humanoid.rightArm != null) copyPartRot(vRA, humanoid.rightArm);
+        if (vLA != null && humanoid.leftArm != null) copyPartRot(vLA, humanoid.leftArm);
+        if (vRL != null && humanoid.rightLeg != null) copyPartRot(vRL, humanoid.rightLeg);
+        if (vLL != null && humanoid.leftLeg != null) copyPartRot(vLL, humanoid.leftLeg);
     }
 
-    private static void copyPart(ModelPart from, ModelPart to) {
+    private static void copyPartRot(ModelPart from, ModelPart to) {
         if (from == null || to == null) return;
-
-        try {
-            Method m = ModelPart.class.getMethod("copyFrom", ModelPart.class);
-            m.invoke(to, from);
-            return;
-        } catch (Throwable ignored) {}
-
         try {
             to.xRot = from.xRot;
             to.yRot = from.yRot;
             to.zRot = from.zRot;
-
-            to.x = from.x;
-            to.y = from.y;
-            to.z = from.z;
-
-            to.visible = from.visible;
         } catch (Throwable ignored) {}
     }
 
@@ -681,55 +794,6 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                 }
             }
         } catch (Throwable ignored) {}
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // Dyed leather color (DataComponents.DYED_COLOR)
-    // -----------------------------------------------------------------------------------------
-
-    private static void warmupDyedColorReflection() {
-        try {
-            if (DATA_COMPONENT_TYPE_CLASS != null && DYED_COLOR_COMPONENT_KEY != null && ITEMSTACK_GET_COMPONENT != null) return;
-
-            DATA_COMPONENT_TYPE_CLASS = Class.forName("net.minecraft.core.component.DataComponentType");
-
-            Class<?> dataComponents = Class.forName("net.minecraft.core.component.DataComponents");
-            Field dyedField = dataComponents.getField("DYED_COLOR");
-            DYED_COLOR_COMPONENT_KEY = dyedField.get(null);
-
-            ITEMSTACK_GET_COMPONENT = ItemStack.class.getMethod("get", DATA_COMPONENT_TYPE_CLASS);
-        } catch (Throwable ignored) {
-            // soft
-        }
-    }
-
-    private static int tryGetDyedLeatherColorRGB(ItemStack stack) {
-        try {
-            if (stack == null || stack.isEmpty()) return -1;
-            if (!(stack.getItem() instanceof ArmorItem)) return -1;
-
-            if (DYED_COLOR_COMPONENT_KEY == null || ITEMSTACK_GET_COMPONENT == null) return -1;
-
-            Object dyedObj = ITEMSTACK_GET_COMPONENT.invoke(stack, DYED_COLOR_COMPONENT_KEY);
-            if (dyedObj == null) return -1;
-
-            try {
-                Method rgb = dyedObj.getClass().getMethod("rgb");
-                Object v = rgb.invoke(dyedObj);
-                if (v instanceof Integer i) return i;
-            } catch (Throwable ignored) {}
-
-            try {
-                Method getColor = dyedObj.getClass().getMethod("getColor");
-                Object v = getColor.invoke(dyedObj);
-                if (v instanceof Integer i) return i;
-            } catch (Throwable ignored) {}
-
-            return -1;
-
-        } catch (Throwable ignored) {
-            return -1;
-        }
     }
 
     // -----------------------------------------------------------------------------------------
