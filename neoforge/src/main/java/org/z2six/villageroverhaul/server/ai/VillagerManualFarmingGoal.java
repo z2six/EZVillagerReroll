@@ -1323,7 +1323,7 @@ public final class VillagerManualFarmingGoal extends Goal {
                             long last = vill.getPersistentData().getLong("ezvr_manual_farm_last_consume_warn");
                             if (last <= 0L || (nowGt - last) > 100L) {
                                 vill.getPersistentData().putLong("ezvr_manual_farm_last_consume_warn", nowGt);
-                                VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] WARNING consumed=0 for plant villager={} item={} wantConsume={}",
+                                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [manual_farm] WARNING consumed=0 for plant villager={} item={} wantConsume={}",
                                     vill.getUUID(), String.valueOf(BuiltInRegistries.ITEM.getKey(item)), wantConsume);
                             }
                         } catch (Throwable ignored) {}
@@ -1349,7 +1349,7 @@ public final class VillagerManualFarmingGoal extends Goal {
                         } catch (Throwable ignored) { invCount = -1; }
                         double eff = 0.0;
                         try { eff = VillagerTraitEffects.efficiencyPct(vill); } catch (Throwable ignored) { eff = 0.0; }
-                        VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant villager={} item={} wantConsume={} invCountAfter={} efficiencyPct={}",
+                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [manual_farm] plant villager={} item={} wantConsume={} invCountAfter={} efficiencyPct={}",
                                 vill.getUUID(), String.valueOf(BuiltInRegistries.ITEM.getKey(item)), wantConsume, invCount, eff);
                     }
                 } catch (Throwable ignored) {}

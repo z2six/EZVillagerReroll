@@ -1648,7 +1648,7 @@ public final class VillagerBrain {
                 boolean hasHands = (main != null && !main.isEmpty()) || (off != null && !off.isEmpty());
                 if (hasHands) {
                     signalSwing(vill, InteractionHand.MAIN_HAND, "manual_plant_anim_swing_only");
-                    VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant_anim swing_only villager={} entityId={} (hands already non-empty)",
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] [manual_farm] plant_anim swing_only villager={} entityId={} (hands already non-empty)",
                             vill.getUUID(), vill.getId());
                     return;
                 }
@@ -1679,7 +1679,7 @@ public final class VillagerBrain {
             // Trigger the custom swing anim (client uses our synced swing-seq, not vanilla swing state).
             signalSwing(vill, InteractionHand.MAIN_HAND, "manual_plant_anim");
 
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant_anim start villager={} entityId={} item={} ticks={} until={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [manual_farm] plant_anim start villager={} entityId={} item={} ticks={} until={}",
                     vill.getUUID(), vill.getId(), String.valueOf(visual.getItem()), ticks, until);
 
         } catch (Throwable ignored) {}
@@ -1745,7 +1745,7 @@ public final class VillagerBrain {
                     try { tickRenderDecisions(vill); } catch (Throwable ignored) {}
                 }
 
-                VillagerOverhaul.LOG().info("[VillagerOverhaul] [manual_farm] plant_anim end villager={} entityId={} restored={}",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [manual_farm] plant_anim end villager={} entityId={} restored={}",
                         vill.getUUID(), vill.getId(), stillVisual);
 
                 it.remove();
