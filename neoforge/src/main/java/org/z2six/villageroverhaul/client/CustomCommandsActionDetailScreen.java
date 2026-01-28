@@ -46,6 +46,8 @@ public final class CustomCommandsActionDetailScreen extends Screen {
     private boolean caseSensitive = true;
     private Button chainBtn;
     private boolean chain = false;
+    private Button anyoneBtn;
+    private boolean anyone = false;
 
     private final List<CompoundTag> steps = new ArrayList<>();
     private final List<CompoundTag> actualSteps = new ArrayList<>();
@@ -100,7 +102,7 @@ public final class CustomCommandsActionDetailScreen extends Screen {
 
         commandBox = new EditBox(this.font, left + 10, top + 50, PANEL_W - 20, 18, Component.literal("Chat Command"));
         commandBox.setMaxLength(64);
-        commandBox.setTooltip(Tooltip.create(Component.literal("What you type in chat to trigger this teaching.")));
+        commandBox.setTooltip(Tooltip.create(Component.literal("What you type in chat to trigger this teaching. Use \"##\" for multiple triggers.")));
         addRenderableWidget(commandBox);
 
         descBox = new EditBox(this.font, left + 10, top + 72, PANEL_W - 20, 18, Component.literal("Description"));
@@ -123,6 +125,14 @@ public final class CustomCommandsActionDetailScreen extends Screen {
                 .pos(left + 10 + 144, top + 94).size(90, 18).build();
         chainBtn.setTooltip(Tooltip.create(Component.literal("If enabled, villagers can pass this command through a chain to reach far away villagers.")));
         addRenderableWidget(chainBtn);
+
+        anyoneBtn = Button.builder(Component.literal("Anyone []"), b -> {
+                    anyone = !anyone;
+                    updateAnyoneButton();
+                })
+                .pos(left + 10 + 144 + 90 + 4, top + 94).size(78, 18).build();
+        anyoneBtn.setTooltip(Tooltip.create(Component.literal("If enabled, ANY player can trigger this teaching (not just the owner).")));
+        addRenderableWidget(anyoneBtn);
 
         int smallW = 46;
         int rowY = top + 116;
@@ -183,11 +193,13 @@ public final class CustomCommandsActionDetailScreen extends Screen {
             try { descBox.setValue(tag.getString("d")); } catch (Throwable ignored) {}
             try { caseSensitive = tag.getBoolean("case"); } catch (Throwable ignored) {}
             try { chain = tag.getBoolean("chain"); } catch (Throwable ignored) {}
+            try { anyone = tag.getBoolean("anyone"); } catch (Throwable ignored) {}
             try { timeoutBox.setValue(String.valueOf(tag.getInt("to"))); } catch (Throwable ignored) {}
             try { retryBox.setValue(String.valueOf(tag.getInt("ra"))); } catch (Throwable ignored) {}
             try { stopBox.setValue(String.valueOf(tag.getInt("stop"))); } catch (Throwable ignored) {}
             updateCaseButton();
             updateChainButton();
+            updateAnyoneButton();
 
             steps.clear();
             actualSteps.clear();
@@ -290,6 +302,13 @@ public final class CustomCommandsActionDetailScreen extends Screen {
                         if (this.minecraft != null) this.minecraft.setScreen(new CustomCommandsEditWaitStepScreen(this, villagerEntityId, actionIndex, underlying, sec));
                         return true;
                     }
+                    if (type == 6) {
+                        int lt = 0;
+                        try { lt = Math.max(0, base.getInt("lt")); } catch (Throwable ignored) { lt = 0; }
+                        float sec = lt / 20.0f;
+                        if (this.minecraft != null) this.minecraft.setScreen(new CustomCommandsEditLookStepScreen(this, villagerEntityId, actionIndex, underlying, sec));
+                        return true;
+                    }
                     if (type == 3 || type == 4) {
                         if (rulesRow || !rulesRow) {
                             int kind = (type == 3) ? 1 : 2;
@@ -343,6 +362,9 @@ public final class CustomCommandsActionDetailScreen extends Screen {
             } else if (type == 5) {
                 int wt = t.getInt("wt");
                 return Component.literal("Wait: " + (wt / 20.0f) + "s");
+            } else if (type == 6) {
+                int lt = Math.max(0, t.getInt("lt"));
+                return Component.literal("Look: " + (lt / 20.0f) + "s");
             } else if (type == 1) {
                 return Component.literal("Interact block: " + t.getInt("x") + " " + t.getInt("y") + " " + t.getInt("z"));
             } else if (type == 2) {
@@ -471,6 +493,7 @@ public final class CustomCommandsActionDetailScreen extends Screen {
                     commandBox == null ? "" : commandBox.getValue(),
                     caseSensitive,
                     chain,
+                    anyone,
                     descBox == null ? "" : descBox.getValue(),
                     timeout,
                     retry,
@@ -483,6 +506,13 @@ public final class CustomCommandsActionDetailScreen extends Screen {
         try {
             if (chainBtn == null) return;
             chainBtn.setMessage(Component.literal("Chain " + (chain ? "[x]" : "[]")));
+        } catch (Throwable ignored) {}
+    }
+
+    private void updateAnyoneButton() {
+        try {
+            if (anyoneBtn == null) return;
+            anyoneBtn.setMessage(Component.literal("Anyone " + (anyone ? "[x]" : "[]")));
         } catch (Throwable ignored) {}
     }
 

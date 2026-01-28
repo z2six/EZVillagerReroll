@@ -1333,6 +1333,11 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCombatFleeGoal (villager={})", vill.getUUID());
             }
 
+            if (!hasGoal(vill, VillagerSwimAssistGoal.class)) {
+                vill.goalSelector.addGoal(0, new VillagerSwimAssistGoal(vill));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerSwimAssistGoal (villager={})", vill.getUUID());
+            }
+
             if (!hasGoal(vill, VillagerCombatHelpGoal.class)) {
                 vill.goalSelector.addGoal(1, new VillagerCombatHelpGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerCombatHelpGoal (villager={})", vill.getUUID());

@@ -4,6 +4,8 @@ package org.z2six.villageroverhaul.server.ai;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.behavior.BlockPosTracker;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -41,7 +43,7 @@ public final class VillagerPatrolGoal extends Goal {
 
     public VillagerPatrolGoal(Villager vill) {
         this.vill = vill;
-        this.setFlags(EnumSet.of(Flag.MOVE, Flag.JUMP));
+        this.setFlags(EnumSet.of(Flag.MOVE, Flag.JUMP, Flag.LOOK));
     }
 
     @Override
@@ -104,6 +106,34 @@ public final class VillagerPatrolGoal extends Goal {
                 resetStuck();
                 advance(n);
                 recalcCooldown = 0;
+                return;
+            }
+
+            // Water fallback: navigation often fails in water; push a natural swim velocity toward the waypoint.
+            if (vill.isInWaterOrBubble()) {
+                try {
+                    boolean navDone = false;
+                    try { navDone = vill.getNavigation().isDone(); } catch (Throwable ignored) { navDone = false; }
+                    // Prefer navigation so it can still find a shoreline exit path.
+                    try { vill.getNavigation().moveTo(target.x, target.y, target.z, SPEED); } catch (Throwable ignored) {}
+
+                    Vec3 pos = vill.position();
+                    double dx = target.x - pos.x;
+                    double dz = target.z - pos.z;
+                    double len = Math.sqrt(dx * dx + dz * dz);
+                    if (navDone && len > 1.0e-4) {
+                        double ax = (dx / len) * 0.07;
+                        double az = (dz / len) * 0.07;
+                        Vec3 vel = vill.getDeltaMovement();
+                        double nx = vel.x * 0.82 + ax;
+                        double nz = vel.z * 0.82 + az;
+                        vill.setDeltaMovement(nx, vel.y, nz);
+                    }
+                    try {
+                        vill.getLookControl().setLookAt(target.x, target.y, target.z, 30.0F, 30.0F);
+                        vill.getBrain().setMemory(MemoryModuleType.LOOK_TARGET, new BlockPosTracker(BlockPos.containing(target.x, target.y, target.z)));
+                    } catch (Throwable ignored) {}
+                } catch (Throwable ignored) {}
                 return;
             }
 

@@ -106,6 +106,7 @@ public final class PlayerChatCommandsScreen extends Screen {
         scrollBar = new SimpleScrollBar(listX + listW + 2, listY, SCROLLBAR_W, listH);
 
         addChatRow(listX, listY, listW, "Help", "help");
+        addChatRow(listX, listY, listW, "Stop macro", "stopMacro");
         addChatRow(listX, listY, listW, "Equip", "equip");
         addChatRow(listX, listY, listW, "Stash", "stash");
         addChatRow(listX, listY, listW, "Neutral", "neutral");
@@ -271,6 +272,7 @@ public final class PlayerChatCommandsScreen extends Screen {
                 String label = row.label == null ? "" : row.label;
                 String extra = switch (row.key) {
                     case "help" -> "Triggers the \"Help\" combat behavior (temporary, target-driven).";
+                    case "stopMacro" -> "Stops any nearby villagers that are currently running a taught macro.";
                     case "neutral" -> "Sets villagers to Neutral mode.";
                     case "idle" -> "Sets villagers to Idle mode.";
                     case "follow" -> "Sets villagers to Follow mode (follow you).";

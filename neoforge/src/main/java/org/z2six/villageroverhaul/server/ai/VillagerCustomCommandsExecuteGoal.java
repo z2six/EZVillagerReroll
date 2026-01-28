@@ -16,6 +16,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
 import net.neoforged.neoforge.common.util.FakePlayerFactory;
 import org.z2six.villageroverhaul.server.CustomCommandsService;
 import org.z2six.villageroverhaul.server.RecruitService;
@@ -48,6 +49,13 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
     private boolean chestOpenedEnder = false;
     private long chestOpenedAtGameTime = 0L;
 
+    // LOOK smoothing:
+    // Villagers can have pitch manipulated by vanilla look logic; keep our own "current" angles per LOOK step
+    // and still drive LookControl with high speeds so we remain authoritative.
+    private int lookSmoothForStepIndex = -1;
+    private float lookSmoothYaw = 0.0f;
+    private float lookSmoothPitch = 0.0f;
+
     private static final double SPEED = 0.50;
     private static final double WAYPOINT_DONE_MAX_DY = 1.0;
     private static final double ASSIST_NEAR_DIST2 = 2.2 * 2.2;
@@ -55,6 +63,10 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
     private static final double ASSIST_SPEED = 0.55;
     private static final double ASSIST_MIN_VEL_SQR = 0.008 * 0.008;
     private static final double ASSIST_PUSH_PER_TICK = 0.035;
+
+    // Natural-ish turn speeds (deg/tick @ 20 tps).
+    private static final float LOOK_MAX_YAW_DEG_PER_TICK = 9.0f;
+    private static final float LOOK_MAX_PITCH_DEG_PER_TICK = 8.0f;
 
     public VillagerCustomCommandsExecuteGoal(Villager vill) {
         this.vill = vill;
@@ -95,6 +107,7 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             chestOpenedPos = null;
             chestOpenedEnder = false;
             chestOpenedAtGameTime = 0L;
+            lookSmoothForStepIndex = -1;
             try { VillagerCombatLoadoutService.forceEquipBegin(vill, true, "cc_exec_begin"); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {
             actionIndex = -1;
@@ -158,14 +171,6 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
                 }
             } catch (Throwable ignored) {}
 
-            int timeoutSeconds = 10;
-            try { timeoutSeconds = Math.max(1, action.timeoutSeconds()); } catch (Throwable ignored) { timeoutSeconds = 10; }
-            long timeoutTicks = (long) timeoutSeconds * 20L;
-            if (now - stepStartGameTime > timeoutTicks) {
-                failAndRetry(now);
-                return;
-            }
-
             if (stepIndex < 0 || stepIndex >= action.steps().size()) {
                 CustomCommandsService.stopExecution(vill);
                 vill.getNavigation().stop();
@@ -179,15 +184,28 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
                 return;
             }
 
+            // Timeout: do NOT count time spent in explicit WAIT/LOOK steps, otherwise long waits/looks will wrongly fail & retry.
+            if (step.type() != CustomCommandsService.StepType.WAIT && step.type() != CustomCommandsService.StepType.LOOK) {
+                int timeoutSeconds = 10;
+                try { timeoutSeconds = Math.max(1, action.timeoutSeconds()); } catch (Throwable ignored) { timeoutSeconds = 10; }
+                long timeoutTicks = (long) timeoutSeconds * 20L;
+                if (now - stepStartGameTime > timeoutTicks) {
+                    failAndRetry(now);
+                    return;
+                }
+            }
+
             // Small realism delay before any non-waypoint step.
             if (step.type() != CustomCommandsService.StepType.WAYPOINT
                     && step.type() != CustomCommandsService.StepType.WAIT
+                    && step.type() != CustomCommandsService.StepType.LOOK
                     && cooldownForStepIndex != stepIndex) {
                 cooldownForStepIndex = stepIndex;
                 cooldownUntilGameTime = now + 20L; // 1s
             }
             if (step.type() != CustomCommandsService.StepType.WAYPOINT
                     && step.type() != CustomCommandsService.StepType.WAIT
+                    && step.type() != CustomCommandsService.StepType.LOOK
                     && now < cooldownUntilGameTime) {
                 vill.getNavigation().stop();
                 return;
@@ -196,6 +214,7 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             switch (step.type()) {
                 case WAYPOINT -> tickMoveTo(step);
                 case WAIT -> tickWait(step);
+                case LOOK -> tickLook(step);
                 case INTERACT_BLOCK -> tickInteractBlock(step);
                 case INTERACT_ENTITY -> tickInteractEntity(step);
                 case WITHDRAW_CHEST -> tickWithdraw(step);
@@ -245,6 +264,7 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
         stepStartGameTime = vill.level().getGameTime();
         cooldownForStepIndex = -1;
         cooldownUntilGameTime = 0L;
+        lookSmoothForStepIndex = -1;
         try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
         if (action == null || action.steps() == null || stepIndex >= action.steps().size()) {
             CustomCommandsService.stopExecution(vill);
@@ -281,6 +301,59 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
                 advance();
             }
         } catch (Throwable ignored) {}
+    }
+
+    private void tickLook(CustomCommandsService.Step step) {
+        try {
+            long now = vill.level().getGameTime();
+            float yaw = 0.0f;
+            float pitch = 0.0f;
+            try { yaw = step.lookYaw(); } catch (Throwable ignored) { yaw = 0.0f; }
+            try { pitch = step.lookPitch(); } catch (Throwable ignored) { pitch = 0.0f; }
+
+            int lt = 0;
+            try { lt = Math.max(0, step.lookTicks()); } catch (Throwable ignored) { lt = 0; }
+            if (lt <= 0) {
+                advance();
+                return;
+            }
+
+            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+
+            // Use Minecraft's rotation math so yaw/pitch map to a stable world-space direction.
+            // If we compute the wrong direction, LookControl will fight our forced rotations and cause head shaking.
+            float targetYaw = yaw;
+            float targetPitch = Mth.clamp(pitch, -90.0f, 90.0f);
+
+            if (lookSmoothForStepIndex != stepIndex) {
+                lookSmoothForStepIndex = stepIndex;
+                try { lookSmoothYaw = vill.getYRot(); } catch (Throwable ignored) { lookSmoothYaw = targetYaw; }
+                try { lookSmoothPitch = vill.getXRot(); } catch (Throwable ignored) { lookSmoothPitch = targetPitch; }
+            }
+
+            lookSmoothYaw = approachDegrees(lookSmoothYaw, targetYaw, LOOK_MAX_YAW_DEG_PER_TICK);
+            lookSmoothPitch = approachDegrees(lookSmoothPitch, targetPitch, LOOK_MAX_PITCH_DEG_PER_TICK);
+
+            Vec3 dir = Vec3.directionFromRotation(lookSmoothPitch, lookSmoothYaw);
+            Vec3 eye = vill.getEyePosition();
+            Vec3 target = eye.add(dir.scale(16.0));
+
+            vill.setYRot(lookSmoothYaw);
+            vill.setYHeadRot(lookSmoothYaw);
+            vill.setYBodyRot(lookSmoothYaw);
+            vill.setXRot(lookSmoothPitch);
+            try { vill.getLookControl().setLookAt(target.x, target.y, target.z, 360.0F, 360.0F); } catch (Throwable ignored) {}
+            if (now - stepStartGameTime >= (long) lt) {
+                advance();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static float approachDegrees(float current, float target, float maxDelta) {
+        float delta = Mth.wrapDegrees(target - current);
+        if (delta > maxDelta) delta = maxDelta;
+        if (delta < -maxDelta) delta = -maxDelta;
+        return current + delta;
     }
 
     private boolean isAtWaypoint(BlockPos pos) {

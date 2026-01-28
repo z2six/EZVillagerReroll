@@ -160,6 +160,13 @@ public final class ClientUI {
     private static int PENDING_CC_RECORD_VILLAGER_ID = -1;
     private static long CHEST_REGISTER_MESSAGE_UNTIL_MS = 0L;
     private static String CHEST_REGISTER_MESSAGE = "";
+    private static int CHEST_REGISTER_MESSAGE_COLOR = 0xFFFFFFFF;
+
+    private static int LOOK_RECORD_VILLAGER_ID = -1;
+    private static long LOOK_RECORD_STABLE_SINCE_MS = 0L;
+    private static float LOOK_RECORD_LAST_YAW = 0.0f;
+    private static float LOOK_RECORD_LAST_PITCH = 0.0f;
+    private static long LOOK_RECORD_STARTED_MS = 0L;
 
     public static void openVillagerInventory(MerchantScreen parent, int villagerEntityId) {
         try {
@@ -453,6 +460,7 @@ public final class ClientUI {
             if (PENDING_CC_RECORD_VILLAGER_ID > 0) {
                 int vid = PENDING_CC_RECORD_VILLAGER_ID;
                 PENDING_CC_RECORD_VILLAGER_ID = -1;
+                cancelLookRecordIfMatches(vid);
                 try { ClientNetwork.sendToServer(new PacketCcCancelRecord(vid)); } catch (Throwable ignored) {}
                 setChestRegisterMessage("Recording canceled", 1800);
                 try {
@@ -501,7 +509,7 @@ public final class ClientUI {
 
             int x = w / 2;
             int y = h - 60;
-            gg.drawCenteredString(mc.font, Component.literal(CHEST_REGISTER_MESSAGE), x, y, 0xFFFFFFFF);
+            gg.drawCenteredString(mc.font, Component.literal(CHEST_REGISTER_MESSAGE), x, y, CHEST_REGISTER_MESSAGE_COLOR);
         } catch (Throwable ignored) {}
     }
 
@@ -509,12 +517,46 @@ public final class ClientUI {
         try {
             CHEST_REGISTER_MESSAGE = msg == null ? "" : msg;
             CHEST_REGISTER_MESSAGE_UNTIL_MS = System.currentTimeMillis() + Math.max(250L, durationMs);
+            CHEST_REGISTER_MESSAGE_COLOR = 0xFFFFFFFF;
+        } catch (Throwable ignored) {}
+    }
+
+    private static void setChestRegisterMessage(String msg, long durationMs, int rgb) {
+        try {
+            CHEST_REGISTER_MESSAGE = msg == null ? "" : msg;
+            CHEST_REGISTER_MESSAGE_UNTIL_MS = System.currentTimeMillis() + Math.max(250L, durationMs);
+            CHEST_REGISTER_MESSAGE_COLOR = rgb;
         } catch (Throwable ignored) {}
     }
 
     public static void showFarmingOverlayText(String msg, int durationMs) {
         try {
             setChestRegisterMessage(msg, (long) durationMs);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void beginLookRecord(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.player == null) return;
+
+            LOOK_RECORD_VILLAGER_ID = villagerEntityId;
+            LOOK_RECORD_STARTED_MS = System.currentTimeMillis();
+            LOOK_RECORD_STABLE_SINCE_MS = LOOK_RECORD_STARTED_MS;
+            LOOK_RECORD_LAST_YAW = mc.player.getYRot();
+            LOOK_RECORD_LAST_PITCH = mc.player.getXRot();
+            setChestRegisterMessage("Keep looking at the place you want the villager to look at...", 1000000L, 0xFF0000);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void cancelLookRecordIfMatches(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            if (LOOK_RECORD_VILLAGER_ID != villagerEntityId) return;
+            LOOK_RECORD_VILLAGER_ID = -1;
+            LOOK_RECORD_STABLE_SINCE_MS = 0L;
+            LOOK_RECORD_STARTED_MS = 0L;
         } catch (Throwable ignored) {}
     }
 
@@ -525,6 +567,7 @@ public final class ClientUI {
                 PENDING_CC_RECORD_VILLAGER_ID = villagerEntityId;
             } else {
                 if (PENDING_CC_RECORD_VILLAGER_ID == villagerEntityId) PENDING_CC_RECORD_VILLAGER_ID = -1;
+                cancelLookRecordIfMatches(villagerEntityId);
             }
         } catch (Throwable ignored) {}
     }
@@ -2829,6 +2872,10 @@ public final class ClientUI {
             } catch (Throwable ignored) {}
 
             try {
+                tickLookRecord();
+            } catch (Throwable ignored) {}
+
+            try {
                 if (ClientKeybinds.consumeOpenGlobalCombatSettings()) {
                     if (mc.screen == null) {
                         openGlobalCombatSettings();
@@ -2886,6 +2933,55 @@ public final class ClientUI {
 
             mc.setScreen(new VillagerQuickActionsScreen(id));
 
+        } catch (Throwable ignored) {}
+    }
+
+    private static void tickLookRecord() {
+        try {
+            if (LOOK_RECORD_VILLAGER_ID <= 0) return;
+
+            // Only run while the server says we're waiting to record something for this villager.
+            if (PENDING_CC_RECORD_VILLAGER_ID != LOOK_RECORD_VILLAGER_ID) {
+                long now = System.currentTimeMillis();
+                if (LOOK_RECORD_STARTED_MS > 0L && now - LOOK_RECORD_STARTED_MS > 6000L) {
+                    cancelLookRecordIfMatches(LOOK_RECORD_VILLAGER_ID);
+                }
+                return;
+            }
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.player == null) return;
+
+            long now = System.currentTimeMillis();
+            float yaw = mc.player.getYRot();
+            float pitch = mc.player.getXRot();
+
+            float dy;
+            try { dy = Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - LOOK_RECORD_LAST_YAW)); } catch (Throwable ignored) { dy = Math.abs(yaw - LOOK_RECORD_LAST_YAW); }
+            float dp;
+            try { dp = Math.abs(pitch - LOOK_RECORD_LAST_PITCH); } catch (Throwable ignored) { dp = Math.abs(pitch - LOOK_RECORD_LAST_PITCH); }
+
+            if (dy > 0.10f || dp > 0.10f) {
+                LOOK_RECORD_LAST_YAW = yaw;
+                LOOK_RECORD_LAST_PITCH = pitch;
+                LOOK_RECORD_STABLE_SINCE_MS = now;
+            }
+
+            long stableMs = Math.max(0L, now - LOOK_RECORD_STABLE_SINCE_MS);
+            double progress = Math.max(0.0, Math.min(1.0, stableMs / 3000.0));
+
+            int gb = (int) Math.round(255.0 * progress);
+            if (gb < 0) gb = 0;
+            if (gb > 255) gb = 255;
+            int rgb = (255 << 16) | (gb << 8) | gb;
+
+            setChestRegisterMessage("Keep looking at the place you want the villager to look at...", 1000000L, rgb);
+
+            if (stableMs >= 3000L) {
+                int vid = LOOK_RECORD_VILLAGER_ID;
+                cancelLookRecordIfMatches(vid);
+                try { ClientNetwork.sendToServer(new org.z2six.villageroverhaul.network.customcommands.PacketCcRecordLook(vid, yaw, pitch)); } catch (Throwable ignored) {}
+            }
         } catch (Throwable ignored) {}
     }
 

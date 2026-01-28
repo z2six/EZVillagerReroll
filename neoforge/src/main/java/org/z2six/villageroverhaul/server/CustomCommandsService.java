@@ -38,6 +38,7 @@ public final class CustomCommandsService {
     private static final String K_CMD = "cmd";
     private static final String K_CASE = "case";
     private static final String K_CHAIN = "chain";
+    private static final String K_ANYONE = "anyone";
     private static final String K_TIMEOUT = "timeout";
     private static final String K_RETRY = "retry";
     private static final String K_LAST_FAIL = "last_fail";
@@ -51,6 +52,9 @@ public final class CustomCommandsService {
     private static final String K_STEP_ENTITY = "e";
     private static final String K_STEP_ENDER = "ender";
     private static final String K_STEP_WAIT_TICKS = "wt";
+    private static final String K_STEP_LOOK_YAW = "ly";
+    private static final String K_STEP_LOOK_PITCH = "lp";
+    private static final String K_STEP_LOOK_TICKS = "lt";
     private static final String K_STEP_RULES = "rules";
     private static final String K_STEP_RULE_ID = "id";
     private static final String K_STEP_RULE_COUNT = "n";
@@ -78,7 +82,8 @@ public final class CustomCommandsService {
         INTERACT_ENTITY(2),
         WITHDRAW_CHEST(3),
         DEPOSIT_CHEST(4),
-        WAIT(5);
+        WAIT(5),
+        LOOK(6);
 
         public final int id;
         StepType(int id) { this.id = id; }
@@ -91,30 +96,43 @@ public final class CustomCommandsService {
 
     public record ItemCountRule(String itemId, int count) {}
 
-    public record Step(StepType type, String dim, int x, int y, int z, UUID entityUuid, boolean isEnderChest, List<ItemCountRule> rules, int waitTicks) {
+    public record Step(StepType type, String dim, int x, int y, int z, UUID entityUuid, boolean isEnderChest, List<ItemCountRule> rules, int waitTicks, int lookTicks, float lookYaw, float lookPitch) {
         public static Step waypoint(String dim, BlockPos p) {
-            return new Step(StepType.WAYPOINT, dim, p.getX(), p.getY(), p.getZ(), null, false, List.of(), 0);
+            return new Step(StepType.WAYPOINT, dim, p.getX(), p.getY(), p.getZ(), null, false, List.of(), 0, 0, 0.0f, 0.0f);
         }
         public static Step interactBlock(String dim, BlockPos p) {
-            return new Step(StepType.INTERACT_BLOCK, dim, p.getX(), p.getY(), p.getZ(), null, false, List.of(), 0);
+            return new Step(StepType.INTERACT_BLOCK, dim, p.getX(), p.getY(), p.getZ(), null, false, List.of(), 0, 0, 0.0f, 0.0f);
         }
         public static Step interactEntity(UUID uuid) {
-            return new Step(StepType.INTERACT_ENTITY, "", 0, 0, 0, uuid, false, List.of(), 0);
+            return new Step(StepType.INTERACT_ENTITY, "", 0, 0, 0, uuid, false, List.of(), 0, 0, 0.0f, 0.0f);
         }
         public static Step withdrawChest(String dim, BlockPos p, boolean ender) {
-            return new Step(StepType.WITHDRAW_CHEST, dim, p.getX(), p.getY(), p.getZ(), null, ender, List.of(), 0);
+            return new Step(StepType.WITHDRAW_CHEST, dim, p.getX(), p.getY(), p.getZ(), null, ender, List.of(), 0, 0, 0.0f, 0.0f);
         }
         public static Step depositChest(String dim, BlockPos p, boolean ender) {
-            return new Step(StepType.DEPOSIT_CHEST, dim, p.getX(), p.getY(), p.getZ(), null, ender, List.of(), 0);
+            return new Step(StepType.DEPOSIT_CHEST, dim, p.getX(), p.getY(), p.getZ(), null, ender, List.of(), 0, 0, 0.0f, 0.0f);
         }
         public static Step waitTicks(int waitTicks) {
-            return new Step(StepType.WAIT, "", 0, 0, 0, null, false, List.of(), Math.max(0, waitTicks));
+            return new Step(StepType.WAIT, "", 0, 0, 0, null, false, List.of(), Math.max(0, waitTicks), 0, 0.0f, 0.0f);
+        }
+        public static Step look(float yaw, float pitch, int lookTicks) {
+            if (Float.isNaN(yaw) || Float.isInfinite(yaw)) yaw = 0.0f;
+            if (Float.isNaN(pitch) || Float.isInfinite(pitch)) pitch = 0.0f;
+            if (pitch < -90.0f) pitch = -90.0f;
+            if (pitch > 90.0f) pitch = 90.0f;
+            int lt = Math.max(0, lookTicks);
+            return new Step(StepType.LOOK, "", 0, 0, 0, null, false, List.of(), 0, lt, yaw, pitch);
         }
 
         public static Step withRules(Step s, List<ItemCountRule> rules) {
             if (s == null) return null;
             List<ItemCountRule> rr = rules == null ? List.of() : rules;
-            return new Step(s.type(), s.dim(), s.x(), s.y(), s.z(), s.entityUuid(), s.isEnderChest(), rr, s.waitTicks());
+            return new Step(s.type(), s.dim(), s.x(), s.y(), s.z(), s.entityUuid(), s.isEnderChest(), rr, s.waitTicks(), s.lookTicks(), s.lookYaw(), s.lookPitch());
+        }
+
+        public static Step withLookTicks(Step s, int lookTicks) {
+            if (s == null) return null;
+            return new Step(s.type(), s.dim(), s.x(), s.y(), s.z(), s.entityUuid(), s.isEnderChest(), s.rules(), s.waitTicks(), Math.max(0, lookTicks), s.lookYaw(), s.lookPitch());
         }
     }
 
@@ -123,6 +141,7 @@ public final class CustomCommandsService {
             String command,
             boolean caseSensitive,
             boolean chain,
+            boolean anyone,
             String description,
             int timeoutSeconds,
             int retryAfterSeconds,
@@ -142,6 +161,7 @@ public final class CustomCommandsService {
         public String commandDraft = "";
         public boolean caseSensitive = true;
         public boolean chain = false;
+        public boolean anyone = false;
         public int timeoutSeconds = 10;
         public int retryAfterSeconds = 10;
         public int stopAfterRetries = 0;
@@ -149,6 +169,7 @@ public final class CustomCommandsService {
 
         // -1 = not waiting, else see PacketCcBeginRecord kind values.
         public int waitingKind = -1;
+        public int pendingLookDurationStepIndex = -1;
 
         TeachSession(UUID playerUuid, int villagerEntityId, UUID villagerUuid, int editIndex) {
             this.playerUuid = playerUuid;
@@ -202,6 +223,7 @@ public final class CustomCommandsService {
                     s.commandDraft = existing.command();
                     s.caseSensitive = existing.caseSensitive();
                     s.chain = existing.chain();
+                    s.anyone = existing.anyone();
                     s.timeoutSeconds = existing.timeoutSeconds();
                     s.retryAfterSeconds = existing.retryAfterSeconds();
                     s.stopAfterRetries = existing.stopAfterRetries();
@@ -348,6 +370,46 @@ public final class CustomCommandsService {
             int ticks = Math.max(0, Math.round(seconds * 20.0f));
             s.steps.add(Step.waitTicks(ticks));
         } catch (Throwable ignored) {}
+    }
+
+    public static boolean recordLook(ServerPlayer sp, Villager vill, float yaw, float pitch) {
+        try {
+            if (sp == null || vill == null) return false;
+            TeachSession s = getSessionFor(sp, vill);
+            if (s == null) return false;
+            if (s.waitingKind != 3) return false;
+            if (s.steps.size() >= MAX_STEPS_PER_ACTION) return false;
+            s.steps.add(Step.look(yaw, pitch, 0));
+            s.waitingKind = -1;
+            s.pendingLookDurationStepIndex = s.steps.size() - 1;
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean setSessionLookDuration(ServerPlayer sp, Villager vill, int stepIndex, float seconds) {
+        try {
+            if (sp == null || vill == null) return false;
+            TeachSession s = getSessionFor(sp, vill);
+            if (s == null) return false;
+            if (stepIndex < 0 || stepIndex >= s.steps.size()) return false;
+
+            Step cur = s.steps.get(stepIndex);
+            if (cur == null || cur.type() != StepType.LOOK) return false;
+
+            float sec = seconds;
+            if (Float.isNaN(sec) || Float.isInfinite(sec)) sec = 0.0f;
+            if (sec < 0.0f) sec = 0.0f;
+            if (sec > 3600.0f) sec = 3600.0f;
+            int lt = Math.max(0, Math.round(sec * 20.0f));
+            s.steps.set(stepIndex, Step.withLookTicks(cur, lt));
+
+            if (s.pendingLookDurationStepIndex == stepIndex) s.pendingLookDurationStepIndex = -1;
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     public static boolean recordInteractBlock(ServerPlayer sp, Villager vill, ServerLevel level, BlockPos pos) {
@@ -506,11 +568,11 @@ public final class CustomCommandsService {
     }
 
     public static void saveFromSession(ServerPlayer sp, Villager vill, String title, String desc, int editIndex) {
-        saveFromSession(sp, vill, title, "", true, false, desc, 10, 10, 0, editIndex);
+        saveFromSession(sp, vill, title, "", true, false, false, desc, 10, 10, 0, editIndex);
     }
 
     public static void saveFromSession(ServerPlayer sp, Villager vill, String title, String command, boolean caseSensitive,
-                                       boolean chain, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries, int editIndex) {
+                                       boolean chain, boolean anyone, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries, int editIndex) {
         try {
             if (sp == null || vill == null) return;
             TeachSession s = getSessionFor(sp, vill);
@@ -532,6 +594,7 @@ public final class CustomCommandsService {
             action.putString(K_CMD, c);
             action.putBoolean(K_CASE, caseSensitive);
             action.putBoolean(K_CHAIN, chain);
+            action.putBoolean(K_ANYONE, anyone);
             action.putString(K_DESC, d);
             action.putInt(K_TIMEOUT, to);
             action.putInt(K_RETRY, ra);
@@ -556,6 +619,7 @@ public final class CustomCommandsService {
             s.commandDraft = c;
             s.caseSensitive = caseSensitive;
             s.chain = chain;
+            s.anyone = anyone;
             s.timeoutSeconds = to;
             s.retryAfterSeconds = ra;
             s.stopAfterRetries = sa;
@@ -565,7 +629,7 @@ public final class CustomCommandsService {
     }
 
     public static void updateActionMeta(Villager vill, int index, String title, String command, boolean caseSensitive,
-                                        boolean chain, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries) {
+                                        boolean chain, boolean anyone, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries) {
         try {
             if (vill == null) return;
             CompoundTag root = getOrCreateRoot(vill);
@@ -590,6 +654,7 @@ public final class CustomCommandsService {
             action.putString(K_CMD, c);
             action.putBoolean(K_CASE, caseSensitive);
             action.putBoolean(K_CHAIN, chain);
+            action.putBoolean(K_ANYONE, anyone);
             action.putString(K_DESC, d);
             action.putInt(K_TIMEOUT, to);
             action.putInt(K_RETRY, ra);
@@ -669,6 +734,40 @@ public final class CustomCommandsService {
         } catch (Throwable ignored) {}
     }
 
+    public static void updateActionStepLookDuration(Villager vill, int actionIndex, int stepIndex, float seconds) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.contains(K_ACTIONS, Tag.TAG_LIST)) return;
+
+            ListTag actions = root.getList(K_ACTIONS, Tag.TAG_COMPOUND);
+            if (actionIndex < 0 || actionIndex >= actions.size()) return;
+            CompoundTag a = actions.getCompound(actionIndex);
+            if (!a.contains(K_STEPS, Tag.TAG_LIST)) return;
+            ListTag steps = a.getList(K_STEPS, Tag.TAG_COMPOUND);
+            if (stepIndex < 0 || stepIndex >= steps.size()) return;
+
+            CompoundTag st = steps.getCompound(stepIndex);
+            int type = st.getInt(K_STEP_TYPE);
+            if (type != StepType.LOOK.id) return;
+
+            float sec = seconds;
+            if (Float.isNaN(sec) || Float.isInfinite(sec)) sec = 0.0f;
+            if (sec < 0.0f) sec = 0.0f;
+            if (sec > 3600.0f) sec = 3600.0f;
+            int lt = Math.max(0, Math.round(sec * 20.0f));
+            st.putInt(K_STEP_LOOK_TICKS, lt);
+            steps.set(stepIndex, st);
+            a.put(K_STEPS, steps);
+            actions.set(actionIndex, a);
+            root.put(K_ACTIONS, actions);
+
+            try {
+                if (isExecuting(vill) && getExecutingIndex(vill) == actionIndex) stopExecution(vill);
+            } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
     public static void updateActionStepRules(Villager vill, int actionIndex, int stepIndex, List<ItemCountRule> rules) {
         try {
             if (vill == null) return;
@@ -726,6 +825,7 @@ public final class CustomCommandsService {
             out.putString("cmd", s.commandDraft == null ? "" : s.commandDraft);
             out.putBoolean("case", s.caseSensitive);
             out.putBoolean("chain", s.chain);
+            out.putBoolean("anyone", s.anyone);
             out.putInt("timeout", s.timeoutSeconds);
             out.putInt("retry", s.retryAfterSeconds);
             out.putInt("stop", s.stopAfterRetries);
@@ -748,6 +848,7 @@ public final class CustomCommandsService {
                 e.putString("c", a.command() == null ? "" : a.command());
                 e.putBoolean("case", a.caseSensitive());
                 e.putBoolean("chain", a.chain());
+                e.putBoolean("anyone", a.anyone());
                 e.putString("d", a.description() == null ? "" : a.description());
                 e.putInt("to", a.timeoutSeconds());
                 e.putInt("ra", a.retryAfterSeconds());
@@ -770,6 +871,7 @@ public final class CustomCommandsService {
             out.putString("c", a.command() == null ? "" : a.command());
             out.putBoolean("case", a.caseSensitive());
             out.putBoolean("chain", a.chain());
+            out.putBoolean("anyone", a.anyone());
             out.putString("d", a.description() == null ? "" : a.description());
             out.putInt("to", a.timeoutSeconds());
             out.putInt("ra", a.retryAfterSeconds());
@@ -798,7 +900,16 @@ public final class CustomCommandsService {
             String cmd = a.command() == null ? "" : a.command().trim();
             if (cmd.isEmpty()) return false;
             String msg = chatMessage.trim();
-            return a.caseSensitive() ? cmd.equals(msg) : cmd.equalsIgnoreCase(msg);
+
+            String[] parts = cmd.contains("##") ? cmd.split("##", -1) : new String[]{cmd};
+            boolean cs = a.caseSensitive();
+            for (String p : parts) {
+                if (p == null) continue;
+                String trigger = p.trim();
+                if (trigger.isEmpty()) continue;
+                if (cs ? trigger.equals(msg) : trigger.equalsIgnoreCase(msg)) return true;
+            }
+            return false;
         } catch (Throwable ignored) {
             return false;
         }
@@ -846,6 +957,10 @@ public final class CustomCommandsService {
                     if (s.entityUuid() != null) t.putUUID(K_STEP_ENTITY, s.entityUuid());
                 } else if (s.type() == StepType.WAIT) {
                     t.putInt(K_STEP_WAIT_TICKS, Math.max(0, s.waitTicks()));
+                } else if (s.type() == StepType.LOOK) {
+                    t.putFloat(K_STEP_LOOK_YAW, s.lookYaw());
+                    t.putFloat(K_STEP_LOOK_PITCH, s.lookPitch());
+                    t.putInt(K_STEP_LOOK_TICKS, Math.max(0, s.lookTicks()));
                 } else {
                     t.putString(K_STEP_DIM, s.dim() == null ? "" : s.dim());
                     t.putInt(K_STEP_X, s.x());
@@ -892,6 +1007,16 @@ public final class CustomCommandsService {
                     out.add(Step.waitTicks(Math.max(0, t.getInt(K_STEP_WAIT_TICKS))));
                     continue;
                 }
+                if (type == StepType.LOOK) {
+                    float yaw = 0.0f;
+                    float pitch = 0.0f;
+                    int lt = 0;
+                    try { yaw = t.getFloat(K_STEP_LOOK_YAW); } catch (Throwable ignored) { yaw = 0.0f; }
+                    try { pitch = t.getFloat(K_STEP_LOOK_PITCH); } catch (Throwable ignored) { pitch = 0.0f; }
+                    try { lt = Math.max(0, t.getInt(K_STEP_LOOK_TICKS)); } catch (Throwable ignored) { lt = 0; }
+                    out.add(Step.look(yaw, pitch, lt));
+                    continue;
+                }
                 String dim = t.getString(K_STEP_DIM);
                 int x = t.getInt(K_STEP_X);
                 int y = t.getInt(K_STEP_Y);
@@ -911,10 +1036,10 @@ public final class CustomCommandsService {
                     }
                     rules = rr;
                 }
-                if (type == StepType.WAYPOINT) out.add(new Step(type, dim, x, y, z, null, false, List.of(), 0));
-                else if (type == StepType.INTERACT_BLOCK) out.add(new Step(type, dim, x, y, z, null, false, List.of(), 0));
-                else if (type == StepType.WITHDRAW_CHEST) out.add(new Step(type, dim, x, y, z, null, ender, rules, 0));
-                else if (type == StepType.DEPOSIT_CHEST) out.add(new Step(type, dim, x, y, z, null, ender, rules, 0));
+                if (type == StepType.WAYPOINT) out.add(new Step(type, dim, x, y, z, null, false, List.of(), 0, 0, 0.0f, 0.0f));
+                else if (type == StepType.INTERACT_BLOCK) out.add(new Step(type, dim, x, y, z, null, false, List.of(), 0, 0, 0.0f, 0.0f));
+                else if (type == StepType.WITHDRAW_CHEST) out.add(new Step(type, dim, x, y, z, null, ender, rules, 0, 0, 0.0f, 0.0f));
+                else if (type == StepType.DEPOSIT_CHEST) out.add(new Step(type, dim, x, y, z, null, ender, rules, 0, 0, 0.0f, 0.0f));
             }
         } catch (Throwable ignored) {}
         return out;
@@ -934,12 +1059,13 @@ public final class CustomCommandsService {
 
     private static TaughtActionMeta decodeActionMeta(CompoundTag a) {
         try {
-            if (a == null) return new TaughtActionMeta("", "", true, false, "", 10, 10, 0, 0L, List.of());
+            if (a == null) return new TaughtActionMeta("", "", true, false, false, "", 10, 10, 0, 0L, List.of());
             String t = a.getString(K_TITLE);
             String c = a.getString(K_CMD);
             if (c == null || c.isBlank()) c = t;
             boolean cs = a.contains(K_CASE) ? a.getBoolean(K_CASE) : true;
             boolean ch = a.getBoolean(K_CHAIN);
+            boolean anyone = a.getBoolean(K_ANYONE);
             String d = a.getString(K_DESC);
             int to = a.contains(K_TIMEOUT) ? a.getInt(K_TIMEOUT) : 10;
             int ra = a.contains(K_RETRY) ? a.getInt(K_RETRY) : 10;
@@ -952,9 +1078,9 @@ public final class CustomCommandsService {
             if (sa < 0) sa = 0;
             if (sa > 1000) sa = 1000;
             ListTag st = a.contains(K_STEPS, Tag.TAG_LIST) ? a.getList(K_STEPS, Tag.TAG_COMPOUND) : new ListTag();
-            return new TaughtActionMeta(t, c, cs, ch, d, to, ra, sa, lf, decodeSteps(st));
+            return new TaughtActionMeta(t, c, cs, ch, anyone, d, to, ra, sa, lf, decodeSteps(st));
         } catch (Throwable ignored) {
-            return new TaughtActionMeta("", "", true, false, "", 10, 10, 0, 0L, List.of());
+            return new TaughtActionMeta("", "", true, false, false, "", 10, 10, 0, 0L, List.of());
         }
     }
 

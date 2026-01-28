@@ -3215,3 +3215,4 @@ runs
 neoforge/src/neoforge/
 /.gradle_user_home/
 /neoforge/.eclipse/
+/.tmp_mcsources/

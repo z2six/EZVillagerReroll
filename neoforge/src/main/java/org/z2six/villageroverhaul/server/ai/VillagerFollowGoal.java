@@ -3,8 +3,12 @@ package org.z2six.villageroverhaul.server.ai;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.ai.behavior.EntityTracker;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
+import net.minecraft.world.entity.ai.memory.WalkTarget;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.phys.Vec3;
 import java.util.EnumSet;
 import java.util.UUID;
 
@@ -27,7 +31,7 @@ public final class VillagerFollowGoal extends Goal {
 
     public VillagerFollowGoal(Villager vill) {
         this.vill = vill;
-        this.setFlags(EnumSet.of(Flag.MOVE, Flag.JUMP));
+        this.setFlags(EnumSet.of(Flag.MOVE, Flag.JUMP, Flag.LOOK));
     }
 
     @Override
@@ -67,6 +71,37 @@ public final class VillagerFollowGoal extends Goal {
             // Close enough: stop pathing
             if (dist <= STOP_DIST) {
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return;
+            }
+
+            // Water fallback: vanilla navigation can fail badly in water; push a natural swim velocity toward the player.
+            if (vill.isInWaterOrBubble()) {
+                try {
+                    // Prefer navigation so the villager can still find a way OUT of water (like vanilla NEUTRAL does).
+                    // Only add a small velocity assist if nav looks stalled.
+                    boolean navDone = false;
+                    try { navDone = vill.getNavigation().isDone(); } catch (Throwable ignored) { navDone = false; }
+                    try { vill.getNavigation().moveTo(target, SPEED); } catch (Throwable ignored) {}
+
+                    Vec3 pos = vill.position();
+                    Vec3 tpos = target.position();
+                    double dx = tpos.x - pos.x;
+                    double dz = tpos.z - pos.z;
+                    double len = Math.sqrt(dx * dx + dz * dz);
+                    if (navDone && len > 1.0e-4) {
+                        double ax = (dx / len) * 0.08;
+                        double az = (dz / len) * 0.08;
+                        Vec3 vel = vill.getDeltaMovement();
+                        double nx = vel.x * 0.80 + ax;
+                        double nz = vel.z * 0.80 + az;
+                        vill.setDeltaMovement(nx, vel.y, nz);
+                    }
+                    try {
+                        vill.getLookControl().setLookAt(target, 30.0F, 30.0F);
+                        vill.getBrain().setMemory(MemoryModuleType.LOOK_TARGET, new EntityTracker(target, true));
+                        vill.getBrain().setMemory(MemoryModuleType.WALK_TARGET, new WalkTarget(new EntityTracker(target, false), (float) SPEED, (int) STOP_DIST));
+                    } catch (Throwable ignored) {}
+                } catch (Throwable ignored) {}
                 return;
             }
 

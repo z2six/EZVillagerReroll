@@ -23,3 +23,6 @@ Yes. Put a shield (or any item with block use animation) in the Combat Offhand l
 ## Can villagers heal themselves?
 
 Yes. If Eating is enabled in Combat Settings and the villager has edible food in its inventory, it can eat to heal (in combat and also passively in some non-neutral activities).
+
+## Why is my villager still dumb?
+Some AI behaviors are kept by design. For example: not pathing around trapdoors or not knowing how to compute slightly complex paths. It would be possible to create custom AI for, but as I just mentioned: this is on purpose to still make them feel like a "villager".

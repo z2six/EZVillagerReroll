@@ -24,6 +24,7 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListData;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenLookDuration;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenTeachMenu;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenChestRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionData;
@@ -200,6 +201,24 @@ public final class ClientNetworkHandlers {
             });
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onCcOpenTeachMenu enqueue failed", t);
+        }
+    }
+
+    public static void onCcOpenLookDuration(PacketCcOpenLookDuration msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+                    mc.setScreen(new CustomCommandsLookDurationScreen(msg.villagerEntityId(), msg.stepIndex()));
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onCcOpenLookDuration failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onCcOpenLookDuration enqueue failed", t);
         }
     }
 

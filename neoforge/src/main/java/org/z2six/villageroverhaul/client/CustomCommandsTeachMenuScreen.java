@@ -66,6 +66,17 @@ public final class CustomCommandsTeachMenuScreen extends Screen {
         addRenderableWidget(btnInteract);
         actionButtons.add(btnInteract);
 
+        Button btnLook = Button.builder(Component.literal("Look"), b -> {
+                    ClientNetwork.sendToServer(new PacketCcBeginRecord(villagerEntityId, 3));
+                    try { ClientUI.beginLookRecord(villagerEntityId); } catch (Throwable ignored) {}
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc != null) mc.setScreen(null);
+                })
+                .pos(0, 0).size(bw, bh).build();
+        btnLook.setTooltip(Tooltip.create(Component.literal("Record where you are looking (yaw + pitch) for the villager to look at.")));
+        addRenderableWidget(btnLook);
+        actionButtons.add(btnLook);
+
         Button btnWait = Button.builder(Component.literal("Wait"), b -> {
                     Minecraft mc = Minecraft.getInstance();
                     if (mc != null) mc.setScreen(new CustomCommandsWaitStepScreen(villagerEntityId));

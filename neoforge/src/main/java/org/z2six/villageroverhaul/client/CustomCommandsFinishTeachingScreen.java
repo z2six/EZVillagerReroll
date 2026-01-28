@@ -35,6 +35,8 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
     private Button chainBtn;
     private boolean caseSensitive = true;
     private boolean chain = false;
+    private Button anyoneBtn;
+    private boolean anyone = false;
 
     private int editIndex = -1;
     private final List<CompoundTag> steps = new ArrayList<>();
@@ -70,7 +72,7 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
 
         commandBox = new EditBox(this.font, left + 10, top + 50, PANEL_W - 20, 18, Component.literal("Chat Command"));
         commandBox.setMaxLength(64);
-        commandBox.setTooltip(Tooltip.create(Component.literal("What you type in chat to trigger this teaching.")));
+        commandBox.setTooltip(Tooltip.create(Component.literal("What you type in chat to trigger this teaching. Use \"##\" for multiple triggers.")));
         addRenderableWidget(commandBox);
 
         descBox = new EditBox(this.font, left + 10, top + 72, PANEL_W - 20, 18, Component.literal("Description"));
@@ -93,6 +95,14 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
                 .pos(left + 10 + 144, top + 94).size(90, 18).build();
         chainBtn.setTooltip(Tooltip.create(Component.literal("If enabled, villagers can pass this command through a chain to reach far away villagers.")));
         addRenderableWidget(chainBtn);
+
+        anyoneBtn = Button.builder(Component.literal("Anyone []"), b -> {
+                    anyone = !anyone;
+                    updateAnyoneButton();
+                })
+                .pos(left + 10 + 144 + 90 + 4, top + 94).size(78, 18).build();
+        anyoneBtn.setTooltip(Tooltip.create(Component.literal("If enabled, ANY player can trigger this teaching (not just the owner).")));
+        addRenderableWidget(anyoneBtn);
 
         int smallW = 46;
         int rowY = top + 116;
@@ -146,11 +156,13 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
             try { commandBox.setValue(tag.getString("cmd")); } catch (Throwable ignored) {}
             try { caseSensitive = tag.getBoolean("case"); } catch (Throwable ignored) {}
             try { chain = tag.getBoolean("chain"); } catch (Throwable ignored) {}
+            try { anyone = tag.getBoolean("anyone"); } catch (Throwable ignored) {}
             try { timeoutBox.setValue(String.valueOf(tag.getInt("timeout"))); } catch (Throwable ignored) {}
             try { retryBox.setValue(String.valueOf(tag.getInt("retry"))); } catch (Throwable ignored) {}
             try { stopBox.setValue(String.valueOf(tag.getInt("stop"))); } catch (Throwable ignored) {}
             updateCaseButton();
             updateChainButton();
+            updateAnyoneButton();
 
             steps.clear();
             if (tag.contains("steps", Tag.TAG_LIST)) {
@@ -270,6 +282,9 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
             } else if (type == 5) {
                 int wt = t.getInt("wt");
                 return Component.literal("Wait: " + (wt / 20.0f) + "s");
+            } else if (type == 6) {
+                int lt = Math.max(0, t.getInt("lt"));
+                return Component.literal("Look: " + (lt / 20.0f) + "s");
             } else if (type == 1) {
                 return Component.literal("Interact block: " + t.getInt("x") + " " + t.getInt("y") + " " + t.getInt("z"));
             } else if (type == 2) {
@@ -367,6 +382,13 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
+    private void updateAnyoneButton() {
+        try {
+            if (anyoneBtn == null) return;
+            anyoneBtn.setMessage(Component.literal("Anyone " + (anyone ? "[x]" : "[]")));
+        } catch (Throwable ignored) {}
+    }
+
     private static int parseInt(String s, int fallback) {
         try {
             if (s == null) return fallback;
@@ -390,6 +412,7 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
                     commandBox == null ? "" : commandBox.getValue(),
                     caseSensitive,
                     chain,
+                    anyone,
                     descBox == null ? "" : descBox.getValue(),
                     timeout,
                     retry,

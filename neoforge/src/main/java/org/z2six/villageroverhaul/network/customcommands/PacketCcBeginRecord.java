@@ -13,6 +13,7 @@ import org.z2six.villageroverhaul.Constants;
  *  0 = interact (block/entity)
  *  1 = withdraw chest
  *  2 = deposit chest
+ *  3 = look (yaw/pitch)
  */
 public record PacketCcBeginRecord(int villagerEntityId, int kind) implements CustomPacketPayload {
 
@@ -30,4 +31,3 @@ public record PacketCcBeginRecord(int villagerEntityId, int kind) implements Cus
 
     @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 }
-

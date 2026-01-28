@@ -156,6 +156,19 @@ public final class ServerEvents {
                         // Right-click the taught villager to open the teach menu (only when not waiting).
                         if (e.getTarget() instanceof Villager v2 && v2.getUUID().equals(taught.getUUID())) {
                             if (session.waitingKind < 0) {
+                                if (session.pendingLookDurationStepIndex >= 0) {
+                                    try { level.playSound(null, taught.blockPosition(), SoundEvents.VILLAGER_AMBIENT, SoundSource.NEUTRAL, 0.8f, 1.0f); } catch (Throwable ignored) {}
+                                    try {
+                                        sp.connection.send(new ClientboundCustomPayloadPacket(
+                                                new org.z2six.villageroverhaul.network.customcommands.PacketCcOpenLookDuration(
+                                                        taught.getId(), session.pendingLookDurationStepIndex
+                                                )
+                                        ));
+                                    } catch (Throwable ignored) {}
+                                    e.setCanceled(true);
+                                    e.setCancellationResult(InteractionResult.SUCCESS);
+                                    return;
+                                }
                                 try { level.playSound(null, taught.blockPosition(), SoundEvents.VILLAGER_AMBIENT, SoundSource.NEUTRAL, 0.8f, 1.0f); } catch (Throwable ignored) {}
                                 try { sp.connection.send(new ClientboundCustomPayloadPacket(new PacketCcOpenTeachMenu(taught.getId()))); } catch (Throwable ignored) {}
                                 e.setCanceled(true);
@@ -409,7 +422,6 @@ public final class ServerEvents {
                 for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(baseRadius))) {
                     if (vill == null) continue;
                     if (!RecruitService.isRecruited(vill)) continue;
-                    if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
                     if (!CustomCommandsService.isChatListening(vill)) continue;
                     if (CustomCommandsService.isExecuting(vill)) continue;
                     if (CustomCommandsService.isVillagerTeaching(vill)) continue;
@@ -426,6 +438,9 @@ public final class ServerEvents {
                     for (int i = 0; i < actions.size(); i++) {
                         var a = actions.get(i);
                         if (a == null) continue;
+                        boolean allowed = false;
+                        try { allowed = a.anyone() || org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp); } catch (Throwable ignored) { allowed = false; }
+                        if (!allowed) continue;
                         if (!CustomCommandsService.matchesCommand(a, content)) continue;
                         double d2 = vill.distanceToSqr(sp);
                         if (d2 < bestDist2) {
@@ -459,6 +474,9 @@ public final class ServerEvents {
                                     var a = actions.get(i);
                                     if (a == null) continue;
                                     if (!a.chain()) continue;
+                                    boolean allowed = false;
+                                    try { allowed = a.anyone() || org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(cur, sp); } catch (Throwable ignored) { allowed = false; }
+                                    if (!allowed) continue;
                                     if (!CustomCommandsService.matchesCommand(a, content)) continue;
 
                                     double d2 = cur.distanceToSqr(sp);
@@ -484,7 +502,6 @@ public final class ServerEvents {
                             if (id == null || seen.contains(id)) continue;
 
                             if (!RecruitService.isRecruited(next)) continue;
-                            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(next, sp)) continue;
                             if (!CustomCommandsService.isChatListening(next)) continue;
                             if (CustomCommandsService.isExecuting(next)) continue;
                             if (CustomCommandsService.isVillagerTeaching(next)) continue;
@@ -633,6 +650,8 @@ public final class ServerEvents {
                 return true;
             }
 
+            if (matches(cfg.stopMacro, m, caseSensitive)) return applyStopMacro(sp, range, chain);
+
             if (ServerConfig.enableCombatModule && matches(cfg.equip, m, caseSensitive)) return applyLoadoutSwap(sp, range, chain, true);
             if (ServerConfig.enableCombatModule && matches(cfg.stash, m, caseSensitive)) return applyLoadoutSwap(sp, range, chain, false);
 
@@ -646,6 +665,29 @@ public final class ServerEvents {
             if (ServerConfig.enableCombatModule && matches(cfg.aggressive, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.AGGRESSIVE);
 
             return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean applyStopMacro(ServerPlayer sp, int range, boolean chain) {
+        try {
+            if (sp == null) return false;
+            List<Villager> targets = collectOwnedVillagersForStopMacro(sp, range, chain);
+            if (targets.isEmpty()) return false;
+
+            for (Villager vill : targets) {
+                if (vill == null) continue;
+                if (!RecruitService.isRecruited(vill)) continue;
+                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+                if (!CustomCommandsService.isExecuting(vill)) continue;
+
+                try { CustomCommandsService.stopExecution(vill); } catch (Throwable ignored) {}
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            }
+
+            // Consider this handled even if no one was executing (it's still a valid command).
+            return true;
         } catch (Throwable ignored) {
             return false;
         }
@@ -848,6 +890,65 @@ public final class ServerEvents {
                     UUID r = RecruitService.getRecruiterUuid(vill);
                     if (r == null || !r.equals(owner)) continue;
                     if (!CustomCommandsService.isChatListening(vill)) continue;
+                    if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+
+                    seen.add(id);
+                    out.add(vill);
+                    q.add(vill);
+                    if (out.size() >= 256) break;
+                }
+            }
+
+            return out;
+        } catch (Throwable ignored) {
+            return List.of();
+        }
+    }
+
+    private static List<Villager> collectOwnedVillagersForStopMacro(ServerPlayer sp, int range, boolean chain) {
+        try {
+            if (sp == null || sp.serverLevel() == null) return List.of();
+            if (range < 1) range = 1;
+
+            UUID owner = sp.getUUID();
+            var level = sp.serverLevel();
+
+            java.util.ArrayList<Villager> initial = new java.util.ArrayList<>();
+            for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(range))) {
+                if (vill == null) continue;
+                if (!RecruitService.isRecruited(vill)) continue;
+                UUID r = RecruitService.getRecruiterUuid(vill);
+                if (r == null || !r.equals(owner)) continue;
+                if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
+                initial.add(vill);
+            }
+
+            if (!chain) return initial;
+
+            java.util.HashSet<UUID> seen = new java.util.HashSet<>();
+            java.util.ArrayDeque<Villager> q = new java.util.ArrayDeque<>();
+            for (Villager v : initial) {
+                if (v == null) continue;
+                seen.add(v.getUUID());
+                q.add(v);
+            }
+
+            java.util.ArrayList<Villager> out = new java.util.ArrayList<>(initial);
+            while (!q.isEmpty() && out.size() < 256) {
+                Villager cur = q.poll();
+                if (cur == null) continue;
+
+                if (!CustomCommandsService.isChatPassing(cur)) continue;
+                int passRange = CustomCommandsService.getChatPassRange(cur);
+                if (passRange < 1) passRange = range;
+
+                for (Villager vill : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
+                    if (vill == null) continue;
+                    UUID id = vill.getUUID();
+                    if (id == null || seen.contains(id)) continue;
+                    if (!RecruitService.isRecruited(vill)) continue;
+                    UUID r = RecruitService.getRecruiterUuid(vill);
+                    if (r == null || !r.equals(owner)) continue;
                     if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) continue;
 
                     seen.add(id);

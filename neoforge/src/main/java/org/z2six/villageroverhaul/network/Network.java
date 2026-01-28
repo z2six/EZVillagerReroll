@@ -30,14 +30,18 @@ import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenSet;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcDeleteAction;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenLookDuration;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenChestRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenTeachMenu;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcRecordLook;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcSaveTaughtAction;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcSetChestRules;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcSetLookDuration;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcStopTeaching;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionQuery;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionMeta;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepLookDuration;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcUpdateActionStepWait;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcWaitState;
@@ -210,6 +214,10 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcBeginRecord(msg, ctx)));
             r.playToServer(PacketCcCancelRecord.TYPE, PacketCcCancelRecord.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcCancelRecord(msg, ctx)));
+            r.playToServer(PacketCcRecordLook.TYPE, PacketCcRecordLook.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcRecordLook(msg, ctx)));
+            r.playToServer(PacketCcSetLookDuration.TYPE, PacketCcSetLookDuration.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcSetLookDuration(msg, ctx)));
             r.playToServer(PacketCcTeachSessionQuery.TYPE, PacketCcTeachSessionQuery.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcTeachSessionQuery(msg, ctx)));
             r.playToServer(PacketCcSaveTaughtAction.TYPE, PacketCcSaveTaughtAction.STREAM_CODEC,
@@ -220,6 +228,8 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcDeleteAction(msg, ctx)));
             r.playToServer(PacketCcUpdateActionStepWait.TYPE, PacketCcUpdateActionStepWait.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcUpdateActionStepWait(msg, ctx)));
+            r.playToServer(PacketCcUpdateActionStepLookDuration.TYPE, PacketCcUpdateActionStepLookDuration.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcUpdateActionStepLookDuration(msg, ctx)));
             r.playToServer(PacketCcUpdateActionStepRules.TYPE, PacketCcUpdateActionStepRules.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcUpdateActionStepRules(msg, ctx)));
             r.playToServer(PacketCcChatListenQuery.TYPE, PacketCcChatListenQuery.STREAM_CODEC,
@@ -266,6 +276,8 @@ public final class Network {
             // custom commands UI data
             r.playToClient(PacketCcOpenTeachMenu.TYPE, PacketCcOpenTeachMenu.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onCcOpenTeachMenu", msg, ctx));
+            r.playToClient(PacketCcOpenLookDuration.TYPE, PacketCcOpenLookDuration.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onCcOpenLookDuration", msg, ctx));
             r.playToClient(PacketCcWaitState.TYPE, PacketCcWaitState.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onCcWaitState", msg, ctx));
             r.playToClient(PacketCcTeachSessionData.TYPE, PacketCcTeachSessionData.STREAM_CODEC,
