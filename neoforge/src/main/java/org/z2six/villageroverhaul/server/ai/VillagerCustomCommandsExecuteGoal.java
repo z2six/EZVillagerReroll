@@ -55,6 +55,8 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
     private int lookSmoothForStepIndex = -1;
     private float lookSmoothYaw = 0.0f;
     private float lookSmoothPitch = 0.0f;
+    private int lookHoldForStepIndex = -1;
+    private long lookHoldStartGameTime = 0L;
 
     private static final double SPEED = 0.50;
     private static final double WAYPOINT_DONE_MAX_DY = 1.0;
@@ -67,6 +69,7 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
     // Natural-ish turn speeds (deg/tick @ 20 tps).
     private static final float LOOK_MAX_YAW_DEG_PER_TICK = 9.0f;
     private static final float LOOK_MAX_PITCH_DEG_PER_TICK = 8.0f;
+    private static final float LOOK_ARRIVE_EPS_DEG = 1.0f;
 
     public VillagerCustomCommandsExecuteGoal(Villager vill) {
         this.vill = vill;
@@ -108,6 +111,8 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             chestOpenedEnder = false;
             chestOpenedAtGameTime = 0L;
             lookSmoothForStepIndex = -1;
+            lookHoldForStepIndex = -1;
+            lookHoldStartGameTime = 0L;
             try { VillagerCombatLoadoutService.forceEquipBegin(vill, true, "cc_exec_begin"); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {
             actionIndex = -1;
@@ -133,7 +138,11 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
     @Override
     public void stop() {
         try {
-            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            boolean combat = false;
+            try { combat = VillagerBrain.isCombatEngaged(vill); } catch (Throwable ignored) { combat = false; }
+            if (!combat) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            }
             try { tryCloseChestIfOpen(); } catch (Throwable ignored) {}
             try { VillagerCombatLoadoutService.forceEquipEnd(vill, "cc_exec_end"); } catch (Throwable ignored) {}
             actionIndex = -1;
@@ -166,6 +175,10 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             // If combat is engaged, pause and let combat goals drive movement.
             try {
                 if (VillagerBrain.isCombatEngaged(vill)) {
+                    if (action != null && action.combatOverride()) {
+                        CustomCommandsService.stopExecution(vill);
+                        return;
+                    }
                     vill.getNavigation().stop();
                     return;
                 }
@@ -265,6 +278,8 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
         cooldownForStepIndex = -1;
         cooldownUntilGameTime = 0L;
         lookSmoothForStepIndex = -1;
+        lookHoldForStepIndex = -1;
+        lookHoldStartGameTime = 0L;
         try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
         if (action == null || action.steps() == null || stepIndex >= action.steps().size()) {
             CustomCommandsService.stopExecution(vill);
@@ -343,7 +358,25 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             vill.setYBodyRot(lookSmoothYaw);
             vill.setXRot(lookSmoothPitch);
             try { vill.getLookControl().setLookAt(target.x, target.y, target.z, 360.0F, 360.0F); } catch (Throwable ignored) {}
-            if (now - stepStartGameTime >= (long) lt) {
+
+            float yawErr = Math.abs(Mth.wrapDegrees(targetYaw - lookSmoothYaw));
+            float pitchErr = Math.abs(targetPitch - lookSmoothPitch);
+            boolean arrived = yawErr <= LOOK_ARRIVE_EPS_DEG && pitchErr <= LOOK_ARRIVE_EPS_DEG;
+
+            // The configured duration should be "hold once facing", not "time to turn + hold".
+            if (!arrived) {
+                if (lookHoldForStepIndex == stepIndex) {
+                    lookHoldForStepIndex = -1;
+                    lookHoldStartGameTime = 0L;
+                }
+                return;
+            }
+
+            if (lookHoldForStepIndex != stepIndex) {
+                lookHoldForStepIndex = stepIndex;
+                lookHoldStartGameTime = now;
+            }
+            if (now - lookHoldStartGameTime >= (long) lt) {
                 advance();
             }
         } catch (Throwable ignored) {}

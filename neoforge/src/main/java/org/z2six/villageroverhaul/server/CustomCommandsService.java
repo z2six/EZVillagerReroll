@@ -39,6 +39,7 @@ public final class CustomCommandsService {
     private static final String K_CASE = "case";
     private static final String K_CHAIN = "chain";
     private static final String K_ANYONE = "anyone";
+    private static final String K_COMBAT_OVERRIDE = "combat_override";
     private static final String K_TIMEOUT = "timeout";
     private static final String K_RETRY = "retry";
     private static final String K_LAST_FAIL = "last_fail";
@@ -142,6 +143,7 @@ public final class CustomCommandsService {
             boolean caseSensitive,
             boolean chain,
             boolean anyone,
+            boolean combatOverride,
             String description,
             int timeoutSeconds,
             int retryAfterSeconds,
@@ -589,22 +591,30 @@ public final class CustomCommandsService {
             int ra = Math.max(0, Math.min(3600, retryAfterSeconds));
             int sa = Math.max(0, Math.min(1000, stopAfterRetries));
 
+            CompoundTag root = getOrCreateRoot(vill);
+            ListTag list = root.contains(K_ACTIONS, Tag.TAG_LIST) ? root.getList(K_ACTIONS, Tag.TAG_COMPOUND) : new ListTag();
+
+            boolean combatOverride = true;
+            int idx = editIndex;
+            if (idx >= 0 && idx < list.size()) {
+                try {
+                    CompoundTag prev = list.getCompound(idx);
+                    combatOverride = !prev.contains(K_COMBAT_OVERRIDE) || prev.getBoolean(K_COMBAT_OVERRIDE);
+                } catch (Throwable ignored) { combatOverride = true; }
+            }
+
             CompoundTag action = new CompoundTag();
             action.putString(K_TITLE, t);
             action.putString(K_CMD, c);
             action.putBoolean(K_CASE, caseSensitive);
             action.putBoolean(K_CHAIN, chain);
             action.putBoolean(K_ANYONE, anyone);
+            action.putBoolean(K_COMBAT_OVERRIDE, combatOverride);
             action.putString(K_DESC, d);
             action.putInt(K_TIMEOUT, to);
             action.putInt(K_RETRY, ra);
             action.putInt(K_STOP_AFTER, sa);
             action.put(K_STEPS, encodeSteps(s.steps));
-
-            CompoundTag root = getOrCreateRoot(vill);
-            ListTag list = root.contains(K_ACTIONS, Tag.TAG_LIST) ? root.getList(K_ACTIONS, Tag.TAG_COMPOUND) : new ListTag();
-
-            int idx = editIndex;
             if (idx < 0 || idx >= list.size()) {
                 if (list.size() >= MAX_ACTIONS) return;
                 list.add(action);
@@ -660,6 +670,22 @@ public final class CustomCommandsService {
             action.putInt(K_RETRY, ra);
             action.putInt(K_STOP_AFTER, sa);
             list.set(index, action);
+            root.put(K_ACTIONS, list);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void setCombatOverride(Villager vill, int actionIndex, boolean enabled) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.contains(K_ACTIONS, Tag.TAG_LIST)) return;
+
+            ListTag list = root.getList(K_ACTIONS, Tag.TAG_COMPOUND);
+            if (actionIndex < 0 || actionIndex >= list.size()) return;
+
+            CompoundTag action = list.getCompound(actionIndex);
+            action.putBoolean(K_COMBAT_OVERRIDE, enabled);
+            list.set(actionIndex, action);
             root.put(K_ACTIONS, list);
         } catch (Throwable ignored) {}
     }
@@ -849,6 +875,7 @@ public final class CustomCommandsService {
                 e.putBoolean("case", a.caseSensitive());
                 e.putBoolean("chain", a.chain());
                 e.putBoolean("anyone", a.anyone());
+                e.putBoolean("co", a.combatOverride());
                 e.putString("d", a.description() == null ? "" : a.description());
                 e.putInt("to", a.timeoutSeconds());
                 e.putInt("ra", a.retryAfterSeconds());
@@ -1059,13 +1086,14 @@ public final class CustomCommandsService {
 
     private static TaughtActionMeta decodeActionMeta(CompoundTag a) {
         try {
-            if (a == null) return new TaughtActionMeta("", "", true, false, false, "", 10, 10, 0, 0L, List.of());
+            if (a == null) return new TaughtActionMeta("", "", true, false, false, true, "", 10, 10, 0, 0L, List.of());
             String t = a.getString(K_TITLE);
             String c = a.getString(K_CMD);
             if (c == null || c.isBlank()) c = t;
             boolean cs = a.contains(K_CASE) ? a.getBoolean(K_CASE) : true;
             boolean ch = a.getBoolean(K_CHAIN);
             boolean anyone = a.getBoolean(K_ANYONE);
+            boolean co = !a.contains(K_COMBAT_OVERRIDE) || a.getBoolean(K_COMBAT_OVERRIDE);
             String d = a.getString(K_DESC);
             int to = a.contains(K_TIMEOUT) ? a.getInt(K_TIMEOUT) : 10;
             int ra = a.contains(K_RETRY) ? a.getInt(K_RETRY) : 10;
@@ -1078,9 +1106,9 @@ public final class CustomCommandsService {
             if (sa < 0) sa = 0;
             if (sa > 1000) sa = 1000;
             ListTag st = a.contains(K_STEPS, Tag.TAG_LIST) ? a.getList(K_STEPS, Tag.TAG_COMPOUND) : new ListTag();
-            return new TaughtActionMeta(t, c, cs, ch, anyone, d, to, ra, sa, lf, decodeSteps(st));
+            return new TaughtActionMeta(t, c, cs, ch, anyone, co, d, to, ra, sa, lf, decodeSteps(st));
         } catch (Throwable ignored) {
-            return new TaughtActionMeta("", "", true, false, false, "", 10, 10, 0, 0L, List.of());
+            return new TaughtActionMeta("", "", true, false, false, true, "", 10, 10, 0, 0L, List.of());
         }
     }
 

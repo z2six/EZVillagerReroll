@@ -42,6 +42,7 @@ import org.z2six.villageroverhaul.network.customcommands.PacketCcDeleteAction;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListQuery;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcSaveTaughtAction;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcSetCombatOverride;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcSetChestRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcStopTeaching;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcTeachSessionData;
@@ -2136,6 +2137,22 @@ public final class ServerHandlers {
                     CustomCommandsService.isChatPassing(vill),
                     CustomCommandsService.getChatPassRange(vill)
             ));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleCcSetCombatOverride(PacketCcSetCombatOverride msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+
+            int idx = msg.actionIndex();
+            if (idx < 0) return;
+            CustomCommandsService.setCombatOverride(vill, idx, msg.enabled());
+            playVillagerSound(vill, SoundEvents.UI_BUTTON_CLICK.value(), 0.6f, msg.enabled() ? 1.25f : 0.9f);
         } catch (Throwable ignored) {}
     }
 

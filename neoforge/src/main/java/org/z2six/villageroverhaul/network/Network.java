@@ -35,6 +35,7 @@ import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenChestRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcOpenTeachMenu;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcRecordLook;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcSaveTaughtAction;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcSetCombatOverride;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcSetChestRules;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcSetLookDuration;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcStopTeaching;
@@ -236,6 +237,8 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcChatListenQuery(msg, ctx)));
             r.playToServer(PacketCcChatListenSet.TYPE, PacketCcChatListenSet.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcChatListenSet(msg, ctx)));
+            r.playToServer(PacketCcSetCombatOverride.TYPE, PacketCcSetCombatOverride.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcSetCombatOverride(msg, ctx)));
 
             // ============================
             // Player Chat Commands serverbound

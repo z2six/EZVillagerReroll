@@ -11,6 +11,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailQuery;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcListQuery;
+import org.z2six.villageroverhaul.network.customcommands.PacketCcSetCombatOverride;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,22 +26,25 @@ public final class CustomCommandsListScreen extends Screen {
 
     private static final int ROWS_VISIBLE = 8;
     private static final int ROW_H = 18;
+    private static final int CHECKBOX_SIZE = 12;
 
     private static final class Entry {
         final int index;
         final String title;
         final String command;
         final boolean caseSensitive;
+        boolean combatOverride;
         final String desc;
         final int steps;
         final int timeoutSeconds;
         final int retryAfterSeconds;
         final int stopAfterRetries;
-        Entry(int index, String title, String command, boolean caseSensitive, String desc, int steps, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries) {
+        Entry(int index, String title, String command, boolean caseSensitive, boolean combatOverride, String desc, int steps, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries) {
             this.index = index;
             this.title = title;
             this.command = command;
             this.caseSensitive = caseSensitive;
+            this.combatOverride = combatOverride;
             this.desc = desc;
             this.steps = steps;
             this.timeoutSeconds = timeoutSeconds;
@@ -99,6 +103,7 @@ public final class CustomCommandsListScreen extends Screen {
                             e.getString("t"),
                             e.getString("c"),
                             e.getBoolean("case"),
+                            !e.contains("co") || e.getBoolean("co"),
                             e.getString("d"),
                             e.getInt("n"),
                             e.getInt("to"),
@@ -132,6 +137,7 @@ public final class CustomCommandsListScreen extends Screen {
 
         int listX = left + 10;
         int listY = top + 34;
+        int listW = PANEL_W - 20;
 
         if (mouseX < listX || mouseX > listX + (PANEL_W - 20)) return super.mouseClicked(mouseX, mouseY, button);
         if (mouseY < listY || mouseY > listY + (ROWS_VISIBLE * ROW_H)) return super.mouseClicked(mouseX, mouseY, button);
@@ -141,9 +147,28 @@ public final class CustomCommandsListScreen extends Screen {
         if (idx < 0 || idx >= entries.size()) return super.mouseClicked(mouseX, mouseY, button);
 
         Entry e = entries.get(idx);
+
+        int y = listY + (row * ROW_H);
+        int cbX = listX + listW - CHECKBOX_SIZE - 4;
+        int cbY = y + (ROW_H - CHECKBOX_SIZE) / 2;
+        if (mouseX >= cbX && mouseX <= cbX + CHECKBOX_SIZE && mouseY >= cbY && mouseY <= cbY + CHECKBOX_SIZE) {
+            e.combatOverride = !e.combatOverride;
+            ClientNetwork.sendToServer(new PacketCcSetCombatOverride(villagerEntityId, e.index, e.combatOverride));
+            return true;
+        }
+
         ClientNetwork.sendToServer(new PacketCcActionDetailQuery(villagerEntityId, e.index));
         if (this.minecraft != null) this.minecraft.setScreen(new CustomCommandsActionDetailScreen(this, villagerEntityId, e.index));
         return true;
+    }
+
+    private void renderCombatOverrideCheckbox(GuiGraphics gg, int x, int y, boolean checked, boolean hovered) {
+        int bg = hovered ? 0x88000000 : 0x66000000;
+        gg.fill(x, y, x + CHECKBOX_SIZE, y + CHECKBOX_SIZE, bg);
+        gg.renderOutline(x, y, CHECKBOX_SIZE, CHECKBOX_SIZE, hovered ? 0xFFB0B0B0 : 0xFF6A6A6A);
+        if (checked) {
+            gg.drawString(this.font, Component.literal("\u2714"), x + 3, y + 2, 0xFFFFFFFF);
+        }
     }
 
     @Override
@@ -158,8 +183,10 @@ public final class CustomCommandsListScreen extends Screen {
 
         int listX = left + 10;
         int listY = top + 34;
+        int listW = PANEL_W - 20;
 
         int hoverIdx = -1;
+        boolean hoverCheckbox = false;
         for (int i = 0; i < ROWS_VISIBLE; i++) {
             int idx = scroll + i;
             if (idx >= entries.size()) break;
@@ -167,20 +194,41 @@ public final class CustomCommandsListScreen extends Screen {
             int y = listY + (i * ROW_H);
 
             int bg = 0x22000000;
-            if (mouseX >= listX && mouseX <= listX + (PANEL_W - 20) && mouseY >= y && mouseY <= y + ROW_H) {
+            if (mouseX >= listX && mouseX <= listX + listW && mouseY >= y && mouseY <= y + ROW_H) {
                 bg = 0x33000000;
                 hoverIdx = idx;
             }
-            gg.fill(listX, y, listX + (PANEL_W - 20), y + ROW_H - 1, bg);
+            gg.fill(listX, y, listX + listW, y + ROW_H - 1, bg);
 
             String label = e.title == null || e.title.isBlank() ? "<unnamed>" : e.title;
             gg.drawString(this.font, Component.literal(label), listX + 4, y + 5, 0xFFFFFFFF);
-            gg.drawString(this.font, Component.literal(String.valueOf(e.steps)), listX + (PANEL_W - 28), y + 5, 0xFFB0B0B0);
+
+            int cbX = listX + listW - CHECKBOX_SIZE - 4;
+            int cbY = y + (ROW_H - CHECKBOX_SIZE) / 2;
+            boolean cbHover = mouseX >= cbX && mouseX <= cbX + CHECKBOX_SIZE && mouseY >= cbY && mouseY <= cbY + CHECKBOX_SIZE;
+            if (cbHover && hoverIdx == idx) hoverCheckbox = true;
+            renderCombatOverrideCheckbox(gg, cbX, cbY, e.combatOverride, cbHover);
+
+            String steps = String.valueOf(e.steps);
+            int stepsW = this.font.width(steps);
+            int stepsX = cbX - 6 - stepsW;
+            gg.drawString(this.font, Component.literal(steps), stepsX, y + 5, 0xFFB0B0B0);
         }
 
         super.render(gg, mouseX, mouseY, partialTick);
 
-        if (hoverIdx >= 0 && hoverIdx < entries.size()) {
+        if (hoverCheckbox && hoverIdx >= 0 && hoverIdx < entries.size()) {
+            gg.renderTooltip(
+                    this.font,
+                    List.of(
+                            Component.literal("Combat override").getVisualOrderText(),
+                            Component.literal("If this is enabled, the macro will be canceled").getVisualOrderText(),
+                            Component.literal("to engage in the active combat mode").getVisualOrderText()
+                    ),
+                    mouseX,
+                    mouseY
+            );
+        } else if (hoverIdx >= 0 && hoverIdx < entries.size()) {
             Entry e = entries.get(hoverIdx);
             List<FormattedCharSequence> lines = new ArrayList<>();
             if (e.command != null && !e.command.isBlank()) {
