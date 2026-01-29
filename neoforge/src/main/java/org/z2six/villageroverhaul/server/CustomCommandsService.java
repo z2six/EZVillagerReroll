@@ -939,11 +939,26 @@ public final class CustomCommandsService {
                 if (contains) {
                     String needle = trigger.substring(2, trigger.length() - 2).trim();
                     if (needle.isEmpty()) continue;
-                    if (cs) {
-                        if (msg.contains(needle)) return true;
-                    } else {
-                        if (msg.toLowerCase(java.util.Locale.ROOT).contains(needle.toLowerCase(java.util.Locale.ROOT))) return true;
+
+                    // Support AND-match inside $$...$$ using "&&" (e.g. $$open&&gates$$ means message must contain both).
+                    String[] andParts = needle.contains("&&") ? needle.split("&&", -1) : null;
+                    if (andParts != null) {
+                        boolean ok = true;
+                        for (String ap : andParts) {
+                            if (ap == null) continue;
+                            String part = ap.trim();
+                            if (part.isEmpty()) continue;
+                            if (cs) {
+                                if (!msg.contains(part)) { ok = false; break; }
+                            } else {
+                                if (!msg.toLowerCase(java.util.Locale.ROOT).contains(part.toLowerCase(java.util.Locale.ROOT))) { ok = false; break; }
+                            }
+                        }
+                        if (ok) return true;
+                        continue;
                     }
+
+                    if (cs ? msg.contains(needle) : msg.toLowerCase(java.util.Locale.ROOT).contains(needle.toLowerCase(java.util.Locale.ROOT))) return true;
                     continue;
                 }
 

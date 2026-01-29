@@ -6,10 +6,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolAction;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
 
 public final class PatrolSetupScreen extends Screen {
 
@@ -22,6 +22,10 @@ public final class PatrolSetupScreen extends Screen {
         this.waypointCount = waypointCount;
     }
 
+    public int getVillagerEntityId() {
+        return villagerEntityId;
+    }
+
     @Override
     protected void init() {
         int cx = this.width / 2;
@@ -32,13 +36,12 @@ public final class PatrolSetupScreen extends Screen {
 
         this.addRenderableWidget(Button.builder(Component.literal("Add waypoint (" + waypointCount + ")"), b -> {
                     try {
-                        // Capture the client-observed villager position at click time.
+                        // Capture the player's current position at click time.
                         Minecraft mc = Minecraft.getInstance();
                         Vec3 pos = null;
 
-                        if (mc != null && mc.level != null) {
-                            Entity ent = mc.level.getEntity(villagerEntityId);
-                            if (ent != null) pos = ent.position();
+                        if (mc != null && mc.player != null) {
+                            pos = mc.player.position();
                         }
 
                         if (pos != null) {
@@ -49,7 +52,7 @@ public final class PatrolSetupScreen extends Screen {
                                     pos.x, pos.y, pos.z
                             ));
                         } else {
-                            // Fallback: no client entity found, send without pos (server will use server position).
+                            // Fallback: send without pos (server will use the player's position).
                             ClientNetwork.sendToServer(new PacketPatrolAction(
                                     villagerEntityId,
                                     PacketPatrolAction.Action.ADD_WAYPOINT
@@ -80,6 +83,9 @@ public final class PatrolSetupScreen extends Screen {
                     try {
                         ClientNetwork.sendToServer(new PacketPatrolAction(villagerEntityId, PacketPatrolAction.Action.CANCEL));
                         toast("Patrol canceled.", ChatFormatting.RED);
+                        // Allow normal RMB UI again immediately.
+                        ClientUI.clearPatrolSetupSuppression(villagerEntityId);
+                        ClientNetwork.sendToServer(new PacketVillagerModeQuery(villagerEntityId));
                     } catch (Throwable t) {
                         VillagerOverhaul.LOG().error("[VillagerOverhaul] Cancel patrol failed", t);
                     }

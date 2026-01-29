@@ -662,13 +662,13 @@ public final class ServerHandlers {
                 return;
             }
 
+            // If a vanilla trade interaction sneaks in, ensure we exit trading so PATROL_SETUP follow can continue.
+            try { vill.setTradingPlayer(null); } catch (Throwable ignored) {}
+
             switch (msg.action()) {
                 case ADD_WAYPOINT -> {
-                    if (msg.hasPos()) {
-                        VillagerBrain.addPatrolWaypointFromClientPos(vill, new net.minecraft.world.phys.Vec3(msg.x(), msg.y(), msg.z()));
-                    } else {
-                        VillagerBrain.addPatrolWaypointAtCurrentPos(vill);
-                    }
+                    // Use the player's current position (normalized server-side) rather than the villager's.
+                    VillagerBrain.addPatrolWaypointAtPos(vill, sp.position());
 
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] handlePatrolAction: add waypoint (count={} player={} villager={})",
                             VillagerBrain.getPatrolWaypointCount(vill),
@@ -839,6 +839,10 @@ public final class ServerHandlers {
                 }
             }
 
+            if (canOpen) {
+                // Clear vanilla trade state if it got set by the interaction.
+                try { vill.setTradingPlayer(null); } catch (Throwable ignored) {}
+            }
             ctx.reply(new PacketPatrolOpenGui(id, canOpen, waypointCount, hasFinalizedRoute));
 
         } catch (Throwable t) {

@@ -133,6 +133,24 @@ public final class ServerEvents {
             if (level == null || level.isClientSide()) return;
 
             // ============================================================
+            // Patrol setup: block vanilla Merchant interaction while recording
+            // (Dedicated server: otherwise server opens Merchant UI and closes our patrol screens)
+            // ============================================================
+            try {
+                if (e.getTarget() instanceof Villager pv
+                        && RecruitService.isRecruited(pv)
+                        && org.z2six.villageroverhaul.server.ai.VillagerBrain.getMode(pv) == org.z2six.villageroverhaul.server.ai.VillagerBrain.Mode.PATROL_SETUP) {
+                    java.util.UUID owner = org.z2six.villageroverhaul.server.ai.VillagerBrain.getPatrolSetupOwner(pv);
+                    if (owner != null && owner.equals(sp.getUUID())) {
+                        try { pv.setTradingPlayer(null); } catch (Throwable ignored) {}
+                        e.setCanceled(true);
+                        e.setCancellationResult(InteractionResult.SUCCESS);
+                        return;
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            // ============================================================
             // Custom Commands (teaching) intercepts
             // ============================================================
             try {

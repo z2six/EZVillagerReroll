@@ -28,6 +28,11 @@ public final class VillagerIdleGoal extends Goal {
     private int bodyTurnTicksLeft = 0;
     private float bodyTargetYawDeg = 0.0f;
 
+    // Occasional small head "bob" (pitch change) to feel alive, but not constant.
+    private int nextBobTicks = 0;
+    private int bobTicksLeft = 0;
+    private float bobPhase = 0.0f;
+
     public VillagerIdleGoal(Villager vill) {
         this.vill = vill;
         this.setFlags(EnumSet.of(Flag.MOVE, Flag.JUMP));
@@ -62,6 +67,13 @@ public final class VillagerIdleGoal extends Goal {
             nextBodyTurnTicks = 20 + vill.getRandom().nextInt(41); // 1..3 seconds
             bodyTurnTicksLeft = 0;
             bodyTargetYawDeg = vill.getYRot();
+        } catch (Throwable ignored) {}
+
+        try {
+            // Average ~30s between bobs, with some variance.
+            nextBobTicks = 20 * (15 + vill.getRandom().nextInt(31)); // 15..45 seconds
+            bobTicksLeft = 0;
+            bobPhase = 0.0f;
         } catch (Throwable ignored) {}
     }
 
@@ -169,7 +181,7 @@ public final class VillagerIdleGoal extends Goal {
             vill.yRotO = newYaw;
 
             // Ask LookControl to look at a point a few blocks away in the target direction.
-            // This creates natural head turning and small up/down variance.
+            // Keep Y stable to avoid constant "head bobbing" while idle.
             double rad = Math.toRadians(targetYawDeg);
             double dist = 2.5 + vill.getRandom().nextDouble() * 2.5; // 2.5..5.0
             double dx = -Math.sin(rad) * dist;
@@ -179,8 +191,24 @@ public final class VillagerIdleGoal extends Goal {
             double lookX = pos.x + dx;
             double lookZ = pos.z + dz;
 
-            // Slight vertical variance around eye height
-            double lookY = pos.y + vill.getEyeHeight() + (vill.getRandom().nextDouble() * 0.4 - 0.2);
+            double lookY = pos.y + vill.getEyeHeight();
+
+            // Rare, short head bob: small vertical movement around eye height.
+            if (bobTicksLeft > 0) {
+                // ~1.5s duration with a subtle amplitude.
+                lookY += Math.sin(bobPhase) * 0.12;
+                bobPhase += 0.35f;
+                bobTicksLeft--;
+                if (bobTicksLeft <= 0) {
+                    nextBobTicks = 20 * (15 + vill.getRandom().nextInt(31)); // 15..45 seconds
+                    bobPhase = 0.0f;
+                }
+            } else {
+                if (nextBobTicks-- <= 0) {
+                    bobTicksLeft = 30; // ~1.5s
+                    bobPhase = 0.0f;
+                }
+            }
 
             // These limits keep it subtle
             vill.getLookControl().setLookAt(lookX, lookY, lookZ, 30.0f, 30.0f);

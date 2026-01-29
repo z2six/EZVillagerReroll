@@ -52,6 +52,7 @@ import net.minecraft.world.entity.npc.Villager;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolInteractRequest;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolOpenGui;
@@ -116,12 +117,14 @@ public final class ClientUI {
 
     // Patrol
     private static final long MODE_STALE_MS = 1000;
-    private static final Map<Integer, Long> MODE_AT = new WeakHashMap<>();
-    private static final Map<Integer, String> MODE_ID = new WeakHashMap<>();
-    private static final Map<Integer, Long> COMBAT_MODE_AT = new WeakHashMap<>();
-    private static final Map<Integer, String> COMBAT_MODE_ID = new WeakHashMap<>();
-    private static final Map<Integer, Long> MANUAL_FARMING_AT = new WeakHashMap<>();
-    private static final Map<Integer, Boolean> MANUAL_FARMING_ENABLED = new WeakHashMap<>();
+    // NOTE: do not use WeakHashMap here; autoboxed Integer keys are not strongly referenced elsewhere and will be GC'd,
+    // causing highlight flicker back to defaults.
+    private static final Map<Integer, Long> MODE_AT = new HashMap<>();
+    private static final Map<Integer, String> MODE_ID = new HashMap<>();
+    private static final Map<Integer, Long> COMBAT_MODE_AT = new HashMap<>();
+    private static final Map<Integer, String> COMBAT_MODE_ID = new HashMap<>();
+    private static final Map<Integer, Long> MANUAL_FARMING_AT = new HashMap<>();
+    private static final Map<Integer, Boolean> MANUAL_FARMING_ENABLED = new HashMap<>();
     // Movement buttons per screen: key is "neutral"/"idle"/"follow"/"patrol"
     private static final Map<Screen, Map<String, Button>> MOVEMENT_BTNS = new WeakHashMap<>();
     // Combat buttons per screen: key is "flee"/"defend"/"aggressive"
@@ -150,6 +153,10 @@ public final class ClientUI {
     private static long PENDING_QUICK_AT_MS = 0L;
     private static final long QUICK_OPEN_DELAY_MS = 120;
     private static final long QUICK_OPEN_TIMEOUT_MS = 800;
+
+    // While recording patrol routes, block vanilla interaction + QuickActions opens for that villager.
+    private static final Map<Integer, Long> PATROL_SETUP_SUPPRESS_UNTIL_MS = new HashMap<>();
+    private static final long PATROL_SETUP_SUPPRESS_WINDOW_MS = 3_600_000L; // 1 hour (refreshed while canOpen)
 
     // Chest registration flow (farming command)
     private static int PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
@@ -195,8 +202,14 @@ public final class ClientUI {
     public static void acceptVillagerModeData(PacketVillagerModeData p) {
         try {
             if (p == null) return;
-            MODE_ID.put(p.villagerEntityId(), p.modeId() == null ? "neutral" : p.modeId());
+            String m = p.modeId() == null ? "neutral" : p.modeId();
+            MODE_ID.put(p.villagerEntityId(), m);
             MODE_AT.put(p.villagerEntityId(), System.currentTimeMillis());
+
+            // Leaving patrol setup: allow normal RMB interactions again.
+            if (!"patrol_setup".equalsIgnoreCase(m)) {
+                try { PATROL_SETUP_SUPPRESS_UNTIL_MS.remove(p.villagerEntityId()); } catch (Throwable ignored) {}
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -383,6 +396,30 @@ public final class ClientUI {
             // Also query our gate state so UI can show/hide controls
             try {
                 ClientNetwork.sendToServer(new PacketRecruitGateQuery(id));
+            } catch (Throwable ignored) {}
+
+            // If the client already knows this villager is in PATROL_SETUP, suppress the vanilla interact immediately.
+            // This avoids the MerchantScreen/container lifecycle closing our PatrolSetupScreen.
+            try {
+                String mode = MODE_ID.get(id);
+                if ("patrol_setup".equalsIgnoreCase(mode)) {
+                    try { ClientNetwork.sendToServer(new PacketVillagerModeQuery(id)); } catch (Throwable ignored) {}
+                    e.setCanceled(true);
+                    e.setCancellationResult(InteractionResult.SUCCESS);
+                    PENDING_QUICK_VILLAGER_ID = -1;
+                    return;
+                }
+            } catch (Throwable ignored) {}
+
+            // If we are in patrol recording (PATROL_SETUP), suppress vanilla interact + QuickActions entirely.
+            try {
+                Long until = PATROL_SETUP_SUPPRESS_UNTIL_MS.get(id);
+                if (until != null && until > System.currentTimeMillis()) {
+                    e.setCanceled(true);
+                    e.setCancellationResult(InteractionResult.SUCCESS);
+                    PENDING_QUICK_VILLAGER_ID = -1;
+                    return;
+                }
             } catch (Throwable ignored) {}
 
             // If no screen is currently open, schedule quick-actions overlay
@@ -640,9 +677,29 @@ public final class ClientUI {
 
             // Case A: server says open the setup GUI (only happens in PATROL_SETUP for owner)
             if (p.canOpen()) {
+                // While recording patrol routes, don't allow QuickActions or Merchant UI to steal focus.
+                PENDING_QUICK_VILLAGER_ID = -1;
+                try { PATROL_SETUP_SUPPRESS_UNTIL_MS.put(p.villagerEntityId(), System.currentTimeMillis() + PATROL_SETUP_SUPPRESS_WINDOW_MS); } catch (Throwable ignored) {}
+
+                try {
+                    if (mc.screen instanceof MerchantScreen) {
+                        mc.setScreen(null);
+                    } else if (mc.screen instanceof VillagerQuickActionsScreen) {
+                        mc.setScreen(null);
+                    }
+                } catch (Throwable ignored) {}
+
                 mc.setScreen(new PatrolSetupScreen(p.villagerEntityId(), p.waypointCount()));
                 return;
             }
+
+            // Only clear suppression if we also believe we're not in patrol_setup anymore.
+            try {
+                String m = MODE_ID.get(p.villagerEntityId());
+                if (m == null || !"patrol_setup".equalsIgnoreCase(m)) {
+                    PATROL_SETUP_SUPPRESS_UNTIL_MS.remove(p.villagerEntityId());
+                }
+            } catch (Throwable ignored) {}
 
             // Case B: we are on the PatrolBeginPromptScreen and we just needed the "has existing route" bit.
             if (mc.screen instanceof PatrolBeginPromptScreen prompt) {
@@ -654,6 +711,25 @@ public final class ClientUI {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] acceptPatrolOpenGui failed", t);
         }
+    }
+
+    public static void clearPatrolSetupSuppression(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            PATROL_SETUP_SUPPRESS_UNTIL_MS.remove(villagerEntityId);
+            MODE_ID.remove(villagerEntityId);
+            MODE_AT.remove(villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void enterPatrolSetupSuppression(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            PATROL_SETUP_SUPPRESS_UNTIL_MS.put(villagerEntityId, System.currentTimeMillis() + PATROL_SETUP_SUPPRESS_WINDOW_MS);
+            MODE_ID.put(villagerEntityId, "patrol_setup");
+            MODE_AT.put(villagerEntityId, System.currentTimeMillis());
+            PENDING_QUICK_VILLAGER_ID = -1;
+        } catch (Throwable ignored) {}
     }
 
     public static void acceptPatrolRoutesData(PacketPatrolRoutesData p) {
@@ -2724,7 +2800,7 @@ public final class ClientUI {
             try { manual = Boolean.TRUE.equals(MANUAL_FARMING_ENABLED.get(villId)); } catch (Throwable ignored) { manual = false; }
 
             String mode = MODE_ID.get(villId);
-            if (mode == null) mode = "neutral";
+            if (mode == null) return;
 
             // treat patrol_setup as patrol for highlight
             String activeKey = switch (mode) {
@@ -2768,7 +2844,7 @@ public final class ClientUI {
             if (villId <= 0) return;
 
             String mode = COMBAT_MODE_ID.get(villId);
-            if (mode == null) mode = "off";
+            if (mode == null) return;
 
             String activeKey = switch (mode) {
                 case "flee" -> "flee";
@@ -2898,6 +2974,8 @@ public final class ClientUI {
                     sendUiPauseKeepalive(qa.getVillagerEntityId());
                 } else if (s instanceof CombatSettingsScreen cs && !cs.isGlobal()) {
                     sendUiPauseKeepalive(cs.getVillagerEntityId());
+                } else if (s instanceof PatrolSetupScreen ps) {
+                    sendUiPauseKeepalive(ps.getVillagerEntityId());
                 }
             } catch (Throwable ignored) {}
 

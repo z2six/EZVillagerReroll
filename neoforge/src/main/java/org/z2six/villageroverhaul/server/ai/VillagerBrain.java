@@ -96,6 +96,10 @@ public final class VillagerBrain {
     private static final String K_PATROL_DIR = "dir"; // +1 / -1
     private static final String K_PATROL_PAUSED = "paused";
 
+    // Patrol setup snapshot (restore on cancel)
+    private static final String K_PATROL_PREV_MODE = "prev_mode"; // String (Mode.id)
+    private static final String K_PATROL_PREV_FOLLOW = "prev_follow"; // UUID
+
     // Saved patrol routes (multi-route support)
     private static final String K_PATROL_ROUTES = "routes"; // ListTag of CompoundTag
     private static final String K_PATROL_ACTIVE_ROUTE = "active_route"; // UUID
@@ -741,6 +745,18 @@ public final class VillagerBrain {
             if (!isControllable(vill)) return false;
 
             ensureAttached(vill);
+
+            // Snapshot current state so Cancel can return to it.
+            try {
+                CompoundTag patrolSnap = getOrCreatePatrol(vill);
+                Mode prevMode = getMode(vill);
+                patrolSnap.putString(K_PATROL_PREV_MODE, prevMode == null ? Mode.NEUTRAL.id : prevMode.id);
+
+                UUID prevFollow = null;
+                try { prevFollow = getFollowPlayer(vill); } catch (Throwable ignored) { prevFollow = null; }
+                if (prevFollow != null) patrolSnap.putUUID(K_PATROL_PREV_FOLLOW, prevFollow);
+                else patrolSnap.remove(K_PATROL_PREV_FOLLOW);
+            } catch (Throwable ignored) {}
             prepareForManualControl(vill);
 
             CompoundTag patrol = getOrCreatePatrol(vill);
@@ -798,6 +814,14 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
+    public static void addPatrolWaypointAtPos(Villager vill, Vec3 pos) {
+        try {
+            if (vill == null || pos == null) return;
+            if (getMode(vill) != Mode.PATROL_SETUP) return;
+            addWaypointInternal(vill, pos);
+        } catch (Throwable ignored) {}
+    }
+
     public static void markPatrolFinalized(Villager vill) {
         try {
             if (vill == null) return;
@@ -830,6 +854,10 @@ public final class VillagerBrain {
             prepareForManualControl(vill);
             setMode(vill, Mode.PATROL);
 
+            // We have committed to patrol; drop any cancel-restore snapshot.
+            try { patrol.remove(K_PATROL_PREV_MODE); } catch (Throwable ignored) {}
+            try { patrol.remove(K_PATROL_PREV_FOLLOW); } catch (Throwable ignored) {}
+
         } catch (Throwable ignored) {}
     }
 
@@ -839,6 +867,11 @@ public final class VillagerBrain {
             // Important: do NOT delete saved routes when canceling setup.
             CompoundTag patrol = getOrCreatePatrol(vill);
 
+            String prevModeId = Mode.NEUTRAL.id;
+            UUID prevFollow = null;
+            try { if (patrol.contains(K_PATROL_PREV_MODE, Tag.TAG_STRING)) prevModeId = patrol.getString(K_PATROL_PREV_MODE); } catch (Throwable ignored) { prevModeId = Mode.NEUTRAL.id; }
+            try { if (patrol.hasUUID(K_PATROL_PREV_FOLLOW)) prevFollow = patrol.getUUID(K_PATROL_PREV_FOLLOW); } catch (Throwable ignored) { prevFollow = null; }
+
             patrol.remove(K_PATROL_OWNER);
             patrol.remove(K_PATROL_WAYPOINTS);
             patrol.putBoolean(K_PATROL_FINALIZED, false);
@@ -846,9 +879,18 @@ public final class VillagerBrain {
             patrol.putInt(K_PATROL_INDEX, 0);
             patrol.putInt(K_PATROL_DIR, 1);
             patrol.putBoolean(K_PATROL_PAUSED, false);
+            patrol.remove(K_PATROL_PREV_MODE);
+            patrol.remove(K_PATROL_PREV_FOLLOW);
 
-            setMode(vill, Mode.NEUTRAL);
-            clearFollowPlayer(vill);
+            Mode restore = Mode.fromId(prevModeId);
+            if (restore == Mode.PATROL_SETUP) restore = Mode.NEUTRAL;
+            setMode(vill, restore);
+
+            if (restore == Mode.FOLLOW && prevFollow != null) {
+                try { setFollowPlayer(vill, prevFollow); } catch (Throwable ignored) {}
+            } else if (restore != Mode.FOLLOW) {
+                clearFollowPlayer(vill);
+            }
 
         } catch (Throwable ignored) {}
     }

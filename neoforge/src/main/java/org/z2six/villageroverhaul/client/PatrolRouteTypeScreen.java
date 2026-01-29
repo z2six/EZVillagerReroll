@@ -8,6 +8,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolSaveRoute;
 import org.z2six.villageroverhaul.network.patrol.PacketPatrolSetRouteType;
 
@@ -84,6 +85,9 @@ public final class PatrolRouteTypeScreen extends Screen {
     private void closeAll() {
         try {
             Minecraft mc = Minecraft.getInstance();
+            // We are leaving patrol setup (route type chosen) -> allow normal RMB UI again immediately.
+            try { ClientUI.clearPatrolSetupSuppression(villagerEntityId); } catch (Throwable ignored) {}
+            try { ClientNetwork.sendToServer(new PacketVillagerModeQuery(villagerEntityId)); } catch (Throwable ignored) {}
             if (mc != null) mc.setScreen(null);
         } catch (Throwable ignored) {}
     }

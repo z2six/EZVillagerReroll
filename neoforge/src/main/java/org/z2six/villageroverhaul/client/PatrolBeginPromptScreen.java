@@ -53,10 +53,19 @@ public final class PatrolBeginPromptScreen extends Screen {
                     try {
                         ClientNetwork.sendToServer(new PacketPatrolBegin(villagerEntityId, true));
                         notifyStarted(true);
+                        // We are entering live patrol recording; suppress vanilla interaction immediately to prevent
+                        // MerchantScreen/container lifecycle from stealing focus and closing the patrol setup UI.
+                        ClientUI.enterPatrolSetupSuppression(villagerEntityId);
+                        try {
+                            Minecraft mc = Minecraft.getInstance();
+                            if (mc != null && mc.player != null) {
+                                mc.player.closeContainer();
+                            }
+                        } catch (Throwable ignored) {}
                     } catch (Throwable t) {
                         VillagerOverhaul.LOG().error("[VillagerOverhaul] Create new patrol click failed", t);
                     }
-                    closeToParent();
+                    closeAll();
                 })
                 .bounds(cx - w / 2, cy - 5, w, h)
                 .build());
@@ -123,6 +132,13 @@ public final class PatrolBeginPromptScreen extends Screen {
         try {
             Minecraft mc = Minecraft.getInstance();
             if (mc != null) mc.setScreen(parent);
+        } catch (Throwable ignored) {}
+    }
+
+    private void closeAll() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc != null) mc.setScreen(null);
         } catch (Throwable ignored) {}
     }
 
