@@ -10,11 +10,13 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.network.ClientTradeLockCache;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogQuery;
 import org.z2six.villageroverhaul.network.autoReroll.PacketStartAutoSearch;
@@ -44,6 +46,7 @@ public final class SearchCatalogScreen extends Screen {
     // Hourly cost preview (server-auth computed & sent in PacketSearchCatalogData)
     private int offerCount = -1;
     private int lockedCount = -1;
+    private long lockMask = 0L;
     private int effectivePaidOffers = -1;
     private int manualCost = -1;
     private int hourlyCost = -1;
@@ -131,6 +134,7 @@ public final class SearchCatalogScreen extends Screen {
 
             this.offerCount = msg.offerCount();
             this.lockedCount = msg.lockedCount();
+            this.lockMask = msg.lockMask();
             this.effectivePaidOffers = msg.effectivePaidOffers();
             this.manualCost = msg.manualCost();
             this.hourlyCost = msg.hourlyCost();
@@ -762,6 +766,7 @@ public final class SearchCatalogScreen extends Screen {
             } catch (Throwable ignored) {}
 
             final Set<String> disabledKeys = computeAlreadyOfferedResultKeysSafe();
+            final Set<String> lockedKeys = computeLockedOfferedResultKeysSafe();
 
             try {
                 if (!disabledKeys.isEmpty() && !selectedKeys.isEmpty()) {
@@ -822,9 +827,10 @@ public final class SearchCatalogScreen extends Screen {
 
                     String k = keyOf(s);
                     boolean disabled = (k != null && disabledKeys.contains(k));
+                    boolean locked = (k != null && lockedKeys.contains(k));
 
                     boolean sel = !disabled && selectedKeys.contains(k);
-                    if (sel) {
+                    if (sel || locked) {
                         int outline = 0xFF66FF66;
                         gg.renderOutline(x - 1, y - 1, ITEM_SIZE + 2, ITEM_SIZE + 2, outline);
                     }
@@ -919,6 +925,52 @@ public final class SearchCatalogScreen extends Screen {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] computeAlreadyOfferedResultKeysSafe failed (soft): {}", t.toString());
             return out;
+        }
+    }
+
+    private Set<String> computeLockedOfferedResultKeysSafe() {
+        Set<String> out = new HashSet<>();
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.player == null) return out;
+            if (!(mc.player.containerMenu instanceof MerchantMenu menu)) return out;
+
+            long activeMask = resolveCurrentLockMask(menu);
+            if (activeMask == 0L) return out;
+
+            var offers = menu.getOffers();
+            if (offers == null || offers.isEmpty()) return out;
+
+            int limit = Math.min(Math.min(offers.size(), 63), 128);
+            for (int i = 0; i < limit; i++) {
+                if ((activeMask & (1L << i)) == 0L) continue;
+
+                try {
+                    var offer = offers.get(i);
+                    if (offer == null) continue;
+
+                    ItemStack res = offer.getResult();
+                    if (res == null || res.isEmpty()) continue;
+
+                    String k = keyOf(res);
+                    if (k != null && !k.isBlank()) out.add(k);
+                } catch (Throwable ignored) {}
+            }
+
+            return out;
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] computeLockedOfferedResultKeysSafe failed (soft): {}", t.toString());
+            return out;
+        }
+    }
+
+    private long resolveCurrentLockMask(MerchantMenu menu) {
+        try {
+            long cached = ClientTradeLockCache.getMaskForContainer(menu.containerId);
+            if (cached != 0L) return cached;
+            return lockMask;
+        } catch (Throwable t) {
+            return lockMask;
         }
     }
 

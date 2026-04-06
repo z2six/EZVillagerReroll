@@ -6,17 +6,28 @@ This page describes what the Guard AI actually does in a fight.
 
 When the villager is in combat (Defend/Aggressive), it:
 
-- Moves into melee range (using a reach calculation).
-- Tries to keep a small spacing buffer.
-- Swings in timed intervals.
-- Blocks with a shield between swings (if enabled and equipped).
+- Uses ranged combat when its main hand holds a supported projectile weapon and its offhand holds valid ammo for that weapon.
+- Otherwise moves into melee range (using a reach calculation).
+- Tries to keep spacing appropriate to the current weapon.
+- Attacks in timed intervals.
+- Blocks with a shield between attacks if enabled and equipped and not using offhand ammo.
 - Can strafe/circle around the target (if enabled).
 - Can eat food to heal when low HP (if enabled and food available).
 
-## Attacking (melee)
+Detection ranges:
 
-- Attacks are melee.
-- The villager uses its real main-hand item when swinging.
+- Aggressive target scanning uses a 3D box around the villager with `inflate(16.0)`.
+- Defend/Flee recent-threat scanning uses a 3D box with `inflate(26.0)`.
+- Once a target/threat is known, follow-up lookups use a wider `inflate(32.0)` box.
+
+## Attacking
+
+- Melee: the villager uses its real main-hand item when swinging.
+- Ranged: if the main hand item is a `ProjectileWeaponItem` and the offhand holds valid supported ammo, the villager will charge and fire that weapon instead.
+- Offhand ammo is mandatory for ranged attacks. No valid offhand ammo means no shooting.
+- The offhand ammo is not consumed by the villager. A copy is used internally to create projectiles, so enchantments/components on the ammo still apply.
+- Crossbows and crossbow-like items use the normal charged-projectile pipeline.
+- Bow-like projectile weapons use the standard projectile draw/shoot pipeline.
 
 Reach:
 

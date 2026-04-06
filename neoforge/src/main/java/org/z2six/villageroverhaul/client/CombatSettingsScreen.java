@@ -68,6 +68,10 @@ public final class CombatSettingsScreen extends Screen {
 
     private Button aggroWl;
     private Button aggroBl;
+    private CheckBoxWidget cbAggroHostile;
+    private CheckBoxWidget cbAggroPassive;
+    private InfoIconWidget infoAggroRules;
+    private InfoIconWidget infoAggroCategories;
 
     private Button btnSave;
     private Button btnBack;
@@ -222,9 +226,21 @@ public final class CombatSettingsScreen extends Screen {
         int aggroY = y + blockH;
         aggroWl = makeListButton(x, aggroY, 120, btnH, "Whitelist", this::openAggressiveWhitelist);
         aggroBl = makeListButton(x + 126, aggroY, 120, btnH, "Blacklist", this::openAggressiveBlacklist);
+        cbAggroHostile = new CheckBoxWidget(x, aggroY + 28, "Target aggressive mobs (monster cap)");
+        cbAggroPassive = new CheckBoxWidget(x, aggroY + 50, "Target passive mobs (creature/ambient/water caps)");
+        infoAggroRules = new InfoIconWidget(infoX, aggroY + 1, infoSize,
+                "Blacklist always wins. If whitelist has entries, only those entries are allowed.");
+        infoAggroCategories = new InfoIconWidget(infoX, aggroY + 29, infoSize,
+                "Aggressive mobs use the monster category. Passive mobs use creature/ambient/water categories.");
 
         addAggressiveWidget(aggroWl);
         addAggressiveWidget(aggroBl);
+        addAggressiveWidget(cbAggroHostile);
+        addAggressiveWidget(cbAggroPassive);
+        addAggressiveWidget(infoAggroRules);
+        addAggressiveWidget(infoAggroCategories);
+        infoIcons.add(infoAggroRules);
+        infoIcons.add(infoAggroCategories);
 
         // ------------------------------------------------------------------
         // AI tab
@@ -334,6 +350,12 @@ public final class CombatSettingsScreen extends Screen {
         CombatSettings.ModeSettings m = getCurrentModeSettings();
         if (m == null) return;
 
+        if (aggressive) {
+            cbAggroHostile.setChecked(m.aggressiveHostileMobs);
+            cbAggroPassive.setChecked(m.aggressivePassiveMobs);
+            return;
+        }
+
         if (!aggressive) {
             cbOwnerAttacked.setChecked(m.ownerAttacked.enabled);
             cbOwnerAttacks.setChecked(m.ownerAttacks.enabled);
@@ -354,6 +376,12 @@ public final class CombatSettingsScreen extends Screen {
 
         CombatSettings.ModeSettings m = getCurrentModeSettings();
         if (m == null) return;
+
+        if (currentTab == Tab.AGGRESSIVE) {
+            m.aggressiveHostileMobs = cbAggroHostile != null && cbAggroHostile.isChecked();
+            m.aggressivePassiveMobs = cbAggroPassive != null && cbAggroPassive.isChecked();
+            return;
+        }
 
         if (currentTab != Tab.AGGRESSIVE) {
             m.ownerAttacked.enabled = cbOwnerAttacked.isChecked();
@@ -442,7 +470,8 @@ public final class CombatSettingsScreen extends Screen {
             case DEFEND -> new String[] { "Configure when villagers should defend." };
             case AGGRESSIVE -> new String[] {
                     "Configure which entities are attacked on sight.",
-                    "Does nothing if whitelist and blacklist are both empty."
+                    "Blacklist wins. Whitelist limits targets when it has entries.",
+                    "Category toggles also work without list entries."
             };
             case AI -> new String[] {
                     "Configure combat AI behavior.",

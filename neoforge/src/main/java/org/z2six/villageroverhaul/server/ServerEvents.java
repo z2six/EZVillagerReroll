@@ -7,6 +7,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -19,6 +20,7 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.AABB;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -50,10 +52,13 @@ import java.util.List;
 import java.util.UUID;
 
 public final class ServerEvents {
+    private static final AABB GLOBAL_ENTITY_AABB = new AABB(-3.0E7, -2048.0, -3.0E7, 3.0E7, 4096.0, 3.0E7);
 
     private static volatile boolean registered = false;
     private static volatile long lastTickDebugGameTime = -1;
     private static volatile int lastSyncedCfgHash = Integer.MIN_VALUE;
+
+    private record ChatAudience(boolean global, int range) {}
 
     private ServerEvents() {}
 
@@ -94,6 +99,9 @@ public final class ServerEvents {
 
             // Villager history counters
             VillagerHistoryEvents.register(bus);
+
+            // Villager naming
+            VillagerNamingEvents.register(bus);
 
             // Villager brain/module attach (AI goals)
             bus.addListener(VillagerBrain::onEntityJoinLevel);
@@ -428,16 +436,16 @@ public final class ServerEvents {
                 }
             } catch (Throwable ignored) {}
 
-            // Chat commands (module-level) have priority over per-villager taught macros.
-            boolean handled = tryHandlePlayerChatCommands(sp, content);
+            ChatAudience audience = resolveChatAudience(isShout, isWhisper);
 
-            final int baseRadius = Math.max(1, ServerConfig.customCommandsChatRadius);
+            // Chat commands (module-level) have priority over per-villager taught macros.
+            boolean handled = tryHandlePlayerChatCommands(sp, content, audience);
 
             // Only try taught macros if no module-level chat command matched.
             if (!handled) {
                 // Phase 1: find the best matching macro within the player's local radius.
                 java.util.ArrayList<Villager> starters = new java.util.ArrayList<>();
-                for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(baseRadius))) {
+                for (Villager vill : collectVillagersForAudience(sp, audience)) {
                     if (vill == null) continue;
                     if (!RecruitService.isRecruited(vill)) continue;
                     if (!CustomCommandsService.isChatListening(vill)) continue;
@@ -511,10 +519,12 @@ public final class ServerEvents {
                         if (!CustomCommandsService.isChatPassing(cur)) continue;
 
                         int passRange = CustomCommandsService.getChatPassRange(cur);
-                        if (passRange < 1) passRange = baseRadius;
-                        if (passRange > baseRadius) passRange = baseRadius;
+                        int clampRange = audienceRangeClamp(audience);
+                        if (passRange < 1) passRange = clampRange;
+                        if (!audience.global() && passRange > clampRange) passRange = clampRange;
 
-                        for (Villager next : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
+                        var curLevel = (ServerLevel) cur.level();
+                        for (Villager next : curLevel.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
                             if (next == null) continue;
                             java.util.UUID id = next.getUUID();
                             if (id == null || seen.contains(id)) continue;
@@ -574,7 +584,7 @@ public final class ServerEvents {
                         .withStyle(ChatFormatting.GOLD);
                 try { e.setCanceled(true); } catch (Throwable ignored) {}
 
-                for (ServerPlayer other : level.players()) {
+                for (ServerPlayer other : sp.server.getPlayerList().getPlayers()) {
                     if (other == null || other.connection == null) continue;
                     try { other.connection.send(new ClientboundSystemChatPacket(line, false)); } catch (Throwable ignored) {}
                 }
@@ -635,7 +645,41 @@ public final class ServerEvents {
         } catch (Throwable ignored) {}
     }
 
-    private static boolean tryHandlePlayerChatCommands(ServerPlayer sp, String msg) {
+    private static ChatAudience resolveChatAudience(boolean isShout, boolean isWhisper) {
+        if (isShout) return new ChatAudience(true, Integer.MAX_VALUE);
+        if (isWhisper) return new ChatAudience(false, Math.max(1, ServerConfig.whisperRange));
+        if (ServerConfig.localizedChatEnabled) return new ChatAudience(false, Math.max(1, ServerConfig.localizedChatRange));
+        return new ChatAudience(true, Integer.MAX_VALUE);
+    }
+
+    private static int audienceRangeClamp(ChatAudience audience) {
+        if (audience == null) return Math.max(1, ServerConfig.customCommandsChatRadius);
+        if (audience.global()) return Math.max(1, ServerConfig.customCommandsChatRadius);
+        return Math.max(1, audience.range());
+    }
+
+    private static List<Villager> collectVillagersForAudience(ServerPlayer sp, ChatAudience audience) {
+        try {
+            if (sp == null || sp.server == null || sp.serverLevel() == null) return List.of();
+            if (audience == null) audience = new ChatAudience(false, Math.max(1, ServerConfig.customCommandsChatRadius));
+
+            java.util.ArrayList<Villager> out = new java.util.ArrayList<>();
+            if (audience.global()) {
+                for (ServerLevel level : sp.server.getAllLevels()) {
+                    if (level == null) continue;
+                    out.addAll(level.getEntitiesOfClass(Villager.class, GLOBAL_ENTITY_AABB));
+                }
+            } else {
+                int range = Math.max(1, audience.range());
+                out.addAll(sp.serverLevel().getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(range)));
+            }
+            return out;
+        } catch (Throwable ignored) {
+            return List.of();
+        }
+    }
+
+    private static boolean tryHandlePlayerChatCommands(ServerPlayer sp, String msg, ChatAudience audience) {
         try {
             if (sp == null || msg == null) return false;
             if (sp.server == null) return false;
@@ -649,16 +693,11 @@ public final class ServerEvents {
             String m = msg.trim();
             if (m.isEmpty()) return false;
 
-            int max = Math.max(1, ServerConfig.customCommandsChatRadius);
-            int range = cfg.range;
-            if (range < 1) range = 1;
-            if (range > max) range = max;
-
             boolean chain = cfg.chain;
             boolean caseSensitive = cfg.caseSensitive;
 
             if (ServerConfig.enableCombatModule && matches(cfg.help, m, caseSensitive)) {
-                var targets = collectOwnedVillagersForChat(sp, range, chain);
+                var targets = collectOwnedVillagersForChat(sp, audience, chain);
                 if (targets.isEmpty()) return false;
 
                 try { org.z2six.villageroverhaul.server.HelpChatCommandService.activateFromPlayerContext(sp); } catch (Throwable ignored) {}
@@ -668,19 +707,19 @@ public final class ServerEvents {
                 return true;
             }
 
-            if (matches(cfg.stopMacro, m, caseSensitive)) return applyStopMacro(sp, range, chain);
+            if (matches(cfg.stopMacro, m, caseSensitive)) return applyStopMacro(sp, audience, chain);
 
-            if (ServerConfig.enableCombatModule && matches(cfg.equip, m, caseSensitive)) return applyLoadoutSwap(sp, range, chain, true);
-            if (ServerConfig.enableCombatModule && matches(cfg.stash, m, caseSensitive)) return applyLoadoutSwap(sp, range, chain, false);
+            if (ServerConfig.enableCombatModule && matches(cfg.equip, m, caseSensitive)) return applyLoadoutSwap(sp, audience, chain, true);
+            if (ServerConfig.enableCombatModule && matches(cfg.stash, m, caseSensitive)) return applyLoadoutSwap(sp, audience, chain, false);
 
-            if (matches(cfg.neutral, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.NEUTRAL);
-            if (matches(cfg.idle, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.IDLE);
-            if (matches(cfg.follow, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.FOLLOW);
-            if (matches(cfg.patrol, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.PATROL);
-            if (ServerConfig.enableFarmingModule && matches(cfg.manualFarming, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.MANUAL_FARMING);
-            if (ServerConfig.enableCombatModule && matches(cfg.flee, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.FLEE);
-            if (ServerConfig.enableCombatModule && matches(cfg.defend, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.DEFEND);
-            if (ServerConfig.enableCombatModule && matches(cfg.aggressive, m, caseSensitive)) return applyModeSwitch(sp, range, chain, ModeSwitch.AGGRESSIVE);
+            if (matches(cfg.neutral, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.NEUTRAL);
+            if (matches(cfg.idle, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.IDLE);
+            if (matches(cfg.follow, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.FOLLOW);
+            if (matches(cfg.patrol, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.PATROL);
+            if (ServerConfig.enableFarmingModule && matches(cfg.manualFarming, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.MANUAL_FARMING);
+            if (ServerConfig.enableCombatModule && matches(cfg.flee, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.FLEE);
+            if (ServerConfig.enableCombatModule && matches(cfg.defend, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.DEFEND);
+            if (ServerConfig.enableCombatModule && matches(cfg.aggressive, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.AGGRESSIVE);
 
             return false;
         } catch (Throwable ignored) {
@@ -688,10 +727,10 @@ public final class ServerEvents {
         }
     }
 
-    private static boolean applyStopMacro(ServerPlayer sp, int range, boolean chain) {
+    private static boolean applyStopMacro(ServerPlayer sp, ChatAudience audience, boolean chain) {
         try {
             if (sp == null) return false;
-            List<Villager> targets = collectOwnedVillagersForStopMacro(sp, range, chain);
+            List<Villager> targets = collectOwnedVillagersForStopMacro(sp, audience, chain);
             if (targets.isEmpty()) return false;
 
             for (Villager vill : targets) {
@@ -711,10 +750,10 @@ public final class ServerEvents {
         }
     }
 
-    private static boolean applyLoadoutSwap(ServerPlayer sp, int range, boolean chain, boolean equip) {
+    private static boolean applyLoadoutSwap(ServerPlayer sp, ChatAudience audience, boolean chain, boolean equip) {
         try {
             if (sp == null) return false;
-            List<Villager> targets = collectOwnedVillagersForChat(sp, range, chain);
+            List<Villager> targets = collectOwnedVillagersForChat(sp, audience, chain);
             if (targets.isEmpty()) return false;
 
             boolean any = false;
@@ -758,10 +797,10 @@ public final class ServerEvents {
         AGGRESSIVE
     }
 
-    private static boolean applyModeSwitch(ServerPlayer sp, int range, boolean chain, ModeSwitch mode) {
+    private static boolean applyModeSwitch(ServerPlayer sp, ChatAudience audience, boolean chain, ModeSwitch mode) {
         try {
             if (sp == null || mode == null) return false;
-            List<Villager> targets = collectOwnedVillagersForChat(sp, range, chain);
+            List<Villager> targets = collectOwnedVillagersForChat(sp, audience, chain);
             if (targets.isEmpty()) return false;
 
             for (Villager vill : targets) {
@@ -861,16 +900,14 @@ public final class ServerEvents {
         return p.equalsIgnoreCase(msg);
     }
 
-    private static List<Villager> collectOwnedVillagersForChat(ServerPlayer sp, int range, boolean chain) {
+    private static List<Villager> collectOwnedVillagersForChat(ServerPlayer sp, ChatAudience audience, boolean chain) {
         try {
             if (sp == null || sp.serverLevel() == null) return List.of();
-            if (range < 1) range = 1;
 
             UUID owner = sp.getUUID();
-            var level = sp.serverLevel();
 
             java.util.ArrayList<Villager> initial = new java.util.ArrayList<>();
-            for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(range))) {
+            for (Villager vill : collectVillagersForAudience(sp, audience)) {
                 if (vill == null) continue;
                 if (!RecruitService.isRecruited(vill)) continue;
                 UUID r = RecruitService.getRecruiterUuid(vill);
@@ -898,8 +935,11 @@ public final class ServerEvents {
                 // Per-villager "pass" settings control whether this villager spreads chat commands further.
                 if (!CustomCommandsService.isChatPassing(cur)) continue;
                 int passRange = CustomCommandsService.getChatPassRange(cur);
-                if (passRange < 1) passRange = range;
+                int clampRange = audienceRangeClamp(audience);
+                if (passRange < 1) passRange = clampRange;
+                if (!audience.global() && passRange > clampRange) passRange = clampRange;
 
+                var level = (ServerLevel) cur.level();
                 for (Villager vill : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
                     if (vill == null) continue;
                     UUID id = vill.getUUID();
@@ -923,16 +963,14 @@ public final class ServerEvents {
         }
     }
 
-    private static List<Villager> collectOwnedVillagersForStopMacro(ServerPlayer sp, int range, boolean chain) {
+    private static List<Villager> collectOwnedVillagersForStopMacro(ServerPlayer sp, ChatAudience audience, boolean chain) {
         try {
             if (sp == null || sp.serverLevel() == null) return List.of();
-            if (range < 1) range = 1;
 
             UUID owner = sp.getUUID();
-            var level = sp.serverLevel();
 
             java.util.ArrayList<Villager> initial = new java.util.ArrayList<>();
-            for (Villager vill : level.getEntitiesOfClass(Villager.class, sp.getBoundingBox().inflate(range))) {
+            for (Villager vill : collectVillagersForAudience(sp, audience)) {
                 if (vill == null) continue;
                 if (!RecruitService.isRecruited(vill)) continue;
                 UUID r = RecruitService.getRecruiterUuid(vill);
@@ -958,8 +996,11 @@ public final class ServerEvents {
 
                 if (!CustomCommandsService.isChatPassing(cur)) continue;
                 int passRange = CustomCommandsService.getChatPassRange(cur);
-                if (passRange < 1) passRange = range;
+                int clampRange = audienceRangeClamp(audience);
+                if (passRange < 1) passRange = clampRange;
+                if (!audience.global() && passRange > clampRange) passRange = clampRange;
 
+                var level = (ServerLevel) cur.level();
                 for (Villager vill : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
                     if (vill == null) continue;
                     UUID id = vill.getUUID();

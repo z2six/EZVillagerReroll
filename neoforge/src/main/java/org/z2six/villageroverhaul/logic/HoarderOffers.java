@@ -230,6 +230,10 @@ public final class HoarderOffers {
                 } catch (Throwable ignored) {}
             }
 
+            try {
+                org.z2six.villageroverhaul.server.TradeLockSyncService.sanitizeAndSyncToActiveTraders(vill);
+            } catch (Throwable ignored) {}
+
             return changed;
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] HoarderOffers.normalizeOffers failed (soft): {}", t.toString());

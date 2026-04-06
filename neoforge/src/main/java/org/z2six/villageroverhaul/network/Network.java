@@ -71,6 +71,9 @@ import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsQuery;
 import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesData;
 import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesQuery;
+import org.z2six.villageroverhaul.network.familytree.ClientVillagerFamilyTreeCache;
+import org.z2six.villageroverhaul.network.familytree.PacketVillagerFamilyTreeData;
+import org.z2six.villageroverhaul.network.familytree.PacketVillagerFamilyTreeQuery;
 import org.z2six.villageroverhaul.network.history.ClientVillagerHistoryCache;
 import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryData;
 import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryQuery;
@@ -143,6 +146,10 @@ public final class Network {
             // villager history query
             r.playToServer(PacketVillagerHistoryQuery.TYPE, PacketVillagerHistoryQuery.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerHistoryQueryServer(msg, ctx));
+
+            // villager family tree query
+            r.playToServer(PacketVillagerFamilyTreeQuery.TYPE, PacketVillagerFamilyTreeQuery.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerFamilyTreeQueryServer(msg, ctx));
 
             // villager trades (offers + lock mask) query
             r.playToServer(PacketVillagerTradesQuery.TYPE, PacketVillagerTradesQuery.STREAM_CODEC,
@@ -326,6 +333,10 @@ public final class Network {
             r.playToClient(PacketVillagerHistoryData.TYPE, PacketVillagerHistoryData.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerHistoryDataClient(msg, ctx));
 
+            // villager family tree data (we update cache directly; no client-only class refs)
+            r.playToClient(PacketVillagerFamilyTreeData.TYPE, PacketVillagerFamilyTreeData.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerFamilyTreeDataClient(msg, ctx));
+
             // villager trades data (we update cache directly; no client-only class refs)
             r.playToClient(PacketVillagerTradesData.TYPE, PacketVillagerTradesData.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerTradesDataClient(msg, ctx));
@@ -477,6 +488,18 @@ public final class Network {
                     ClientVillagerHistoryCache.accept(msg);
                 } catch (Throwable t) {
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerHistoryDataClient failed (soft): {}", t.toString());
+                }
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    private static void handleVillagerFamilyTreeDataClient(PacketVillagerFamilyTreeData msg, IPayloadContext ctx) {
+        try {
+            ctx.enqueueWork(() -> {
+                try {
+                    ClientVillagerFamilyTreeCache.accept(msg);
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerFamilyTreeDataClient failed (soft): {}", t.toString());
                 }
             });
         } catch (Throwable ignored) {}
@@ -912,6 +935,31 @@ public final class Network {
                 ctx.reply(org.z2six.villageroverhaul.server.VillagerHistoryService.snapshot(vill));
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerHistoryQuery handler error", t);
+            }
+        });
+    }
+
+    private static void handleVillagerFamilyTreeQueryServer(PacketVillagerFamilyTreeQuery msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+
+                int id = msg.villagerEntityId();
+                var level = sp.serverLevel();
+                if (level == null) {
+                    ctx.reply(PacketVillagerFamilyTreeData.missing(id));
+                    return;
+                }
+
+                var ent = level.getEntity(id);
+                if (!(ent instanceof Villager vill)) {
+                    ctx.reply(PacketVillagerFamilyTreeData.missing(id));
+                    return;
+                }
+
+                ctx.reply(org.z2six.villageroverhaul.server.VillagerFamilyTreeService.snapshot(vill));
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerFamilyTreeQuery handler error", t);
             }
         });
     }

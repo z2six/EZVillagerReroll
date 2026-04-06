@@ -11,6 +11,7 @@
     "HelpChatRecordPlayerHurtMixin",
     "VillagerDisableVanillaAutoTradeRefreshMixin",
     "VillagerUpdateTradesPreserveLocksMixin",
+    "VillagerMakeLoveNamingMixin",
     "VillagerBrainGateMixin",
     "VillagerHarvestFarmlandXpMixin",
     "VillagerDisableInventoryCraftingMixin",

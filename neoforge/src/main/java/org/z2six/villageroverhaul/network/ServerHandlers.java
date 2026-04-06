@@ -362,6 +362,7 @@ public final class ServerHandlers {
                     items,
                     offerCount,
                     lockedCount,
+                    lockMask,
                     effectivePaidOffers,
                     manualCost,
                     hourlyCost,

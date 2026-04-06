@@ -120,6 +120,8 @@ public final class CombatSettings {
         private static final String K_TR_BL = "bl";
         private static final String K_AGGRO_WL = "aggressive_wl";
         private static final String K_AGGRO_BL = "aggressive_bl";
+        private static final String K_AGGRO_HOSTILE = "aggressive_hostile_mobs";
+        private static final String K_AGGRO_PASSIVE = "aggressive_passive_mobs";
 
         // Legacy keys
         private static final String K_OWNER_ATTACKED = "owner_attacked";
@@ -136,6 +138,8 @@ public final class CombatSettings {
 
         public final List<String> aggressiveWhitelist = new ArrayList<>();
         public final List<String> aggressiveBlacklist = new ArrayList<>();
+        public boolean aggressiveHostileMobs = false;
+        public boolean aggressivePassiveMobs = false;
 
         public CompoundTag toTag() {
             CompoundTag tag = new CompoundTag();
@@ -145,6 +149,8 @@ public final class CombatSettings {
             tag.put(K_TR_ENTITY_ATTACKED, entityAttacked.toTag());
             tag.put(K_AGGRO_WL, writeStringList(aggressiveWhitelist));
             tag.put(K_AGGRO_BL, writeStringList(aggressiveBlacklist));
+            tag.putBoolean(K_AGGRO_HOSTILE, aggressiveHostileMobs);
+            tag.putBoolean(K_AGGRO_PASSIVE, aggressivePassiveMobs);
             return tag;
         }
 
@@ -161,6 +167,8 @@ public final class CombatSettings {
 
             readStringList(tag, K_AGGRO_WL, aggressiveWhitelist);
             readStringList(tag, K_AGGRO_BL, aggressiveBlacklist);
+            aggressiveHostileMobs = tag.getBoolean(K_AGGRO_HOSTILE);
+            aggressivePassiveMobs = tag.getBoolean(K_AGGRO_PASSIVE);
 
             // Legacy migration
             if (tag.contains(K_OWNER_ATTACKED, Tag.TAG_ANY_NUMERIC) || tag.contains(K_WL_ATTACKED, Tag.TAG_LIST)) {

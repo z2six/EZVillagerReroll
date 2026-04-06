@@ -304,6 +304,33 @@ public final class VillagerCombatLoadoutService {
         } catch (Throwable ignored) {}
     }
 
+    public static void clearDesiredMainIfPresent(Villager vill, String reason) {
+        try {
+            if (vill == null) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+
+            ensureIdsExist(vill);
+            HolderLookup.Provider lookup = safeLookup(vill);
+            if (lookup == null) return;
+
+            CompoundTag root = getOrCreate(vill);
+            ItemStack guiMain = readStack(root, K_GUI_MAIN, lookup);
+            ItemStack eqMain = readStack(root, K_EQ_MAIN, lookup);
+            boolean hasGui = guiMain != null && !guiMain.isEmpty();
+            boolean hasEq = eqMain != null && !eqMain.isEmpty();
+            if (!hasGui && !hasEq) return;
+
+            writeStack(root, K_GUI_MAIN, ItemStack.EMPTY, lookup);
+            writeStack(root, K_EQ_MAIN, ItemStack.EMPTY, lookup);
+
+            track(vill);
+            try {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [loadout] villager={} action=clear_main why={}",
+                        vill.getUUID(), safe(reason));
+            } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
+    }
+
     public static void track(Villager vill) {
         try {
             if (vill == null) return;

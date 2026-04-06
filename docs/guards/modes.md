@@ -34,12 +34,20 @@ Notes:
 
 Aggressive mode is proactive: the villager looks for nearby entities and attacks them.
 
-- Requires an Aggressive whitelist and/or blacklist.
-- If both lists are empty, the villager does nothing (to prevent "attack everything" by accident).
+- You can target by:
+  - Aggressive whitelist / blacklist
+  - `Target aggressive mobs` (monster-category mobs)
+  - `Target passive mobs` (creature/ambient/water categories)
+- If all aggressive filters are empty/off, the villager does nothing.
 
 Notes:
 
+- Blacklist always wins.
+- If the whitelist has entries, only whitelisted entities are allowed after blacklist filtering.
+- A blacklist-only setup means "attack everything in range except these entries".
+- Category toggles are additive: they work even if the whitelist is empty.
 - Aggressive will never target the owner or other recruited villagers that share the same owner.
+- Aggressive scans a 3D box around the villager with `inflate(16.0)` and picks the nearest valid target.
 
 ### Flee
 
@@ -90,6 +98,7 @@ In the Combat Settings screen:
 ### Aggressive tab
 
 - Configure aggressive whitelist/blacklist
+- Toggle hostile/passive category targeting
 
 ### AI tab
 

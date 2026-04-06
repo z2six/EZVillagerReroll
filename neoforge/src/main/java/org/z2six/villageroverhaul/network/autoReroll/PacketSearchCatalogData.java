@@ -17,6 +17,7 @@ public record PacketSearchCatalogData(
         List<ItemStack> catalog,
         int offerCount,
         int lockedCount,
+        long lockMask,
         int effectivePaidOffers,
         int manualCost,
         int hourlyCost,
@@ -40,7 +41,7 @@ public record PacketSearchCatalogData(
     }
 
     public static PacketSearchCatalogData minimal(int villagerEntityId, List<ItemStack> catalog) {
-        return new PacketSearchCatalogData(villagerEntityId, catalog, -1, -1, -1, -1, -1, List.of());
+        return new PacketSearchCatalogData(villagerEntityId, catalog, -1, -1, 0L, -1, -1, -1, List.of());
     }
 
     public static final StreamCodec<RegistryFriendlyByteBuf, PacketSearchCatalogData> STREAM_CODEC = new StreamCodec<>() {
@@ -65,6 +66,7 @@ public record PacketSearchCatalogData(
                 // Extended fields (newer protocol). If an older server sent only items, reads will fail.
                 int offerCount = -1;
                 int lockedCount = -1;
+                long lockMask = 0L;
                 int effectivePaidOffers = -1;
                 int manualCost = -1;
                 int hourlyCost = -1;
@@ -72,6 +74,7 @@ public record PacketSearchCatalogData(
 
                 try { offerCount = buf.readVarInt(); } catch (Throwable ignored) {}
                 try { lockedCount = buf.readVarInt(); } catch (Throwable ignored) {}
+                try { lockMask = buf.readLong(); } catch (Throwable ignored) {}
                 try { effectivePaidOffers = buf.readVarInt(); } catch (Throwable ignored) {}
                 try { manualCost = buf.readVarInt(); } catch (Throwable ignored) {}
                 try { hourlyCost = buf.readVarInt(); } catch (Throwable ignored) {}
@@ -86,10 +89,10 @@ public record PacketSearchCatalogData(
                     accumulatedValueV = tmp;
                 } catch (Throwable ignored) {}
 
-                return new PacketSearchCatalogData(id, list, offerCount, lockedCount, effectivePaidOffers, manualCost, hourlyCost, accumulatedValueV);
+                return new PacketSearchCatalogData(id, list, offerCount, lockedCount, lockMask, effectivePaidOffers, manualCost, hourlyCost, accumulatedValueV);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] PacketSearchCatalogData decode failed", t);
-                return new PacketSearchCatalogData(-1, List.of(), -1, -1, -1, -1, -1, List.of());
+                return new PacketSearchCatalogData(-1, List.of(), -1, -1, 0L, -1, -1, -1, List.of());
             }
         }
 
@@ -115,6 +118,7 @@ public record PacketSearchCatalogData(
                 // Extended fields (always written by current versions)
                 buf.writeVarInt(Math.max(-1, msg.offerCount()));
                 buf.writeVarInt(Math.max(-1, msg.lockedCount()));
+                buf.writeLong(msg.lockMask());
                 buf.writeVarInt(Math.max(-1, msg.effectivePaidOffers()));
                 buf.writeVarInt(Math.max(-1, msg.manualCost()));
                 buf.writeVarInt(Math.max(-1, msg.hourlyCost()));

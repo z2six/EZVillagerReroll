@@ -23,6 +23,13 @@ Instead:
 - When the villager is actively fighting (or patrolling), the loadout is equipped into the villager's real hands.
 - When combat ends, the villager's previous hand items are restored.
 
+For ranged combat:
+
+- Put a bow, crossbow, or another projectile weapon that uses Minecraft's normal projectile-weapon API in Combat Main Hand.
+- Put valid ammo for that weapon in Combat Offhand.
+- Offhand ammo is required. If the offhand is empty or holds the wrong ammo, the villager will not fire.
+- The offhand ammo acts like a reusable template: shots use the offhand stack for validation/projectile data, but do not consume it.
+
 This design avoids common issues:
 
 - The player doesn't need to manage the villager's real hands directly.
@@ -42,6 +49,8 @@ The mod equips the combat loadout automatically when needed, including:
 If you want villagers to block:
 
 - Put a shield (or any item with "block" use animation) in Combat Offhand.
+
+Because ranged combat also uses Combat Offhand for ammo, villagers cannot block and use offhand ammo at the same time. Pick shield or ammo based on the loadout you want.
 
 During combat, the AI will try to block between swings.
 

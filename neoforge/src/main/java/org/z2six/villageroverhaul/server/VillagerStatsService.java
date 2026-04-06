@@ -5,10 +5,27 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.AbstractVillager;
+import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.trading.Merchant;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.config.ServerConfig;
 
 public final class VillagerStatsService {
+    public record StatSnapshot(
+            int generosity,
+            int timeliness,
+            int intellect,
+            int hoarder,
+            int vitality,
+            int agility,
+            int strength,
+            int armor,
+            int motivation,
+            int efficiency,
+            int plantWhisperer,
+            int ranger
+    ) {
+    }
 
     private VillagerStatsService() {}
 
@@ -39,6 +56,11 @@ public final class VillagerStatsService {
 
     public static final int POINTS_MIN = -100;
     public static final int POINTS_MAX = 100;
+    private static final String[] ALL_STAT_KEYS = {
+            K_GENEROSITY, K_TIMELINESS, K_INTELLECT, K_HOARDER,
+            K_VITALITY, K_AGILITY, K_STRENGTH, K_ARMOR,
+            K_MOTIVATION, K_EFFICIENCY, K_PLANT_WHISPERER, K_RANGER
+    };
 
     /**
      * Ensure the entity has stats. No-op if already present.
@@ -55,21 +77,10 @@ public final class VillagerStatsService {
             if (e == null) return;
             if (!isSupportedMerchantEntity(e)) return;
 
-            CompoundTag pd;
-            try {
-                pd = e.getPersistentData();
-            } catch (Throwable t) {
-                return;
-            }
+            CompoundTag pd = getPersistentDataSafe(e);
             if (pd == null) return;
 
-            CompoundTag root;
-            if (pd.contains(TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
-                root = pd.getCompound(TAG_ROOT);
-            } else {
-                root = new CompoundTag();
-                pd.put(TAG_ROOT, root);
-            }
+            CompoundTag root = getOrCreateRoot(pd);
 
             int ver = 0;
             try { ver = root.getInt(TAG_VERSION); } catch (Throwable ignored) { ver = 0; }
@@ -154,6 +165,66 @@ public final class VillagerStatsService {
         }
     }
 
+    public static boolean inheritStatsFromParents(Villager child, Villager parentA, Villager parentB) {
+        try {
+            if (child == null || parentA == null || parentB == null) return false;
+
+            ensureStats(parentA);
+            ensureStats(parentB);
+            ensureStats(child);
+
+            CompoundTag parentARoot = getRoot(parentA);
+            CompoundTag parentBRoot = getRoot(parentB);
+            CompoundTag childRoot = getRoot(child);
+            if (parentARoot == null || parentBRoot == null || childRoot == null) return false;
+
+            RandomSource random = safeRandom(child);
+            double maxVariancePct = ServerConfig.breedingStatMutationChancePct;
+            if (Double.isNaN(maxVariancePct) || Double.isInfinite(maxVariancePct)) maxVariancePct = 0.0D;
+            if (maxVariancePct < 0.0D) maxVariancePct = 0.0D;
+
+            for (String key : ALL_STAT_KEYS) {
+                int valueA = readOrRoll(parentARoot, key, random);
+                int valueB = readOrRoll(parentBRoot, key, random);
+                int inherited = random.nextBoolean() ? valueA : valueB;
+                int varied = applyInheritedVariance(inherited, maxVariancePct, random);
+                childRoot.putInt(key, clampPoints(varied));
+            }
+            childRoot.putInt(TAG_VERSION, STATS_VERSION);
+            child.getPersistentData().put(TAG_ROOT, childRoot);
+            return true;
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] VillagerStatsService.inheritStatsFromParents failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    public static StatSnapshot snapshot(Entity entity) {
+        ensureStats(entity);
+        CompoundTag root = getRoot(entity);
+        if (root == null) {
+            return emptySnapshot();
+        }
+        return new StatSnapshot(
+                readPoints(root, K_GENEROSITY),
+                readPoints(root, K_TIMELINESS),
+                readPoints(root, K_INTELLECT),
+                readPoints(root, K_HOARDER),
+                readPoints(root, K_VITALITY),
+                readPoints(root, K_AGILITY),
+                readPoints(root, K_STRENGTH),
+                readPoints(root, K_ARMOR),
+                readPoints(root, K_MOTIVATION),
+                readPoints(root, K_EFFICIENCY),
+                readPoints(root, K_PLANT_WHISPERER),
+                readPoints(root, K_RANGER)
+        );
+    }
+
+    public static StatSnapshot emptySnapshot() {
+        return new StatSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
     private static boolean ensureKey(CompoundTag root, RandomSource r, String key) {
         try {
             if (root == null || key == null) return false;
@@ -163,6 +234,35 @@ public final class VillagerStatsService {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    private static int readOrRoll(CompoundTag root, String key, RandomSource random) {
+        if (root == null || key == null) return rollPoints(random);
+        if (!root.contains(key, CompoundTag.TAG_INT)) return rollPoints(random);
+        return clampPoints(root.getInt(key));
+    }
+
+    private static int readPoints(CompoundTag root, String key) {
+        if (root == null || key == null || !root.contains(key, CompoundTag.TAG_INT)) {
+            return 0;
+        }
+        return clampPoints(root.getInt(key));
+    }
+
+    private static int applyInheritedVariance(int inherited, double maxVariancePct, RandomSource random) {
+        if (random == null || maxVariancePct <= 0.0D || inherited == 0) {
+            return inherited;
+        }
+
+        double varianceFactor = (random.nextDouble() * 2.0D) - 1.0D;
+        double scale = 1.0D + (varianceFactor * (maxVariancePct / 100.0D));
+        int varied = (int) Math.round(inherited * scale);
+
+        // Avoid exact parent clones when variance is enabled and rounding collapses back to the same integer.
+        if (varied == inherited) {
+            varied += inherited > 0 ? 1 : -1;
+        }
+        return clampPoints(varied);
     }
 
     public static boolean isSupportedMerchantEntity(Entity e) {
@@ -197,5 +297,30 @@ public final class VillagerStatsService {
         } catch (Throwable t) {
             return RandomSource.create();
         }
+    }
+
+    private static CompoundTag getPersistentDataSafe(Entity e) {
+        try {
+            return e == null ? null : e.getPersistentData();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static CompoundTag getRoot(Entity e) {
+        CompoundTag pd = getPersistentDataSafe(e);
+        if (pd == null || !pd.contains(TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
+            return null;
+        }
+        return pd.getCompound(TAG_ROOT);
+    }
+
+    private static CompoundTag getOrCreateRoot(CompoundTag pd) {
+        if (pd.contains(TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
+            return pd.getCompound(TAG_ROOT);
+        }
+        CompoundTag root = new CompoundTag();
+        pd.put(TAG_ROOT, root);
+        return root;
     }
 }

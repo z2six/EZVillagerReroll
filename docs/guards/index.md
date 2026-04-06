@@ -11,7 +11,7 @@ The Guard module lets recruited villagers fight using real gear (armor, weapons,
 2. Open the villager inventory screen and equip:
    - Armor in the armor slots.
    - A weapon/tool in the Combat Main Hand loadout slot.
-   - A shield in the Combat Offhand loadout slot (optional, for blocking).
+   - In Combat Offhand, either a shield for blocking or valid ammo for a ranged weapon.
 3. Pick a combat mode in the `Commands` panel:
    - Defend: reacts to triggers like "owner attacked/attacks".
    - Aggressive: attacks entities based on a whitelist/blacklist.
@@ -21,7 +21,7 @@ The Guard module lets recruited villagers fight using real gear (armor, weapons,
 ## What the module includes
 
 - Combat modes (Off / Defend / Aggressive / Flee) with triggers and filters.
-- Combat AI: approach, spacing, melee swings, circling/strafe, shield blocking, and eating.
+- Combat AI: melee and ranged attacks, spacing, circling/strafe, shield blocking, and eating.
 - Equipment & loadouts: player-friendly UI slots that are server-authoritative: [Loadouts & Equipment](loadouts.md).
 - Combat stats that modify health/speed/damage/armor: [Combat Stats](stats.md).
 

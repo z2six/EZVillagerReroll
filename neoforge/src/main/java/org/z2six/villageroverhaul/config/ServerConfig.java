@@ -153,6 +153,7 @@ public final class ServerConfig {
 
     public static final ModConfigSpec.DoubleValue RANGER_MIN_PCT;
     public static final ModConfigSpec.DoubleValue RANGER_MAX_PCT;
+    public static final ModConfigSpec.DoubleValue BREEDING_STAT_MUTATION_CHANCE_PCT;
 
     // ---------------------------------------------------------------------
     // COMBAT STATS ()
@@ -668,6 +669,16 @@ public final class ServerConfig {
                         """)
                         .defineInRange("rangerMaxPct", 20.0, -1000.0, 1000.0);
 
+        BREEDING_STAT_MUTATION_CHANCE_PCT =
+                B.comment("""
+                        Maximum percentage variance applied after a child inherits a stat from one parent.
+                        Example: 10.0 means the final stat is randomized within roughly -10% to +10% of the inherited value.
+                        Applied independently to each of the 12 villager stats when a baby is bred by two tracked VillagerOverhaul villagers.
+
+                        Note: the config key name is kept for backward compatibility with existing server config files.
+                        """)
+                        .defineInRange("breedingStatMutationChancePct", 10.0, 0.0, 100.0);
+
         B.pop(); // farming
 
         // ----------------------------
@@ -814,6 +825,7 @@ public final class ServerConfig {
 
     public static double rangerMinPct = -20.0;
     public static double rangerMaxPct = 20.0;
+    public static double breedingStatMutationChancePct = 10.0;
 
     // combat bounds
     public static double vitalityMinHealth = -6.0;
@@ -942,6 +954,7 @@ public final class ServerConfig {
             double[] rr = normalizeMinMax(RANGER_MIN_PCT.get(), RANGER_MAX_PCT.get());
             rangerMinPct = rr[0];
             rangerMaxPct = rr[1];
+            breedingStatMutationChancePct = Math.max(0.0, Math.min(100.0, BREEDING_STAT_MUTATION_CHANCE_PCT.get()));
 
             // combat bounds (normalize each pair)
             double[] vh = normalizeMinMax(VITALITY_MIN_HEALTH.get(), VITALITY_MAX_HEALTH.get());
@@ -979,7 +992,7 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} modules=[merchant={},combat={},farming={}] costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} maxAutoSearchCost=[enabled={},mult={}] recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} modules=[merchant={},combat={},farming={}] costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} maxAutoSearchCost=[enabled={},mult={}] recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} breedingStatMutationChancePct={} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     enableMerchantModule, enableCombatModule, enableFarmingModule,
                     costSpec, preferWallet,
@@ -993,6 +1006,7 @@ public final class ServerConfig {
                     generosityMinPct, generosityMaxPct,
                     timelinessMinPct, timelinessMaxPct,
                     intellectMinPct, intellectMaxPct,
+                    breedingStatMutationChancePct,
                     vitalityMinHealth, vitalityMaxHealth,
                     agilityMinSpeed, agilityMaxSpeed,
                     strengthMinDamage, strengthMaxDamage,
@@ -1117,6 +1131,7 @@ public final class ServerConfig {
 
         h = 31 * h + hashD(rangerMinPct);
         h = 31 * h + hashD(rangerMaxPct);
+        h = 31 * h + hashD(breedingStatMutationChancePct);
 
         // combat bounds
         h = 31 * h + hashD(vitalityMinHealth);

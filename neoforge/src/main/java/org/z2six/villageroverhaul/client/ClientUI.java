@@ -24,7 +24,6 @@ import net.neoforged.neoforge.common.NeoForge;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ClientConfig;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
-import org.z2six.villageroverhaul.mixin.MerchantScreenAccessor;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.tooltip.ClientTooltipCache;
 import org.z2six.villageroverhaul.network.ClientTradeLockCache;
@@ -1724,18 +1723,19 @@ public final class ClientUI {
             int offerCount = safeOfferCount(screen);
             if (offerCount <= 0) return;
 
-            int scrollOff = readScrollOffset(screen, offerCount);
+            int scrollOff = MerchantTradeButtonResolver.getScrollOffset(screen, offerCount);
 
-            List<AbstractWidget> tradeButtons = findTradeOfferButtons(screen);
+            List<MerchantTradeButtonResolver.TradeButtonRef> tradeButtons = MerchantTradeButtonResolver.getTradeButtons(screen);
             if (tradeButtons.isEmpty()) return;
 
             GuiGraphics gg = e.getGuiGraphics();
             final int outlineColor = 0xFF66FF66;
 
-            for (AbstractWidget w : tradeButtons) {
+            for (MerchantTradeButtonResolver.TradeButtonRef ref : tradeButtons) {
+                AbstractWidget w = ref.widget();
                 if (w == null || !w.visible) continue;
 
-                int rowIdx = readTradeButtonRowIndex(w);
+                int rowIdx = ref.rowIndex();
                 if (rowIdx < 0 || rowIdx > 63) continue;
 
                 int absoluteIdx = scrollOff + rowIdx;
@@ -1760,81 +1760,6 @@ public final class ClientUI {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] renderTradeLockIndicators exception", t);
-        }
-    }
-
-    private static List<AbstractWidget> findTradeOfferButtons(MerchantScreen screen) {
-        List<AbstractWidget> out = new ArrayList<>();
-        try {
-            for (GuiEventListener child : screen.children()) {
-                if (!(child instanceof AbstractWidget w)) continue;
-                String cn = w.getClass().getName();
-                if (VillagerOverhaul_TRADE_BUTTON_CLASS.equals(cn)) out.add(w);
-            }
-            out.sort(Comparator.comparingInt(AbstractWidget::getY).thenComparingInt(AbstractWidget::getX));
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().error("[VillagerOverhaul] findTradeOfferButtons failed", t);
-        }
-        return out;
-    }
-
-    private static int readTradeButtonRowIndex(AbstractWidget w) {
-        try {
-            Field f = null;
-            Class<?> c = w.getClass();
-
-            try {
-                f = c.getDeclaredField("index");
-            } catch (NoSuchFieldException ignored) {}
-
-            if (f == null) {
-                for (Field candidate : c.getDeclaredFields()) {
-                    if (candidate.getType() != int.class) continue;
-                    String n = candidate.getName();
-                    if (n != null && (n.equals("index") || n.toLowerCase().contains("index"))) {
-                        f = candidate;
-                        break;
-                    }
-                }
-            }
-
-            if (f == null) return -1;
-
-            f.setAccessible(true);
-            return f.getInt(w);
-        } catch (Throwable t) {
-            return -1;
-        }
-    }
-
-    private static int readScrollOffset(MerchantScreen screen, int offerCount) {
-        try {
-            int maxScroll = Math.max(0, offerCount - 7);
-
-            try {
-                int raw = ((MerchantScreenAccessor) screen).ezvr$getScrollOff();
-                return clamp(raw, 0, maxScroll);
-            } catch (Throwable ignored) {}
-
-            Class<?> c = screen.getClass();
-            while (c != null && c != Object.class) {
-                for (Field f : c.getDeclaredFields()) {
-                    try {
-                        if (f.getType() != int.class) continue;
-                        String n = f.getName();
-                        if (n == null || !n.toLowerCase().contains("scroll")) continue;
-
-                        f.setAccessible(true);
-                        int v = f.getInt(screen);
-                        if (v >= 0 && v <= maxScroll) return v;
-                    } catch (Throwable ignoredField) {}
-                }
-                c = c.getSuperclass();
-            }
-
-            return 0;
-        } catch (Throwable t) {
-            return 0;
         }
     }
 

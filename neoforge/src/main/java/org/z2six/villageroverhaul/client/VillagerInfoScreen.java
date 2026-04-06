@@ -37,6 +37,9 @@ import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
 import org.z2six.villageroverhaul.network.PacketSyncConfigQuery;
 import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesData;
 import org.z2six.villageroverhaul.network.attrs.PacketVillagerAttributesQuery;
+import org.z2six.villageroverhaul.network.familytree.ClientVillagerFamilyTreeCache;
+import org.z2six.villageroverhaul.network.familytree.PacketVillagerFamilyTreeData;
+import org.z2six.villageroverhaul.network.familytree.PacketVillagerFamilyTreeQuery;
 import org.z2six.villageroverhaul.network.history.ClientVillagerHistoryCache;
 import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryData;
 import org.z2six.villageroverhaul.network.history.PacketVillagerHistoryQuery;
@@ -53,7 +56,9 @@ import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public final class VillagerInfoScreen extends Screen {
 
@@ -103,6 +108,7 @@ public final class VillagerInfoScreen extends Screen {
     private long lastStatsQueryMs = 0L;
     private long lastAttrsQueryMs = 0L;
     private long lastHistoryQueryMs = 0L;
+    private long lastFamilyTreeQueryMs = 0L;
     private long lastTradesQueryMs = 0L;
 
     // Tabs
@@ -111,6 +117,8 @@ public final class VillagerInfoScreen extends Screen {
         MERCHANT("Merchant stats"),
         COMBAT("Combat stats"),
         FARMING("Farming stats"),
+        STATS("Stats"),
+        FAMILY("Family Tree"),
         HISTORY("History");
 
         final String label;
@@ -123,7 +131,29 @@ public final class VillagerInfoScreen extends Screen {
     private IconTabButton tabMerchantBtn;
     private IconTabButton tabCombatBtn;
     private IconTabButton tabFarmingBtn;
+    private IconTabButton tabStatsBtn;
+    private IconTabButton tabFamilyBtn;
     private IconTabButton tabHistoryBtn;
+
+    private enum StatGroup {
+        MERCHANT("Merchant"),
+        COMBAT("Combat"),
+        FARMING("Farming");
+
+        final String label;
+
+        StatGroup(String label) {
+            this.label = label;
+        }
+    }
+
+    private StatGroup currentStatsGroup = StatGroup.MERCHANT;
+    private Button statsMerchantBtn;
+    private Button statsCombatBtn;
+    private Button statsFarmingBtn;
+    private boolean showMerchantModule = true;
+    private boolean showCombatModule = true;
+    private boolean showFarmingModule = true;
 
     // Expand overview/history into fullscreen reader
     private Button expandListBtn;
@@ -132,7 +162,7 @@ public final class VillagerInfoScreen extends Screen {
     private int overviewScrollRow = 0;
     private List<Component> overviewLinesRaw = null;
     private List<FormattedCharSequence> overviewLinesWrapped = null;
-    private List<TradeRow> overviewTradeRowsWrapped = null;
+    private List<OverviewRowMeta> overviewRowMetaWrapped = null;
     private long nextOverviewRebuildAtTick = 0L;
     private int overviewLastWrapWidth = -1;
     private boolean overviewDraggingScroll = false;
@@ -144,6 +174,12 @@ public final class VillagerInfoScreen extends Screen {
     private long nextHistoryRebuildAtTick = 0L;
     private int historyLastWrapWidth = -1;
     private boolean historyDraggingScroll = false;
+
+    // Family tree viewport
+    private float familyZoom = 1.0F;
+    private double familyPanX = 0.0D;
+    private double familyPanY = 0.0D;
+    private boolean familyDragging = false;
 
     // Layout
     private static final int PANEL_W = 316;
@@ -175,6 +211,8 @@ public final class VillagerInfoScreen extends Screen {
     private static final int TRADE_ICON_GAP = 2;
     private static final int TRADE_ICON_ROW_H = 18;
     private static final String OVERVIEW_TRADE_ROW_PREFIX = "\u0001ezvr_trade_row:";
+    private static final String OVERVIEW_RADAR_ROW_PREFIX = "\u0001ezvr_radar_row";
+    private static final int OVERVIEW_RADAR_ROWS = 7;
 
     // Colors (ARGB)
     private static final int PANEL_BG = 0xCC0B0B0B;
@@ -201,6 +239,10 @@ public final class VillagerInfoScreen extends Screen {
     private static final int C_EFFICIENCY     = 0xFF4AE0C1; // turquoise
     private static final int C_PLANTWHISPERER = 0xFF69FF6E; // green
     private static final int C_RANGER         = 0xFF6BA2FF; // blue
+
+    private static final int C_GROUP_MERCHANT = 0xFFE2BE5A;
+    private static final int C_GROUP_COMBAT   = 0xFFFF6B6B;
+    private static final int C_GROUP_FARMING  = 0xFF6BDF7C;
 
     private enum StatKind {
         // Merchant
@@ -365,7 +407,7 @@ public final class VillagerInfoScreen extends Screen {
         }
 
         // Custom tab buttons centered at the bottom INSIDE the panel.
-        int groupW = TAB_BTN_SIZE * 5 + TAB_BTN_GAP * 4;
+        int groupW = TAB_BTN_SIZE * 4 + TAB_BTN_GAP * 3;
         int tabsX = left + (PANEL_W - groupW) / 2;
         int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
 
@@ -379,7 +421,10 @@ public final class VillagerInfoScreen extends Screen {
         tabFarmingBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY, TAB_BTN_SIZE, "✿",
                 Component.literal("Farming stats"), Tab.FARMING);
 
-        tabHistoryBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 4, tabsY, TAB_BTN_SIZE, "\u231B",
+        tabFamilyBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 4, tabsY, TAB_BTN_SIZE, "\u26AD",
+                Component.literal("Family Tree"), Tab.FAMILY);
+
+        tabHistoryBtn = new IconTabButton(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 5, tabsY, TAB_BTN_SIZE, "\u231B",
                 Component.literal("History"), Tab.HISTORY);
 
         this.addRenderableWidget(tabOverviewBtn);
@@ -395,9 +440,25 @@ public final class VillagerInfoScreen extends Screen {
             }
         } catch (Throwable ignored) {}
 
+        showMerchantModule = showMerchant;
+        showCombatModule = showCombat;
+        showFarmingModule = showFarming;
+
+        tabStatsBtn = new IconTabButton(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY, TAB_BTN_SIZE, "*",
+                Component.literal("Stats"), Tab.STATS);
+        if (showMerchantModule || showCombatModule || showFarmingModule) {
+            this.addRenderableWidget(tabStatsBtn);
+        }
+
+        // Legacy per-group tabs stay disabled in favor of the unified Stats tab.
+        showMerchant = false;
+        showCombat = false;
+        showFarming = false;
+
         if (showMerchant) this.addRenderableWidget(tabMerchantBtn);
         if (showCombat) this.addRenderableWidget(tabCombatBtn);
         if (showFarming) this.addRenderableWidget(tabFarmingBtn);
+        this.addRenderableWidget(tabFamilyBtn);
         this.addRenderableWidget(tabHistoryBtn);
 
         if ((!showMerchant && this.currentTab == Tab.MERCHANT)
@@ -405,12 +466,37 @@ public final class VillagerInfoScreen extends Screen {
                 || (!showFarming && this.currentTab == Tab.FARMING)) {
             this.currentTab = Tab.OVERVIEW;
         }
+        if (!(showMerchantModule || showCombatModule || showFarmingModule) && this.currentTab == Tab.STATS) {
+            this.currentTab = Tab.OVERVIEW;
+        }
+        this.currentStatsGroup = getFirstAvailableStatsGroup();
+
+        statsMerchantBtn = Button.builder(Component.literal("\u00A4"), b -> this.currentStatsGroup = StatGroup.MERCHANT)
+                .pos(0, 0)
+                .size(20, 20)
+                .build();
+        statsMerchantBtn.setTooltip(Tooltip.create(Component.literal("Merchant")));
+        statsCombatBtn = Button.builder(Component.literal("\u2694"), b -> this.currentStatsGroup = StatGroup.COMBAT)
+                .pos(0, 0)
+                .size(20, 20)
+                .build();
+        statsCombatBtn.setTooltip(Tooltip.create(Component.literal("Combat")));
+        statsFarmingBtn = Button.builder(Component.literal("\u273F"), b -> this.currentStatsGroup = StatGroup.FARMING)
+                .pos(0, 0)
+                .size(20, 20)
+                .build();
+        statsFarmingBtn.setTooltip(Tooltip.create(Component.literal("Farming")));
+        this.addRenderableWidget(statsMerchantBtn);
+        this.addRenderableWidget(statsCombatBtn);
+        this.addRenderableWidget(statsFarmingBtn);
+        updateStatsSubtabWidgets();
 
         // Kick initial request immediately (snapshot mode does not query server)
         if (!respawnMode) {
             trySendStatsQuery(false);
             trySendAttributesQuery(false);
             trySendHistoryQuery(false);
+            trySendFamilyTreeQuery(false);
             trySendTradesQuery(false);
             tryApplyStatsFromCache();
         } else {
@@ -421,13 +507,13 @@ public final class VillagerInfoScreen extends Screen {
 
         // Expand button for the scrollable overview/history list.
         try {
-            int listX = getOverviewListX();
-            int listY = getOverviewListY();
-            int listW = getOverviewListW();
+            int listX = getActiveViewportX();
+            int listY = getActiveViewportY();
+            int listW = getActiveViewportW();
 
             // Unicode: up-right arrow (fallback visually to a simple arrow depending on font).
             expandListBtn = Button.builder(Component.literal("\u2197"), b -> openFullscreenReader())
-                    .pos(listX + listW - 16, listY + 2)
+                    .pos(listX + listW - SCROLLBAR_W - 20, listY + 2)
                     .size(14, 14)
                     .build();
             expandListBtn.setTooltip(Tooltip.create(Component.literal("Expand")));
@@ -457,6 +543,7 @@ public final class VillagerInfoScreen extends Screen {
             }
             trySendAttributesQuery(true);
             trySendHistoryQuery(true);
+            trySendFamilyTreeQuery(true);
             trySendTradesQuery(true);
         }
     }
@@ -466,11 +553,24 @@ public final class VillagerInfoScreen extends Screen {
         try {
             if (scrollY == 0.0) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
 
+            if (this.currentTab == Tab.FAMILY) {
+                int x = getWideContentX();
+                int y = getWideContentY();
+                int w = getWideContentW();
+                int h = getWideContentH();
+
+                boolean in = mouseX >= x && mouseX <= (x + w) && mouseY >= y && mouseY <= (y + h);
+                if (!in) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+
+                applyFamilyZoom(mouseX, mouseY, scrollY);
+                return true;
+            }
+
             if (this.currentTab == Tab.OVERVIEW || this.currentTab == Tab.HISTORY) {
-                int x = getOverviewListX();
-                int y = getOverviewListY();
-                int w = getOverviewListW();
-                int h = getOverviewListH();
+                int x = this.currentTab == Tab.OVERVIEW ? getOverviewListX() : getWideContentX();
+                int y = this.currentTab == Tab.OVERVIEW ? getOverviewListY() : getWideContentY();
+                int w = this.currentTab == Tab.OVERVIEW ? getOverviewListW() : getWideContentW();
+                int h = this.currentTab == Tab.OVERVIEW ? getOverviewListH() : getWideContentH();
 
                 boolean in = mouseX >= x && mouseX <= (x + w) && mouseY >= y && mouseY <= (y + h);
                 if (!in) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -498,19 +598,34 @@ public final class VillagerInfoScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         try {
+            boolean widgetHandled = super.mouseClicked(mouseX, mouseY, button);
+            if (widgetHandled) return true;
+
+            if (button == 0
+                    && this.currentTab == Tab.FAMILY
+                    && isInsideFamilyViewport(mouseX, mouseY)
+                    && !isMouseOverWidget(this.expandListBtn, (int) mouseX, (int) mouseY)) {
+                this.familyDragging = true;
+                return true;
+            }
             if (button == 0 && (this.currentTab == Tab.OVERVIEW || this.currentTab == Tab.HISTORY)) {
                 if (tryStartScrollDrag(mouseX, mouseY)) {
                     return true;
                 }
             }
         } catch (Throwable ignored) {}
-        return super.mouseClicked(mouseX, mouseY, button);
+        return false;
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
         try {
             if (button == 0) {
+                if (this.currentTab == Tab.FAMILY && this.familyDragging) {
+                    this.familyPanX += dragX;
+                    this.familyPanY += dragY;
+                    return true;
+                }
                 if (this.currentTab == Tab.OVERVIEW && this.overviewDraggingScroll) {
                     applyScrollFromMouseY(true, mouseY);
                     return true;
@@ -528,6 +643,7 @@ public final class VillagerInfoScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         try {
             if (button == 0) {
+                this.familyDragging = false;
                 this.overviewDraggingScroll = false;
                 this.historyDraggingScroll = false;
             }
@@ -537,10 +653,10 @@ public final class VillagerInfoScreen extends Screen {
 
     private boolean tryStartScrollDrag(double mouseX, double mouseY) {
         try {
-            int listX = getOverviewListX();
-            int listY = getOverviewListY();
-            int listW = getOverviewListW();
-            int listH = getOverviewListH();
+            int listX = this.currentTab == Tab.OVERVIEW ? getOverviewListX() : getWideContentX();
+            int listY = this.currentTab == Tab.OVERVIEW ? getOverviewListY() : getWideContentY();
+            int listW = this.currentTab == Tab.OVERVIEW ? getOverviewListW() : getWideContentW();
+            int listH = this.currentTab == Tab.OVERVIEW ? getOverviewListH() : getWideContentH();
 
             int trackX = listX + listW - SCROLLBAR_W - 2;
             int trackY = listY + 2;
@@ -567,8 +683,8 @@ public final class VillagerInfoScreen extends Screen {
             Font font = Minecraft.getInstance().font;
             int rowH = getOverviewRowH(font);
 
-            int listY = getOverviewListY();
-            int listH = getOverviewListH();
+            int listY = overview ? getOverviewListY() : getWideContentY();
+            int listH = overview ? getOverviewListH() : getWideContentH();
 
             int trackY = listY + 2;
             int trackH = listH - 4;
@@ -600,6 +716,28 @@ public final class VillagerInfoScreen extends Screen {
             if (overview) this.overviewScrollRow = row;
             else this.historyScrollRow = row;
         } catch (Throwable ignored) {}
+    }
+
+    private boolean isInsideFamilyViewport(double mouseX, double mouseY) {
+        int x = getWideContentX();
+        int y = getWideContentY();
+        int w = getWideContentW();
+        int h = getWideContentH();
+        return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+    }
+
+    private void applyFamilyZoom(double mouseX, double mouseY, double scrollY) {
+        float oldZoom = this.familyZoom;
+        this.familyZoom = Mth.clamp(this.familyZoom + (float) Math.signum(scrollY) * 0.1F, 0.4F, 3.0F);
+        if (Math.abs(this.familyZoom - oldZoom) < 0.0001F) {
+            return;
+        }
+
+        double anchorX = mouseX - (getWideContentX() + getWideContentW() / 2.0D + this.familyPanX);
+        double anchorY = mouseY - (getWideContentY() + getWideContentH() / 2.0D + this.familyPanY);
+        double scale = this.familyZoom / oldZoom;
+        this.familyPanX -= anchorX * (scale - 1.0D);
+        this.familyPanY -= anchorY * (scale - 1.0D);
     }
 
     private void tryApplyStatsFromCache() {
@@ -720,6 +858,17 @@ public final class VillagerInfoScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
+    private void trySendFamilyTreeQuery(boolean debounced) {
+        try {
+            if (respawnMode || this.villagerEntityId <= 0) return;
+            long now = System.currentTimeMillis();
+            if (debounced && (now - lastFamilyTreeQueryMs) < STATS_QUERY_DEBOUNCE_MS) return;
+            lastFamilyTreeQueryMs = now;
+
+            ClientNetwork.sendToServer(new PacketVillagerFamilyTreeQuery(this.villagerEntityId));
+        } catch (Throwable ignored) {}
+    }
+
     private void trySendTradesQuery(boolean debounced) {
         try {
             long now = System.currentTimeMillis();
@@ -805,82 +954,48 @@ public final class VillagerInfoScreen extends Screen {
         int boxRight = boxLeft + ENTITY_BOX_W;
         int boxBottom = boxTop + ENTITY_BOX_H;
 
-        drawEntityBox(gg, boxLeft, boxTop, boxRight, boxBottom);
+        if (currentTab == Tab.OVERVIEW) {
+            drawEntityBox(gg, boxLeft, boxTop, boxRight, boxBottom);
 
-        int textX = boxRight + PAD;
-        int textY = top + 34;
+            int textX = boxRight + PAD;
+            int textY = top + 34;
 
-        LivingEntity le = this.cachedEntity;
-        if (le == null) {
-            gg.drawString(font, Component.literal("Entity: (not found)"), textX, textY, 0xFFFF7777, false);
-            gg.drawString(font, Component.literal("Id: " + this.villagerEntityId), textX, textY + 12, 0xFFBFBFBF, false);
-        } else {
-            Component name = safeName(le);
-            gg.drawString(font, Component.literal("Name: ").append(name), textX, textY, 0xFFFFFFFF, false);
+            LivingEntity le = this.cachedEntity;
+            if (le == null) {
+                gg.drawString(font, Component.literal("Entity: (not found)"), textX, textY, 0xFFFF7777, false);
+                gg.drawString(font, Component.literal("Id: " + this.villagerEntityId), textX, textY + 12, 0xFFBFBFBF, false);
+            } else {
+                Component name = safeName(le);
+                gg.drawString(font, Component.literal("Name: ").append(name), textX, textY, 0xFFFFFFFF, false);
 
-            Component worksFor = safeWorksFor(le);
-            gg.drawString(font, Component.literal("Works for: ").append(worksFor), textX, textY + 12, 0xFFFFFFFF, false);
+                Component worksFor = safeWorksFor(le);
+                gg.drawString(font, Component.literal("Works for: ").append(worksFor), textX, textY + 12, 0xFFFFFFFF, false);
+            }
+
+            renderVillagerModel(gg, boxLeft, boxTop, boxRight, boxBottom, mouseX, mouseY);
         }
-
-        renderVillagerModel(gg, boxLeft, boxTop, boxRight, boxBottom, mouseX, mouseY);
-
-        int barsX = boxRight + PAD;
-        int barsY = top + 78;
-
-        // keep titles from colliding with the previous bar
-        final int stepY = BAR_H + (font.lineHeight + 2) + 3;
 
         boolean tooltipDrawn = false;
 
         if (currentTab == Tab.OVERVIEW) {
-            tooltipDrawn |= renderOverview(gg, font, left, top, barsX, mouseX, mouseY);
+            tooltipDrawn |= renderOverview(gg, font, left, top, getOverviewListX(), mouseX, mouseY);
+        } else if (currentTab == Tab.STATS) {
+            tooltipDrawn |= renderStatsTab(gg, font, mouseX, mouseY);
+        } else if (currentTab == Tab.FAMILY) {
+            tooltipDrawn |= renderFamilyTree(gg, font, mouseX, mouseY);
         } else if (currentTab == Tab.HISTORY) {
-            tooltipDrawn |= renderHistory(gg, font, left, top, barsX, mouseX, mouseY);
-        } else if (currentTab == Tab.MERCHANT) {
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.GENEROSITY, this.hasStats ? this.generosity : null,
-                    barsX, barsY + stepY * 0, BAR_W, BAR_H, C_GENEROSITY, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.TIMELINESS, this.hasStats ? this.timeliness : null,
-                    barsX, barsY + stepY * 1, BAR_W, BAR_H, C_TIMELINESS, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.INTELLECT, this.hasStats ? this.intellect : null,
-                    barsX, barsY + stepY * 2, BAR_W, BAR_H, C_INTELLECT, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.HOARDER, this.hasStats ? this.hoarder : null,
-                    barsX, barsY + stepY * 3, BAR_W, BAR_H, C_HOARDER, mouseX, mouseY, !tooltipDrawn);
-        } else if (currentTab == Tab.FARMING) {
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.MOTIVATION, this.hasStats ? this.motivation : null,
-                    barsX, barsY + stepY * 0, BAR_W, BAR_H, C_MOTIVATION, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.EFFICIENCY, this.hasStats ? this.efficiency : null,
-                    barsX, barsY + stepY * 1, BAR_W, BAR_H, C_EFFICIENCY, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.PLANT_WHISPERER, this.hasStats ? this.plantWhisperer : null,
-                    barsX, barsY + stepY * 2, BAR_W, BAR_H, C_PLANTWHISPERER, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.RANGER, this.hasStats ? this.ranger : null,
-                    barsX, barsY + stepY * 3, BAR_W, BAR_H, C_RANGER, mouseX, mouseY, !tooltipDrawn);
+            tooltipDrawn |= renderHistory(gg, font, left, top, getWideContentX(), mouseX, mouseY);
         } else {
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.VITALITY, this.hasStats ? this.vitality : null,
-                    barsX, barsY + stepY * 0, BAR_W, BAR_H, C_VITALITY, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.AGILITY, this.hasStats ? this.agility : null,
-                    barsX, barsY + stepY * 1, BAR_W, BAR_H, C_AGILITY, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.STRENGTH, this.hasStats ? this.strength : null,
-                    barsX, barsY + stepY * 2, BAR_W, BAR_H, C_STRENGTH, mouseX, mouseY, !tooltipDrawn);
-
-            tooltipDrawn |= renderStatBar(gg, font, StatKind.ARMOR, this.hasStats ? this.armor : null,
-                    barsX, barsY + stepY * 3, BAR_W, BAR_H, C_ARMOR, mouseX, mouseY, !tooltipDrawn);
+            tooltipDrawn |= renderStatsTab(gg, font, mouseX, mouseY);
         }
 
-        if (!this.hasStats && currentTab != Tab.OVERVIEW && currentTab != Tab.HISTORY) {
+        if (!this.hasStats && currentTab == Tab.STATS) {
             if (this.statsUnavailable) {
                 gg.drawString(font, Component.literal("Stats: unavailable"),
-                        barsX, barsY + stepY * 4 + 2, 0xFFFF7777, false);
+                        getWideContentX() + 148, getWideContentY() + 92, 0xFFFF7777, false);
             } else {
                 gg.drawString(font, Component.literal("Stats: syncing…"),
-                        barsX, barsY + stepY * 4 + 2, 0xFFAAAAAA, false);
+                        getWideContentX() + 148, getWideContentY() + 92, 0xFFAAAAAA, false);
             }
         }
 
@@ -901,12 +1016,10 @@ public final class VillagerInfoScreen extends Screen {
         if (!tooltipDrawn) {
             if (isMouseOverWidget(tabOverviewBtn, mouseX, mouseY)) {
                 gg.renderTooltip(font, Component.literal("Overview"), mouseX, mouseY);
-            } else if (isMouseOverWidget(tabMerchantBtn, mouseX, mouseY)) {
-                gg.renderTooltip(font, Component.literal("Merchant stats"), mouseX, mouseY);
-            } else if (isMouseOverWidget(tabCombatBtn, mouseX, mouseY)) {
-                gg.renderTooltip(font, Component.literal("Combat stats"), mouseX, mouseY);
-            } else if (isMouseOverWidget(tabFarmingBtn, mouseX, mouseY)) {
-                gg.renderTooltip(font, Component.literal("Farming stats"), mouseX, mouseY);
+            } else if (isMouseOverWidget(tabStatsBtn, mouseX, mouseY)) {
+                gg.renderTooltip(font, Component.literal("Stats"), mouseX, mouseY);
+            } else if (isMouseOverWidget(tabFamilyBtn, mouseX, mouseY)) {
+                gg.renderTooltip(font, Component.literal("Family Tree"), mouseX, mouseY);
             } else if (isMouseOverWidget(tabHistoryBtn, mouseX, mouseY)) {
                 gg.renderTooltip(font, Component.literal("History"), mouseX, mouseY);
             }
@@ -941,6 +1054,78 @@ public final class VillagerInfoScreen extends Screen {
         return PANEL_W;
     }
 
+    private int getWideContentX() {
+        int left = (this.width - getPanelW()) / 2;
+        return left + PAD;
+    }
+
+    private int getWideContentY() {
+        int top = (this.height - PANEL_H) / 2;
+        return top + 34;
+    }
+
+    private int getWideContentW() {
+        return getPanelW() - PAD * 2;
+    }
+
+    private int getWideContentH() {
+        int top = (this.height - PANEL_H) / 2;
+        int bottom = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE - 6;
+        int y = getWideContentY();
+        return Math.max(24, bottom - y);
+    }
+
+    private int getActiveViewportX() {
+        return this.currentTab == Tab.OVERVIEW ? getOverviewListX() : getWideContentX();
+    }
+
+    private int getActiveViewportY() {
+        return this.currentTab == Tab.OVERVIEW ? getOverviewListY() : getWideContentY();
+    }
+
+    private int getActiveViewportW() {
+        return this.currentTab == Tab.OVERVIEW ? getOverviewListW() : getWideContentW();
+    }
+
+    private int getActiveViewportH() {
+        return this.currentTab == Tab.OVERVIEW ? getOverviewListH() : getWideContentH();
+    }
+
+    private StatGroup getFirstAvailableStatsGroup() {
+        if (showMerchantModule) return StatGroup.MERCHANT;
+        if (showCombatModule) return StatGroup.COMBAT;
+        if (showFarmingModule) return StatGroup.FARMING;
+        return StatGroup.MERCHANT;
+    }
+
+    private boolean isStatsGroupEnabled(StatGroup group) {
+        return switch (group) {
+            case MERCHANT -> showMerchantModule;
+            case COMBAT -> showCombatModule;
+            case FARMING -> showFarmingModule;
+        };
+    }
+
+    private void updateStatsSubtabWidgets() {
+        if (!isStatsGroupEnabled(this.currentStatsGroup)) {
+            this.currentStatsGroup = getFirstAvailableStatsGroup();
+        }
+
+        boolean visible = this.currentTab == Tab.STATS && (showMerchantModule || showCombatModule || showFarmingModule);
+        if (statsMerchantBtn != null) {
+            statsMerchantBtn.visible = visible && showMerchantModule;
+            statsMerchantBtn.active = statsMerchantBtn.visible && this.currentStatsGroup != StatGroup.MERCHANT;
+        }
+        if (statsCombatBtn != null) {
+            statsCombatBtn.visible = visible && showCombatModule;
+            statsCombatBtn.active = statsCombatBtn.visible && this.currentStatsGroup != StatGroup.COMBAT;
+        }
+        if (statsFarmingBtn != null) {
+            statsFarmingBtn.visible = visible && showFarmingModule;
+            statsFarmingBtn.active = statsFarmingBtn.visible && this.currentStatsGroup != StatGroup.FARMING;
+        }
+    }
+
     private void relayoutIfNeeded() {
         try {
             int panelW = PANEL_W;
@@ -960,29 +1145,37 @@ public final class VillagerInfoScreen extends Screen {
                 respawnBtn.setPosition(respawnX, top + PAD);
             }
 
-            int groupW = TAB_BTN_SIZE * 5 + TAB_BTN_GAP * 4;
+            int groupW = TAB_BTN_SIZE * 4 + TAB_BTN_GAP * 3;
             int tabsX = left + (PANEL_W - groupW) / 2;
             int tabsY = top + PANEL_H - TAB_BTN_BOTTOM_PAD - TAB_BTN_SIZE;
 
             if (tabOverviewBtn != null) tabOverviewBtn.setPosition(tabsX, tabsY);
-            if (tabMerchantBtn != null) tabMerchantBtn.setPosition(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY);
-            if (tabCombatBtn != null) tabCombatBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY);
-            if (tabFarmingBtn != null) tabFarmingBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY);
-            if (tabHistoryBtn != null) tabHistoryBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 4, tabsY);
+            if (tabStatsBtn != null) tabStatsBtn.setPosition(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY);
+            if (tabFamilyBtn != null) tabFamilyBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 2, tabsY);
+            if (tabHistoryBtn != null) tabHistoryBtn.setPosition(tabsX + (TAB_BTN_SIZE + TAB_BTN_GAP) * 3, tabsY);
 
             if (expandListBtn != null) {
-                int listX = getOverviewListX();
-                int listY = getOverviewListY();
-                int listW = getOverviewListW();
-                expandListBtn.setPosition(listX + listW - 16, listY + 2);
+                int listX = getActiveViewportX();
+                int listY = getActiveViewportY();
+                int listW = getActiveViewportW();
+                expandListBtn.setPosition(listX + listW - SCROLLBAR_W - 20, listY + 2);
             }
+
+            int statsButtonsY = getWideContentY() + 6;
+            int statsButtonsX = getWideContentX() + 150;
+            if (statsMerchantBtn != null) statsMerchantBtn.setPosition(statsButtonsX, statsButtonsY);
+            if (statsCombatBtn != null) statsCombatBtn.setPosition(statsButtonsX + 24, statsButtonsY);
+            if (statsFarmingBtn != null) statsFarmingBtn.setPosition(statsButtonsX + 48, statsButtonsY);
+            updateStatsSubtabWidgets();
         } catch (Throwable ignored) {}
     }
 
     private void updateExpandButtonVisibility() {
         try {
             if (expandListBtn == null) return;
-            expandListBtn.visible = (this.currentTab == Tab.OVERVIEW || this.currentTab == Tab.HISTORY);
+            expandListBtn.visible = this.currentTab == Tab.OVERVIEW
+                    || this.currentTab == Tab.HISTORY
+                    || (this.currentTab == Tab.FAMILY && !this.respawnMode);
             expandListBtn.active = expandListBtn.visible;
         } catch (Throwable ignored) {}
     }
@@ -991,6 +1184,11 @@ public final class VillagerInfoScreen extends Screen {
         try {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
+
+            if (this.currentTab == Tab.FAMILY) {
+                mc.setScreen(new FullscreenFamilyTreeScreen(this, this.villagerEntityId));
+                return;
+            }
 
             if (this.currentTab == Tab.HISTORY) {
                 rebuildHistoryLinesIfNeeded(true);
@@ -1002,17 +1200,13 @@ public final class VillagerInfoScreen extends Screen {
             rebuildOverviewLinesIfNeeded(true);
             List<Component> raw = this.overviewLinesRaw == null ? List.of(Component.literal("Loading...")) : this.overviewLinesRaw;
 
-            // Strip trade-row placeholders used for inline trade icons in the compact overview list.
-            List<Component> filtered = new ArrayList<>();
-            for (Component c : raw) {
-                if (c == null) continue;
-                String s = null;
-                try { s = c.getString(); } catch (Throwable ignored) { s = null; }
-                if (s != null && s.startsWith(OVERVIEW_TRADE_ROW_PREFIX)) continue;
-                filtered.add(c);
-            }
-
-            mc.setScreen(new FullscreenTextViewScreen(this, "Overview", filtered));
+            mc.setScreen(new FullscreenOverviewScreen(
+                    this,
+                    this.villagerEntityId,
+                    raw,
+                    this.respawnMode ? this.respawnTrades : null,
+                    buildOverviewRadarSummary()
+            ));
         } catch (Throwable ignored) {}
     }
 
@@ -1041,9 +1235,16 @@ public final class VillagerInfoScreen extends Screen {
             if (!force && now < this.nextOverviewRebuildAtTick && wrapW == this.overviewLastWrapWidth) return;
 
             this.overviewLinesRaw = buildOverviewLines();
-            OverviewWrap wrap = wrapOverview(mc.font, this.overviewLinesRaw, wrapW, this.villagerEntityId, this.respawnMode ? this.respawnTrades : null);
+            OverviewWrap wrap = wrapOverview(
+                    mc.font,
+                    this.overviewLinesRaw,
+                    wrapW,
+                    this.villagerEntityId,
+                    this.respawnMode ? this.respawnTrades : null,
+                    buildOverviewRadarSummary()
+            );
             this.overviewLinesWrapped = wrap.lines;
-            this.overviewTradeRowsWrapped = wrap.tradeRows;
+            this.overviewRowMetaWrapped = wrap.rowMeta;
             this.overviewLastWrapWidth = wrapW;
             this.nextOverviewRebuildAtTick = now + 10L;
 
@@ -1098,7 +1299,7 @@ public final class VillagerInfoScreen extends Screen {
         try {
             List<FormattedCharSequence> lines = this.overviewLinesWrapped;
             if (lines == null) lines = wrapComponents(font, List.of(Component.literal("Loading...").withStyle(ChatFormatting.GRAY)), getOverviewWrapWidth());
-            List<TradeRow> tradeRows = this.overviewTradeRowsWrapped;
+            List<OverviewRowMeta> rowMeta = this.overviewRowMetaWrapped;
             boolean tooltipDrawn = false;
 
             int listX = getOverviewListX();
@@ -1136,14 +1337,31 @@ public final class VillagerInfoScreen extends Screen {
             } catch (Throwable ignored) {}
 
             try {
+                Set<Integer> renderedRadarAnchors = new HashSet<>();
                 for (int i = start; i < end; i++) {
-                    TradeRow tr = (tradeRows == null || i < 0 || i >= tradeRows.size()) ? null : tradeRows.get(i);
-                    if (tr == null) {
-                        gg.drawString(font, lines.get(i), listX + LIST_TEXT_PAD_X, y, 0xFFFFFFFF, false);
-                    } else {
+                    OverviewRowMeta meta = (rowMeta == null || i < 0 || i >= rowMeta.size()) ? null : rowMeta.get(i);
+                    if (meta instanceof RadarSpacerRow) {
+                        int anchorIndex = findRadarAnchorIndex(rowMeta, i);
+                        if (anchorIndex >= 0 && renderedRadarAnchors.add(anchorIndex)) {
+                            OverviewRowMeta anchorMeta = rowMeta.get(anchorIndex);
+                            if (anchorMeta instanceof RadarRow rr) {
+                                int anchorY = y - (i - anchorIndex) * rowH;
+                                if (renderOverviewRadarRow(gg, font, rr, listX + LIST_TEXT_PAD_X, anchorY, innerW - LIST_TEXT_PAD_X - 2, rowH * OVERVIEW_RADAR_ROWS, mouseX, mouseY)) {
+                                    tooltipDrawn = true;
+                                }
+                            }
+                        }
+                    } else if (meta instanceof TradeRow tr) {
                         if (renderTradeRow(gg, font, tr, listX + LIST_TEXT_PAD_X, y + 1, mouseX, mouseY)) {
                             tooltipDrawn = true;
                         }
+                    } else if (meta instanceof RadarRow rr) {
+                        renderedRadarAnchors.add(i);
+                        if (renderOverviewRadarRow(gg, font, rr, listX + LIST_TEXT_PAD_X, y, innerW - LIST_TEXT_PAD_X - 2, rowH * OVERVIEW_RADAR_ROWS, mouseX, mouseY)) {
+                            tooltipDrawn = true;
+                        }
+                    } else {
+                        gg.drawString(font, lines.get(i), listX + LIST_TEXT_PAD_X, y, 0xFFFFFFFF, false);
                     }
                     y += rowH;
                 }
@@ -1158,6 +1376,76 @@ public final class VillagerInfoScreen extends Screen {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private boolean renderStatsTab(GuiGraphics gg, Font font, int mouseX, int mouseY) {
+        try {
+            updateStatsSubtabWidgets();
+
+            int x = getWideContentX();
+            int y = getWideContentY();
+            int w = getWideContentW();
+            int h = getWideContentH();
+
+            gg.fill(x, y, x + w, y + h, 0xFF101010);
+            gg.fill(x, y, x + w, y + 1, 0xFF2E2E2E);
+            gg.fill(x, y + h - 1, x + w, y + h, 0xFF2E2E2E);
+            gg.fill(x, y, x + 1, y + h, 0xFF2E2E2E);
+            gg.fill(x + w - 1, y, x + w, y + h, 0xFF2E2E2E);
+
+            int graphX = x + 8;
+            int graphY = y + 8;
+            int graphW = 132;
+            int graphH = h - 16;
+            int barsX = x + 150;
+            int barsY = y + 36;
+            int barsW = Math.max(110, w - 160);
+            int stepY = BAR_H + (font.lineHeight + 2) + 3;
+
+            boolean tooltipDrawn = renderStatsRadar(gg, font, buildOverviewRadarSummary(), graphX, graphY, graphW, graphH, mouseX, mouseY);
+
+            StatKind[] kinds = switch (this.currentStatsGroup) {
+                case MERCHANT -> new StatKind[] { StatKind.GENEROSITY, StatKind.TIMELINESS, StatKind.INTELLECT, StatKind.HOARDER };
+                case COMBAT -> new StatKind[] { StatKind.VITALITY, StatKind.AGILITY, StatKind.STRENGTH, StatKind.ARMOR };
+                case FARMING -> new StatKind[] { StatKind.MOTIVATION, StatKind.EFFICIENCY, StatKind.PLANT_WHISPERER, StatKind.RANGER };
+            };
+
+            Integer[] values = switch (this.currentStatsGroup) {
+                case MERCHANT -> new Integer[] { hasStats ? generosity : null, hasStats ? timeliness : null, hasStats ? intellect : null, hasStats ? hoarder : null };
+                case COMBAT -> new Integer[] { hasStats ? vitality : null, hasStats ? agility : null, hasStats ? strength : null, hasStats ? armor : null };
+                case FARMING -> new Integer[] { hasStats ? motivation : null, hasStats ? efficiency : null, hasStats ? plantWhisperer : null, hasStats ? ranger : null };
+            };
+
+            int[] colors = switch (this.currentStatsGroup) {
+                case MERCHANT -> new int[] { C_GENEROSITY, C_TIMELINESS, C_INTELLECT, C_HOARDER };
+                case COMBAT -> new int[] { C_VITALITY, C_AGILITY, C_STRENGTH, C_ARMOR };
+                case FARMING -> new int[] { C_MOTIVATION, C_EFFICIENCY, C_PLANTWHISPERER, C_RANGER };
+            };
+
+            for (int i = 0; i < 4; i++) {
+                tooltipDrawn |= renderStatBar(gg, font, kinds[i], values[i], barsX, barsY + stepY * i, barsW, BAR_H, colors[i], mouseX, mouseY, !tooltipDrawn);
+            }
+
+            return tooltipDrawn;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static int findRadarAnchorIndex(List<OverviewRowMeta> rowMeta, int rowIndex) {
+        if (rowMeta == null || rowIndex < 0 || rowIndex >= rowMeta.size()) {
+            return -1;
+        }
+        for (int i = rowIndex; i >= 0; i--) {
+            OverviewRowMeta meta = rowMeta.get(i);
+            if (meta instanceof RadarRow) {
+                return i;
+            }
+            if (!(meta instanceof RadarSpacerRow)) {
+                break;
+            }
+        }
+        return -1;
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1185,7 +1473,7 @@ public final class VillagerInfoScreen extends Screen {
     }
 
     private int getHistoryWrapWidth() {
-        int w = getOverviewListW();
+        int w = getWideContentW();
         return Math.max(40, w - LIST_TEXT_PAD_X * 2 - SCROLLBAR_W - 4);
     }
 
@@ -1197,7 +1485,7 @@ public final class VillagerInfoScreen extends Screen {
         try {
             Font font = Minecraft.getInstance().font;
             int rowH = getHistoryRowH(font);
-            int innerH = Math.max(1, getOverviewListH() - LIST_INNER_PAD_Y * 2);
+            int innerH = Math.max(1, getWideContentH() - LIST_INNER_PAD_Y * 2);
             return Math.max(1, innerH / rowH);
         } catch (Throwable ignored) {
             return 8;
@@ -1209,10 +1497,10 @@ public final class VillagerInfoScreen extends Screen {
             List<FormattedCharSequence> lines = this.historyLinesWrapped;
             if (lines == null) lines = wrapComponents(font, List.of(Component.literal("Loading...").withStyle(ChatFormatting.GRAY)), getHistoryWrapWidth());
 
-            int listX = getOverviewListX();
-            int listY = getOverviewListY();
-            int listW = getOverviewListW();
-            int listH = getOverviewListH();
+            int listX = getWideContentX();
+            int listY = getWideContentY();
+            int listW = getWideContentW();
+            int listH = getWideContentH();
 
             // Frame
             gg.fill(listX, listY, listX + listW, listY + listH, 0xFF101010);
@@ -1260,7 +1548,48 @@ public final class VillagerInfoScreen extends Screen {
         }
     }
 
-    private static final class TradeRow {
+    private boolean renderFamilyTree(GuiGraphics gg, Font font, int mouseX, int mouseY) {
+        int listX = getWideContentX();
+        int listY = getWideContentY();
+        int listW = getWideContentW();
+        int listH = getWideContentH();
+
+        if (respawnMode) {
+            gg.fill(listX, listY, listX + listW, listY + listH, 0xFF101010);
+            gg.fill(listX, listY, listX + listW, listY + 1, 0xFF2E2E2E);
+            gg.fill(listX, listY + listH - 1, listX + listW, listY + listH, 0xFF2E2E2E);
+            gg.fill(listX, listY, listX + 1, listY + listH, 0xFF2E2E2E);
+            gg.fill(listX + listW - 1, listY, listX + listW, listY + listH, 0xFF2E2E2E);
+            gg.drawString(font, Component.literal("Family tree is only available for live villagers."), listX + 8, listY + 8, 0xFFAAAAAA, false);
+            return false;
+        }
+
+        PacketVillagerFamilyTreeData data = ClientVillagerFamilyTreeCache.get(this.villagerEntityId);
+        List<Component> tooltip = FamilyTreeGraphRenderer.render(
+                gg,
+                font,
+                data,
+                listX,
+                listY,
+                listW,
+                listH,
+                this.familyZoom,
+                this.familyPanX,
+                this.familyPanY,
+                mouseX,
+                mouseY
+        );
+        gg.drawString(font, "Drag to pan  |  Scroll to zoom", listX + 2, listY - 10, 0xFFBFBFBF, false);
+        if (tooltip != null) {
+            gg.renderComponentTooltip(font, tooltip, mouseX, mouseY);
+            return true;
+        }
+        return false;
+    }
+
+    interface OverviewRowMeta {}
+
+    static final class TradeRow implements OverviewRowMeta {
         final int villagerEntityId;
         final int startIndex;
         final PacketVillagerTradesData inlineTrades;
@@ -1272,16 +1601,46 @@ public final class VillagerInfoScreen extends Screen {
         }
     }
 
-    private record OverviewWrap(List<FormattedCharSequence> lines, List<TradeRow> tradeRows) {}
+    static final class RadarRow implements OverviewRowMeta {
+        final RadarSummary summary;
 
-    private static OverviewWrap wrapOverview(Font font, List<Component> raw, int maxWidth, int villagerEntityId, PacketVillagerTradesData inlineTrades) {
+        private RadarRow(RadarSummary summary) {
+            this.summary = summary;
+        }
+    }
+
+    static final class RadarSpacerRow implements OverviewRowMeta {}
+
+    static record RadarStat(StatKind kind, int points) {}
+
+    static record RadarGroup(String label, int color, double average, List<RadarStat> stats) {}
+
+    static record RadarSummary(
+            double merchantAverage,
+            double combatAverage,
+            double farmingAverage,
+            RadarGroup merchant,
+            RadarGroup combat,
+            RadarGroup farming
+    ) {}
+
+    static record OverviewWrap(List<FormattedCharSequence> lines, List<OverviewRowMeta> rowMeta) {}
+
+    static OverviewWrap wrapOverview(
+            Font font,
+            List<Component> raw,
+            int maxWidth,
+            int villagerEntityId,
+            PacketVillagerTradesData inlineTrades,
+            RadarSummary radarSummary
+    ) {
         try {
             if (font == null) return new OverviewWrap(List.of(), List.of());
             if (raw == null || raw.isEmpty()) return new OverviewWrap(List.of(), List.of());
 
             int w = Math.max(10, maxWidth);
             ArrayList<FormattedCharSequence> out = new ArrayList<>();
-            ArrayList<TradeRow> meta = new ArrayList<>();
+            ArrayList<OverviewRowMeta> meta = new ArrayList<>();
 
             for (Component c : raw) {
                 if (c == null) continue;
@@ -1295,6 +1654,16 @@ public final class VillagerInfoScreen extends Screen {
 
                     out.add(FormattedCharSequence.EMPTY);
                     meta.add(new TradeRow(villagerEntityId, start, inlineTrades));
+                    continue;
+                }
+
+                if (s != null && s.startsWith(OVERVIEW_RADAR_ROW_PREFIX)) {
+                    out.add(FormattedCharSequence.EMPTY);
+                    meta.add(new RadarRow(radarSummary));
+                    for (int i = 1; i < OVERVIEW_RADAR_ROWS; i++) {
+                        out.add(FormattedCharSequence.EMPTY);
+                        meta.add(new RadarSpacerRow());
+                    }
                     continue;
                 }
 
@@ -1316,7 +1685,7 @@ public final class VillagerInfoScreen extends Screen {
         }
     }
 
-    private static boolean renderTradeRow(GuiGraphics gg, Font font, TradeRow tr, int x, int y, int mouseX, int mouseY) {
+    static boolean renderTradeRow(GuiGraphics gg, Font font, TradeRow tr, int x, int y, int mouseX, int mouseY) {
         try {
             if (gg == null || tr == null) return false;
 
@@ -1370,6 +1739,266 @@ public final class VillagerInfoScreen extends Screen {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    static int estimateTradeRowWidth(TradeRow tr) {
+        try {
+            if (tr == null) return 0;
+            PacketVillagerTradesData snap = tr.inlineTrades != null ? tr.inlineTrades : ClientVillagerTradesCache.get(tr.villagerEntityId);
+            if (snap == null || !snap.ok()) return 0;
+
+            List<ItemStack> results = snap.results();
+            if (results == null || results.isEmpty()) return 0;
+
+            int idx = Math.max(0, tr.startIndex);
+            int drawn = 0;
+            int max = Math.min(results.size(), idx + 64);
+            for (int i = idx; i < max; i++) {
+                ItemStack stack = results.get(i);
+                if (stack == null || stack.isEmpty()) continue;
+                drawn++;
+                if (drawn >= 12) break;
+            }
+            if (drawn <= 0) return 0;
+            return drawn * TRADE_ICON_SIZE + Math.max(0, drawn - 1) * TRADE_ICON_GAP;
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    private RadarSummary buildOverviewRadarSummary() {
+        if (!this.hasStats) return null;
+        return new RadarSummary(
+                averagePoints(this.generosity, this.timeliness, this.intellect, this.hoarder),
+                averagePoints(this.vitality, this.agility, this.strength, this.armor),
+                averagePoints(this.motivation, this.efficiency, this.plantWhisperer, this.ranger),
+                new RadarGroup(
+                        "Merchant",
+                        C_GROUP_MERCHANT,
+                        averagePoints(this.generosity, this.timeliness, this.intellect, this.hoarder),
+                        List.of(
+                                new RadarStat(StatKind.GENEROSITY, this.generosity),
+                                new RadarStat(StatKind.TIMELINESS, this.timeliness),
+                                new RadarStat(StatKind.INTELLECT, this.intellect),
+                                new RadarStat(StatKind.HOARDER, this.hoarder)
+                        )
+                ),
+                new RadarGroup(
+                        "Combat",
+                        C_GROUP_COMBAT,
+                        averagePoints(this.vitality, this.agility, this.strength, this.armor),
+                        List.of(
+                                new RadarStat(StatKind.VITALITY, this.vitality),
+                                new RadarStat(StatKind.AGILITY, this.agility),
+                                new RadarStat(StatKind.STRENGTH, this.strength),
+                                new RadarStat(StatKind.ARMOR, this.armor)
+                        )
+                ),
+                new RadarGroup(
+                        "Farming",
+                        C_GROUP_FARMING,
+                        averagePoints(this.motivation, this.efficiency, this.plantWhisperer, this.ranger),
+                        List.of(
+                                new RadarStat(StatKind.MOTIVATION, this.motivation),
+                                new RadarStat(StatKind.EFFICIENCY, this.efficiency),
+                                new RadarStat(StatKind.PLANT_WHISPERER, this.plantWhisperer),
+                                new RadarStat(StatKind.RANGER, this.ranger)
+                        )
+                )
+        );
+    }
+
+    private static double averagePoints(int a, int b, int c, int d) {
+        return (a + b + c + d) / 4.0;
+    }
+
+    static boolean renderOverviewRadarRow(GuiGraphics gg, Font font, RadarRow row, int x, int y, int w, int h, int mouseX, int mouseY) {
+        try {
+            if (gg == null || font == null) return false;
+
+            int titleY = y + 2;
+            Component title = Component.literal("Stat Groups").withStyle(ChatFormatting.YELLOW);
+            gg.drawString(font, title, x + Math.max(0, (w - font.width(title)) / 2), titleY, 0xFFFFFFFF, false);
+
+            if (row == null || row.summary == null) {
+                gg.drawString(font, Component.literal("(syncing...)").withStyle(ChatFormatting.GRAY), x, titleY + font.lineHeight + 6, 0xFFAAAAAA, false);
+                return false;
+            }
+
+            int graphTop = y + font.lineHeight + 8;
+            int graphH = Math.max(30, h - (graphTop - y) - 4);
+            int graphW = Math.max(30, w - 8);
+            int cx = x + graphW / 2;
+            int cy = graphTop + graphH / 2 + 4;
+            int radius = Math.max(18, Math.min(graphW, graphH) / 2 - 14);
+
+            float[] angles = new float[] { -90.0f, 30.0f, 150.0f };
+            RadarGroup[] groups = new RadarGroup[] { row.summary.merchant(), row.summary.combat(), row.summary.farming() };
+            int[][] outer = new int[3][2];
+            int[][] nodes = new int[3][2];
+
+            for (int i = 0; i < groups.length; i++) {
+                double rad = Math.toRadians(angles[i]);
+                outer[i][0] = cx + (int) Math.round(Math.cos(rad) * radius);
+                outer[i][1] = cy + (int) Math.round(Math.sin(rad) * radius);
+
+                double norm = Mth.clamp((float) ((groups[i].average() + 100.0) / 200.0), 0.0f, 1.0f);
+                int nodeRadius = (int) Math.round(radius * norm);
+                nodes[i][0] = cx + (int) Math.round(Math.cos(rad) * nodeRadius);
+                nodes[i][1] = cy + (int) Math.round(Math.sin(rad) * nodeRadius);
+            }
+
+            for (int ring = 1; ring <= 4; ring++) {
+                double t = ring / 4.0;
+                int[] px = new int[3];
+                int[] py = new int[3];
+                for (int i = 0; i < 3; i++) {
+                    px[i] = cx + (int) Math.round((outer[i][0] - cx) * t);
+                    py[i] = cy + (int) Math.round((outer[i][1] - cy) * t);
+                }
+                drawLine(gg, px[0], py[0], px[1], py[1], 0xFF3C3C3C);
+                drawLine(gg, px[1], py[1], px[2], py[2], 0xFF3C3C3C);
+                drawLine(gg, px[2], py[2], px[0], py[0], 0xFF3C3C3C);
+            }
+
+            for (int i = 0; i < 3; i++) {
+                drawLine(gg, cx, cy, outer[i][0], outer[i][1], 0xFF565656);
+            }
+
+            drawLine(gg, nodes[0][0], nodes[0][1], nodes[1][0], nodes[1][1], 0xFFFFFFFF);
+            drawLine(gg, nodes[1][0], nodes[1][1], nodes[2][0], nodes[2][1], 0xFFFFFFFF);
+            drawLine(gg, nodes[2][0], nodes[2][1], nodes[0][0], nodes[0][1], 0xFFFFFFFF);
+
+            for (int i = 0; i < groups.length; i++) {
+                int nx = nodes[i][0];
+                int ny = nodes[i][1];
+                gg.fill(nx - 2, ny - 2, nx + 3, ny + 3, groups[i].color());
+
+                String label = groups[i].label();
+                int labelW = font.width(label);
+                int lx = outer[i][0] - labelW / 2;
+                int ly = outer[i][1] + (i == 0 ? -font.lineHeight - 2 : 4);
+                gg.drawString(font, label, lx, ly, groups[i].color(), false);
+            }
+
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean renderStatsRadar(GuiGraphics gg, Font font, RadarSummary summary, int x, int y, int w, int h, int mouseX, int mouseY) {
+        try {
+            if (summary == null) return false;
+
+            int cx = x + w / 2;
+            int cy = y + h / 2 + 8;
+            int radius = Math.max(24, Math.min(w, h) / 2 - 20);
+            float[] angles = new float[] { -90.0f, 30.0f, 150.0f };
+            RadarGroup[] groups = new RadarGroup[] { summary.merchant(), summary.combat(), summary.farming() };
+            int[][] outer = new int[3][2];
+            int[][] nodes = new int[3][2];
+
+            gg.drawString(font, "Stat Groups", x + (w - font.width("Stat Groups")) / 2, y + 2, 0xFFFFFFFF, false);
+
+            for (int i = 0; i < groups.length; i++) {
+                double rad = Math.toRadians(angles[i]);
+                outer[i][0] = cx + (int) Math.round(Math.cos(rad) * radius);
+                outer[i][1] = cy + (int) Math.round(Math.sin(rad) * radius);
+
+                double norm = Mth.clamp((float) ((groups[i].average() + 100.0) / 200.0), 0.0f, 1.0f);
+                int nodeRadius = (int) Math.round(radius * norm);
+                nodes[i][0] = cx + (int) Math.round(Math.cos(rad) * nodeRadius);
+                nodes[i][1] = cy + (int) Math.round(Math.sin(rad) * nodeRadius);
+            }
+
+            for (int ring = 1; ring <= 4; ring++) {
+                double t = ring / 4.0;
+                int[] px = new int[3];
+                int[] py = new int[3];
+                for (int i = 0; i < 3; i++) {
+                    px[i] = cx + (int) Math.round((outer[i][0] - cx) * t);
+                    py[i] = cy + (int) Math.round((outer[i][1] - cy) * t);
+                }
+                drawLine(gg, px[0], py[0], px[1], py[1], 0xFF3C3C3C);
+                drawLine(gg, px[1], py[1], px[2], py[2], 0xFF3C3C3C);
+                drawLine(gg, px[2], py[2], px[0], py[0], 0xFF3C3C3C);
+            }
+
+            for (int i = 0; i < 3; i++) {
+                drawLine(gg, cx, cy, outer[i][0], outer[i][1], 0xFF565656);
+            }
+            drawLine(gg, nodes[0][0], nodes[0][1], nodes[1][0], nodes[1][1], 0xFFFFFFFF);
+            drawLine(gg, nodes[1][0], nodes[1][1], nodes[2][0], nodes[2][1], 0xFFFFFFFF);
+            drawLine(gg, nodes[2][0], nodes[2][1], nodes[0][0], nodes[0][1], 0xFFFFFFFF);
+
+            boolean tooltipDrawn = false;
+            for (int i = 0; i < groups.length; i++) {
+                int nx = nodes[i][0];
+                int ny = nodes[i][1];
+                gg.fill(nx - 3, ny - 3, nx + 4, ny + 4, groups[i].color());
+
+                String label = groups[i].label();
+                int labelW = font.width(label);
+                int lx = outer[i][0] - labelW / 2;
+                int ly = outer[i][1] + (i == 0 ? -font.lineHeight - 2 : 4);
+                gg.drawString(font, label, lx, ly, groups[i].color(), false);
+
+                if (!tooltipDrawn && mouseX >= nx - 7 && mouseX <= nx + 7 && mouseY >= ny - 7 && mouseY <= ny + 7) {
+                    RadarGroup group = groups[i];
+                    gg.renderComponentTooltip(font, List.of(
+                            Component.literal(group.label()).withStyle(s -> s.withColor(TextColor.fromRgb(group.color() & 0x00FFFFFF))),
+                            Component.literal("Average: " + formatSigned1(group.average())).withStyle(ChatFormatting.GRAY)
+                    ), mouseX, mouseY);
+                    tooltipDrawn = true;
+                }
+            }
+
+            return tooltipDrawn;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static List<Component> buildRadarTooltip(RadarGroup group) {
+        List<Component> out = new ArrayList<>();
+        out.add(Component.literal(group.label()).withStyle(s -> s.withColor(TextColor.fromRgb(group.color() & 0x00FFFFFF))));
+        out.add(Component.literal("Average: " + formatSigned1(group.average())).withStyle(ChatFormatting.GRAY));
+        out.add(Component.literal(""));
+        for (RadarStat stat : group.stats()) {
+            int points = Mth.clamp(stat.points(), VillagerStatsService.POINTS_MIN, VillagerStatsService.POINTS_MAX);
+            String detail = shortEffectParen(stat.kind(), 0.0, points);
+            if (stat.kind().isMerchant() || stat.kind().isFarming()) {
+                Double pct = pointsToPercentFromServerConfig(stat.kind(), points);
+                detail = shortEffectParen(stat.kind(), pct == null ? 0.0 : pct, points);
+            }
+            out.add(Component.literal("\u2022 " + stat.kind().label + ": " + points + " (" + detail + ")").withStyle(ChatFormatting.DARK_GRAY));
+        }
+        return out;
+    }
+
+    private static void drawLine(GuiGraphics gg, int x0, int y0, int x1, int y1, int color) {
+        try {
+            int dx = Math.abs(x1 - x0);
+            int dy = Math.abs(y1 - y0);
+            int sx = x0 < x1 ? 1 : -1;
+            int sy = y0 < y1 ? 1 : -1;
+            int err = dx - dy;
+
+            while (true) {
+                gg.fill(x0, y0, x0 + 1, y0 + 1, color);
+                if (x0 == x1 && y0 == y1) break;
+                int e2 = err * 2;
+                if (e2 > -dy) {
+                    err -= dy;
+                    x0 += sx;
+                }
+                if (e2 < dx) {
+                    err += dx;
+                    y0 += sy;
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static List<FormattedCharSequence> wrapComponents(Font font, List<Component> raw, int maxWidth) {
@@ -1427,6 +2056,8 @@ public final class VillagerInfoScreen extends Screen {
         out.add(Component.literal("Trades").withStyle(ChatFormatting.YELLOW));
         appendTradesOverview(out);
 
+        out.add(Component.literal(""));
+        out.add(Component.literal(OVERVIEW_RADAR_ROW_PREFIX));
         out.add(Component.literal(""));
         out.add(Component.literal("Stats").withStyle(ChatFormatting.YELLOW));
 
@@ -1980,14 +2611,21 @@ public final class VillagerInfoScreen extends Screen {
             int x2 = boxRight - 6;
             int y2 = boxBottom - 6;
 
-            InventoryScreen.renderEntityInInventoryFollowsMouse(
-                    gg,
-                    x1, y1, x2, y2,
-                    scale,
-                    yOffset,
-                    (float) mouseX, (float) mouseY,
-                    le
-            );
+            boolean oldVisible = false;
+            try { oldVisible = le.isCustomNameVisible(); } catch (Throwable ignored) {}
+            try { le.setCustomNameVisible(false); } catch (Throwable ignored) {}
+            try {
+                InventoryScreen.renderEntityInInventoryFollowsMouse(
+                        gg,
+                        x1, y1, x2, y2,
+                        scale,
+                        yOffset,
+                        (float) mouseX, (float) mouseY,
+                        le
+                );
+            } finally {
+                try { le.setCustomNameVisible(oldVisible); } catch (Throwable ignored) {}
+            }
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen entity render failed (soft): {}", t.toString());
         }
@@ -2538,7 +3176,7 @@ public final class VillagerInfoScreen extends Screen {
             super(x, y, size, size, Component.empty());
             this.symbol = symbol == null ? "?" : symbol;
             this.tooltip = tooltip == null ? Component.empty() : tooltip;
-            this.target = target == null ? Tab.MERCHANT : target;
+            this.target = target == null ? Tab.STATS : target;
         }
 
         public Component getTooltipComponent() {
@@ -2578,13 +3216,20 @@ public final class VillagerInfoScreen extends Screen {
             try {
                 if (VillagerInfoScreen.this.currentTab != target) {
                     VillagerInfoScreen.this.currentTab = target;
+                    VillagerInfoScreen.this.familyDragging = false;
+                    VillagerInfoScreen.this.overviewDraggingScroll = false;
+                    VillagerInfoScreen.this.historyDraggingScroll = false;
                     if (target == Tab.OVERVIEW) {
                         VillagerInfoScreen.this.overviewScrollRow = 0;
                         VillagerInfoScreen.this.rebuildOverviewLinesIfNeeded(true);
+                    } else if (target == Tab.FAMILY) {
+                        VillagerInfoScreen.this.trySendFamilyTreeQuery(false);
                     } else if (target == Tab.HISTORY) {
                         VillagerInfoScreen.this.historyScrollRow = 0;
                         VillagerInfoScreen.this.rebuildHistoryLinesIfNeeded(true);
                     }
+                    VillagerInfoScreen.this.updateStatsSubtabWidgets();
+                    VillagerInfoScreen.this.updateExpandButtonVisibility();
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen switched tab -> {}", target.name());
                 }
             } catch (Throwable t) {

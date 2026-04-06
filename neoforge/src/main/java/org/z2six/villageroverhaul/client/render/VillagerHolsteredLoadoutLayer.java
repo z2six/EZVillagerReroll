@@ -11,8 +11,12 @@ import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.BowItem;
+import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ProjectileWeaponItem;
+import net.minecraft.world.item.UseAnim;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
@@ -29,6 +33,12 @@ import java.lang.reflect.Method;
  * Source of truth for the item stacks is server -> client SynchedEntityData (see {code VillagerRenderStateMixin}).
  */
 public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, VillagerModel<Villager>> {
+
+    public enum WaistProfile {
+        DEFAULT,
+        BOW,
+        CROSSBOW
+    }
 
     // =========================================================================================
     // TWEAKS (alignment)
@@ -61,6 +71,46 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
     public static volatile float WAIST_ROLL_DEG = WAIST_ROLL_DEG_DEFAULT;
     public static volatile SpinAxis WAIST_ROLL_AXIS = SpinAxis.Z;
 
+    private static final float WAIST_BOW_TX_DEFAULT = 0.5499998f;
+    private static final float WAIST_BOW_TY_DEFAULT = 0.6399997f;
+    private static final float WAIST_BOW_TZ_DEFAULT = 0.41999996f;
+    private static final float WAIST_BOW_RX_DEG_DEFAULT = 183.0f;
+    private static final float WAIST_BOW_RY_DEG_DEFAULT = 272.0f;
+    private static final float WAIST_BOW_RZ_DEG_DEFAULT = 172.0f;
+    private static final float WAIST_BOW_SCALE = 1.00f;
+    private static final float WAIST_BOW_SPIN_DEG_DEFAULT = 0.0f;
+    private static final float WAIST_BOW_ROLL_DEG_DEFAULT = -40.0f;
+    public static volatile float WAIST_BOW_TX = WAIST_BOW_TX_DEFAULT;
+    public static volatile float WAIST_BOW_TY = WAIST_BOW_TY_DEFAULT;
+    public static volatile float WAIST_BOW_TZ = WAIST_BOW_TZ_DEFAULT;
+    public static volatile float WAIST_BOW_RX_DEG = WAIST_BOW_RX_DEG_DEFAULT;
+    public static volatile float WAIST_BOW_RY_DEG = WAIST_BOW_RY_DEG_DEFAULT;
+    public static volatile float WAIST_BOW_RZ_DEG = WAIST_BOW_RZ_DEG_DEFAULT;
+    public static volatile float WAIST_BOW_SPIN_DEG = WAIST_BOW_SPIN_DEG_DEFAULT;
+    public static volatile SpinAxis WAIST_BOW_SPIN_AXIS = SpinAxis.Z;
+    public static volatile float WAIST_BOW_ROLL_DEG = WAIST_BOW_ROLL_DEG_DEFAULT;
+    public static volatile SpinAxis WAIST_BOW_ROLL_AXIS = SpinAxis.Z;
+
+    private static final float WAIST_CROSSBOW_TX_DEFAULT = -0.05f;
+    private static final float WAIST_CROSSBOW_TY_DEFAULT = 0.25f;
+    private static final float WAIST_CROSSBOW_TZ_DEFAULT = 0.37f;
+    private static final float WAIST_CROSSBOW_RX_DEG_DEFAULT = 83.0f;
+    private static final float WAIST_CROSSBOW_RY_DEG_DEFAULT = 300.0f;
+    private static final float WAIST_CROSSBOW_RZ_DEG_DEFAULT = 172.0f;
+    private static final float WAIST_CROSSBOW_SCALE = 1.00f;
+    private static final float WAIST_CROSSBOW_SPIN_DEG_DEFAULT = 0.0f;
+    private static final float WAIST_CROSSBOW_ROLL_DEG_DEFAULT = 0.0f;
+    public static volatile float WAIST_CROSSBOW_TX = WAIST_CROSSBOW_TX_DEFAULT;
+    public static volatile float WAIST_CROSSBOW_TY = WAIST_CROSSBOW_TY_DEFAULT;
+    public static volatile float WAIST_CROSSBOW_TZ = WAIST_CROSSBOW_TZ_DEFAULT;
+    public static volatile float WAIST_CROSSBOW_RX_DEG = WAIST_CROSSBOW_RX_DEG_DEFAULT;
+    public static volatile float WAIST_CROSSBOW_RY_DEG = WAIST_CROSSBOW_RY_DEG_DEFAULT;
+    public static volatile float WAIST_CROSSBOW_RZ_DEG = WAIST_CROSSBOW_RZ_DEG_DEFAULT;
+    public static volatile float WAIST_CROSSBOW_SPIN_DEG = WAIST_CROSSBOW_SPIN_DEG_DEFAULT;
+    public static volatile SpinAxis WAIST_CROSSBOW_SPIN_AXIS = SpinAxis.Z;
+    public static volatile float WAIST_CROSSBOW_ROLL_DEG = WAIST_CROSSBOW_ROLL_DEG_DEFAULT;
+    public static volatile SpinAxis WAIST_CROSSBOW_ROLL_AXIS = SpinAxis.Z;
+
     private static final boolean ENABLE_BACK = true;
     private static final float BACK_TX = 0.20f; // left/right back perspective
     private static final float BACK_TY = 0.20f; // up/down from back perspective
@@ -76,33 +126,94 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
     private static Method ROOT_METHOD = null;
 
     public static void ezvr$resetWaistTweak() {
-        WAIST_TX = WAIST_TX_DEFAULT;
-        WAIST_TY = WAIST_TY_DEFAULT;
-        WAIST_TZ = WAIST_TZ_DEFAULT;
-        WAIST_RX_DEG = WAIST_RX_DEG_DEFAULT;
-        WAIST_RY_DEG = WAIST_RY_DEG_DEFAULT;
-        WAIST_RZ_DEG = WAIST_RZ_DEG_DEFAULT;
-        WAIST_SPIN_DEG = WAIST_SPIN_DEG_DEFAULT;
-        WAIST_SPIN_AXIS = SpinAxis.Z;
-        WAIST_ROLL_DEG = WAIST_ROLL_DEG_DEFAULT;
-        WAIST_ROLL_AXIS = SpinAxis.Z;
+        ezvr$resetWaistTweak(WaistProfile.DEFAULT);
     }
 
     public static boolean ezvr$setWaistTweak(String keyRaw, float value, boolean additive) {
+        return ezvr$setWaistTweak(WaistProfile.DEFAULT, keyRaw, value, additive);
+    }
+
+    public static void ezvr$resetWaistTweak(WaistProfile profile) {
+        try {
+            switch (profile == null ? WaistProfile.DEFAULT : profile) {
+                case DEFAULT -> {
+                    WAIST_TX = WAIST_TX_DEFAULT;
+                    WAIST_TY = WAIST_TY_DEFAULT;
+                    WAIST_TZ = WAIST_TZ_DEFAULT;
+                    WAIST_RX_DEG = WAIST_RX_DEG_DEFAULT;
+                    WAIST_RY_DEG = WAIST_RY_DEG_DEFAULT;
+                    WAIST_RZ_DEG = WAIST_RZ_DEG_DEFAULT;
+                    WAIST_SPIN_DEG = WAIST_SPIN_DEG_DEFAULT;
+                    WAIST_SPIN_AXIS = SpinAxis.Z;
+                    WAIST_ROLL_DEG = WAIST_ROLL_DEG_DEFAULT;
+                    WAIST_ROLL_AXIS = SpinAxis.Z;
+                }
+                case BOW -> {
+                    WAIST_BOW_TX = WAIST_BOW_TX_DEFAULT;
+                    WAIST_BOW_TY = WAIST_BOW_TY_DEFAULT;
+                    WAIST_BOW_TZ = WAIST_BOW_TZ_DEFAULT;
+                    WAIST_BOW_RX_DEG = WAIST_BOW_RX_DEG_DEFAULT;
+                    WAIST_BOW_RY_DEG = WAIST_BOW_RY_DEG_DEFAULT;
+                    WAIST_BOW_RZ_DEG = WAIST_BOW_RZ_DEG_DEFAULT;
+                    WAIST_BOW_SPIN_DEG = WAIST_BOW_SPIN_DEG_DEFAULT;
+                    WAIST_BOW_SPIN_AXIS = SpinAxis.Z;
+                    WAIST_BOW_ROLL_DEG = WAIST_BOW_ROLL_DEG_DEFAULT;
+                    WAIST_BOW_ROLL_AXIS = SpinAxis.Z;
+                }
+                case CROSSBOW -> {
+                    WAIST_CROSSBOW_TX = WAIST_CROSSBOW_TX_DEFAULT;
+                    WAIST_CROSSBOW_TY = WAIST_CROSSBOW_TY_DEFAULT;
+                    WAIST_CROSSBOW_TZ = WAIST_CROSSBOW_TZ_DEFAULT;
+                    WAIST_CROSSBOW_RX_DEG = WAIST_CROSSBOW_RX_DEG_DEFAULT;
+                    WAIST_CROSSBOW_RY_DEG = WAIST_CROSSBOW_RY_DEG_DEFAULT;
+                    WAIST_CROSSBOW_RZ_DEG = WAIST_CROSSBOW_RZ_DEG_DEFAULT;
+                    WAIST_CROSSBOW_SPIN_DEG = WAIST_CROSSBOW_SPIN_DEG_DEFAULT;
+                    WAIST_CROSSBOW_SPIN_AXIS = SpinAxis.Z;
+                    WAIST_CROSSBOW_ROLL_DEG = WAIST_CROSSBOW_ROLL_DEG_DEFAULT;
+                    WAIST_CROSSBOW_ROLL_AXIS = SpinAxis.Z;
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean ezvr$setWaistTweak(WaistProfile profile, String keyRaw, float value, boolean additive) {
         try {
             String key = (keyRaw == null) ? "" : keyRaw.trim().toLowerCase(java.util.Locale.ROOT);
             if (key.isEmpty()) return false;
-
-            return switch (key) {
-                case "tx" -> { WAIST_TX = additive ? (WAIST_TX + value) : value; yield true; }
-                case "ty" -> { WAIST_TY = additive ? (WAIST_TY + value) : value; yield true; }
-                case "tz" -> { WAIST_TZ = additive ? (WAIST_TZ + value) : value; yield true; }
-                case "rx", "rx_deg" -> { WAIST_RX_DEG = additive ? (WAIST_RX_DEG + value) : value; yield true; }
-                case "ry", "ry_deg" -> { WAIST_RY_DEG = additive ? (WAIST_RY_DEG + value) : value; yield true; }
-                case "rz", "rz_deg" -> { WAIST_RZ_DEG = additive ? (WAIST_RZ_DEG + value) : value; yield true; }
-                case "spin", "spin_deg" -> { WAIST_SPIN_DEG = additive ? (WAIST_SPIN_DEG + value) : value; yield true; }
-                case "roll", "roll_deg" -> { WAIST_ROLL_DEG = additive ? (WAIST_ROLL_DEG + value) : value; yield true; }
-                default -> false;
+            return switch (profile == null ? WaistProfile.DEFAULT : profile) {
+                case DEFAULT -> switch (key) {
+                    case "tx" -> { WAIST_TX = additive ? (WAIST_TX + value) : value; yield true; }
+                    case "ty" -> { WAIST_TY = additive ? (WAIST_TY + value) : value; yield true; }
+                    case "tz" -> { WAIST_TZ = additive ? (WAIST_TZ + value) : value; yield true; }
+                    case "rx", "rx_deg" -> { WAIST_RX_DEG = additive ? (WAIST_RX_DEG + value) : value; yield true; }
+                    case "ry", "ry_deg" -> { WAIST_RY_DEG = additive ? (WAIST_RY_DEG + value) : value; yield true; }
+                    case "rz", "rz_deg" -> { WAIST_RZ_DEG = additive ? (WAIST_RZ_DEG + value) : value; yield true; }
+                    case "spin", "spin_deg" -> { WAIST_SPIN_DEG = additive ? (WAIST_SPIN_DEG + value) : value; yield true; }
+                    case "roll", "roll_deg" -> { WAIST_ROLL_DEG = additive ? (WAIST_ROLL_DEG + value) : value; yield true; }
+                    default -> false;
+                };
+                case BOW -> switch (key) {
+                    case "tx" -> { WAIST_BOW_TX = additive ? (WAIST_BOW_TX + value) : value; yield true; }
+                    case "ty" -> { WAIST_BOW_TY = additive ? (WAIST_BOW_TY + value) : value; yield true; }
+                    case "tz" -> { WAIST_BOW_TZ = additive ? (WAIST_BOW_TZ + value) : value; yield true; }
+                    case "rx", "rx_deg" -> { WAIST_BOW_RX_DEG = additive ? (WAIST_BOW_RX_DEG + value) : value; yield true; }
+                    case "ry", "ry_deg" -> { WAIST_BOW_RY_DEG = additive ? (WAIST_BOW_RY_DEG + value) : value; yield true; }
+                    case "rz", "rz_deg" -> { WAIST_BOW_RZ_DEG = additive ? (WAIST_BOW_RZ_DEG + value) : value; yield true; }
+                    case "spin", "spin_deg" -> { WAIST_BOW_SPIN_DEG = additive ? (WAIST_BOW_SPIN_DEG + value) : value; yield true; }
+                    case "roll", "roll_deg" -> { WAIST_BOW_ROLL_DEG = additive ? (WAIST_BOW_ROLL_DEG + value) : value; yield true; }
+                    default -> false;
+                };
+                case CROSSBOW -> switch (key) {
+                    case "tx" -> { WAIST_CROSSBOW_TX = additive ? (WAIST_CROSSBOW_TX + value) : value; yield true; }
+                    case "ty" -> { WAIST_CROSSBOW_TY = additive ? (WAIST_CROSSBOW_TY + value) : value; yield true; }
+                    case "tz" -> { WAIST_CROSSBOW_TZ = additive ? (WAIST_CROSSBOW_TZ + value) : value; yield true; }
+                    case "rx", "rx_deg" -> { WAIST_CROSSBOW_RX_DEG = additive ? (WAIST_CROSSBOW_RX_DEG + value) : value; yield true; }
+                    case "ry", "ry_deg" -> { WAIST_CROSSBOW_RY_DEG = additive ? (WAIST_CROSSBOW_RY_DEG + value) : value; yield true; }
+                    case "rz", "rz_deg" -> { WAIST_CROSSBOW_RZ_DEG = additive ? (WAIST_CROSSBOW_RZ_DEG + value) : value; yield true; }
+                    case "spin", "spin_deg" -> { WAIST_CROSSBOW_SPIN_DEG = additive ? (WAIST_CROSSBOW_SPIN_DEG + value) : value; yield true; }
+                    case "roll", "roll_deg" -> { WAIST_CROSSBOW_ROLL_DEG = additive ? (WAIST_CROSSBOW_ROLL_DEG + value) : value; yield true; }
+                    default -> false;
+                };
             };
         } catch (Throwable ignored) {
             return false;
@@ -110,10 +221,18 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
     }
 
     public static boolean ezvr$setWaistSpinAxis(String axisRaw) {
+        return ezvr$setWaistSpinAxis(WaistProfile.DEFAULT, axisRaw);
+    }
+
+    public static boolean ezvr$setWaistSpinAxis(WaistProfile profile, String axisRaw) {
         try {
             String axis = (axisRaw == null) ? "" : axisRaw.trim().toUpperCase(java.util.Locale.ROOT);
             if (axis.isEmpty()) return false;
-            WAIST_SPIN_AXIS = SpinAxis.valueOf(axis);
+            switch (profile == null ? WaistProfile.DEFAULT : profile) {
+                case DEFAULT -> WAIST_SPIN_AXIS = SpinAxis.valueOf(axis);
+                case BOW -> WAIST_BOW_SPIN_AXIS = SpinAxis.valueOf(axis);
+                case CROSSBOW -> WAIST_CROSSBOW_SPIN_AXIS = SpinAxis.valueOf(axis);
+            }
             return true;
         } catch (Throwable ignored) {
             return false;
@@ -121,10 +240,18 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
     }
 
     public static boolean ezvr$setWaistRollAxis(String axisRaw) {
+        return ezvr$setWaistRollAxis(WaistProfile.DEFAULT, axisRaw);
+    }
+
+    public static boolean ezvr$setWaistRollAxis(WaistProfile profile, String axisRaw) {
         try {
             String axis = (axisRaw == null) ? "" : axisRaw.trim().toUpperCase(java.util.Locale.ROOT);
             if (axis.isEmpty()) return false;
-            WAIST_ROLL_AXIS = SpinAxis.valueOf(axis);
+            switch (profile == null ? WaistProfile.DEFAULT : profile) {
+                case DEFAULT -> WAIST_ROLL_AXIS = SpinAxis.valueOf(axis);
+                case BOW -> WAIST_BOW_ROLL_AXIS = SpinAxis.valueOf(axis);
+                case CROSSBOW -> WAIST_CROSSBOW_ROLL_AXIS = SpinAxis.valueOf(axis);
+            }
             return true;
         } catch (Throwable ignored) {
             return false;
@@ -132,20 +259,54 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
     }
 
     public static String ezvr$waistTweakString() {
+        return ezvr$waistTweakString(WaistProfile.DEFAULT);
+    }
+
+    public static String ezvr$waistTweakString(WaistProfile profile) {
         try {
-            return "tx=" + WAIST_TX
-                    + " ty=" + WAIST_TY
-                    + " tz=" + WAIST_TZ
-                    + " rx=" + WAIST_RX_DEG
-                    + " ry=" + WAIST_RY_DEG
-                    + " rz=" + WAIST_RZ_DEG
-                    + " spin=" + WAIST_SPIN_DEG
-                    + " spinAxis=" + String.valueOf(WAIST_SPIN_AXIS)
-                    + " roll=" + WAIST_ROLL_DEG
-                    + " rollAxis=" + String.valueOf(WAIST_ROLL_AXIS);
+            return switch (profile == null ? WaistProfile.DEFAULT : profile) {
+                case DEFAULT -> "tx=" + WAIST_TX
+                        + " ty=" + WAIST_TY
+                        + " tz=" + WAIST_TZ
+                        + " rx=" + WAIST_RX_DEG
+                        + " ry=" + WAIST_RY_DEG
+                        + " rz=" + WAIST_RZ_DEG
+                        + " spin=" + WAIST_SPIN_DEG
+                        + " spinAxis=" + String.valueOf(WAIST_SPIN_AXIS)
+                        + " roll=" + WAIST_ROLL_DEG
+                        + " rollAxis=" + String.valueOf(WAIST_ROLL_AXIS);
+                case BOW -> "tx=" + WAIST_BOW_TX
+                        + " ty=" + WAIST_BOW_TY
+                        + " tz=" + WAIST_BOW_TZ
+                        + " rx=" + WAIST_BOW_RX_DEG
+                        + " ry=" + WAIST_BOW_RY_DEG
+                        + " rz=" + WAIST_BOW_RZ_DEG
+                        + " spin=" + WAIST_BOW_SPIN_DEG
+                        + " spinAxis=" + String.valueOf(WAIST_BOW_SPIN_AXIS)
+                        + " roll=" + WAIST_BOW_ROLL_DEG
+                        + " rollAxis=" + String.valueOf(WAIST_BOW_ROLL_AXIS);
+                case CROSSBOW -> "tx=" + WAIST_CROSSBOW_TX
+                        + " ty=" + WAIST_CROSSBOW_TY
+                        + " tz=" + WAIST_CROSSBOW_TZ
+                        + " rx=" + WAIST_CROSSBOW_RX_DEG
+                        + " ry=" + WAIST_CROSSBOW_RY_DEG
+                        + " rz=" + WAIST_CROSSBOW_RZ_DEG
+                        + " spin=" + WAIST_CROSSBOW_SPIN_DEG
+                        + " spinAxis=" + String.valueOf(WAIST_CROSSBOW_SPIN_AXIS)
+                        + " roll=" + WAIST_CROSSBOW_ROLL_DEG
+                        + " rollAxis=" + String.valueOf(WAIST_CROSSBOW_ROLL_AXIS);
+            };
         } catch (Throwable ignored) {
             return "tx=? ty=? tz=? rx=? ry=? rz=? spin=? spinAxis=? roll=? rollAxis=?";
         }
+    }
+
+    public static String ezvr$waistProfileLabel(WaistProfile profile) {
+        return switch (profile == null ? WaistProfile.DEFAULT : profile) {
+            case DEFAULT -> "Generic";
+            case BOW -> "Bow";
+            case CROSSBOW -> "Crossbow";
+        };
     }
 
     public VillagerHolsteredLoadoutLayer(RenderLayerParent<Villager, VillagerModel<Villager>> parent) {
@@ -195,6 +356,7 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
             ModelPart body = resolveBodyPart(getParentModel());
 
             if (ENABLE_WAIST && loadoutMain != null && !loadoutMain.isEmpty()) {
+                HolsterTransform waist = getWaistTransform(loadoutMain);
                 renderOne(
                         villager,
                         loadoutMain,
@@ -204,13 +366,13 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
                         poseStack,
                         buffer,
                         packedLight,
-                        WAIST_TX, WAIST_TY, WAIST_TZ,
-                        WAIST_RX_DEG, WAIST_RY_DEG, WAIST_RZ_DEG,
-                        WAIST_SCALE,
-                        WAIST_SPIN_DEG,
-                        WAIST_SPIN_AXIS,
-                        WAIST_ROLL_DEG,
-                        WAIST_ROLL_AXIS
+                        waist.tx, waist.ty, waist.tz,
+                        waist.rxDeg, waist.ryDeg, waist.rzDeg,
+                        waist.scale,
+                        waist.spinDeg,
+                        waist.spinAxis,
+                        waist.rollDeg,
+                        waist.rollAxis
                 );
             }
 
@@ -237,6 +399,59 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerHolsteredLoadoutLayer.render failed (soft): {}", t.toString());
         }
+    }
+
+    private static HolsterTransform getWaistTransform(ItemStack stack) {
+        return getWaistTransform(ezvr$getWaistProfileForStack(stack));
+    }
+
+    public static WaistProfile ezvr$getWaistProfileForStack(ItemStack stack) {
+        try {
+            if (stack == null || stack.isEmpty()) return WaistProfile.DEFAULT;
+            if (stack.getItem() instanceof CrossbowItem) return WaistProfile.CROSSBOW;
+            if (stack.getItem() instanceof BowItem) return WaistProfile.BOW;
+            if (stack.getItem() instanceof ProjectileWeaponItem) {
+                UseAnim anim = stack.getUseAnimation();
+                if (anim == UseAnim.CROSSBOW) return WaistProfile.CROSSBOW;
+                if (anim == UseAnim.BOW) return WaistProfile.BOW;
+                try {
+                    if (stack.useOnRelease()) return WaistProfile.CROSSBOW;
+                } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+        return WaistProfile.DEFAULT;
+    }
+
+    private static HolsterTransform getWaistTransform(WaistProfile profile) {
+        return switch (profile == null ? WaistProfile.DEFAULT : profile) {
+            case DEFAULT -> new HolsterTransform(
+                    WAIST_TX, WAIST_TY, WAIST_TZ,
+                    WAIST_RX_DEG, WAIST_RY_DEG, WAIST_RZ_DEG,
+                    WAIST_SCALE,
+                    WAIST_SPIN_DEG,
+                    WAIST_SPIN_AXIS,
+                    WAIST_ROLL_DEG,
+                    WAIST_ROLL_AXIS
+            );
+            case BOW -> new HolsterTransform(
+                    WAIST_BOW_TX, WAIST_BOW_TY, WAIST_BOW_TZ,
+                    WAIST_BOW_RX_DEG, WAIST_BOW_RY_DEG, WAIST_BOW_RZ_DEG,
+                    WAIST_BOW_SCALE,
+                    WAIST_BOW_SPIN_DEG,
+                    WAIST_BOW_SPIN_AXIS,
+                    WAIST_BOW_ROLL_DEG,
+                    WAIST_BOW_ROLL_AXIS
+            );
+            case CROSSBOW -> new HolsterTransform(
+                    WAIST_CROSSBOW_TX, WAIST_CROSSBOW_TY, WAIST_CROSSBOW_TZ,
+                    WAIST_CROSSBOW_RX_DEG, WAIST_CROSSBOW_RY_DEG, WAIST_CROSSBOW_RZ_DEG,
+                    WAIST_CROSSBOW_SCALE,
+                    WAIST_CROSSBOW_SPIN_DEG,
+                    WAIST_CROSSBOW_SPIN_AXIS,
+                    WAIST_CROSSBOW_ROLL_DEG,
+                    WAIST_CROSSBOW_ROLL_AXIS
+            );
+        };
     }
 
     private static void renderOne(Villager villager,
@@ -346,4 +561,18 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
             return null;
         }
     }
+
+    private record HolsterTransform(
+            float tx,
+            float ty,
+            float tz,
+            float rxDeg,
+            float ryDeg,
+            float rzDeg,
+            float scale,
+            float spinDeg,
+            SpinAxis spinAxis,
+            float rollDeg,
+            SpinAxis rollAxis
+    ) {}
 }

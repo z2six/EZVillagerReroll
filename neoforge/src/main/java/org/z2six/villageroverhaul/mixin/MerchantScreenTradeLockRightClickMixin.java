@@ -14,13 +14,11 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.client.MerchantTradeButtonResolver;
 import org.z2six.villageroverhaul.network.ClientTradeLockCache;
 import org.z2six.villageroverhaul.network.Network;
 import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
-
-import java.lang.reflect.Field;
-import java.util.List;
 
 /**
  * Right-click on a trade offer button toggles lock.
@@ -33,10 +31,6 @@ import java.util.List;
  */
 @Mixin(AbstractContainerScreen.class)
 public abstract class MerchantScreenTradeLockRightClickMixin {
-
-    @Unique
-    private static final String VillagerOverhaul_TRADE_BUTTON_CLASS =
-            "net.minecraft.client.gui.screens.inventory.MerchantScreen$TradeOfferButton";
 
     @Inject(
             method = "mouseClicked(DDI)Z",
@@ -53,19 +47,19 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
             Screen current = (mc == null) ? null : mc.screen;
             if (!(current instanceof MerchantScreen screen)) return;
 
-            AbstractWidget hovered = ezvr$findHoveredTradeButton(screen, mouseX, mouseY);
+            MerchantTradeButtonResolver.TradeButtonRef hovered = MerchantTradeButtonResolver.findHoveredTradeButton(screen, mouseX, mouseY);
             if (hovered == null) {
                 return;
             }
 
-            int rowIdx = ezvr$readTradeButtonRowIndexReflective(hovered);
+            int rowIdx = hovered.rowIndex();
             if (rowIdx < 0 || rowIdx > 63) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] RMB MerchantScreen: could not read trade row index (rowIdx={})", rowIdx);
                 return;
             }
 
             int offerCount = ezvr$safeOfferCount(screen);
-            int scrollOff = ezvr$getScrollOffsetSafe(screen, offerCount);
+            int scrollOff = MerchantTradeButtonResolver.getScrollOffset(screen, offerCount);
             int absoluteIdx = scrollOff + rowIdx;
 
             // Guard hard: only allow within actual offers
@@ -128,45 +122,6 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
     }
 
     @Unique
-    private static int ezvr$getScrollOffsetSafe(MerchantScreen screen, int offerCount) {
-        try {
-            // Prefer accessor (correct field) when available
-            try {
-                int raw = ((MerchantScreenAccessor) screen).ezvr$getScrollOff();
-                return ezvr$clampScroll(raw, offerCount);
-            } catch (Throwable ignored) {
-                // fall through
-            }
-
-            // Fallback reflection: only accept fields with "scroll" in name AND value within max scroll range.
-            int maxScroll = Math.max(0, offerCount - 7); // vanilla shows 7 rows
-            Class<?> c = screen.getClass();
-            while (c != null && c != Object.class) {
-                for (Field f : c.getDeclaredFields()) {
-                    try {
-                        if (f.getType() != int.class) continue;
-                        String n = f.getName();
-                        if (n == null) continue;
-                        String lower = n.toLowerCase();
-                        if (!lower.contains("scroll")) continue;
-
-                        f.setAccessible(true);
-                        int v = f.getInt(screen);
-                        if (v >= 0 && v <= maxScroll) {
-                            return v;
-                        }
-                    } catch (Throwable ignoredField) {}
-                }
-                c = c.getSuperclass();
-            }
-
-            return 0;
-        } catch (Throwable t) {
-            return 0;
-        }
-    }
-
-    @Unique
     private static int ezvr$clampScroll(int scrollOff, int offerCount) {
         try {
             int maxScroll = Math.max(0, offerCount - 7);
@@ -178,101 +133,4 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
         }
     }
 
-    @Unique
-    private static AbstractWidget ezvr$findHoveredTradeButton(MerchantScreen screen, double mouseX, double mouseY) {
-        try {
-            // First try the normal children list (most reliable)
-            AbstractWidget w = ezvr$scanChildrenForHoveredTradeButton(screen.children(), mouseX, mouseY);
-            if (w != null) return w;
-
-            // Fallback: walk declared fields looking for widget lists
-            return ezvr$scanViaReflection(screen, mouseX, mouseY);
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().error("[VillagerOverhaul] ezvr$findHoveredTradeButton failed", t);
-            return null;
-        }
-    }
-
-    @Unique
-    private static AbstractWidget ezvr$scanChildrenForHoveredTradeButton(List<? extends GuiEventListener> list, double mouseX, double mouseY) {
-        try {
-            if (list == null || list.isEmpty()) return null;
-
-            for (GuiEventListener child : list) {
-                if (!(child instanceof AbstractWidget w)) continue;
-                String cn = w.getClass().getName();
-                if (!VillagerOverhaul_TRADE_BUTTON_CLASS.equals(cn)) continue;
-                if (!w.visible) continue;
-                if (!w.isMouseOver(mouseX, mouseY)) continue;
-                return w;
-            }
-
-            return null;
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().error("[VillagerOverhaul] scanChildrenForHoveredTradeButton failed", t);
-            return null;
-        }
-    }
-
-    @Unique
-    private static AbstractWidget ezvr$scanViaReflection(MerchantScreen screen, double mouseX, double mouseY) {
-        try {
-            Class<?> c = screen.getClass();
-            while (c != null && c != Object.class) {
-                for (Field f : c.getDeclaredFields()) {
-                    if (!List.class.isAssignableFrom(f.getType())) continue;
-
-                    f.setAccessible(true);
-                    Object v = f.get(screen);
-                    if (!(v instanceof List<?> list) || list.isEmpty()) continue;
-
-                    for (Object o : list) {
-                        if (!(o instanceof AbstractWidget w)) continue;
-                        String cn = w.getClass().getName();
-                        if (!VillagerOverhaul_TRADE_BUTTON_CLASS.equals(cn)) continue;
-                        if (!w.visible) continue;
-                        if (!w.isMouseOver(mouseX, mouseY)) continue;
-                        return w;
-                    }
-                }
-                c = c.getSuperclass();
-            }
-            return null;
-
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().error("[VillagerOverhaul] scanViaReflection failed", t);
-            return null;
-        }
-    }
-
-    @Unique
-    private static int ezvr$readTradeButtonRowIndexReflective(Object tradeButtonWidget) {
-        try {
-            Class<?> c = tradeButtonWidget.getClass();
-
-            Field f = null;
-            try {
-                f = c.getDeclaredField("index");
-            } catch (NoSuchFieldException ignored) {}
-
-            if (f == null) {
-                for (Field candidate : c.getDeclaredFields()) {
-                    if (candidate.getType() != int.class) continue;
-                    String n = candidate.getName();
-                    if (n != null && (n.equals("index") || n.toLowerCase().contains("index"))) {
-                        f = candidate;
-                        break;
-                    }
-                }
-            }
-
-            if (f == null) return -1;
-
-            f.setAccessible(true);
-            return f.getInt(tradeButtonWidget);
-
-        } catch (Throwable t) {
-            return -1;
-        }
-    }
 }

@@ -19,6 +19,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.UseAnim;
@@ -873,6 +874,12 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
             UseAnim anim = stack.getUseAnimation();
             if (anim == UseAnim.BLOCK) return HumanoidModel.ArmPose.BLOCK;
             if (anim == UseAnim.BOW) return HumanoidModel.ArmPose.BOW_AND_ARROW;
+            if (anim == UseAnim.CROSSBOW) {
+                try {
+                    if (CrossbowItem.isCharged(stack)) return HumanoidModel.ArmPose.CROSSBOW_HOLD;
+                } catch (Throwable ignored) {}
+                return HumanoidModel.ArmPose.CROSSBOW_CHARGE;
+            }
             if (anim == UseAnim.SPYGLASS) return HumanoidModel.ArmPose.SPYGLASS;
 
             return HumanoidModel.ArmPose.ITEM;

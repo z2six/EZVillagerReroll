@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Fullscreen multi-column reader for long text lists (overview/history).
+ * Fullscreen ordered reader for long text lists (overview/history).
  * Keeps the NeoForge blur overlay disabled.
  */
 public final class FullscreenTextViewScreen extends Screen {
@@ -28,7 +28,7 @@ public final class FullscreenTextViewScreen extends Screen {
     private int contentX, contentY, contentW, contentH;
     private int cols = 1;
     private int colW = 0;
-    private int colGap = 12;
+    private int colGap = 0;
     private int rowH = 10;
 
     private static final int SCROLLBAR_W = 7;
@@ -74,61 +74,24 @@ public final class FullscreenTextViewScreen extends Screen {
             Font font = Minecraft.getInstance().font;
             rowH = Math.max(10, font.lineHeight + 2);
 
-            int textW = Math.max(40, contentW - (SCROLLBAR_W + 8));
-            int minColW = 260;
-            int maxCols = Math.max(1, Math.min(4, (textW + colGap) / (minColW + colGap)));
-            cols = Math.max(1, maxCols);
-
-            // Recompute width per column
-            int totalGap = (cols - 1) * colGap;
-            colW = Math.max(80, (textW - totalGap) / cols);
+            int textW = Math.max(40, Math.min(920, contentW - (SCROLLBAR_W + 28)));
+            cols = 1;
+            colW = textW;
             int wrapW = Math.max(40, colW - 8);
 
-            // Wrap per component (keep blocks together), then greedily balance across columns.
-            List<List<FormattedCharSequence>> blocks = new ArrayList<>();
+            List<FormattedCharSequence> flat = new ArrayList<>();
             for (Component c : raw) {
                 if (c == null) continue;
                 List<FormattedCharSequence> split = font.split(c, wrapW);
                 if (split == null || split.isEmpty()) {
-                    blocks.add(List.of(FormattedCharSequence.EMPTY));
+                    flat.add(FormattedCharSequence.EMPTY);
                 } else {
-                    blocks.add(split);
+                    flat.addAll(split);
                 }
             }
 
-            List<List<List<FormattedCharSequence>>> colBlocks = new ArrayList<>();
-            List<Integer> heights = new ArrayList<>();
-            for (int i = 0; i < cols; i++) {
-                colBlocks.add(new ArrayList<>());
-                heights.add(0);
-            }
-
-            for (List<FormattedCharSequence> b : blocks) {
-                // place into column with smallest current height
-                int best = 0;
-                int bestH = heights.get(0);
-                for (int i = 1; i < cols; i++) {
-                    int h = heights.get(i);
-                    if (h < bestH) {
-                        bestH = h;
-                        best = i;
-                    }
-                }
-                colBlocks.get(best).add(b);
-                heights.set(best, heights.get(best) + b.size());
-            }
-
-            List<List<FormattedCharSequence>> outCols = new ArrayList<>();
-            maxColumnLines = 0;
-            for (int i = 0; i < cols; i++) {
-                List<FormattedCharSequence> flat = new ArrayList<>();
-                for (List<FormattedCharSequence> b : colBlocks.get(i)) {
-                    flat.addAll(b);
-                }
-                outCols.add(flat);
-                if (flat.size() > maxColumnLines) maxColumnLines = flat.size();
-            }
-            this.columns = outCols;
+            this.columns = List.of(flat);
+            maxColumnLines = flat.size();
 
             if (resetScroll) scrollRow = 0;
             clampScroll();
@@ -213,8 +176,11 @@ public final class FullscreenTextViewScreen extends Screen {
         int start = scrollRow;
         int end = start + visible;
 
+        int textAreaW = Math.max(1, contentW - SCROLLBAR_W - 8);
+        int baseX = contentX + Math.max(4, (textAreaW - colW) / 2);
+
         for (int c = 0; c < columns.size(); c++) {
-            int x = contentX + c * (colW + colGap) + 4;
+            int x = baseX + c * (colW + colGap) + 4;
             int w = Math.max(1, colW - 8);
 
             boolean scissor = false;
@@ -228,7 +194,9 @@ public final class FullscreenTextViewScreen extends Screen {
                 int y = contentY + 4;
                 for (int i = start; i < end; i++) {
                     if (i >= 0 && i < lines.size()) {
-                        gg.drawString(font, lines.get(i), x, y, 0xFFFFFFFF, false);
+                        FormattedCharSequence line = lines.get(i);
+                        int lineX = x + Math.max(0, (w - font.width(line)) / 2);
+                        gg.drawString(font, line, lineX, y, 0xFFFFFFFF, false);
                     }
                     y += rowH;
                 }

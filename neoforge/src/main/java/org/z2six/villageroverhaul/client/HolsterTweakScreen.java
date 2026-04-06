@@ -7,12 +7,15 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.client.render.VillagerHolsteredLoadoutLayer;
 
 /**
@@ -21,7 +24,8 @@ import org.z2six.villageroverhaul.client.render.VillagerHolsteredLoadoutLayer;
  * Controls:
  * - Mouse wheel: adjust selected param
  * - TAB: cycle selected param
- * - Alt + drag: adjust rotations (dx -> ry, dy -> rx). Ctrl adds rz.
+ * - RMB drag: rotate the preview villager
+ * - Alt + LMB drag: adjust item rotations (dx -> ry, dy -> rx). Ctrl adds rz.
  * - Shift: smaller step (wheel + drag)
  * - X/Y/Z: set roll axis (post-transform)
  * - R: reset
@@ -36,6 +40,10 @@ public final class HolsterTweakScreen extends Screen {
     private static final float STEP_POS_FINE = 0.0025f;
     private static final float STEP_DEG = 2.0f;
     private static final float STEP_DEG_FINE = 0.5f;
+    private static final float PREVIEW_YAW_PER_PIXEL = 1.35f;
+    private static final float PREVIEW_YAW_PER_PIXEL_FINE = 0.45f;
+    private static final float PREVIEW_PITCH_PER_PIXEL = 0.9f;
+    private static final float PREVIEW_PITCH_PER_PIXEL_FINE = 0.3f;
 
     private enum Param {
         TX, TY, TZ,
@@ -43,18 +51,27 @@ public final class HolsterTweakScreen extends Screen {
         ROLL
     }
 
+    private enum ProfileMode {
+        AUTO,
+        GENERIC,
+        BOW,
+        CROSSBOW
+    }
+
     private final Screen parent;
     private int villagerId = -1;
     private Param selected = Param.TX;
+    private ProfileMode profileMode = ProfileMode.AUTO;
+    private Button profileButton;
 
-    private boolean dragging = false;
+    private boolean leftDragging = false;
+    private boolean rightDragging = false;
     private double lastDragX = 0.0;
     private double lastDragY = 0.0;
 
-    // Synthetic mouse offsets used by InventoryScreen.renderEntityInInventoryFollowsMouse
-    // so the preview doesn't constantly follow the real cursor.
-    private float previewMouseXOff = 0.0f;
-    private float previewMouseYOff = 0.0f;
+    // Persistent preview orientation for the explicit-angle renderer.
+    private float previewYawDeg = 0.0f;
+    private float previewPitchDeg = 0.0f;
 
     public HolsterTweakScreen(Screen parent) {
         super(Component.literal("Holster Tweak"));
@@ -83,6 +100,11 @@ public final class HolsterTweakScreen extends Screen {
                 .bounds(left + 160, top, 60, 20)
                 .build());
 
+        this.profileButton = this.addRenderableWidget(Button.builder(Component.literal("Profile: Auto"), b -> cycleProfileMode())
+                .bounds(left + 230, top, 110, 20)
+                .build());
+        refreshProfileButton();
+
         retarget();
     }
 
@@ -104,6 +126,7 @@ public final class HolsterTweakScreen extends Screen {
         } catch (Throwable ignored) {
             this.villagerId = -1;
         }
+        refreshProfileButton();
     }
 
     private static Villager findNearbyVillager() {
@@ -149,6 +172,45 @@ public final class HolsterTweakScreen extends Screen {
         }
     }
 
+    private void cycleProfileMode() {
+        ProfileMode[] vals = ProfileMode.values();
+        int idx = profileMode.ordinal();
+        idx = (idx + 1) % vals.length;
+        profileMode = vals[idx];
+        refreshProfileButton();
+    }
+
+    private void refreshProfileButton() {
+        if (profileButton == null) return;
+        String label = switch (profileMode) {
+            case AUTO -> "Profile: Auto";
+            case GENERIC -> "Profile: Generic";
+            case BOW -> "Profile: Bow";
+            case CROSSBOW -> "Profile: Crossbow";
+        };
+        profileButton.setMessage(Component.literal(label));
+    }
+
+    private VillagerHolsteredLoadoutLayer.WaistProfile getResolvedProfile() {
+        return switch (profileMode) {
+            case GENERIC -> VillagerHolsteredLoadoutLayer.WaistProfile.DEFAULT;
+            case BOW -> VillagerHolsteredLoadoutLayer.WaistProfile.BOW;
+            case CROSSBOW -> VillagerHolsteredLoadoutLayer.WaistProfile.CROSSBOW;
+            case AUTO -> detectProfileFromTarget();
+        };
+    }
+
+    private VillagerHolsteredLoadoutLayer.WaistProfile detectProfileFromTarget() {
+        try {
+            LivingEntity le = resolveEntity();
+            if (le instanceof VillagerOverhaulRenderAccess acc) {
+                ItemStack stack = acc.ezvr$getCombatLoadoutMain();
+                return VillagerHolsteredLoadoutLayer.ezvr$getWaistProfileForStack(stack);
+            }
+        } catch (Throwable ignored) {}
+        return VillagerHolsteredLoadoutLayer.WaistProfile.DEFAULT;
+    }
+
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         try {
@@ -160,23 +222,23 @@ public final class HolsterTweakScreen extends Screen {
 
             // R resets
             if (keyCode == 82) { // GLFW_KEY_R
-                VillagerHolsteredLoadoutLayer.ezvr$resetWaistTweak();
-                previewMouseXOff = 0.0f;
-                previewMouseYOff = 0.0f;
+                VillagerHolsteredLoadoutLayer.ezvr$resetWaistTweak(getResolvedProfile());
+                previewYawDeg = 0.0f;
+                previewPitchDeg = 0.0f;
                 return true;
             }
 
             // X/Y/Z set roll axis (post-transform)
             if (keyCode == 88) { // GLFW_KEY_X
-                VillagerHolsteredLoadoutLayer.ezvr$setWaistRollAxis("x");
+                VillagerHolsteredLoadoutLayer.ezvr$setWaistRollAxis(getResolvedProfile(), "x");
                 return true;
             }
             if (keyCode == 89) { // GLFW_KEY_Y
-                VillagerHolsteredLoadoutLayer.ezvr$setWaistRollAxis("y");
+                VillagerHolsteredLoadoutLayer.ezvr$setWaistRollAxis(getResolvedProfile(), "y");
                 return true;
             }
             if (keyCode == 90) { // GLFW_KEY_Z
-                VillagerHolsteredLoadoutLayer.ezvr$setWaistRollAxis("z");
+                VillagerHolsteredLoadoutLayer.ezvr$setWaistRollAxis(getResolvedProfile(), "z");
                 return true;
             }
 
@@ -211,28 +273,36 @@ public final class HolsterTweakScreen extends Screen {
 
     private void applyDeltaWheel(float dir) {
         boolean fine = Screen.hasShiftDown();
+        var profile = getResolvedProfile();
 
         float posStep = fine ? STEP_POS_FINE : STEP_POS;
         float degStep = fine ? STEP_DEG_FINE : STEP_DEG;
 
         switch (selected) {
-            case TX -> VillagerHolsteredLoadoutLayer.WAIST_TX += dir * posStep;
-            case TY -> VillagerHolsteredLoadoutLayer.WAIST_TY += dir * posStep;
-            case TZ -> VillagerHolsteredLoadoutLayer.WAIST_TZ += dir * posStep;
-            case RX -> VillagerHolsteredLoadoutLayer.WAIST_RX_DEG += dir * degStep;
-            case RY -> VillagerHolsteredLoadoutLayer.WAIST_RY_DEG += dir * degStep;
-            case RZ -> VillagerHolsteredLoadoutLayer.WAIST_RZ_DEG += dir * degStep;
-            case ROLL -> VillagerHolsteredLoadoutLayer.WAIST_ROLL_DEG += dir * degStep;
+            case TX -> VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "tx", dir * posStep, true);
+            case TY -> VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "ty", dir * posStep, true);
+            case TZ -> VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "tz", dir * posStep, true);
+            case RX -> VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "rx", dir * degStep, true);
+            case RY -> VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "ry", dir * degStep, true);
+            case RZ -> VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "rz", dir * degStep, true);
+            case ROLL -> VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "roll", dir * degStep, true);
         }
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         try {
-            if (button == 0 && isInsideEntityBox(mouseX, mouseY)) {
-                dragging = true;
+            if (isInsideEntityBox(mouseX, mouseY) && button == 0) {
+                leftDragging = true;
                 lastDragX = mouseX;
                 lastDragY = mouseY;
+                return true;
+            }
+            if (isInsideEntityBox(mouseX, mouseY) && button == 1) {
+                rightDragging = true;
+                lastDragX = mouseX;
+                lastDragY = mouseY;
+                return true;
             }
         } catch (Throwable ignored) {}
         return super.mouseClicked(mouseX, mouseY, button);
@@ -242,7 +312,10 @@ public final class HolsterTweakScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         try {
             if (button == 0) {
-                dragging = false;
+                leftDragging = false;
+            }
+            if (button == 1) {
+                rightDragging = false;
             }
         } catch (Throwable ignored) {}
         return super.mouseReleased(mouseX, mouseY, button);
@@ -251,7 +324,8 @@ public final class HolsterTweakScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
         try {
-            if (button == 0 && dragging && Screen.hasAltDown()) {
+            if (button == 0 && leftDragging && Screen.hasAltDown()) {
+                var profile = getResolvedProfile();
                 double dx = mouseX - lastDragX;
                 double dy = mouseY - lastDragY;
                 lastDragX = mouseX;
@@ -260,29 +334,25 @@ public final class HolsterTweakScreen extends Screen {
                 boolean fine = Screen.hasShiftDown();
                 float degPerPixel = fine ? 0.15f : 0.45f;
 
-                VillagerHolsteredLoadoutLayer.WAIST_RY_DEG += (float) dx * degPerPixel;
-                VillagerHolsteredLoadoutLayer.WAIST_RX_DEG += (float) dy * degPerPixel;
+                VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "ry", (float) dx * degPerPixel, true);
+                VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "rx", (float) dy * degPerPixel, true);
 
                 if (Screen.hasControlDown()) {
-                    VillagerHolsteredLoadoutLayer.WAIST_RZ_DEG += (float) dx * degPerPixel;
+                    VillagerHolsteredLoadoutLayer.ezvr$setWaistTweak(profile, "rz", (float) dx * degPerPixel, true);
                 }
                 return true;
-            } else if (button == 0 && dragging && isInsideEntityBox(mouseX, mouseY)) {
-                // Rotate the preview villager using synthetic "mouse" offsets.
+            } else if (button == 1 && rightDragging) {
                 double dx = mouseX - lastDragX;
                 double dy = mouseY - lastDragY;
                 lastDragX = mouseX;
                 lastDragY = mouseY;
 
                 boolean fine = Screen.hasShiftDown();
-                float pxPerPixel = fine ? 0.35f : 0.9f;
+                float yawPerPixel = fine ? PREVIEW_YAW_PER_PIXEL_FINE : PREVIEW_YAW_PER_PIXEL;
+                float pitchPerPixel = fine ? PREVIEW_PITCH_PER_PIXEL_FINE : PREVIEW_PITCH_PER_PIXEL;
 
-                previewMouseXOff += (float) dx * pxPerPixel;
-                previewMouseYOff += (float) dy * pxPerPixel;
-
-                // Keep it sane.
-                previewMouseXOff = clamp(previewMouseXOff, -240.0f, 240.0f);
-                previewMouseYOff = clamp(previewMouseYOff, -180.0f, 180.0f);
+                previewYawDeg = Mth.wrapDegrees(previewYawDeg + (float) dx * yawPerPixel);
+                previewPitchDeg = Mth.clamp(previewPitchDeg + (float) dy * pitchPerPixel, -85.0f, 85.0f);
                 return true;
             }
         } catch (Throwable ignored) {}
@@ -305,25 +375,17 @@ public final class HolsterTweakScreen extends Screen {
 
     private void dumpToLog() {
         try {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] HolsterTweak dump: {}", VillagerHolsteredLoadoutLayer.ezvr$waistTweakString());
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Hardcode waist: "
-                            + "WAIST_TX=%.4ff WAIST_TY=%.4ff WAIST_TZ=%.4ff "
-                            + "WAIST_RX_DEG=%.2ff WAIST_RY_DEG=%.2ff WAIST_RZ_DEG=%.2ff "
-                            + "WAIST_SPIN_DEG=%.2ff WAIST_SPIN_AXIS=%s "
-                            + "WAIST_ROLL_DEG=%.2ff WAIST_ROLL_AXIS=%s",
-                    VillagerHolsteredLoadoutLayer.WAIST_TX,
-                    VillagerHolsteredLoadoutLayer.WAIST_TY,
-                    VillagerHolsteredLoadoutLayer.WAIST_TZ,
-                    VillagerHolsteredLoadoutLayer.WAIST_RX_DEG,
-                    VillagerHolsteredLoadoutLayer.WAIST_RY_DEG,
-                    VillagerHolsteredLoadoutLayer.WAIST_RZ_DEG,
-                    VillagerHolsteredLoadoutLayer.WAIST_SPIN_DEG,
-                    String.valueOf(VillagerHolsteredLoadoutLayer.WAIST_SPIN_AXIS),
-                    VillagerHolsteredLoadoutLayer.WAIST_ROLL_DEG,
-                    String.valueOf(VillagerHolsteredLoadoutLayer.WAIST_ROLL_AXIS)
-            );
+            var resolved = getResolvedProfile();
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] HolsterTweak profile mode={} resolved={}",
+                    profileMode, VillagerHolsteredLoadoutLayer.ezvr$waistProfileLabel(resolved));
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] HolsterTweak generic: {}",
+                    VillagerHolsteredLoadoutLayer.ezvr$waistTweakString(VillagerHolsteredLoadoutLayer.WaistProfile.DEFAULT));
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] HolsterTweak bow: {}",
+                    VillagerHolsteredLoadoutLayer.ezvr$waistTweakString(VillagerHolsteredLoadoutLayer.WaistProfile.BOW));
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] HolsterTweak crossbow: {}",
+                    VillagerHolsteredLoadoutLayer.ezvr$waistTweakString(VillagerHolsteredLoadoutLayer.WaistProfile.CROSSBOW));
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] HolsterTweak dump failed: {}", t.toString());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] HolsterTweak dump failed: {}", t.toString());
         }
     }
 
@@ -344,25 +406,27 @@ public final class HolsterTweakScreen extends Screen {
 
         LivingEntity le = resolveEntity();
         if (le != null) {
-            float cx = (boxLeft + boxRight) * 0.5f;
-            float cy = (boxTop + boxBottom) * 0.5f;
-            InventoryScreen.renderEntityInInventoryFollowsMouse(
+            InventoryScreen.renderEntityInInventoryFollowsAngle(
                     gg,
                     boxLeft + 6, boxTop + 6,
                     boxRight - 6, boxBottom - 6,
                     52,
                     0.0f,
-                    cx + previewMouseXOff, cy + previewMouseYOff,
+                    previewYawDeg / 20.0f,
+                    previewPitchDeg / 20.0f,
                     le
             );
         }
 
         int infoY = boxBottom + 12;
-        gg.drawCenteredString(this.font, "Selected: " + selected.name(), this.width / 2, infoY, 0xFFFFFF);
-        gg.drawCenteredString(this.font, VillagerHolsteredLoadoutLayer.ezvr$waistTweakString(), this.width / 2, infoY + 14, 0xC0C0C0);
+        var resolvedProfile = getResolvedProfile();
+        String profileLabel = VillagerHolsteredLoadoutLayer.ezvr$waistProfileLabel(resolvedProfile);
+        String profileModeLabel = profileMode == ProfileMode.AUTO ? "Auto" : profileLabel;
+        gg.drawCenteredString(this.font, "Selected: " + selected.name() + " | Profile: " + profileModeLabel + (profileMode == ProfileMode.AUTO ? " -> " + profileLabel : ""), this.width / 2, infoY, 0xFFFFFF);
+        gg.drawCenteredString(this.font, VillagerHolsteredLoadoutLayer.ezvr$waistTweakString(resolvedProfile), this.width / 2, infoY + 14, 0xC0C0C0);
         gg.drawCenteredString(this.font, "Wheel: adjust selected | TAB: next | Shift: fine", this.width / 2, infoY + 32, 0xA0A0A0);
-        gg.drawCenteredString(this.font, "Drag (in box): turn villager | Alt+drag: rotate item | Ctrl adds RZ", this.width / 2, infoY + 46, 0xA0A0A0);
-        gg.drawCenteredString(this.font, "X/Y/Z: roll axis | R: reset | Enter: dump", this.width / 2, infoY + 60, 0xA0A0A0);
+        gg.drawCenteredString(this.font, "RMB drag: rotate villager | Alt+LMB drag: rotate item | Ctrl adds RZ", this.width / 2, infoY + 46, 0xA0A0A0);
+        gg.drawCenteredString(this.font, "X/Y/Z: roll axis | R: reset profile | Enter: dump all profiles", this.width / 2, infoY + 60, 0xA0A0A0);
         if (le == null) {
             gg.drawCenteredString(this.font, "No villager found (use Retarget).", this.width / 2, infoY + 78, 0xFF6060);
         }

@@ -7,6 +7,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
@@ -16,8 +17,13 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.BowItem;
+import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.UseAnim;
+import net.minecraft.world.item.component.ChargedProjectiles;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -30,6 +36,7 @@ import org.z2six.villageroverhaul.server.CombatSettingsService;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -70,6 +77,11 @@ public final class VillagerCombatDirector {
     private static final long SWING_COOLDOWN_TICKS = 30L;
     private static final long SWING_ANIM_TICKS = 6L;
     private static final long NO_HIT_SWING_DELAY_TICKS = 30L;
+    private static final int BOW_FULL_DRAW_TICKS = 20;
+    private static final double RANGED_MIN_RANGE_FLOOR = 4.0;
+    private static final double RANGED_MAX_RANGE_PAD = 2.0;
+    private static final double RANGED_BACKPEDAL_RANGE_PAD = 0.75;
+    private static final float RANGED_INACCURACY = 1.0F;
 
     private static final double TOO_CLOSE_PAD = 1.5;
     private static final double TOO_CLOSE_HYSTERESIS = 1.6;
@@ -87,6 +99,11 @@ public final class VillagerCombatDirector {
     private static volatile Method GET_USE_DURATION_0 = null;
     private static volatile Method GET_USE_DURATION_1 = null;
     private static volatile boolean USE_DUR_SCANNED = false;
+
+    private static volatile boolean PROJECTILE_REFLECT_SCANNED = false;
+    private static volatile Method PROJECTILE_DRAW = null;
+    private static volatile Method PROJECTILE_SHOOT = null;
+    private static final Map<Class<?>, Method> PROJECTILE_SHOOT_METHODS = new WeakHashMap<>();
 
     // -----------------------------------------------------------------------------------------
     // EAT USE-STATE STABILITY (server-side)
@@ -180,7 +197,10 @@ public final class VillagerCombatDirector {
             if (vill.level() == null || vill.level().isClientSide()) return;
             if (!target.isAlive()) {
                 State st = STATE.get(vill);
-                if (st != null) cancelEatProcess(vill, st, "target_dead");
+                if (st != null) {
+                    cancelEatProcess(vill, st, "target_dead");
+                    resetRangedState(vill, st, true, "target_dead");
+                }
                 return;
             }
 
@@ -190,6 +210,7 @@ public final class VillagerCombatDirector {
                 st.blockNoHitSince = -1L;
                 st.lastHurtTimeSeen = 0;
                 st.lastHitAt = -1L;
+                resetRangedState(vill, st, false, "target_switch");
                 st.eatPhase = EatPhase.NONE;
                 st.eatResetCount = 0;
                 st.eatHitSeenAt = -1L;
@@ -223,6 +244,13 @@ public final class VillagerCombatDirector {
             } else {
                 // If we recovered above threshold or have no food, ensure we don't keep stale state.
                 if (st.eatPhase != EatPhase.NONE) cancelEatProcess(vill, st, "eat_abort_nofood_or_recovered");
+            }
+
+            RangedLoadout ranged = resolveRangedLoadout(vill);
+            if (ranged != null && ranged.hasAmmo) {
+                if (tickRangedAttack(vill, target, st, now, ai, ranged)) return;
+            } else {
+                resetRangedState(vill, st, false, (ranged == null ? "not_projectile_weapon" : "missing_offhand_ammo"));
             }
 
             double reach = computeReach(vill, target);
@@ -319,7 +347,10 @@ public final class VillagerCombatDirector {
         try {
             if (vill == null) return;
             State st = STATE.get(vill);
-            if (st != null) cancelEatProcess(vill, st, "stop");
+            if (st != null) {
+                cancelEatProcess(vill, st, "stop");
+                resetRangedState(vill, st, true, "stop");
+            }
             try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             try { vill.stopUsingItem(); } catch (Throwable ignored) {}
             try {
@@ -597,6 +628,371 @@ public final class VillagerCombatDirector {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatDirector.tickEatEscapeProcess failed (soft): {}", t.toString());
             return false;
         }
+    }
+
+    private static boolean tickRangedAttack(Villager vill, LivingEntity target, State st, long now, CombatSettings.AiSettings ai, RangedLoadout loadout) {
+        try {
+            if (vill == null || target == null || st == null || loadout == null) return false;
+            if (!(vill.level() instanceof ServerLevel serverLevel)) return false;
+            if (!loadout.hasAmmo) return false;
+
+            ItemStack main = loadout.weaponStack;
+            if (main == null || main.isEmpty()) {
+                resetRangedState(vill, st, true, "empty_main");
+                return false;
+            }
+
+            if (vill.isUsingItem()) {
+                try {
+                    if (vill.getUsedItemHand() != InteractionHand.MAIN_HAND) {
+                        vill.stopUsingItem();
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            boolean hasLos = hasLineOfSightSafe(vill, target);
+            double dist = vill.distanceTo(target);
+            double preferredRange = computePreferredRangedDistance(loadout);
+            double minRange = Math.max(RANGED_MIN_RANGE_FLOOR, preferredRange - RANGED_BACKPEDAL_RANGE_PAD);
+            double maxRange = Math.max(minRange + 2.0, loadout.weaponItem.getDefaultProjectileRange() + RANGED_MAX_RANGE_PAD);
+
+            try { vill.getLookControl().setLookAt(target, 30.0f, 30.0f); } catch (Throwable ignored) {}
+            faceTargetHard(vill, target);
+            lockYaw(vill, now, vill.getYRot());
+
+            if (dist < minRange) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                if (canBackpedalBehind(vill, target)) {
+                    applyBackpedalInput(vill, now, 0.50f);
+                } else {
+                    backpedalAway(vill, target, MOVE_SPEED, 2.5);
+                    if (ai.enableCircling) {
+                        applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                    }
+                }
+            } else if (dist > maxRange || !hasLos) {
+                try { vill.getNavigation().moveTo(target, MOVE_SPEED); } catch (Throwable ignored) {}
+            } else {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                if (ai.enableCircling) {
+                    applyCircleInput(vill, now, CIRCLE_SPEED, pickCircleDir(vill, st, now), 0.0f);
+                }
+            }
+
+            if (loadout.crossbowLike && CrossbowItem.isCharged(main)) {
+                if (hasLos && dist <= maxRange && now >= st.nextSwingAt) {
+                    fireCrossbowShot(serverLevel, vill, target, st, now, loadout, main);
+                }
+                return true;
+            }
+
+            if (!hasLos || dist > maxRange || now < st.nextSwingAt) {
+                return true;
+            }
+
+            if (!vill.isUsingItem()) {
+                try { vill.startUsingItem(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+                st.rangedCharging = true;
+                st.rangedChargeStartAt = now;
+                return true;
+            }
+
+            if (!st.rangedCharging) {
+                st.rangedCharging = true;
+                st.rangedChargeStartAt = now;
+            }
+            if (st.rangedChargeStartAt < 0L) st.rangedChargeStartAt = now;
+
+            int chargeTicks = (int) Math.max(0L, now - st.rangedChargeStartAt + 1L);
+            if (loadout.crossbowLike) {
+                int chargeNeeded = Math.max(1, CrossbowItem.getChargeDuration(main, vill));
+                if (chargeTicks >= chargeNeeded) {
+                    List<ItemStack> projectiles = drawProjectiles(main, loadout.ammoStack, vill);
+                    if (!projectiles.isEmpty()) {
+                        main.set(DataComponents.CHARGED_PROJECTILES, ChargedProjectiles.of(projectiles));
+                        try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+                        st.rangedCharging = false;
+                        st.rangedChargeStartAt = -1L;
+                        if (now >= st.nextSwingAt) {
+                            fireCrossbowShot(serverLevel, vill, target, st, now, loadout, main);
+                        }
+                    } else {
+                        resetRangedState(vill, st, true, "crossbow_draw_failed");
+                    }
+                }
+            } else {
+                if (chargeTicks >= BOW_FULL_DRAW_TICKS) {
+                    float power = BowItem.getPowerForTime(chargeTicks);
+                    if (power >= 0.1F) {
+                        fireBowLikeShot(serverLevel, vill, target, st, now, loadout, main, power);
+                    }
+                }
+            }
+
+            return true;
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] tickRangedAttack failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    private static void fireBowLikeShot(ServerLevel level, Villager vill, LivingEntity target, State st, long now, RangedLoadout loadout, ItemStack main, float power) {
+        try {
+            List<ItemStack> projectiles = drawProjectiles(main, loadout.ammoStack, vill);
+            if (projectiles.isEmpty()) {
+                resetRangedState(vill, st, true, "bow_draw_failed");
+                return;
+            }
+
+            try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+            try { vill.swing(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+
+            if (!invokeProjectileShoot(loadout.weaponItem, level, vill, InteractionHand.MAIN_HAND, main, projectiles, power * 3.0F, RANGED_INACCURACY, power >= 1.0F, target)) {
+                resetRangedState(vill, st, true, "bow_shoot_failed");
+                return;
+            }
+
+            finishRangedShot(vill, st, now, main, "bow");
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] fireBowLikeShot failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void fireCrossbowShot(ServerLevel level, Villager vill, LivingEntity target, State st, long now, RangedLoadout loadout, ItemStack main) {
+        try {
+            if (!(loadout.weaponItem instanceof CrossbowItem crossbow)) return;
+            if (!CrossbowItem.isCharged(main)) return;
+
+            try { vill.swing(InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+            crossbow.performShooting(level, vill, InteractionHand.MAIN_HAND, main, computeCrossbowVelocity(main), RANGED_INACCURACY, target);
+            finishRangedShot(vill, st, now, main, "crossbow");
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] fireCrossbowShot failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void finishRangedShot(Villager vill, State st, long now, ItemStack main, String mode) {
+        try {
+            st.nextSwingAt = now + SWING_COOLDOWN_TICKS;
+            st.lastSwingAt = now;
+            st.noBlockUntil = now + Math.max(1L, SWING_ANIM_TICKS);
+            st.rangedCharging = false;
+            st.rangedChargeStartAt = -1L;
+
+            syncMainLoadoutAfterRangedUse(vill, main, mode);
+
+            VillagerOverhaul.LOG().debug(
+                    "[VillagerOverhaul] RANGED_SHOT mode={} villager={} mainItem={}",
+                    safe(mode),
+                    safeUuid(vill),
+                    safeItemId(main)
+            );
+        } catch (Throwable ignored) {}
+    }
+
+    private static void syncMainLoadoutAfterRangedUse(Villager vill, ItemStack main, String reason) {
+        try {
+            if (vill == null) return;
+            if (main == null || main.isEmpty()) {
+                VillagerCombatLoadoutService.clearDesiredMainIfPresent(vill, "ranged_" + safe(reason) + "_broke");
+            } else {
+                VillagerCombatLoadoutService.updateDesiredMainFromHandIfPresent(vill, main, "ranged_" + safe(reason));
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void resetRangedState(Villager vill, State st, boolean stopUsing, String reason) {
+        try {
+            if (st == null) return;
+            st.rangedCharging = false;
+            st.rangedChargeStartAt = -1L;
+            if (stopUsing && vill != null) {
+                try { vill.stopUsingItem(); } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static RangedLoadout resolveRangedLoadout(Villager vill) {
+        try {
+            if (vill == null) return null;
+            ItemStack main = vill.getMainHandItem();
+            if (main == null || main.isEmpty()) return null;
+            if (!(main.getItem() instanceof ProjectileWeaponItem weapon)) return null;
+
+            ItemStack off = vill.getOffhandItem();
+            boolean hasAmmo = isValidHeldProjectile(weapon, main, off);
+            return new RangedLoadout(main, off == null ? ItemStack.EMPTY : off, weapon, isCrossbowLike(main, weapon), hasAmmo);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static boolean isValidHeldProjectile(ProjectileWeaponItem weapon, ItemStack weaponStack, ItemStack heldStack) {
+        try {
+            if (weapon == null || weaponStack == null || weaponStack.isEmpty()) return false;
+            if (heldStack == null || heldStack.isEmpty()) return false;
+            return weapon.getSupportedHeldProjectiles(weaponStack).test(heldStack);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isCrossbowLike(ItemStack weaponStack, ProjectileWeaponItem weapon) {
+        try {
+            if (weapon instanceof CrossbowItem) return true;
+            if (weaponStack != null && !weaponStack.isEmpty()) {
+                try {
+                    if (weaponStack.getUseAnimation() == UseAnim.CROSSBOW) return true;
+                } catch (Throwable ignored) {}
+                try {
+                    if (weaponStack.useOnRelease()) return true;
+                } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static double computePreferredRangedDistance(RangedLoadout loadout) {
+        try {
+            if (loadout == null || loadout.weaponItem == null) return 6.0;
+            double base = loadout.weaponItem.getDefaultProjectileRange();
+            if (base <= 0.0) base = 8.0;
+            return Mth.clamp(base * 0.65, 5.0, 12.0);
+        } catch (Throwable ignored) {
+            return 6.0;
+        }
+    }
+
+    private static boolean hasLineOfSightSafe(Villager vill, LivingEntity target) {
+        try {
+            return vill != null && target != null && vill.hasLineOfSight(target);
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    private static float computeCrossbowVelocity(ItemStack main) {
+        try {
+            ChargedProjectiles charged = main.getOrDefault(DataComponents.CHARGED_PROJECTILES, ChargedProjectiles.EMPTY);
+            return charged.contains(Items.FIREWORK_ROCKET) ? 1.6F : 3.15F;
+        } catch (Throwable ignored) {
+            return 3.15F;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<ItemStack> drawProjectiles(ItemStack weapon, ItemStack ammo, LivingEntity shooter) {
+        try {
+            warmupProjectileReflection();
+            if (PROJECTILE_DRAW == null) return List.of();
+            if (weapon == null || weapon.isEmpty() || ammo == null || ammo.isEmpty() || shooter == null) return List.of();
+
+            ItemStack ammoCopy = ammo.copy();
+            Object out = PROJECTILE_DRAW.invoke(null, weapon, ammoCopy, shooter);
+            if (out instanceof List<?> raw) {
+                return (List<ItemStack>) raw;
+            }
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] drawProjectiles reflection failed (soft): {}", t.toString());
+        }
+        return List.of();
+    }
+
+    private static boolean invokeProjectileShoot(
+            ProjectileWeaponItem weapon,
+            ServerLevel level,
+            LivingEntity shooter,
+            InteractionHand hand,
+            ItemStack weaponStack,
+            List<ItemStack> projectileItems,
+            float velocity,
+            float inaccuracy,
+            boolean crit,
+            LivingEntity target
+    ) {
+        try {
+            warmupProjectileReflection();
+            if (weapon == null || level == null || shooter == null || hand == null || weaponStack == null || weaponStack.isEmpty()) return false;
+            if (projectileItems == null || projectileItems.isEmpty()) return false;
+
+            Method shoot = resolveProjectileShootMethod(weapon.getClass());
+            if (shoot == null) shoot = PROJECTILE_SHOOT;
+            if (shoot == null) return false;
+
+            shoot.invoke(weapon, level, shooter, hand, weaponStack, projectileItems, velocity, inaccuracy, crit, target);
+            return true;
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] invokeProjectileShoot reflection failed (soft): {}", t.toString());
+            return false;
+        }
+    }
+
+    private static void warmupProjectileReflection() {
+        if (PROJECTILE_REFLECT_SCANNED) return;
+        PROJECTILE_REFLECT_SCANNED = true;
+        try {
+            PROJECTILE_DRAW = ProjectileWeaponItem.class.getDeclaredMethod("draw", ItemStack.class, ItemStack.class, LivingEntity.class);
+            PROJECTILE_DRAW.setAccessible(true);
+        } catch (Throwable ignored) {}
+
+        try {
+            Class<?> cls = ProjectileWeaponItem.class;
+            while (cls != null && PROJECTILE_SHOOT == null) {
+                try {
+                    Method m = cls.getDeclaredMethod(
+                            "shoot",
+                            ServerLevel.class,
+                            LivingEntity.class,
+                            InteractionHand.class,
+                            ItemStack.class,
+                            List.class,
+                            float.class,
+                            float.class,
+                            boolean.class,
+                            LivingEntity.class
+                    );
+                    m.setAccessible(true);
+                    PROJECTILE_SHOOT = m;
+                    break;
+                } catch (Throwable ignored) {}
+                cls = cls.getSuperclass();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static Method resolveProjectileShootMethod(Class<?> weaponClass) {
+        try {
+            if (weaponClass == null) return PROJECTILE_SHOOT;
+            synchronized (PROJECTILE_SHOOT_METHODS) {
+                Method cached = PROJECTILE_SHOOT_METHODS.get(weaponClass);
+                if (cached != null) return cached;
+            }
+
+            Class<?> cls = weaponClass;
+            while (cls != null && ProjectileWeaponItem.class.isAssignableFrom(cls)) {
+                try {
+                    Method m = cls.getDeclaredMethod(
+                            "shoot",
+                            ServerLevel.class,
+                            LivingEntity.class,
+                            InteractionHand.class,
+                            ItemStack.class,
+                            List.class,
+                            float.class,
+                            float.class,
+                            boolean.class,
+                            LivingEntity.class
+                    );
+                    m.setAccessible(true);
+                    synchronized (PROJECTILE_SHOOT_METHODS) {
+                        PROJECTILE_SHOOT_METHODS.put(weaponClass, m);
+                    }
+                    return m;
+                } catch (Throwable ignored) {}
+                cls = cls.getSuperclass();
+            }
+        } catch (Throwable ignored) {}
+        return PROJECTILE_SHOOT;
     }
 
     private static void performSwing(Villager vill, LivingEntity target, State st, long now, String reason) {
@@ -1698,6 +2094,8 @@ public final class VillagerCombatDirector {
 
         long nextSwingAt = 0L;
         long lastSwingAt = -9999L;
+        boolean rangedCharging = false;
+        long rangedChargeStartAt = -1L;
 
         long noBlockUntil = 0L;
 
@@ -1732,6 +2130,22 @@ public final class VillagerCombatDirector {
         int eatUseDuration = 0;
         long eatLastUseLogAt = 0L;
         long eatLastUseRepairAt = 0L;
+    }
+
+    private static final class RangedLoadout {
+        final ItemStack weaponStack;
+        final ItemStack ammoStack;
+        final ProjectileWeaponItem weaponItem;
+        final boolean crossbowLike;
+        final boolean hasAmmo;
+
+        private RangedLoadout(ItemStack weaponStack, ItemStack ammoStack, ProjectileWeaponItem weaponItem, boolean crossbowLike, boolean hasAmmo) {
+            this.weaponStack = weaponStack;
+            this.ammoStack = ammoStack;
+            this.weaponItem = weaponItem;
+            this.crossbowLike = crossbowLike;
+            this.hasAmmo = hasAmmo;
+        }
     }
 
     private enum EatPhase {

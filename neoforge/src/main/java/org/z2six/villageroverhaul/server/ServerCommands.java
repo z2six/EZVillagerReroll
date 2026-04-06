@@ -50,6 +50,10 @@ public final class ServerCommands {
                     .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Double>argument(
                                     "radius", DoubleArgumentType.doubleArg(1.0, 256.0))
                             .executes(ctx -> fixGenerosityPrices(ctx.getSource(), DoubleArgumentType.getDouble(ctx, "radius")))));
+
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_renamesinglenames")
+                    .requires(src -> src != null && src.hasPermission(2))
+                    .executes(ctx -> toggleSingleNameRenaming(ctx.getSource())));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] RegisterCommandsEvent failed (server commands may be missing).", t);
         }
@@ -143,6 +147,44 @@ public final class ServerCommands {
 
             sp.displayClientMessage(Component.literal("Recalculated Generosity prices for " + villagers + " villagers (" + offersTouched + " offers)."), true);
             return villagers;
+        } catch (Throwable t) {
+            try {
+                if (source != null) source.sendFailure(Component.literal("Command failed: " + t.getClass().getSimpleName()));
+            } catch (Throwable ignored) {}
+            return 0;
+        }
+    }
+
+    private static int toggleSingleNameRenaming(CommandSourceStack source) {
+        try {
+            if (source == null) return 0;
+
+            boolean enabled = VillagerNamingEvents.toggleRenameSingleNamedVillagers();
+            if (!enabled) {
+                source.sendSuccess(() -> Component.literal("Single-name villager renaming disabled until the next toggle. It will remain disabled after restart."), false);
+                return 0;
+            }
+
+            int renamed = 0;
+            if (source.getServer() != null) {
+                for (ServerLevel level : source.getServer().getAllLevels()) {
+                    AABB box = level.getWorldBorder().getCollisionShape().bounds();
+                    List<Villager> villagers = level.getEntitiesOfClass(Villager.class, box, villager -> true);
+                    for (Villager villager : villagers) {
+                        if (villager == null) continue;
+                        if (VillagerNamingEvents.renameVillagerIfNeeded(villager)) {
+                            renamed++;
+                        }
+                    }
+                }
+            }
+
+            int renamedCount = renamed;
+            source.sendSuccess(
+                    () -> Component.literal("Single-name villager renaming enabled for this server session. Renamed " + renamedCount + " loaded villagers."),
+                    true
+            );
+            return renamed;
         } catch (Throwable t) {
             try {
                 if (source != null) source.sendFailure(Component.literal("Command failed: " + t.getClass().getSimpleName()));

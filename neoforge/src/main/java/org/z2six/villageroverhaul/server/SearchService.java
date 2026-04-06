@@ -787,6 +787,7 @@ public final class SearchService {
                         // Critical rule: locked slots must NEVER be effectively rerolled during auto-search.
                         // After rebuilding, overwrite locked indices with the original (pre-search) snapshot offers.
                         try { overwriteLockedSlotsFromSnapshot(vill, task.offersBeforeTag, task.lockMaskBefore, "auto_search_tick"); } catch (Throwable ignored) {}
+                        try { TradeLockSyncService.sanitizeAndSyncToActiveTraders(vill); } catch (Throwable ignored) {}
 
                         VillagerOverhaul.LOG().debug("[VillagerOverhaul] Auto-search reroll success: villager={} entityId={} rerollCount={} baseCd={} timelinessPct={} effectiveCd={}",
                                 vill.getUUID(), vill.getId(), task.rerollCount, baseCd, tPct, cooldown);
@@ -880,6 +881,7 @@ public final class SearchService {
             // Settlement transition: one last hard overwrite of locked indices from the pre-search snapshot
             // so the villager state (and later UI serialization) cannot drift.
             try { overwriteLockedSlotsFromSnapshot(vill, task.offersBeforeTag, task.lockMaskBefore, "settlement_create"); } catch (Throwable ignored) {}
+            try { TradeLockSyncService.sanitizeAndSyncToActiveTraders(vill); } catch (Throwable ignored) {}
 
             // Final sanity before we create a settlement:
             // - enforce hoarder extra slots (offer count can impact lock indices and UI rows)

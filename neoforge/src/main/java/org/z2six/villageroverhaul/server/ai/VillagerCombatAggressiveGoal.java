@@ -4,6 +4,7 @@ package org.z2six.villageroverhaul.server.ai;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.phys.AABB;
@@ -60,12 +61,12 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             CombatSettings.ModeSettings m = settings.aggressive;
             Set<String> wl = normalize(m.aggressiveWhitelist);
             Set<String> bl = normalize(m.aggressiveBlacklist);
-            if (wl.isEmpty() && bl.isEmpty()) {
+            if (!hasAggressiveFilters(m, wl, bl)) {
                 logNoThreat("no_filters");
                 return false;
             }
 
-            if (findAggressiveTarget(wl, bl) != null) return true;
+            if (findAggressiveTarget(m, wl, bl) != null) return true;
 
             logNoThreat("no_target");
             return false;
@@ -131,9 +132,9 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             CombatSettings.ModeSettings m = settings.aggressive;
             Set<String> wl = normalize(m.aggressiveWhitelist);
             Set<String> bl = normalize(m.aggressiveBlacklist);
-            if (wl.isEmpty() && bl.isEmpty()) return;
+            if (!hasAggressiveFilters(m, wl, bl)) return;
 
-            LivingEntity found = findAggressiveTarget(wl, bl);
+            LivingEntity found = findAggressiveTarget(m, wl, bl);
             if (found != null && (target == null || !found.getUUID().equals(targetUuid))) {
                 targetUuid = found.getUUID();
                 target = found;
@@ -159,7 +160,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
         } catch (Throwable ignored) {}
     }
 
-    private LivingEntity findAggressiveTarget(Set<String> wl, Set<String> bl) {
+    private LivingEntity findAggressiveTarget(CombatSettings.ModeSettings settings, Set<String> wl, Set<String> bl) {
         try {
             if (vill == null || vill.level() == null) return null;
             long now = vill.level().getGameTime();
@@ -183,10 +184,13 @@ public final class VillagerCombatAggressiveGoal extends Goal {
                     continue;
                 }
 
-                if (!wl.isEmpty() && !wl.contains(id)) {
+                boolean autoMatch = matchesAutoTarget(settings, e);
+                if (!autoMatch && !wl.isEmpty() && !wl.contains(id)) {
                     logReject(id, "not_whitelisted");
                     continue;
                 }
+
+                if (!autoMatch && wl.isEmpty()) continue;
 
                 double d2 = vill.distanceToSqr(e);
                 if (d2 < bestDist) {
@@ -204,6 +208,27 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
         return null;
     }
+
+    private static boolean hasAggressiveFilters(CombatSettings.ModeSettings settings, Set<String> wl, Set<String> bl) {
+        if (settings == null) return !wl.isEmpty() || !bl.isEmpty();
+        return settings.aggressiveHostileMobs || settings.aggressivePassiveMobs || !wl.isEmpty() || !bl.isEmpty();
+    }
+
+    private static boolean matchesAutoTarget(CombatSettings.ModeSettings settings, LivingEntity entity) {
+        if (settings == null || entity == null) return false;
+        MobCategory category = entity.getType().getCategory();
+        if (settings.aggressiveHostileMobs && category == MobCategory.MONSTER) return true;
+        return settings.aggressivePassiveMobs && PASSIVE_MOB_CATEGORIES.contains(category);
+    }
+
+    private static final Set<MobCategory> PASSIVE_MOB_CATEGORIES = Set.of(
+            MobCategory.CREATURE,
+            MobCategory.AMBIENT,
+            MobCategory.AXOLOTLS,
+            MobCategory.UNDERGROUND_WATER_CREATURE,
+            MobCategory.WATER_AMBIENT,
+            MobCategory.WATER_CREATURE
+    );
 
     private static boolean isFriendlyToVillager(Villager vill, LivingEntity candidate) {
         try {
