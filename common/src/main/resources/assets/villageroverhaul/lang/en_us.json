@@ -1,4 +1,8 @@
 {
+  "key.categories.vo": "Villager Overhaul",
+  "key.vo.chat_commands": "Open Player Chat Commands",
+  "key.vo.combat_settings": "Open Global Combat Settings",
+
   "ezvr.ui.reroll": "Reroll Villager",
 
   "ezvr.msg.mid_trade": "Finish the current trade first.",

@@ -14,17 +14,17 @@ public final class ClientKeybinds {
 
     public static void onRegisterKeyMappings(RegisterKeyMappingsEvent e) {
         OPEN_GLOBAL_COMBAT_SETTINGS = new KeyMapping(
-                "key.ezvr.combat_settings",
+                "key.vo.combat_settings",
                 GLFW.GLFW_KEY_K,
-                "key.categories.ezvr"
+                "key.categories.vo"
         );
         e.register(OPEN_GLOBAL_COMBAT_SETTINGS);
 
         // Unbound by default (players can bind it in Controls).
         OPEN_PLAYER_CHAT_COMMANDS = new KeyMapping(
-                "key.ezvr.chat_commands",
+                "key.vo.chat_commands",
                 GLFW.GLFW_KEY_UNKNOWN,
-                "key.categories.ezvr"
+                "key.categories.vo"
         );
         e.register(OPEN_PLAYER_CHAT_COMMANDS);
     }

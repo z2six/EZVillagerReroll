@@ -8,7 +8,6 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
-import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsQuery;
 import org.z2six.villageroverhaul.network.chatcommands.PacketPlayerChatCommandsUpdate;
 
@@ -38,8 +37,6 @@ public final class PlayerChatCommandsScreen extends Screen {
     private Button saveBtn;
     private Button chainBtn;
     private Button caseBtn;
-
-    private EditBox rangeBox;
 
     private final List<Row> rows = new ArrayList<>();
     private int scrollRow = 0;
@@ -82,25 +79,20 @@ public final class PlayerChatCommandsScreen extends Screen {
 
         int rowY = top + PAD + 22;
 
-        rangeBox = new EditBox(this.font, left + PAD + 56, rowY, 48, 18, Component.literal("Range"));
-        rangeBox.setValue(String.valueOf(Math.max(1, ServerConfig.customCommandsChatRadius)));
-        rangeBox.setMaxLength(3);
-        addRenderableWidget(rangeBox);
-
         chainBtn = Button.builder(Component.literal("Chain []"), b -> {
             chain = !chain;
             chainBtn.setMessage(Component.literal(chain ? "Chain [x]" : "Chain []"));
-        }).pos(left + PAD + 112, rowY).size(72, 18).build();
+        }).pos(left + PAD, rowY).size(72, 18).build();
         addRenderableWidget(chainBtn);
 
         caseBtn = Button.builder(Component.literal("Case sensitive []"), b -> {
             caseSensitive = !caseSensitive;
             caseBtn.setMessage(Component.literal(caseSensitive ? "Case sensitive [x]" : "Case sensitive []"));
-        }).pos(left + PAD + 112 + 72 + 4, rowY).size(120, 18).build();
+        }).pos(left + PAD + 72 + 4, rowY).size(120, 18).build();
         addRenderableWidget(caseBtn);
 
         int listX = left + PAD;
-        int listY = top + PAD + 46;
+        int listY = top + PAD + 42;
         int listW = PANEL_W - (PAD * 2) - SCROLLBAR_W - 2;
         int listH = top + PANEL_H - PAD - listY;
         scrollBar = new SimpleScrollBar(listX + listW + 2, listY, SCROLLBAR_W, listH);
@@ -139,9 +131,6 @@ public final class PlayerChatCommandsScreen extends Screen {
 
     private void applyConfig(CompoundTag cfg) {
         try {
-            int r = cfg.getInt("range");
-            if (r <= 0) r = Math.max(1, ServerConfig.customCommandsChatRadius);
-            rangeBox.setValue(String.valueOf(r));
             chain = cfg.getBoolean("chain");
             chainBtn.setMessage(Component.literal(chain ? "Chain [x]" : "Chain []"));
             caseSensitive = cfg.getBoolean("caseSensitive");
@@ -161,7 +150,6 @@ public final class PlayerChatCommandsScreen extends Screen {
 
     private void onSave() {
         CompoundTag t = new CompoundTag();
-        t.putInt("range", parseInt(rangeBox.getValue(), 1, 128));
         t.putBoolean("chain", chain);
         t.putBoolean("caseSensitive", caseSensitive);
         for (Row row : rows) {
@@ -179,17 +167,6 @@ public final class PlayerChatCommandsScreen extends Screen {
         return t;
     }
 
-    private static int parseInt(String s, int min, int max) {
-        try {
-            int v = Integer.parseInt(s.trim());
-            if (v < min) v = min;
-            if (v > max) v = max;
-            return v;
-        } catch (Throwable ignored) {
-            return min;
-        }
-    }
-
     @Override
     public void render(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
         // Apply blur/background once, then draw our panel above it.
@@ -200,10 +177,8 @@ public final class PlayerChatCommandsScreen extends Screen {
         drawPanel(gg, left, top, PANEL_W, PANEL_H, PANEL_BG, PANEL_BORDER);
 
         gg.drawString(this.font, Component.literal("Chat Commands"), left + PAD, top + PAD, 0xFFFFFF);
-        gg.drawString(this.font, Component.literal("Range:"), left + PAD, top + PAD + 26, 0xC8C8C8);
-
         int listX = left + PAD;
-        int listY = top + PAD + 46;
+        int listY = top + PAD + 42;
         int listW = PANEL_W - (PAD * 2) - SCROLLBAR_W - 2;
         int listH = top + PANEL_H - PAD - listY;
         drawPanel(gg, listX, listY, listW, listH, LIST_BG, LIST_BORDER);
@@ -239,15 +214,6 @@ public final class PlayerChatCommandsScreen extends Screen {
 
     private void renderTooltips(GuiGraphics gg, int mouseX, int mouseY) {
         try {
-            if (rangeBox != null && rangeBox.isMouseOver(mouseX, mouseY)) {
-                int max = Math.max(1, ServerConfig.customCommandsChatRadius);
-                renderTooltipLines(gg, mouseX, mouseY,
-                        "How far away villagers can hear your chat commands.",
-                        "Server-configured maximum: " + max + " blocks (clamped server-side)."
-                );
-                return;
-            }
-
             if (chainBtn != null && chainBtn.isMouseOver(mouseX, mouseY)) {
                 renderTooltipLines(gg, mouseX, mouseY,
                         "When enabled: villagers also pass the command to nearby villagers (chain reaction).",
@@ -269,26 +235,71 @@ public final class PlayerChatCommandsScreen extends Screen {
                 if (!row.box.visible || !row.box.active) continue;
                 if (!row.box.isMouseOver(mouseX, mouseY)) continue;
 
-                String label = row.label == null ? "" : row.label;
-                String extra = switch (row.key) {
-                    case "help" -> "Triggers the \"Help\" combat behavior (temporary, target-driven).";
-                    case "stopMacro" -> "Stops any nearby villagers that are currently running a taught macro.";
-                    case "neutral" -> "Sets villagers to Neutral mode.";
-                    case "idle" -> "Sets villagers to Idle mode.";
-                    case "follow" -> "Sets villagers to Follow mode (follow you).";
-                    case "patrol" -> "Sets villagers to Patrol (starts first saved patrol route, else Idle).";
-                    case "manualFarming" -> "Turns on Manual Farming mode (Farmer + workstation required).";
-                    case "flee" -> "Sets villagers to Flee mode.";
-                    case "defend" -> "Sets villagers to Defend mode.";
-                    case "aggressive" -> "Sets villagers to Aggressive mode.";
-                    default -> "";
+                String[] lines = switch (row.key) {
+                    case "help" -> new String[] {
+                            "Puts villagers into temporary Help combat mode.",
+                            "They attack your recent target or attacker; if none exists, they rally near you briefly, then return.",
+                            "Leave empty to disable."
+                    };
+                    case "stopMacro" -> new String[] {
+                            "Stops villagers that are currently running a taught custom command macro.",
+                            "This does not directly change their movement mode or combat mode.",
+                            "Leave empty to disable."
+                    };
+                    case "equip" -> new String[] {
+                            "Equips the villager's saved combat loadout from its holstered gear.",
+                            "This does not directly change movement mode or combat mode.",
+                            "Leave empty to disable."
+                    };
+                    case "stash" -> new String[] {
+                            "Holsters or stashes the villager's combat loadout again.",
+                            "This does not directly change movement mode or combat mode.",
+                            "Leave empty to disable."
+                    };
+                    case "neutral" -> new String[] {
+                            "Switches villagers to Neutral movement mode.",
+                            "Manual Farming is turned off. This command does not directly change combat mode.",
+                            "Leave empty to disable."
+                    };
+                    case "idle" -> new String[] {
+                            "Switches villagers to Idle movement mode so they stay put.",
+                            "Manual Farming is turned off. This command does not directly change combat mode.",
+                            "Leave empty to disable."
+                    };
+                    case "follow" -> new String[] {
+                            "Switches villagers to Follow movement mode so they follow you.",
+                            "Manual Farming is turned off. This command does not directly change combat mode.",
+                            "Leave empty to disable."
+                    };
+                    case "patrol" -> new String[] {
+                            "Starts the villager's first saved patrol route.",
+                            "If no patrol route exists, the villager falls back to Idle. Manual Farming is turned off.",
+                            "Leave empty to disable."
+                    };
+                    case "manualFarming" -> new String[] {
+                            "Enables Manual Farming mode.",
+                            "Requires a Farmer villager and a valid workstation. If either is missing, nothing happens.",
+                            "Leave empty to disable."
+                    };
+                    case "flee" -> new String[] {
+                            "Sets combat mode to Flee.",
+                            "Villagers avoid valid threats instead of fighting them.",
+                            "Leave empty to disable."
+                    };
+                    case "defend" -> new String[] {
+                            "Sets combat mode to Defend.",
+                            "Villagers fight reactively when a valid target threatens them or their owner.",
+                            "Leave empty to disable."
+                    };
+                    case "aggressive" -> new String[] {
+                            "Sets combat mode to Aggressive.",
+                            "Villagers proactively seek and attack targets allowed by their combat settings.",
+                            "Leave empty to disable."
+                    };
+                    default -> new String[] {"Leave empty to disable."};
                 };
 
-                if (extra.isBlank()) {
-                    renderTooltipLines(gg, mouseX, mouseY, "Leave empty to disable.");
-                } else {
-                    renderTooltipLines(gg, mouseX, mouseY, extra, "Leave empty to disable.");
-                }
+                renderTooltipLines(gg, mouseX, mouseY, lines);
                 return;
             }
         } catch (Throwable ignored) {}
@@ -313,17 +324,15 @@ public final class PlayerChatCommandsScreen extends Screen {
             int top = (this.height - PANEL_H) / 2;
 
             int rowY = top + PAD + 22;
-            rangeBox.setX(left + PAD + 56);
-            rangeBox.setY(rowY);
-            chainBtn.setX(left + PAD + 112);
+            chainBtn.setX(left + PAD);
             chainBtn.setY(rowY);
-            caseBtn.setX(left + PAD + 112 + 72 + 4);
+            caseBtn.setX(left + PAD + 72 + 4);
             caseBtn.setY(rowY);
             backBtn.setPosition(left + PANEL_W - 58 - PAD - 58 - 4, top + PAD);
             saveBtn.setPosition(left + PANEL_W - 58 - PAD, top + PAD);
 
             int listX = left + PAD;
-            int listY = top + PAD + 46;
+            int listY = top + PAD + 42;
             int listW = PANEL_W - (PAD * 2) - SCROLLBAR_W - 2;
             int listH = top + PANEL_H - PAD - listY;
 
@@ -352,7 +361,7 @@ public final class PlayerChatCommandsScreen extends Screen {
     private int getVisibleRows() {
         try {
             int top = (this.height - PANEL_H) / 2;
-            int listY = top + PAD + 46;
+            int listY = top + PAD + 42;
             int listH = top + PANEL_H - PAD - listY;
             return Math.max(1, (listH - 8) / (ROW_H + ROW_GAP));
         } catch (Throwable ignored) {

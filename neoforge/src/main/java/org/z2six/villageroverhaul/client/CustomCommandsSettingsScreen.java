@@ -3,11 +3,9 @@ package org.z2six.villageroverhaul.client;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
-import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenQuery;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcChatListenSet;
 
@@ -29,7 +27,6 @@ public final class CustomCommandsSettingsScreen extends Screen {
     private Button saveBtn;
     private Button listenBtn;
     private Button passBtn;
-    private EditBox passRangeBox;
 
     private boolean listen = true;
     private boolean pass = false;
@@ -78,13 +75,8 @@ public final class CustomCommandsSettingsScreen extends Screen {
         passBtn = Button.builder(Component.literal("Pass chat commands to nearby villagers []"), b -> {
             pass = !pass;
             passBtn.setMessage(Component.literal(pass ? "Pass chat commands to nearby villagers [x]" : "Pass chat commands to nearby villagers []"));
-        }).pos(left + PAD, rowY).size(PANEL_W - PAD * 2 - 56, 20).build();
+        }).pos(left + PAD, rowY).size(PANEL_W - PAD * 2, 20).build();
         addRenderableWidget(passBtn);
-
-        passRangeBox = new EditBox(this.font, left + PANEL_W - PAD - 52, rowY + 1, 52, 18, Component.literal("Range"));
-        passRangeBox.setMaxLength(3);
-        passRangeBox.setValue(String.valueOf(passRange));
-        addRenderableWidget(passRangeBox);
 
         try { ClientNetwork.sendToServer(new PacketCcChatListenQuery(villagerEntityId)); } catch (Throwable ignored) {}
     }
@@ -95,7 +87,6 @@ public final class CustomCommandsSettingsScreen extends Screen {
         this.passRange = passRange;
         if (listenBtn != null) listenBtn.setMessage(Component.literal(this.listen ? "Listen to chat commands [x]" : "Listen to chat commands []"));
         if (passBtn != null) passBtn.setMessage(Component.literal(this.pass ? "Pass chat commands to nearby villagers [x]" : "Pass chat commands to nearby villagers []"));
-        if (passRangeBox != null) passRangeBox.setValue(String.valueOf(Math.max(1, passRange)));
     }
 
     private void onBack() {
@@ -104,8 +95,6 @@ public final class CustomCommandsSettingsScreen extends Screen {
     }
 
     private void onSave() {
-        passRange = parseInt(passRangeBox == null ? "" : passRangeBox.getValue(), 1, Math.max(1, ServerConfig.customCommandsChatRadius));
-        if (passRangeBox != null) passRangeBox.setValue(String.valueOf(passRange));
         try { ClientNetwork.sendToServer(new PacketCcChatListenSet(villagerEntityId, listen, pass, passRange)); } catch (Throwable ignored) {}
         onBack();
     }
@@ -140,17 +129,11 @@ public final class CustomCommandsSettingsScreen extends Screen {
             }
             if (passBtn != null && passBtn.isMouseOver(mouseX, mouseY)) {
                 renderTooltipLines(gg, mouseX, mouseY,
-                        "If enabled: this villager can spread your chat commands to other nearby villagers.",
+                        "If enabled: this villager can relay heard chat commands to other nearby villagers.",
+                        "Relay uses the same localized chat or whisper scope as normal hearing.",
                         "Requires \"Chain\" enabled in your chat commands screen."
                 );
                 return;
-            }
-            if (passRangeBox != null && passRangeBox.isMouseOver(mouseX, mouseY)) {
-                int max = Math.max(1, ServerConfig.customCommandsChatRadius);
-                renderTooltipLines(gg, mouseX, mouseY,
-                        "How far this villager can pass chat commands to other villagers.",
-                        "Server-configured maximum: " + max + " blocks (clamped server-side)."
-                );
             }
         } catch (Throwable ignored) {}
     }
@@ -166,17 +149,6 @@ public final class CustomCommandsSettingsScreen extends Screen {
             if (out.isEmpty()) return;
             gg.renderTooltip(this.font, out, mouseX, mouseY);
         } catch (Throwable ignored) {}
-    }
-
-    private static int parseInt(String s, int min, int max) {
-        try {
-            int v = Integer.parseInt(s.trim());
-            if (v < min) v = min;
-            if (v > max) v = max;
-            return v;
-        } catch (Throwable ignored) {
-            return min;
-        }
     }
 
     private static void drawPanel(GuiGraphics gg, int x, int y, int w, int h, int bg, int border) {

@@ -59,6 +59,7 @@ public final class ServerEvents {
     private static volatile int lastSyncedCfgHash = Integer.MIN_VALUE;
 
     private record ChatAudience(boolean global, int range) {}
+    private record VillagerChatFeedback(Villager vill, boolean whisper, String text) {}
 
     private ServerEvents() {}
 
@@ -436,10 +437,31 @@ public final class ServerEvents {
                 }
             } catch (Throwable ignored) {}
 
+            if (isShout) {
+                int cost = Math.max(0, ServerConfig.shoutHungerCost);
+                try {
+                    if (cost > 0 && sp.getFoodData() != null) {
+                        int have = sp.getFoodData().getFoodLevel();
+                        if (have < cost) {
+                            try {
+                                sp.connection.send(new ClientboundSystemChatPacket(
+                                        Component.literal("Not enough hunger to shout.").withStyle(ChatFormatting.RED),
+                                        false
+                                ));
+                            } catch (Throwable ignored) {}
+                            try { e.setCanceled(true); } catch (Throwable ignored) {}
+                            return;
+                        }
+                        sp.getFoodData().setFoodLevel(Math.max(0, have - cost));
+                    }
+                } catch (Throwable ignored) {}
+            }
+
             ChatAudience audience = resolveChatAudience(isShout, isWhisper);
+            java.util.ArrayList<VillagerChatFeedback> villagerFeedback = new java.util.ArrayList<>();
 
             // Chat commands (module-level) have priority over per-villager taught macros.
-            boolean handled = tryHandlePlayerChatCommands(sp, content, audience);
+            boolean handled = tryHandlePlayerChatCommands(sp, content, audience, isWhisper, villagerFeedback);
 
             // Only try taught macros if no module-level chat command matched.
             if (!handled) {
@@ -516,13 +538,11 @@ public final class ServerEvents {
                         } catch (Throwable ignored) {}
 
                         // Expand graph only if THIS villager is allowed to pass chat commands further.
-                        if (!CustomCommandsService.isChatPassing(cur)) continue;
+                                if (!CustomCommandsService.isChatPassing(cur)) continue;
 
-                        int passRange = CustomCommandsService.getChatPassRange(cur);
-                        int clampRange = audienceRangeClamp(audience);
-                        if (passRange < 1) passRange = clampRange;
-                        if (!audience.global() && passRange > clampRange) passRange = clampRange;
+                        int passRange = audienceRangeClamp(audience);
 
+                        boolean relayed = false;
                         var curLevel = (ServerLevel) cur.level();
                         for (Villager next : curLevel.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
                             if (next == null) continue;
@@ -536,7 +556,9 @@ public final class ServerEvents {
 
                             seen.add(id);
                             q.add(next);
+                            relayed = true;
                         }
+                        if (relayed) queueVillagerChatFeedback(villagerFeedback, cur, isWhisper, relayTextForMacro());
                     }
                 }
 
@@ -544,6 +566,7 @@ public final class ServerEvents {
                     long now = level.getGameTime();
                     if (CustomCommandsService.canStartAction(bestVill, bestActionIdx, now)) {
                         CustomCommandsService.startExecution(bestVill, bestActionIdx);
+                        queueVillagerChatFeedback(villagerFeedback, bestVill, isWhisper, confirmTextForMacro());
                     } else {
                         // Queue a retry without requiring the player to re-send the chat message.
                         var meta = CustomCommandsService.getActionMeta(bestVill, bestActionIdx);
@@ -556,30 +579,13 @@ public final class ServerEvents {
                             }
                         } catch (Throwable ignored) {}
                         CustomCommandsService.queueExecution(bestVill, bestActionIdx, delayUntil);
+                        queueVillagerChatFeedback(villagerFeedback, bestVill, isWhisper, confirmTextForMacro());
                     }
                 }
             }
 
             // Shout: server-wide broadcast, consumes hunger, orange.
             if (isShout) {
-                int cost = Math.max(0, ServerConfig.shoutHungerCost);
-                try {
-                    if (cost > 0 && sp.getFoodData() != null) {
-                        int have = sp.getFoodData().getFoodLevel();
-                        if (have < cost) {
-                            try {
-                                sp.connection.send(new ClientboundSystemChatPacket(
-                                        Component.literal("Not enough hunger to shout.").withStyle(ChatFormatting.RED),
-                                        false
-                                ));
-                            } catch (Throwable ignored) {}
-                            try { e.setCanceled(true); } catch (Throwable ignored) {}
-                            return;
-                        }
-                        sp.getFoodData().setFoodLevel(Math.max(0, have - cost));
-                    }
-                } catch (Throwable ignored) {}
-
                 Component line = Component.translatable("chat.type.text", sp.getDisplayName(), Component.literal(content))
                         .withStyle(ChatFormatting.GOLD);
                 try { e.setCanceled(true); } catch (Throwable ignored) {}
@@ -588,6 +594,7 @@ public final class ServerEvents {
                     if (other == null || other.connection == null) continue;
                     try { other.connection.send(new ClientboundSystemChatPacket(line, false)); } catch (Throwable ignored) {}
                 }
+                flushVillagerChatFeedback(villagerFeedback);
                 return;
             }
 
@@ -610,6 +617,7 @@ public final class ServerEvents {
                         other.connection.send(new ClientboundSystemChatPacket(line, false));
                     } catch (Throwable ignored) {}
                 }
+                flushVillagerChatFeedback(villagerFeedback);
                 return;
             }
 
@@ -640,7 +648,22 @@ public final class ServerEvents {
                         other.connection.send(new ClientboundSystemChatPacket(line, false));
                     } catch (Throwable ignored) {}
                 }
+                flushVillagerChatFeedback(villagerFeedback);
+                return;
             }
+
+            Component line;
+            try {
+                line = Component.translatable("chat.type.text", sp.getDisplayName(), e.getMessage() == null ? Component.literal(content) : e.getMessage());
+            } catch (Throwable ignored) {
+                line = Component.literal(sp.getGameProfile().getName() + ": " + content);
+            }
+            try { e.setCanceled(true); } catch (Throwable ignored) {}
+            for (ServerPlayer other : sp.server.getPlayerList().getPlayers()) {
+                if (other == null || other.connection == null) continue;
+                try { other.connection.send(new ClientboundSystemChatPacket(line, false)); } catch (Throwable ignored) {}
+            }
+            flushVillagerChatFeedback(villagerFeedback);
 
         } catch (Throwable ignored) {}
     }
@@ -679,7 +702,7 @@ public final class ServerEvents {
         }
     }
 
-    private static boolean tryHandlePlayerChatCommands(ServerPlayer sp, String msg, ChatAudience audience) {
+    private static boolean tryHandlePlayerChatCommands(ServerPlayer sp, String msg, ChatAudience audience, boolean whisperFeedback, List<VillagerChatFeedback> villagerFeedback) {
         try {
             if (sp == null || msg == null) return false;
             if (sp.server == null) return false;
@@ -697,29 +720,39 @@ public final class ServerEvents {
             boolean caseSensitive = cfg.caseSensitive;
 
             if (ServerConfig.enableCombatModule && matches(cfg.help, m, caseSensitive)) {
-                var targets = collectOwnedVillagersForChat(sp, audience, chain);
+                String relayText = relayTextForHelp();
+                String confirmText = confirmTextForHelp();
+                java.util.HashSet<UUID> relayers = new java.util.HashSet<>();
+                var targets = collectOwnedVillagersForChat(sp, audience, chain, relayers);
                 if (targets.isEmpty()) return false;
 
                 try { org.z2six.villageroverhaul.server.HelpChatCommandService.activateFromPlayerContext(sp); } catch (Throwable ignored) {}
                 for (Villager v : targets) {
-                    try { org.z2six.villageroverhaul.server.ai.VillagerBrain.combatHelp(v); } catch (Throwable ignored) {}
+                    try {
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.combatHelp(v)) {
+                            queueVillagerChatFeedback(villagerFeedback, v, whisperFeedback, confirmText);
+                            if (relayers.contains(v.getUUID())) {
+                                queueVillagerChatFeedback(villagerFeedback, v, whisperFeedback, relayText);
+                            }
+                        }
+                    } catch (Throwable ignored) {}
                 }
                 return true;
             }
 
-            if (matches(cfg.stopMacro, m, caseSensitive)) return applyStopMacro(sp, audience, chain);
+            if (matches(cfg.stopMacro, m, caseSensitive)) return applyStopMacro(sp, audience, chain, whisperFeedback, villagerFeedback, relayTextForStopMacro(), confirmTextForStopMacro());
 
-            if (ServerConfig.enableCombatModule && matches(cfg.equip, m, caseSensitive)) return applyLoadoutSwap(sp, audience, chain, true);
-            if (ServerConfig.enableCombatModule && matches(cfg.stash, m, caseSensitive)) return applyLoadoutSwap(sp, audience, chain, false);
+            if (ServerConfig.enableCombatModule && matches(cfg.equip, m, caseSensitive)) return applyLoadoutSwap(sp, audience, chain, true, whisperFeedback, villagerFeedback, relayTextForLoadout(true), confirmTextForLoadout(true));
+            if (ServerConfig.enableCombatModule && matches(cfg.stash, m, caseSensitive)) return applyLoadoutSwap(sp, audience, chain, false, whisperFeedback, villagerFeedback, relayTextForLoadout(false), confirmTextForLoadout(false));
 
-            if (matches(cfg.neutral, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.NEUTRAL);
-            if (matches(cfg.idle, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.IDLE);
-            if (matches(cfg.follow, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.FOLLOW);
-            if (matches(cfg.patrol, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.PATROL);
-            if (ServerConfig.enableFarmingModule && matches(cfg.manualFarming, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.MANUAL_FARMING);
-            if (ServerConfig.enableCombatModule && matches(cfg.flee, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.FLEE);
-            if (ServerConfig.enableCombatModule && matches(cfg.defend, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.DEFEND);
-            if (ServerConfig.enableCombatModule && matches(cfg.aggressive, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.AGGRESSIVE);
+            if (matches(cfg.neutral, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.NEUTRAL, whisperFeedback, villagerFeedback, relayTextForMode(ModeSwitch.NEUTRAL), confirmTextForMode(ModeSwitch.NEUTRAL));
+            if (matches(cfg.idle, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.IDLE, whisperFeedback, villagerFeedback, relayTextForMode(ModeSwitch.IDLE), confirmTextForMode(ModeSwitch.IDLE));
+            if (matches(cfg.follow, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.FOLLOW, whisperFeedback, villagerFeedback, relayTextForMode(ModeSwitch.FOLLOW), confirmTextForMode(ModeSwitch.FOLLOW));
+            if (matches(cfg.patrol, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.PATROL, whisperFeedback, villagerFeedback, relayTextForMode(ModeSwitch.PATROL), confirmTextForMode(ModeSwitch.PATROL));
+            if (ServerConfig.enableFarmingModule && matches(cfg.manualFarming, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.MANUAL_FARMING, whisperFeedback, villagerFeedback, relayTextForMode(ModeSwitch.MANUAL_FARMING), confirmTextForMode(ModeSwitch.MANUAL_FARMING));
+            if (ServerConfig.enableCombatModule && matches(cfg.flee, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.FLEE, whisperFeedback, villagerFeedback, relayTextForMode(ModeSwitch.FLEE), confirmTextForMode(ModeSwitch.FLEE));
+            if (ServerConfig.enableCombatModule && matches(cfg.defend, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.DEFEND, whisperFeedback, villagerFeedback, relayTextForMode(ModeSwitch.DEFEND), confirmTextForMode(ModeSwitch.DEFEND));
+            if (ServerConfig.enableCombatModule && matches(cfg.aggressive, m, caseSensitive)) return applyModeSwitch(sp, audience, chain, ModeSwitch.AGGRESSIVE, whisperFeedback, villagerFeedback, relayTextForMode(ModeSwitch.AGGRESSIVE), confirmTextForMode(ModeSwitch.AGGRESSIVE));
 
             return false;
         } catch (Throwable ignored) {
@@ -727,10 +760,11 @@ public final class ServerEvents {
         }
     }
 
-    private static boolean applyStopMacro(ServerPlayer sp, ChatAudience audience, boolean chain) {
+    private static boolean applyStopMacro(ServerPlayer sp, ChatAudience audience, boolean chain, boolean whisperFeedback, List<VillagerChatFeedback> villagerFeedback, String relayText, String confirmText) {
         try {
             if (sp == null) return false;
-            List<Villager> targets = collectOwnedVillagersForStopMacro(sp, audience, chain);
+            java.util.HashSet<UUID> relayers = new java.util.HashSet<>();
+            List<Villager> targets = collectOwnedVillagersForStopMacro(sp, audience, chain, relayers);
             if (targets.isEmpty()) return false;
 
             for (Villager vill : targets) {
@@ -741,6 +775,10 @@ public final class ServerEvents {
 
                 try { CustomCommandsService.stopExecution(vill); } catch (Throwable ignored) {}
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                if (relayers.contains(vill.getUUID())) {
+                    queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                }
             }
 
             // Consider this handled even if no one was executing (it's still a valid command).
@@ -750,10 +788,11 @@ public final class ServerEvents {
         }
     }
 
-    private static boolean applyLoadoutSwap(ServerPlayer sp, ChatAudience audience, boolean chain, boolean equip) {
+    private static boolean applyLoadoutSwap(ServerPlayer sp, ChatAudience audience, boolean chain, boolean equip, boolean whisperFeedback, List<VillagerChatFeedback> villagerFeedback, String relayText, String confirmText) {
         try {
             if (sp == null) return false;
-            List<Villager> targets = collectOwnedVillagersForChat(sp, audience, chain);
+            java.util.HashSet<UUID> relayers = new java.util.HashSet<>();
+            List<Villager> targets = collectOwnedVillagersForChat(sp, audience, chain, relayers);
             if (targets.isEmpty()) return false;
 
             boolean any = false;
@@ -776,6 +815,10 @@ public final class ServerEvents {
                     } else {
                         org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService.forceEquipEnd(vill, "chat_stash");
                     }
+                    queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                    if (relayers.contains(vill.getUUID())) {
+                        queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                    }
                     any = true;
                 } catch (Throwable ignored) {}
             }
@@ -797,10 +840,11 @@ public final class ServerEvents {
         AGGRESSIVE
     }
 
-    private static boolean applyModeSwitch(ServerPlayer sp, ChatAudience audience, boolean chain, ModeSwitch mode) {
+    private static boolean applyModeSwitch(ServerPlayer sp, ChatAudience audience, boolean chain, ModeSwitch mode, boolean whisperFeedback, List<VillagerChatFeedback> villagerFeedback, String relayText, String confirmText) {
         try {
             if (sp == null || mode == null) return false;
-            List<Villager> targets = collectOwnedVillagersForChat(sp, audience, chain);
+            java.util.HashSet<UUID> relayers = new java.util.HashSet<>();
+            List<Villager> targets = collectOwnedVillagersForChat(sp, audience, chain, relayers);
             if (targets.isEmpty()) return false;
 
             for (Villager vill : targets) {
@@ -817,7 +861,10 @@ public final class ServerEvents {
                                 org.z2six.villageroverhaul.server.ai.VillagerBrain.clearPrevModeForManualFarming(vill);
                             } catch (Throwable ignored) {}
                         }
-                        org.z2six.villageroverhaul.server.ai.VillagerBrain.neutral(vill);
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.neutral(vill)) {
+                            queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                            if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                        }
                     }
                     case IDLE -> {
                         if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) {
@@ -826,7 +873,10 @@ public final class ServerEvents {
                                 org.z2six.villageroverhaul.server.ai.VillagerBrain.clearPrevModeForManualFarming(vill);
                             } catch (Throwable ignored) {}
                         }
-                        org.z2six.villageroverhaul.server.ai.VillagerBrain.idle(vill);
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.idle(vill)) {
+                            queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                            if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                        }
                     }
                     case FOLLOW -> {
                         if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) {
@@ -835,7 +885,10 @@ public final class ServerEvents {
                                 org.z2six.villageroverhaul.server.ai.VillagerBrain.clearPrevModeForManualFarming(vill);
                             } catch (Throwable ignored) {}
                         }
-                        org.z2six.villageroverhaul.server.ai.VillagerBrain.follow(vill, sp);
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.follow(vill, sp)) {
+                            queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                            if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                        }
                     }
                     case PATROL -> {
                         if (org.z2six.villageroverhaul.server.ai.VillagerBrain.isManualFarmingActive(vill)) {
@@ -848,12 +901,18 @@ public final class ServerEvents {
                             if (org.z2six.villageroverhaul.server.ai.VillagerBrain.hasAnySavedPatrolRoutes(vill)) {
                                 var routes = org.z2six.villageroverhaul.server.ai.VillagerBrain.listSavedPatrolRoutes(vill);
                                 if (routes != null && !routes.isEmpty()) {
-                                    org.z2six.villageroverhaul.server.ai.VillagerBrain.startPatrolRoute(vill, routes.get(0).id());
+                                    if (org.z2six.villageroverhaul.server.ai.VillagerBrain.startPatrolRoute(vill, routes.get(0).id())) {
+                                        queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                                        if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                                    }
                                     break;
                                 }
                             }
                         } catch (Throwable ignored) {}
-                        org.z2six.villageroverhaul.server.ai.VillagerBrain.idle(vill);
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.idle(vill)) {
+                            queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                            if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                        }
                     }
                     case MANUAL_FARMING -> {
                         if (!ServerConfig.enableFarmingModule) break;
@@ -879,10 +938,27 @@ public final class ServerEvents {
                         org.z2six.villageroverhaul.server.ai.VillagerBrain.setMode(vill, org.z2six.villageroverhaul.server.ai.VillagerBrain.Mode.NEUTRAL);
                         try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                         org.z2six.villageroverhaul.server.ai.VillagerBrain.setManualFarmingActive(vill, true);
+                        queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                        if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
                     }
-                    case FLEE -> org.z2six.villageroverhaul.server.ai.VillagerBrain.combatFlee(vill);
-                    case DEFEND -> org.z2six.villageroverhaul.server.ai.VillagerBrain.combatDefend(vill);
-                    case AGGRESSIVE -> org.z2six.villageroverhaul.server.ai.VillagerBrain.combatAggressive(vill);
+                    case FLEE -> {
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.combatFlee(vill)) {
+                            queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                            if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                        }
+                    }
+                    case DEFEND -> {
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.combatDefend(vill)) {
+                            queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                            if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                        }
+                    }
+                    case AGGRESSIVE -> {
+                        if (org.z2six.villageroverhaul.server.ai.VillagerBrain.combatAggressive(vill)) {
+                            queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
+                            if (relayers.contains(vill.getUUID())) queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, relayText);
+                        }
+                    }
                 }
             }
 
@@ -900,7 +976,7 @@ public final class ServerEvents {
         return p.equalsIgnoreCase(msg);
     }
 
-    private static List<Villager> collectOwnedVillagersForChat(ServerPlayer sp, ChatAudience audience, boolean chain) {
+    private static List<Villager> collectOwnedVillagersForChat(ServerPlayer sp, ChatAudience audience, boolean chain, java.util.Set<UUID> relayers) {
         try {
             if (sp == null || sp.serverLevel() == null) return List.of();
 
@@ -932,14 +1008,11 @@ public final class ServerEvents {
                 Villager cur = q.poll();
                 if (cur == null) continue;
 
-                // Per-villager "pass" settings control whether this villager spreads chat commands further.
                 if (!CustomCommandsService.isChatPassing(cur)) continue;
-                int passRange = CustomCommandsService.getChatPassRange(cur);
-                int clampRange = audienceRangeClamp(audience);
-                if (passRange < 1) passRange = clampRange;
-                if (!audience.global() && passRange > clampRange) passRange = clampRange;
+                int passRange = audienceRangeClamp(audience);
 
                 var level = (ServerLevel) cur.level();
+                boolean relayed = false;
                 for (Villager vill : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
                     if (vill == null) continue;
                     UUID id = vill.getUUID();
@@ -953,8 +1026,10 @@ public final class ServerEvents {
                     seen.add(id);
                     out.add(vill);
                     q.add(vill);
+                    relayed = true;
                     if (out.size() >= 256) break;
                 }
+                if (relayed && relayers != null) relayers.add(cur.getUUID());
             }
 
             return out;
@@ -963,7 +1038,7 @@ public final class ServerEvents {
         }
     }
 
-    private static List<Villager> collectOwnedVillagersForStopMacro(ServerPlayer sp, ChatAudience audience, boolean chain) {
+    private static List<Villager> collectOwnedVillagersForStopMacro(ServerPlayer sp, ChatAudience audience, boolean chain, java.util.Set<UUID> relayers) {
         try {
             if (sp == null || sp.serverLevel() == null) return List.of();
 
@@ -995,12 +1070,10 @@ public final class ServerEvents {
                 if (cur == null) continue;
 
                 if (!CustomCommandsService.isChatPassing(cur)) continue;
-                int passRange = CustomCommandsService.getChatPassRange(cur);
-                int clampRange = audienceRangeClamp(audience);
-                if (passRange < 1) passRange = clampRange;
-                if (!audience.global() && passRange > clampRange) passRange = clampRange;
+                int passRange = audienceRangeClamp(audience);
 
                 var level = (ServerLevel) cur.level();
+                boolean relayed = false;
                 for (Villager vill : level.getEntitiesOfClass(Villager.class, cur.getBoundingBox().inflate(passRange))) {
                     if (vill == null) continue;
                     UUID id = vill.getUUID();
@@ -1013,8 +1086,10 @@ public final class ServerEvents {
                     seen.add(id);
                     out.add(vill);
                     q.add(vill);
+                    relayed = true;
                     if (out.size() >= 256) break;
                 }
+                if (relayed && relayers != null) relayers.add(cur.getUUID());
             }
 
             return out;
@@ -1048,6 +1123,142 @@ public final class ServerEvents {
             return null;
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    private static void queueVillagerChatFeedback(List<VillagerChatFeedback> out, Villager vill, boolean whisper, String text) {
+        try {
+            if (out == null || vill == null || text == null || text.isBlank()) return;
+            out.add(new VillagerChatFeedback(vill, whisper, text));
+        } catch (Throwable ignored) {}
+    }
+
+    private static void flushVillagerChatFeedback(List<VillagerChatFeedback> feedback) {
+        try {
+            if (feedback == null || feedback.isEmpty()) return;
+            for (VillagerChatFeedback entry : feedback) {
+                if (entry == null) continue;
+                sendVillagerChatFeedback(entry.vill(), entry.whisper(), entry.text());
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void sendVillagerChatFeedback(Villager vill, boolean whisper, String text) {
+        try {
+            if (vill == null || vill.level().isClientSide()) return;
+            if (!(vill.level() instanceof ServerLevel level)) return;
+
+            Component body = Component.literal(toRuneHybrid(text));
+            Component line = Component.translatable("chat.type.text", vill.getDisplayName(), body);
+            if (whisper) {
+                line = line.copy().withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC);
+            }
+
+            if (whisper) {
+                double r2 = (double) Math.max(1, ServerConfig.whisperRange) * (double) Math.max(1, ServerConfig.whisperRange);
+                for (ServerPlayer other : level.players()) {
+                    if (other == null || other.connection == null) continue;
+                    try {
+                        if (other.distanceToSqr(vill) > r2) continue;
+                        other.connection.send(new ClientboundSystemChatPacket(line, false));
+                    } catch (Throwable ignored) {}
+                }
+                return;
+            }
+
+            if (ServerConfig.localizedChatEnabled) {
+                double r2 = (double) Math.max(1, ServerConfig.localizedChatRange) * (double) Math.max(1, ServerConfig.localizedChatRange);
+                for (ServerPlayer other : level.players()) {
+                    if (other == null || other.connection == null) continue;
+                    try {
+                        if (other.distanceToSqr(vill) > r2) continue;
+                        other.connection.send(new ClientboundSystemChatPacket(line, false));
+                    } catch (Throwable ignored) {}
+                }
+                return;
+            }
+
+            for (ServerPlayer other : level.players()) {
+                if (other == null || other.connection == null) continue;
+                try { other.connection.send(new ClientboundSystemChatPacket(line, false)); } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static String relayTextForHelp() { return "Please help?"; }
+    private static String confirmTextForHelp() { return "I will help."; }
+    private static String relayTextForStopMacro() { return "Stop the task?"; }
+    private static String confirmTextForStopMacro() { return "I will stop."; }
+    private static String relayTextForLoadout(boolean equip) { return equip ? "Arm yourselves?" : "Stow your gear?"; }
+    private static String confirmTextForLoadout(boolean equip) { return equip ? "I am armed." : "I will stash my gear."; }
+    private static String relayTextForMacro() { return "Did you hear that?"; }
+    private static String confirmTextForMacro() { return "I understand."; }
+
+    private static String relayTextForMode(ModeSwitch mode) {
+        return switch (mode) {
+            case NEUTRAL -> "Stand by?";
+            case IDLE -> "Hold position?";
+            case FOLLOW -> "Follow along?";
+            case PATROL -> "Begin patrol?";
+            case MANUAL_FARMING -> "Work the fields?";
+            case FLEE -> "Fall back?";
+            case DEFEND -> "Defend us?";
+            case AGGRESSIVE -> "Attack on sight?";
+        };
+    }
+
+    private static String confirmTextForMode(ModeSwitch mode) {
+        return switch (mode) {
+            case NEUTRAL -> "I will stand by.";
+            case IDLE -> "I will stay here.";
+            case FOLLOW -> "I will follow.";
+            case PATROL -> "I will patrol.";
+            case MANUAL_FARMING -> "I will tend the fields.";
+            case FLEE -> "I will fall back.";
+            case DEFEND -> "I will defend.";
+            case AGGRESSIVE -> "I will attack.";
+        };
+    }
+
+    private static String toRuneHybrid(String text) {
+        try {
+            if (text == null || text.isEmpty()) return "";
+            StringBuilder out = new StringBuilder(text.length() * 2);
+            for (int i = 0; i < text.length(); i++) {
+                char c = text.charAt(i);
+                out.append(switch (Character.toUpperCase(c)) {
+                    case 'A' -> "ᚨ";
+                    case 'B' -> "ᛒ";
+                    case 'C' -> "ᚲ";
+                    case 'D' -> "ᛞ";
+                    case 'E' -> "ᛖ";
+                    case 'F' -> "ᚠ";
+                    case 'G' -> "ᚷ";
+                    case 'H' -> "ᚺ";
+                    case 'I' -> "ᛁ";
+                    case 'J' -> "ᛃ";
+                    case 'K' -> "ᚴ";
+                    case 'L' -> "ᛚ";
+                    case 'M' -> "ᛗ";
+                    case 'N' -> "ᚾ";
+                    case 'O' -> "ᛟ";
+                    case 'P' -> "ᛈ";
+                    case 'Q' -> "Ϙ";
+                    case 'R' -> "ᚱ";
+                    case 'S' -> "ᛊ";
+                    case 'T' -> "ᛏ";
+                    case 'U' -> "ᚢ";
+                    case 'V' -> "ᚡ";
+                    case 'W' -> "ᚹ";
+                    case 'X' -> "ᛪ";
+                    case 'Y' -> "ᛦ";
+                    case 'Z' -> "ᛉ";
+                    default -> String.valueOf(c);
+                });
+            }
+            return out.toString();
+        } catch (Throwable ignored) {
+            return text == null ? "" : text;
         }
     }
 
