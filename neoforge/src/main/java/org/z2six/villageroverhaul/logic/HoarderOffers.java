@@ -199,6 +199,12 @@ public final class HoarderOffers {
                 }
             }
 
+            // Re-assert locked snapshots only after the final post-Hoarder size is known.
+            // This is what keeps tail locks stable across temporary rebuild shrink -> Hoarder re-expand flows.
+            try {
+                TradeLockState.restoreLockedOffersFromSnapshots(vill, offers);
+            } catch (Throwable ignored) {}
+
             // Step 4: always sanitize lock mask to current size (especially after truncation)
             try {
                 int finalSize = safeSize(offers);

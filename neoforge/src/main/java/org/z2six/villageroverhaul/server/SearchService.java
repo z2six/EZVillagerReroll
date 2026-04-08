@@ -1627,6 +1627,10 @@ public final class SearchService {
                 if (snap == null) continue;
 
                 try {
+                    try {
+                        MerchantOffer curOffer = cur.get(i);
+                        TradeLockState.preserveRuntimeState(curOffer, snap);
+                    } catch (Throwable ignored) {}
                     cur.set(i, snap);
                     overwritten++;
                 } catch (Throwable ignored) {}

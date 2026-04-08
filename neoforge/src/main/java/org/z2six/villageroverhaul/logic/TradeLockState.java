@@ -164,20 +164,7 @@ public final class TradeLockState {
                 MerchantOffer decoded = decodeOffer(vill, offerTag);
                 if (decoded == null) continue;
 
-                // Preserve dynamic runtime fields from the CURRENT offer (uses, demand, specialPriceDiff),
-                // so restoring the locked "identity" cannot be used to reset trade depletion.
-                try {
-                    if (cur != null) {
-                        int curUses = safeGetUses(cur);
-                        if (curUses >= 0) safeSetUses(decoded, curUses);
-
-                        int curSpd = safeGetSpecialPriceDiff(cur);
-                        safeSetSpecialPriceDiff(decoded, curSpd);
-
-                        int curDemand = safeGetDemand(cur);
-                        if (curDemand != Integer.MIN_VALUE) safeSetDemand(decoded, curDemand);
-                    }
-                } catch (Throwable ignored) {}
+                preserveRuntimeState(cur, decoded);
 
                 try {
                     offers.set(i, decoded);
@@ -196,6 +183,21 @@ public final class TradeLockState {
                     vill == null ? "null" : vill.getUUID(), t.toString());
             return 0;
         }
+    }
+
+    public static void preserveRuntimeState(MerchantOffer fromCurrent, MerchantOffer intoDecoded) {
+        try {
+            if (fromCurrent == null || intoDecoded == null) return;
+
+            int curUses = safeGetUses(fromCurrent);
+            if (curUses >= 0) safeSetUses(intoDecoded, curUses);
+
+            int curSpd = safeGetSpecialPriceDiff(fromCurrent);
+            safeSetSpecialPriceDiff(intoDecoded, curSpd);
+
+            int curDemand = safeGetDemand(fromCurrent);
+            if (curDemand != Integer.MIN_VALUE) safeSetDemand(intoDecoded, curDemand);
+        } catch (Throwable ignored) {}
     }
 
     /**

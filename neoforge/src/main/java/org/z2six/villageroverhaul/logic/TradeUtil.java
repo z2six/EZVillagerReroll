@@ -38,21 +38,17 @@ public final class TradeUtil {
             final long beforeMask = TradeLockState.getMask(vill);
 
             MerchantOffers finalOffers = rebuildOffersVanillaSteps(vill, player, original, targetLevel);
-            long finalMask = TradeLockState.sanitizeMaskForSize(beforeMask, finalOffers == null ? 0 : finalOffers.size());
-            if (finalMask != beforeMask) {
-                TradeLockState.setMask(vill, finalMask);
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Lock mask sanitized due to offer size change (villager={} before={} after={})",
-                        vill.getUUID(), Long.toUnsignedString(beforeMask), Long.toUnsignedString(finalMask));
+
+            // IMPORTANT:
+            // Do NOT sanitize/persist the lock mask against this intermediate rebuilt size.
+            // Hoarder may immediately expand the list again, and tail locks must survive that round-trip.
+            long rebuildSizedMask = TradeLockState.sanitizeMaskForSize(beforeMask, finalOffers == null ? 0 : finalOffers.size());
+
+            if (finalOffers != null && oldOffersSnapshot != null && rebuildSizedMask != 0L) {
+                restoreLockedOffersSafe(finalOffers, oldOffersSnapshot, rebuildSizedMask, vill);
             }
 
-            if (finalOffers != null && oldOffersSnapshot != null && finalMask != 0L) {
-                restoreLockedOffersSafe(finalOffers, oldOffersSnapshot, finalMask, vill);
-            }
-
-            try {
-                TradeLockState.restoreLockedOffersFromSnapshots(vill, finalOffers);
-                TradeLockState.sanitizeLockedOfferSnapshots(vill, finalMask, finalOffers == null ? 0 : finalOffers.size());
-            } catch (Throwable ignored) {}
+            try { TradeLockState.restoreLockedOffersFromSnapshots(vill, finalOffers); } catch (Throwable ignored) {}
 
             try {
                 if (finalOffers != null && vill.getOffers() != finalOffers) {
@@ -87,14 +83,6 @@ public final class TradeUtil {
                         "[VillagerOverhaul] Rebuilt offers (no GUI sync): villager={}, level={}, offers {} -> {}",
                         vill.getUUID(), targetLevel, offersBefore, offersAfter
                 );
-            }
-
-            if (finalMask != beforeMask) {
-                try {
-                    org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(vill, finalMask);
-                } catch (Throwable t) {
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Failed to sync sanitized lock mask to active traders: {}", t.toString());
-                }
             }
 
             return true;
@@ -157,6 +145,10 @@ public final class TradeUtil {
                 try {
                     MerchantOffer old = oldOffers.get(i);
                     if (old != null) {
+                        try {
+                            MerchantOffer cur = current.get(i);
+                            TradeLockState.preserveRuntimeState(cur, old);
+                        } catch (Throwable ignored) {}
                         current.set(i, old);
                         preserved++;
                     }
