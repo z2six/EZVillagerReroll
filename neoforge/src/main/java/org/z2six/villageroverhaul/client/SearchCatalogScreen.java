@@ -2,19 +2,28 @@
 package org.z2six.villageroverhaul.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
+import net.neoforged.fml.ModList;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientTradeLockCache;
 import org.z2six.villageroverhaul.network.autoReroll.PacketSearchCatalogData;
@@ -1121,6 +1130,11 @@ public final class SearchCatalogScreen extends Screen {
                 ArrayList<Component> withExtra = new ArrayList<>(Math.max(1, lines == null ? 0 : lines.size()) + 1);
                 if (lines != null) withExtra.addAll(lines);
 
+                Component modLine = buildTooltipModLine(stack);
+                if (modLine != null) {
+                    withExtra.add(modLine);
+                }
+
                 if (vUnits > 0L) {
                     withExtra.add(
                             Component.literal(String.valueOf(vUnits)).withStyle(ChatFormatting.AQUA)
@@ -1147,6 +1161,113 @@ public final class SearchCatalogScreen extends Screen {
             } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] ezvr$renderVanillaItemTooltip failed (soft): {}", t.toString());
+        }
+    }
+
+    private static Component buildTooltipModLine(ItemStack stack) {
+        try {
+            String label = resolveTooltipModLabel(stack);
+            if (label == null || label.isBlank()) return null;
+            return Component.literal("Mod: ").withStyle(ChatFormatting.DARK_GRAY)
+                    .append(Component.literal(label).withStyle(ChatFormatting.BLUE));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String resolveTooltipModLabel(ItemStack stack) {
+        try {
+            if (stack == null || stack.isEmpty()) return "";
+
+            String sourceNamespace = resolvePrimaryTooltipNamespace(stack);
+            if (sourceNamespace == null || sourceNamespace.isBlank()) return "";
+
+            if ("__multiple__".equals(sourceNamespace)) {
+                return "Multiple Mods";
+            }
+
+            if ("minecraft".equals(sourceNamespace)) {
+                return "Minecraft";
+            }
+
+            try {
+                return ModList.get()
+                        .getModContainerById(sourceNamespace)
+                        .map(mc -> mc.getModInfo().getDisplayName())
+                        .orElseGet(() -> prettifyNamespace(sourceNamespace));
+            } catch (Throwable ignored) {
+                return prettifyNamespace(sourceNamespace);
+            }
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static String resolvePrimaryTooltipNamespace(ItemStack stack) {
+        try {
+            String enchantNs = resolveSingleEnchantmentNamespace(stack);
+            if (enchantNs != null && !enchantNs.isBlank()) {
+                return enchantNs;
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(stack.getItem());
+            if (itemId != null && itemId.getNamespace() != null && !itemId.getNamespace().isBlank()) {
+                return itemId.getNamespace();
+            }
+        } catch (Throwable ignored) {}
+
+        return "";
+    }
+
+    private static String resolveSingleEnchantmentNamespace(ItemStack stack) {
+        try {
+            if (stack == null || stack.isEmpty()) return "";
+            if (!stack.has(DataComponents.ENCHANTMENTS) && !stack.has(DataComponents.STORED_ENCHANTMENTS)) return "";
+
+            ItemEnchantments enchantments = EnchantmentHelper.getEnchantmentsForCrafting(stack);
+            if (enchantments == null || enchantments.isEmpty()) return "";
+
+            LinkedHashSet<String> namespaces = new LinkedHashSet<>();
+            for (Object2IntMap.Entry<Holder<Enchantment>> entry : enchantments.entrySet()) {
+                if (entry == null) continue;
+                Holder<Enchantment> holder = entry.getKey();
+                if (holder == null) continue;
+
+                String ns = holder.unwrapKey()
+                        .map(key -> key.location().getNamespace())
+                        .orElse("");
+                if (ns.isBlank()) continue;
+                namespaces.add(ns);
+                if (namespaces.size() > 1) {
+                    return "__multiple__";
+                }
+            }
+
+            return namespaces.isEmpty() ? "" : namespaces.iterator().next();
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static String prettifyNamespace(String namespace) {
+        try {
+            if (namespace == null || namespace.isBlank()) return "";
+            String[] parts = namespace.split("[_\\-.]+");
+            StringBuilder out = new StringBuilder(namespace.length() + 8);
+            for (String part : parts) {
+                if (part == null || part.isBlank()) continue;
+                if (out.length() > 0) out.append(' ');
+                if (part.length() == 1) {
+                    out.append(Character.toUpperCase(part.charAt(0)));
+                } else {
+                    out.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
+                }
+            }
+            return out.isEmpty() ? namespace : out.toString();
+        } catch (Throwable ignored) {
+            return namespace == null ? "" : namespace;
         }
     }
 
