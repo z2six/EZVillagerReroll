@@ -26,6 +26,7 @@
     "villagerCombat.MoveControlEatSlowMixin"
   ],
   "client": [
+    "MerchantScreenAccessor",
     "client.ItemRendererHolsterRollMixin",
     "MerchantScreenTradeLockRightClickMixin",
     "MerchantScreenRerollButtonRightClickMixin",

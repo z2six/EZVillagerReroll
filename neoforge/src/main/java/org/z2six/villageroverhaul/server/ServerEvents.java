@@ -15,13 +15,18 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.TraceableEntity;
 import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
@@ -60,6 +65,7 @@ public final class ServerEvents {
 
     private record ChatAudience(boolean global, int range) {}
     private record VillagerChatFeedback(Villager vill, boolean whisper, String text) {}
+    private record MacroMatch(Villager villager, int actionIndex) {}
 
     private ServerEvents() {}
 
@@ -94,6 +100,7 @@ public final class ServerEvents {
 
             // Custom Commands: chat triggers
             bus.addListener(ServerEvents::onServerChat);
+            bus.addListener(ServerEvents::onLivingIncomingDamage);
 
             // villager/merchant stat initialization
             VillagerStatsEvents.register(bus);
@@ -140,6 +147,21 @@ public final class ServerEvents {
 
             var level = sp.serverLevel();
             if (level == null || level.isClientSide()) return;
+
+            try {
+                Entity target = e.getTarget();
+                ItemStack held = sp.getMainHandItem();
+                if (target != null
+                        && held != null
+                        && held.getItem() == Items.WHITE_DYE
+                        && sp.isShiftKeyDown()) {
+                    boolean ignoredNow = IgnoredTargetService.toggleIgnoredByVillagers(target);
+                    sendOverlayText(sp, ignoredNow ? "Target ignored by villagers" : "Target no longer ignored", 1800);
+                    e.setCanceled(true);
+                    e.setCancellationResult(InteractionResult.SUCCESS);
+                    return;
+                }
+            } catch (Throwable ignored) {}
 
             // ============================================================
             // Patrol setup: block vanilla Merchant interaction while recording
@@ -465,7 +487,6 @@ public final class ServerEvents {
 
             // Only try taught macros if no module-level chat command matched.
             if (!handled) {
-                // Phase 1: find the best matching macro within the player's local radius.
                 java.util.ArrayList<Villager> starters = new java.util.ArrayList<>();
                 for (Villager vill : collectVillagersForAudience(sp, audience)) {
                     if (vill == null) continue;
@@ -476,31 +497,15 @@ public final class ServerEvents {
                     starters.add(vill);
                 }
 
-                double bestDist2 = Double.MAX_VALUE;
-                Villager bestVill = null;
-                int bestActionIdx = -1;
+                java.util.LinkedHashMap<UUID, MacroMatch> matches = new java.util.LinkedHashMap<>();
+                java.util.HashSet<UUID> relayers = new java.util.HashSet<>();
 
                 for (Villager vill : starters) {
-                    var actions = CustomCommandsService.getActionsMeta(vill);
-                    if (actions == null || actions.isEmpty()) continue;
-                    for (int i = 0; i < actions.size(); i++) {
-                        var a = actions.get(i);
-                        if (a == null) continue;
-                        boolean allowed = false;
-                        try { allowed = a.anyone() || org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp); } catch (Throwable ignored) { allowed = false; }
-                        if (!allowed) continue;
-                        if (!CustomCommandsService.matchesCommand(a, content)) continue;
-                        double d2 = vill.distanceToSqr(sp);
-                        if (d2 < bestDist2) {
-                            bestDist2 = d2;
-                            bestVill = vill;
-                            bestActionIdx = i;
-                        }
-                    }
+                    int actionIdx = findMatchingMacroAction(vill, sp, content, false);
+                    if (actionIdx >= 0) addMacroMatch(matches, vill, actionIdx);
                 }
 
-                // Phase 2: chain propagation for macros that have "Chain" enabled.
-                if (bestVill == null && !starters.isEmpty()) {
+                if (!starters.isEmpty()) {
                     java.util.HashSet<java.util.UUID> seen = new java.util.HashSet<>();
                     java.util.ArrayDeque<Villager> q = new java.util.ArrayDeque<>();
                     for (Villager v : starters) {
@@ -514,31 +519,11 @@ public final class ServerEvents {
                         Villager cur = q.poll();
                         if (cur == null) continue;
 
-                        // Check for chain-enabled macros on ANY villager in the connected graph.
-                        try {
-                            var actions = CustomCommandsService.getActionsMeta(cur);
-                            if (actions != null && !actions.isEmpty()) {
-                                for (int i = 0; i < actions.size(); i++) {
-                                    var a = actions.get(i);
-                                    if (a == null) continue;
-                                    if (!a.chain()) continue;
-                                    boolean allowed = false;
-                                    try { allowed = a.anyone() || org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(cur, sp); } catch (Throwable ignored) { allowed = false; }
-                                    if (!allowed) continue;
-                                    if (!CustomCommandsService.matchesCommand(a, content)) continue;
-
-                                    double d2 = cur.distanceToSqr(sp);
-                                    if (d2 < bestDist2) {
-                                        bestDist2 = d2;
-                                        bestVill = cur;
-                                        bestActionIdx = i;
-                                    }
-                                }
-                            }
-                        } catch (Throwable ignored) {}
+                        int actionIdx = findMatchingMacroAction(cur, sp, content, true);
+                        if (actionIdx >= 0) addMacroMatch(matches, cur, actionIdx);
 
                         // Expand graph only if THIS villager is allowed to pass chat commands further.
-                                if (!CustomCommandsService.isChatPassing(cur)) continue;
+                        if (!CustomCommandsService.isChatPassing(cur)) continue;
 
                         int passRange = audienceRangeClamp(audience);
 
@@ -558,18 +543,24 @@ public final class ServerEvents {
                             q.add(next);
                             relayed = true;
                         }
-                        if (relayed) queueVillagerChatFeedback(villagerFeedback, cur, isWhisper, relayTextForMacro());
+                        if (relayed) {
+                            relayers.add(cur.getUUID());
+                            queueVillagerChatFeedback(villagerFeedback, cur, isWhisper, relayTextForMacro());
+                        }
                     }
                 }
 
-                if (bestVill != null && bestActionIdx >= 0) {
+                for (MacroMatch match : matches.values()) {
+                    Villager targetVill = match.villager();
+                    int targetActionIdx = match.actionIndex();
+                    if (targetVill == null || targetActionIdx < 0) continue;
+
                     long now = level.getGameTime();
-                    if (CustomCommandsService.canStartAction(bestVill, bestActionIdx, now)) {
-                        CustomCommandsService.startExecution(bestVill, bestActionIdx);
-                        queueVillagerChatFeedback(villagerFeedback, bestVill, isWhisper, confirmTextForMacro());
+                    if (CustomCommandsService.canStartAction(targetVill, targetActionIdx, now)) {
+                        CustomCommandsService.startExecution(targetVill, targetActionIdx);
                     } else {
                         // Queue a retry without requiring the player to re-send the chat message.
-                        var meta = CustomCommandsService.getActionMeta(bestVill, bestActionIdx);
+                        var meta = CustomCommandsService.getActionMeta(targetVill, targetActionIdx);
                         long delayUntil = now;
                         try {
                             if (meta != null) {
@@ -578,8 +569,12 @@ public final class ServerEvents {
                                 if (lastFail > 0L && retryTicks > 0L) delayUntil = Math.max(now, lastFail + retryTicks);
                             }
                         } catch (Throwable ignored) {}
-                        CustomCommandsService.queueExecution(bestVill, bestActionIdx, delayUntil);
-                        queueVillagerChatFeedback(villagerFeedback, bestVill, isWhisper, confirmTextForMacro());
+                        CustomCommandsService.queueExecution(targetVill, targetActionIdx, delayUntil);
+                    }
+
+                    queueVillagerChatFeedback(villagerFeedback, targetVill, isWhisper, confirmTextForMacro());
+                    if (relayers.contains(targetVill.getUUID())) {
+                        queueVillagerChatFeedback(villagerFeedback, targetVill, isWhisper, relayTextForMacro());
                     }
                 }
             }
@@ -969,11 +964,117 @@ public final class ServerEvents {
     }
 
     private static boolean matches(String phrase, String msg, boolean caseSensitive) {
-        if (phrase == null) return false;
-        String p = phrase.trim();
-        if (p.isEmpty()) return false;
-        if (caseSensitive) return p.equals(msg);
-        return p.equalsIgnoreCase(msg);
+        return ChatCommandMatcher.matches(phrase, msg, caseSensitive);
+    }
+
+    private static void onLivingIncomingDamage(LivingIncomingDamageEvent e) {
+        try {
+            if (e == null) return;
+            LivingEntity victim = e.getEntity();
+            if (!(victim instanceof Villager vill)) return;
+            if (!RecruitService.isRecruited(vill)) return;
+            if (vill.level() == null || vill.level().isClientSide()) return;
+
+            UUID ownerUuid = RecruitService.getRecruiterUuid(vill);
+            if (ownerUuid == null) return;
+
+            Player ownerAttacker = resolvePlayerAttacker(e);
+            if (ownerAttacker != null && ownerUuid.equals(ownerAttacker.getUUID())) {
+                cancelIncomingDamage(e);
+                return;
+            }
+
+            Villager alliedVillagerAttacker = resolveVillagerAttacker(e);
+            if (alliedVillagerAttacker == null) return;
+            if (alliedVillagerAttacker == vill) {
+                cancelIncomingDamage(e);
+                return;
+            }
+
+            if (!RecruitService.isRecruited(alliedVillagerAttacker)) return;
+            UUID attackerOwner = RecruitService.getRecruiterUuid(alliedVillagerAttacker);
+            if (attackerOwner == null || !ownerUuid.equals(attackerOwner)) return;
+
+            cancelIncomingDamage(e);
+        } catch (Throwable ignored) {}
+    }
+
+    private static Player resolvePlayerAttacker(LivingIncomingDamageEvent e) {
+        try {
+            Entity sourceEntity = resolveResponsibleDamageEntity(e);
+            if (sourceEntity instanceof Player player) return player;
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static Villager resolveVillagerAttacker(LivingIncomingDamageEvent e) {
+        try {
+            Entity sourceEntity = resolveResponsibleDamageEntity(e);
+            if (sourceEntity instanceof Villager villager) return villager;
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static Entity resolveResponsibleDamageEntity(LivingIncomingDamageEvent e) {
+        try {
+            if (e == null || e.getSource() == null) return null;
+
+            Entity sourceEntity = e.getSource().getEntity();
+            if (sourceEntity != null) return sourceEntity;
+
+            Entity directEntity = e.getSource().getDirectEntity();
+            if (directEntity instanceof TraceableEntity traceable) {
+                Entity owner = traceable.getOwner();
+                if (owner != null) return owner;
+            }
+
+            return directEntity;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static void cancelIncomingDamage(LivingIncomingDamageEvent e) {
+        try { e.setCanceled(true); } catch (Throwable ignored) {}
+        try {
+            var setter = e.getClass().getMethod("setAmount", float.class);
+            setter.invoke(e, 0.0f);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void sendOverlayText(ServerPlayer sp, String text, int durationMs) {
+        try {
+            if (sp == null || sp.connection == null || text == null) return;
+            sp.connection.send(new ClientboundCustomPayloadPacket(new PacketFarmingOverlayText(text, durationMs)));
+        } catch (Throwable ignored) {}
+    }
+
+    private static int findMatchingMacroAction(Villager vill, ServerPlayer sp, String content, boolean requireChain) {
+        try {
+            if (vill == null || sp == null || content == null) return -1;
+            var actions = CustomCommandsService.getActionsMeta(vill);
+            if (actions == null || actions.isEmpty()) return -1;
+            for (int i = 0; i < actions.size(); i++) {
+                var action = actions.get(i);
+                if (action == null) continue;
+                if (requireChain && !action.chain()) continue;
+                boolean allowed = false;
+                try { allowed = action.anyone() || org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp); } catch (Throwable ignored) { allowed = false; }
+                if (!allowed) continue;
+                if (!CustomCommandsService.matchesCommand(action, content)) continue;
+                return i;
+            }
+        } catch (Throwable ignored) {}
+        return -1;
+    }
+
+    private static void addMacroMatch(java.util.Map<UUID, MacroMatch> matches, Villager vill, int actionIdx) {
+        try {
+            if (matches == null || vill == null || actionIdx < 0) return;
+            UUID id = vill.getUUID();
+            if (id == null || matches.containsKey(id)) return;
+            matches.put(id, new MacroMatch(vill, actionIdx));
+        } catch (Throwable ignored) {}
     }
 
     private static List<Villager> collectOwnedVillagersForChat(ServerPlayer sp, ChatAudience audience, boolean chain, java.util.Set<UUID> relayers) {

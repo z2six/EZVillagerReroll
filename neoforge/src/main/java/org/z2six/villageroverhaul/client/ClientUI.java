@@ -80,6 +80,7 @@ import java.util.WeakHashMap;
 public final class ClientUI {
 
     private static final long TOOLTIP_REFRESH_DEBOUNCE_MS = 750;
+    private static long TRADE_LOCK_BADGE_LOG_AT_MS = 0L;
 
     private static final long VILLAGER_STATS_REFRESH_DEBOUNCE_MS = 1500;
 
@@ -1504,9 +1505,6 @@ public final class ClientUI {
         try {
             if (!(e.getScreen() instanceof MerchantScreen screen)) return;
 
-            // Keep trade-lock indicators as-is.
-            renderTradeLockIndicators(e, screen);
-
             // Auto-trade overlay (client-only QoL)
             try {
                 AutoTradeService.renderStatus(e.getGuiGraphics(), screen);
@@ -1527,6 +1525,7 @@ public final class ClientUI {
             updateMovementButtonsVisual(screen);
             updateCombatButtonsVisual(screen);
             updateManualFarmingButtonVisual(screen);
+            renderTradeLockBadges(e.getGuiGraphics(), screen);
 
             boolean expanded = controlsEnabled && isCommandsExpanded(screen);
 
@@ -1710,59 +1709,6 @@ public final class ClientUI {
         }
     }
 
-    private static void renderTradeLockIndicators(ScreenEvent.Render.Post e, MerchantScreen screen) {
-        try {
-            if (!isControlsUiEnabled(screen)) return;
-
-            int cid = resolveContainerId(screen);
-            if (cid < 0) return;
-
-            long mask = ClientTradeLockCache.getMaskForContainer(cid);
-            if (mask == 0L) return;
-
-            int offerCount = safeOfferCount(screen);
-            if (offerCount <= 0) return;
-
-            int scrollOff = MerchantTradeButtonResolver.getScrollOffset(screen, offerCount);
-
-            List<MerchantTradeButtonResolver.TradeButtonRef> tradeButtons = MerchantTradeButtonResolver.getTradeButtons(screen);
-            if (tradeButtons.isEmpty()) return;
-
-            GuiGraphics gg = e.getGuiGraphics();
-            final int outlineColor = 0xFF66FF66;
-
-            for (MerchantTradeButtonResolver.TradeButtonRef ref : tradeButtons) {
-                AbstractWidget w = ref.widget();
-                if (w == null || !w.visible) continue;
-
-                int rowIdx = ref.rowIndex();
-                if (rowIdx < 0 || rowIdx > 63) continue;
-
-                int absoluteIdx = scrollOff + rowIdx;
-                if (absoluteIdx < 0 || absoluteIdx >= offerCount) continue;
-                if ((mask & (1L << absoluteIdx)) == 0L) continue;
-
-                int x = w.getX();
-                int y = w.getY();
-                int ww = w.getWidth();
-                int hh = w.getHeight();
-                if (ww <= 0 || hh <= 0) continue;
-
-                try {
-                    gg.renderOutline(x, y, ww, hh, outlineColor);
-                } catch (Throwable t) {
-                    gg.fill(x, y, x + ww, y + 1, outlineColor);
-                    gg.fill(x, y + hh - 1, x + ww, y + hh, outlineColor);
-                    gg.fill(x, y, x + 1, y + hh, outlineColor);
-                    gg.fill(x + ww - 1, y, x + ww, y + hh, outlineColor);
-                }
-            }
-
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().error("[VillagerOverhaul] renderTradeLockIndicators exception", t);
-        }
-    }
-
     private static int clamp(int v, int min, int max) {
         if (v < min) return min;
         if (v > max) return max;
@@ -1776,6 +1722,81 @@ public final class ClientUI {
         } catch (Throwable t) {
             return -1;
         }
+    }
+
+    private static void renderTradeLockBadges(GuiGraphics gg, MerchantScreen screen) {
+        try {
+            int containerId = resolveContainerId(screen);
+            if (containerId < 0) return;
+
+            long mask = ClientTradeLockCache.getMaskForContainer(containerId);
+            if (mask == 0L) return;
+
+            if (!(screen.getMenu() instanceof MerchantMenu menu)) return;
+            var offers = menu.getOffers();
+            if (offers == null || offers.isEmpty()) return;
+
+            int scrollOff = MerchantTradeButtonResolver.getScrollOffset(screen, offers.size());
+            int drawCount = 0;
+            int widgetCount = 0;
+
+            for (MerchantTradeButtonResolver.TradeButtonRef ref : MerchantTradeButtonResolver.getTradeButtons(screen)) {
+                AbstractWidget widget = ref.widget();
+                widgetCount++;
+                if (widget == null || !widget.visible) continue;
+
+                int absoluteIdx = scrollOff + ref.rowIndex();
+                if (absoluteIdx < 0 || absoluteIdx >= offers.size()) continue;
+                if ((mask & (1L << absoluteIdx)) == 0L) continue;
+
+                int resultX = widget.getX() + 68;
+                int resultY = widget.getY() + 1;
+                drawLockedResultSlot(gg, resultX, resultY);
+                drawCount++;
+            }
+
+            logTradeLockBadgeRender(containerId, mask, offers.size(), scrollOff, widgetCount, drawCount);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] renderTradeLockBadges failed", t);
+        }
+    }
+
+    private static void logTradeLockBadgeRender(int containerId, long mask, int offerCount, int scrollOff, int widgetCount, int drawCount) {
+        long now = System.currentTimeMillis();
+        if ((now - TRADE_LOCK_BADGE_LOG_AT_MS) < 1000L) return;
+        TRADE_LOCK_BADGE_LOG_AT_MS = now;
+        VillagerOverhaul.LOG().info(
+                "[VillagerOverhaul] trade-lock badge render: containerId={} mask={} offerCount={} scrollOff={} widgetCount={} drawCount={}",
+                containerId, Long.toUnsignedString(mask), offerCount, scrollOff, widgetCount, drawCount
+        );
+    }
+
+    private static void drawLockedResultSlot(GuiGraphics gg, int slotX, int slotY) {
+        final int outline = 0xFF66FF66;
+        final int slotTint = 0x22153215;
+        final int badgeFill = 0xFF153215;
+        final int badgeAccent = 0xFF66FF66;
+
+        drawOutline(gg, slotX - 1, slotY - 1, 18, 18, outline);
+        gg.fill(slotX, slotY, slotX + 16, slotY + 16, slotTint);
+
+        int badgeX = slotX + 10;
+        int badgeY = slotY - 2;
+        drawOutline(gg, badgeX, badgeY, 7, 7, outline);
+        gg.fill(badgeX + 1, badgeY + 1, badgeX + 6, badgeY + 6, badgeFill);
+
+        gg.fill(badgeX + 2, badgeY + 1, badgeX + 5, badgeY + 2, badgeAccent);
+        gg.fill(badgeX + 1, badgeY + 2, badgeX + 2, badgeY + 4, badgeAccent);
+        gg.fill(badgeX + 5, badgeY + 2, badgeX + 6, badgeY + 4, badgeAccent);
+        gg.fill(badgeX + 2, badgeY + 3, badgeX + 5, badgeY + 6, badgeAccent);
+        gg.fill(badgeX + 3, badgeY + 4, badgeX + 4, badgeY + 5, badgeFill);
+    }
+
+    private static void drawOutline(GuiGraphics gg, int x, int y, int w, int h, int color) {
+        gg.fill(x, y, x + w, y + 1, color);
+        gg.fill(x, y + h - 1, x + w, y + h, color);
+        gg.fill(x, y, x + 1, y + h, color);
+        gg.fill(x + w - 1, y, x + w, y + h, color);
     }
 
     private static int safeOfferCount(MerchantScreen screen) {

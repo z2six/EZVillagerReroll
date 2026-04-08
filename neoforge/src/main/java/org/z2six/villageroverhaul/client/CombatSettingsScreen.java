@@ -70,8 +70,11 @@ public final class CombatSettingsScreen extends Screen {
     private Button aggroBl;
     private CheckBoxWidget cbAggroHostile;
     private CheckBoxWidget cbAggroPassive;
+    private CheckBoxWidget cbAggroPlayers;
+    private Button aggroPlayerWhitelist;
     private InfoIconWidget infoAggroRules;
     private InfoIconWidget infoAggroCategories;
+    private InfoIconWidget infoAggroPlayers;
 
     private Button btnSave;
     private Button btnBack;
@@ -226,21 +229,29 @@ public final class CombatSettingsScreen extends Screen {
         int aggroY = y + blockH;
         aggroWl = makeListButton(x, aggroY, 120, btnH, "Whitelist", this::openAggressiveWhitelist);
         aggroBl = makeListButton(x + 126, aggroY, 120, btnH, "Blacklist", this::openAggressiveBlacklist);
-        cbAggroHostile = new CheckBoxWidget(x, aggroY + 28, "Target aggressive mobs (monster cap)");
-        cbAggroPassive = new CheckBoxWidget(x, aggroY + 50, "Target passive mobs (creature/ambient/water caps)");
+        cbAggroHostile = new CheckBoxWidget(x, aggroY + 24, "Target aggressive mobs (monster cap)");
+        cbAggroPassive = new CheckBoxWidget(x, aggroY + 46, "Target passive mobs (creature/ambient/water caps)");
+        cbAggroPlayers = new CheckBoxWidget(x, aggroY + 68, "Target players except owner");
+        aggroPlayerWhitelist = makeListButton(x, aggroY + 90, 150, btnH, "Player whitelist", this::openAggressivePlayerWhitelist);
         infoAggroRules = new InfoIconWidget(infoX, aggroY + 1, infoSize,
                 "Blacklist always wins. If whitelist has entries, only those entries are allowed.");
-        infoAggroCategories = new InfoIconWidget(infoX, aggroY + 29, infoSize,
+        infoAggroCategories = new InfoIconWidget(infoX, aggroY + 25, infoSize,
                 "Aggressive mobs use the monster category. Passive mobs use creature/ambient/water categories.");
+        infoAggroPlayers = new InfoIconWidget(infoX, aggroY + 69, infoSize,
+                "When enabled, villagers attack every player except their owner unless that player name is whitelisted.");
 
         addAggressiveWidget(aggroWl);
         addAggressiveWidget(aggroBl);
         addAggressiveWidget(cbAggroHostile);
         addAggressiveWidget(cbAggroPassive);
+        addAggressiveWidget(cbAggroPlayers);
+        addAggressiveWidget(aggroPlayerWhitelist);
         addAggressiveWidget(infoAggroRules);
         addAggressiveWidget(infoAggroCategories);
+        addAggressiveWidget(infoAggroPlayers);
         infoIcons.add(infoAggroRules);
         infoIcons.add(infoAggroCategories);
+        infoIcons.add(infoAggroPlayers);
 
         // ------------------------------------------------------------------
         // AI tab
@@ -353,6 +364,7 @@ public final class CombatSettingsScreen extends Screen {
         if (aggressive) {
             cbAggroHostile.setChecked(m.aggressiveHostileMobs);
             cbAggroPassive.setChecked(m.aggressivePassiveMobs);
+            cbAggroPlayers.setChecked(m.aggressivePlayers);
             return;
         }
 
@@ -380,6 +392,7 @@ public final class CombatSettingsScreen extends Screen {
         if (currentTab == Tab.AGGRESSIVE) {
             m.aggressiveHostileMobs = cbAggroHostile != null && cbAggroHostile.isChecked();
             m.aggressivePassiveMobs = cbAggroPassive != null && cbAggroPassive.isChecked();
+            m.aggressivePlayers = cbAggroPlayers != null && cbAggroPlayers.isChecked();
             return;
         }
 
@@ -471,7 +484,8 @@ public final class CombatSettingsScreen extends Screen {
             case AGGRESSIVE -> new String[] {
                     "Configure which entities are attacked on sight.",
                     "Blacklist wins. Whitelist limits targets when it has entries.",
-                    "Category toggles also work without list entries."
+                    "Category toggles also work without list entries.",
+                    "Player targeting uses a separate player-name whitelist."
             };
             case AI -> new String[] {
                     "Configure combat AI behavior.",
@@ -552,6 +566,14 @@ public final class CombatSettingsScreen extends Screen {
         CombatSettings.ModeSettings m = getCurrentModeSettings();
         if (m == null) return;
         openListEditor(m.aggressiveBlacklist, "Aggressive: blacklist");
+    }
+
+    private void openAggressivePlayerWhitelist() {
+        CombatSettings.ModeSettings m = getCurrentModeSettings();
+        if (m == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc == null) return;
+        mc.setScreen(new StringListEditorScreen(this, m.aggressivePlayerWhitelist, "Aggressive: player whitelist", "Add player name"));
     }
 
     private void openListEditor(List<String> list, String title) {

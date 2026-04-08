@@ -7,10 +7,12 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 import org.z2six.villageroverhaul.server.CombatSettingsService;
+import org.z2six.villageroverhaul.server.IgnoredTargetService;
 import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.util.EnumSet;
@@ -89,7 +91,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
             if (targetUuid == null) return false;
             LivingEntity t = findTargetByUuid(targetUuid);
-            return t != null && t.isAlive();
+            return t != null && t.isAlive() && !IgnoredTargetService.isIgnoredByVillagers(t);
         } catch (Throwable t) {
             return false;
         }
@@ -140,7 +142,12 @@ public final class VillagerCombatAggressiveGoal extends Goal {
                 target = found;
             }
 
-            if (target == null) return;
+            if (target == null) {
+                if (VillagerBrain.isCombatEngaged(vill)) {
+                    VillagerCombatDirector.finishCombatAndResume(vill, "aggressive_no_target");
+                }
+                return;
+            }
 
             VillagerCombatDirector.tickAttack(vill, target);
         } catch (Throwable t) {
@@ -175,7 +182,12 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
             for (LivingEntity e : nearby) {
                 if (e == vill) continue;
+                if (IgnoredTargetService.isIgnoredByVillagers(e)) continue;
                 if (isFriendlyToVillager(vill, e)) continue;
+                if (e instanceof Player player && isAggressivePlayerWhitelisted(settings, player)) {
+                    logReject(safePlayerName(player), "player_whitelisted");
+                    continue;
+                }
                 String id = safeEntityId(e);
                 if (id.isEmpty()) continue;
 
@@ -216,6 +228,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
     private static boolean matchesAutoTarget(CombatSettings.ModeSettings settings, LivingEntity entity) {
         if (settings == null || entity == null) return false;
+        if (settings.aggressivePlayers && entity instanceof Player) return true;
         MobCategory category = entity.getType().getCategory();
         if (settings.aggressiveHostileMobs && category == MobCategory.MONSTER) return true;
         return settings.aggressivePassiveMobs && PASSIVE_MOB_CATEGORIES.contains(category);
@@ -249,6 +262,30 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             return false;
         } catch (Throwable ignored) {
             return false;
+        }
+    }
+
+    private static boolean isAggressivePlayerWhitelisted(CombatSettings.ModeSettings settings, Player player) {
+        try {
+            if (settings == null || player == null) return false;
+            String name = safePlayerName(player);
+            if (name.isEmpty()) return false;
+            for (String raw : settings.aggressivePlayerWhitelist) {
+                if (raw == null || raw.isBlank()) continue;
+                if (name.equals(raw.trim().toLowerCase(Locale.ROOT))) return true;
+            }
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static String safePlayerName(Player player) {
+        try {
+            if (player == null || player.getGameProfile() == null || player.getGameProfile().getName() == null) return "";
+            return player.getGameProfile().getName().trim().toLowerCase(Locale.ROOT);
+        } catch (Throwable ignored) {
+            return "";
         }
     }
 

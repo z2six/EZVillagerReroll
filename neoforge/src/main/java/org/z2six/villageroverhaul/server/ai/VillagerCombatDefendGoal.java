@@ -8,6 +8,7 @@ import net.minecraft.world.phys.AABB;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 import org.z2six.villageroverhaul.server.CombatSettingsService;
+import org.z2six.villageroverhaul.server.IgnoredTargetService;
 import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.util.EnumSet;
@@ -81,7 +82,7 @@ public final class VillagerCombatDefendGoal extends Goal {
 
             if (targetUuid == null) return false;
             LivingEntity t = findThreatByUuid(targetUuid);
-            return t != null && t.isAlive();
+            return t != null && t.isAlive() && !IgnoredTargetService.isIgnoredByVillagers(t);
         } catch (Throwable t) {
             return false;
         }
@@ -124,10 +125,19 @@ public final class VillagerCombatDefendGoal extends Goal {
                 target = null;
                 targetUuid = null;
             }
+            if (target != null && IgnoredTargetService.isIgnoredByVillagers(target)) {
+                target = null;
+                targetUuid = null;
+            }
 
             // Priority 1: if THIS villager was attacked recently, retaliate against that attacker (unless friendly).
             LivingEntity selfAttacker = null;
             try { selfAttacker = vill.getLastHurtByMob(); } catch (Throwable ignored) {}
+            if (selfAttacker != null && selfAttacker.isAlive()) {
+                if (IgnoredTargetService.isIgnoredByVillagers(selfAttacker)) {
+                    selfAttacker = null;
+                }
+            }
             if (selfAttacker != null && selfAttacker.isAlive()) {
                 int ts = 0;
                 try { ts = vill.getLastHurtByMobTimestamp(); } catch (Throwable ignored) { ts = 0; }
@@ -149,7 +159,12 @@ public final class VillagerCombatDefendGoal extends Goal {
                 }
             }
 
-            if (target == null) return;
+            if (target == null) {
+                if (VillagerBrain.isCombatEngaged(vill)) {
+                    VillagerCombatDirector.finishCombatAndResume(vill, "defend_no_target");
+                }
+                return;
+            }
 
             VillagerCombatDirector.tickAttack(vill, target);
         } catch (Throwable t) {
@@ -210,6 +225,7 @@ public final class VillagerCombatDefendGoal extends Goal {
                 LivingEntity toAttack = pickTargetToAttack(attacker, victim, check.trigger);
                 if (toAttack == null) continue;
 
+                if (IgnoredTargetService.isIgnoredByVillagers(toAttack)) continue;
                 if (isFriendlyToVillager(vill, toAttack)) continue;
 
                 double d2 = vill.distanceToSqr(toAttack);

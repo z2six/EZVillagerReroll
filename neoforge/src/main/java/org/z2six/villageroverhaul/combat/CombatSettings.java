@@ -122,6 +122,8 @@ public final class CombatSettings {
         private static final String K_AGGRO_BL = "aggressive_bl";
         private static final String K_AGGRO_HOSTILE = "aggressive_hostile_mobs";
         private static final String K_AGGRO_PASSIVE = "aggressive_passive_mobs";
+        private static final String K_AGGRO_PLAYERS = "aggressive_players";
+        private static final String K_AGGRO_PLAYER_WL = "aggressive_player_whitelist";
 
         // Legacy keys
         private static final String K_OWNER_ATTACKED = "owner_attacked";
@@ -140,6 +142,8 @@ public final class CombatSettings {
         public final List<String> aggressiveBlacklist = new ArrayList<>();
         public boolean aggressiveHostileMobs = false;
         public boolean aggressivePassiveMobs = false;
+        public boolean aggressivePlayers = false;
+        public final List<String> aggressivePlayerWhitelist = new ArrayList<>();
 
         public CompoundTag toTag() {
             CompoundTag tag = new CompoundTag();
@@ -151,6 +155,8 @@ public final class CombatSettings {
             tag.put(K_AGGRO_BL, writeStringList(aggressiveBlacklist));
             tag.putBoolean(K_AGGRO_HOSTILE, aggressiveHostileMobs);
             tag.putBoolean(K_AGGRO_PASSIVE, aggressivePassiveMobs);
+            tag.putBoolean(K_AGGRO_PLAYERS, aggressivePlayers);
+            tag.put(K_AGGRO_PLAYER_WL, writeStringList(aggressivePlayerWhitelist));
             return tag;
         }
 
@@ -164,11 +170,14 @@ public final class CombatSettings {
 
             aggressiveWhitelist.clear();
             aggressiveBlacklist.clear();
+            aggressivePlayerWhitelist.clear();
 
             readStringList(tag, K_AGGRO_WL, aggressiveWhitelist);
             readStringList(tag, K_AGGRO_BL, aggressiveBlacklist);
             aggressiveHostileMobs = tag.getBoolean(K_AGGRO_HOSTILE);
             aggressivePassiveMobs = tag.getBoolean(K_AGGRO_PASSIVE);
+            aggressivePlayers = tag.getBoolean(K_AGGRO_PLAYERS);
+            readStringList(tag, K_AGGRO_PLAYER_WL, aggressivePlayerWhitelist);
 
             // Legacy migration
             if (tag.contains(K_OWNER_ATTACKED, Tag.TAG_ANY_NUMERIC) || tag.contains(K_WL_ATTACKED, Tag.TAG_LIST)) {

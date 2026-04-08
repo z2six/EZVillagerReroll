@@ -47,8 +47,11 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
             Screen current = (mc == null) ? null : mc.screen;
             if (!(current instanceof MerchantScreen screen)) return;
 
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] trade-lock RMB detected at x={} y={}", mouseX, mouseY);
+
             MerchantTradeButtonResolver.TradeButtonRef hovered = MerchantTradeButtonResolver.findHoveredTradeButton(screen, mouseX, mouseY);
             if (hovered == null) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] trade-lock RMB: no hovered trade button found");
                 return;
             }
 
@@ -76,7 +79,8 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
 
             // Send server-authoritative toggle request (server will compute villager + persist mask)
             Network.sendToServer(new PacketToggleTradeLock(absoluteIdx));
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Sent PacketToggleTradeLock(absoluteIdx={}) (rowIdx={}, scrollOff={})", absoluteIdx, rowIdx, scrollOff);
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] trade-lock RMB: sending toggle packet absoluteIdx={} rowIdx={} scrollOff={} offerCount={}",
+                    absoluteIdx, rowIdx, scrollOff, offerCount);
 
             // Optimistic local toggle (visuals) keyed by containerId
             int cid = ezvr$getContainerId(screen);
@@ -86,7 +90,7 @@ public abstract class MerchantScreenTradeLockRightClickMixin {
 
                 ClientTradeLockCache.set(new PacketTradeLocks(cid, nextMask));
 
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Optimistic mask: containerId={} old={} next={} (absoluteIdx={})",
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] trade-lock RMB: optimistic mask containerId={} old={} next={} absoluteIdx={}",
                         cid, Long.toUnsignedString(oldMask), Long.toUnsignedString(nextMask), absoluteIdx);
             }
 

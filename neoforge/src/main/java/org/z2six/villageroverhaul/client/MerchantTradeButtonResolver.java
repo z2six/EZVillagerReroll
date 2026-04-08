@@ -22,21 +22,6 @@ public final class MerchantTradeButtonResolver {
         try {
             if (screen == null) return out;
 
-            try {
-                Object[] rawButtons = ((MerchantScreenAccessor) screen).ezvr$getTradeOfferButtons();
-                if (rawButtons != null) {
-                    for (int i = 0; i < rawButtons.length; i++) {
-                        if (rawButtons[i] instanceof AbstractWidget widget) {
-                            out.add(new TradeButtonRef(widget, i));
-                        }
-                    }
-                }
-            } catch (Throwable ignored) {}
-
-            if (!out.isEmpty()) {
-                return out;
-            }
-
             ArrayList<AbstractWidget> fallback = new ArrayList<>();
             for (GuiEventListener child : screen.children()) {
                 if (!(child instanceof AbstractWidget widget)) continue;

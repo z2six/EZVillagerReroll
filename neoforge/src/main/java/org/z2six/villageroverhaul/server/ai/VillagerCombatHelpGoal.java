@@ -6,6 +6,7 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.npc.Villager;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.server.HelpChatCommandService;
+import org.z2six.villageroverhaul.server.IgnoredTargetService;
 import org.z2six.villageroverhaul.server.RecruitService;
 
 import java.util.EnumSet;
@@ -77,7 +78,7 @@ public final class VillagerCombatHelpGoal extends Goal {
             if (owner == null) {
                 try { VillagerBrain.scheduleHelpReturnIfNeeded(vill); } catch (Throwable ignored) {}
                 VillagerBrain.exitHelpToPreviousCombatMode(vill);
-                VillagerCombatDirector.stop(vill);
+                VillagerCombatDirector.finishCombatAndResume(vill, "help_owner_missing");
                 return;
             }
 
@@ -110,7 +111,7 @@ public final class VillagerCombatHelpGoal extends Goal {
 
                 try { VillagerBrain.scheduleHelpReturnIfNeeded(vill); } catch (Throwable ignored) {}
                 VillagerBrain.exitHelpToPreviousCombatMode(vill);
-                VillagerCombatDirector.stop(vill);
+                VillagerCombatDirector.finishCombatAndResume(vill, "help_no_targets");
                 return;
             }
 
@@ -148,6 +149,7 @@ public final class VillagerCombatHelpGoal extends Goal {
 
                 if (e == null || !e.isAlive()) continue;
                 if (e == vill) continue;
+                if (IgnoredTargetService.isIgnoredByVillagers(e)) continue;
 
                 double d2 = vill.distanceToSqr(e);
                 if (d2 < bestD2) {

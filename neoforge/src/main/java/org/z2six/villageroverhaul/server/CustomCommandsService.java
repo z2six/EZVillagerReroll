@@ -923,48 +923,7 @@ public final class CustomCommandsService {
 
     public static boolean matchesCommand(TaughtActionMeta a, String chatMessage) {
         try {
-            if (a == null || chatMessage == null) return false;
-            String cmd = a.command() == null ? "" : a.command().trim();
-            if (cmd.isEmpty()) return false;
-            String msg = chatMessage.trim();
-
-            String[] parts = cmd.contains("##") ? cmd.split("##", -1) : new String[]{cmd};
-            boolean cs = a.caseSensitive();
-            for (String p : parts) {
-                if (p == null) continue;
-                String trigger = p.trim();
-                if (trigger.isEmpty()) continue;
-
-                boolean contains = trigger.length() >= 4 && trigger.startsWith("$$") && trigger.endsWith("$$");
-                if (contains) {
-                    String needle = trigger.substring(2, trigger.length() - 2).trim();
-                    if (needle.isEmpty()) continue;
-
-                    // Support AND-match inside $$...$$ using "&&" (e.g. $$open&&gates$$ means message must contain both).
-                    String[] andParts = needle.contains("&&") ? needle.split("&&", -1) : null;
-                    if (andParts != null) {
-                        boolean ok = true;
-                        for (String ap : andParts) {
-                            if (ap == null) continue;
-                            String part = ap.trim();
-                            if (part.isEmpty()) continue;
-                            if (cs) {
-                                if (!msg.contains(part)) { ok = false; break; }
-                            } else {
-                                if (!msg.toLowerCase(java.util.Locale.ROOT).contains(part.toLowerCase(java.util.Locale.ROOT))) { ok = false; break; }
-                            }
-                        }
-                        if (ok) return true;
-                        continue;
-                    }
-
-                    if (cs ? msg.contains(needle) : msg.toLowerCase(java.util.Locale.ROOT).contains(needle.toLowerCase(java.util.Locale.ROOT))) return true;
-                    continue;
-                }
-
-                if (cs ? trigger.equals(msg) : trigger.equalsIgnoreCase(msg)) return true;
-            }
-            return false;
+            return a != null && ChatCommandMatcher.matches(a.command(), chatMessage, a.caseSensitive());
         } catch (Throwable ignored) {
             return false;
         }

@@ -19,7 +19,4 @@ public interface MerchantScreenAccessor {
      */
     @Accessor("scrollOff")
     int ezvr$getScrollOff();
-
-    @Accessor("tradeOfferButtons")
-    Object[] ezvr$getTradeOfferButtons();
 }

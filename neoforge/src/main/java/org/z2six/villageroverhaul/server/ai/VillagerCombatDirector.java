@@ -4,6 +4,7 @@ package org.z2six.villageroverhaul.server.ai;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
@@ -26,6 +27,8 @@ import net.minecraft.world.item.UseAnim;
 import net.minecraft.world.item.component.ChargedProjectiles;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -33,6 +36,7 @@ import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 import org.z2six.villageroverhaul.menu.VillagerInventoryMenu;
 import org.z2six.villageroverhaul.server.CombatSettingsService;
+import org.z2six.villageroverhaul.server.FarmingSettingsService;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -85,6 +89,7 @@ public final class VillagerCombatDirector {
 
     private static final double TOO_CLOSE_PAD = 1.5;
     private static final double TOO_CLOSE_HYSTERESIS = 1.6;
+    private static final double PEARL_MIN_DISTANCE_SQR = 25.0;
 
     private static final Map<Villager, State> STATE = new WeakHashMap<>();
 
@@ -368,6 +373,16 @@ public final class VillagerCombatDirector {
         } catch (Throwable ignored) {}
     }
 
+    public static void finishCombatAndResume(Villager vill, String reason) {
+        try {
+            if (vill == null) return;
+            boolean wasEngaged = VillagerBrain.isCombatEngaged(vill);
+            stop(vill);
+            if (!wasEngaged) return;
+            tryUseResumeEnderPearl(vill, reason);
+        } catch (Throwable ignored) {}
+    }
+
     private static boolean tickEatEscapeProcess(Villager vill, LivingEntity target, State st, long now) {
         try {
             if (vill == null || target == null || st == null) return false;
@@ -628,6 +643,134 @@ public final class VillagerCombatDirector {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatDirector.tickEatEscapeProcess failed (soft): {}", t.toString());
             return false;
         }
+    }
+
+    private static void tryUseResumeEnderPearl(Villager vill, String reason) {
+        try {
+            if (vill == null) return;
+            if (!(vill.level() instanceof ServerLevel level)) return;
+            if (!hasResumeEnderPearl(vill)) return;
+
+            Vec3 dest = resolveResumeDestination(vill, level);
+            if (dest == null) return;
+            if (!sameDimensionTarget(vill, level, dest)) return;
+            if (vill.position().distanceToSqr(dest) < PEARL_MIN_DISTANCE_SQR) return;
+
+            playPearlFx(level, vill.position());
+            vill.teleportTo(dest.x, dest.y, dest.z);
+            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            playPearlFx(level, dest);
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_resume_pearl] villager={} mode={} reason={} dest=({}, {}, {})",
+                    safeUuid(vill),
+                    VillagerBrain.getMode(vill).id,
+                    safe(reason),
+                    trim1(dest.x), trim1(dest.y), trim1(dest.z));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_resume_pearl] failed (soft): {}", t.toString());
+        }
+    }
+
+    private static boolean hasResumeEnderPearl(Villager vill) {
+        try {
+            if (vill == null) return false;
+            Container pickup = VillagerInventoryMenu.tryGetVillagerPickupInventory(vill);
+            if (containerHasItem(pickup, Items.ENDER_PEARL)) return true;
+            return containerHasItem(vill.getInventory(), Items.ENDER_PEARL);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean containerHasItem(Container inv, net.minecraft.world.item.Item item) {
+        try {
+            if (inv == null || item == null) return false;
+            for (int i = 0; i < inv.getContainerSize(); i++) {
+                ItemStack st = inv.getItem(i);
+                if (st == null || st.isEmpty()) continue;
+                if (st.getItem() == item && st.getCount() > 0) return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static Vec3 resolveResumeDestination(Villager vill, ServerLevel level) {
+        try {
+            if (vill == null || level == null) return null;
+
+            if (VillagerBrain.isHelpReturnActive(vill)) {
+                Vec3 helpPos = VillagerBrain.getHelpReturnPos(vill);
+                if (helpPos != null) return centerOf(helpPos);
+            }
+
+            if (VillagerBrain.isManualFarmingControlling(vill)) {
+                FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getEffectiveWorkstation(level, vill);
+                if (ws != null) {
+                    String dim = "";
+                    try { dim = String.valueOf(level.dimension().location()); } catch (Throwable ignored) {}
+                    if (ws.dimId() != null && ws.dimId().equals(dim)) {
+                        return new Vec3(ws.x() + 0.5, ws.y() + 0.5, ws.z() + 0.5);
+                    }
+                }
+            }
+
+            VillagerBrain.Mode mode = VillagerBrain.getMode(vill);
+            if (mode == VillagerBrain.Mode.PATROL) {
+                List<Vec3> waypoints = VillagerBrain.getPatrolWaypoints(vill);
+                if (waypoints != null && !waypoints.isEmpty()) {
+                    int idx = VillagerBrain.getPatrolIndex(vill);
+                    if (idx < 0) idx = 0;
+                    if (idx >= waypoints.size()) idx = waypoints.size() - 1;
+                    Vec3 wp = waypoints.get(idx);
+                    if (wp != null) return centerOf(wp);
+                }
+            }
+
+            if (mode == VillagerBrain.Mode.FOLLOW) {
+                java.util.UUID follow = VillagerBrain.getFollowPlayer(vill);
+                if (follow != null) {
+                    var sp = level.getServer().getPlayerList().getPlayer(follow);
+                    if (sp != null && sp.isAlive()) {
+                        return new Vec3(sp.getX(), sp.getY(), sp.getZ());
+                    }
+                }
+            }
+
+            return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static boolean sameDimensionTarget(Villager vill, ServerLevel level, Vec3 dest) {
+        try {
+            if (vill == null || level == null || dest == null) return false;
+            if (VillagerBrain.isHelpReturnActive(vill)) {
+                String dim = VillagerBrain.getHelpReturnDim(vill);
+                String cur = "";
+                try { cur = String.valueOf(level.dimension().location()); } catch (Throwable ignored) { cur = ""; }
+                if (dim != null && !dim.isBlank() && !dim.equals(cur)) return false;
+            }
+        } catch (Throwable ignored) {
+            return false;
+        }
+        return true;
+    }
+
+    private static Vec3 centerOf(Vec3 pos) {
+        if (pos == null) return null;
+        return new Vec3(pos.x, pos.y, pos.z);
+    }
+
+    private static void playPearlFx(ServerLevel level, Vec3 pos) {
+        try {
+            if (level == null || pos == null) return;
+            level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.ENDERMAN_TELEPORT, SoundSource.NEUTRAL, 0.8f, 1.0f);
+        } catch (Throwable ignored) {}
+        try {
+            if (level == null || pos == null) return;
+            level.sendParticles(ParticleTypes.PORTAL, pos.x, pos.y + 0.9, pos.z, 24, 0.35, 0.45, 0.35, 0.08);
+        } catch (Throwable ignored) {}
     }
 
     private static boolean tickRangedAttack(Villager vill, LivingEntity target, State st, long now, CombatSettings.AiSettings ai, RangedLoadout loadout) {
