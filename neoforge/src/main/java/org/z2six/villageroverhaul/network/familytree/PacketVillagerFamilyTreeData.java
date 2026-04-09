@@ -19,6 +19,7 @@ public record PacketVillagerFamilyTreeData(
             long uuidLsb,
             String firstName,
             String lastName,
+            int genderId,
             int generosity,
             int timeliness,
             int intellect,
@@ -77,6 +78,7 @@ public record PacketVillagerFamilyTreeData(
                                 buf.readVarInt(),
                                 buf.readVarInt(),
                                 buf.readVarInt(),
+                                buf.readVarInt(),
                                 buf.readBoolean()
                         ));
                     }
@@ -109,6 +111,7 @@ public record PacketVillagerFamilyTreeData(
                         buf.writeLong(node.uuidLsb());
                         buf.writeUtf(node.firstName() == null ? "" : node.firstName());
                         buf.writeUtf(node.lastName() == null ? "" : node.lastName());
+                        buf.writeVarInt(node.genderId());
                         buf.writeVarInt(node.generosity());
                         buf.writeVarInt(node.timeliness());
                         buf.writeVarInt(node.intellect());

@@ -32,6 +32,10 @@ public final class VillagerStatsEvents {
             var entity = e.getEntity();
             if (entity == null) return;
 
+            if (entity instanceof net.minecraft.world.entity.npc.Villager villager) {
+                VillagerGenderService.ensureAssigned(villager);
+            }
+
             // 1) Ensure NBT stat points exist
             VillagerStatsService.ensureStats(entity);
 

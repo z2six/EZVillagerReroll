@@ -1395,8 +1395,12 @@ public final class ServerEvents {
             int pw  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_PLANT_WHISPERER));
             int rng = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
 
+            int genderId = (merchant instanceof Villager villager)
+                    ? VillagerGenderService.ensureAssigned(villager)
+                    : VillagerGenderService.GENDER_UNKNOWN;
+
             sp.connection.send(new ClientboundCustomPayloadPacket(
-                    new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng)
+                    new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng, genderId)
             ));
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] Sent villager stats snapshot to {} for entityId={} uuid={}",

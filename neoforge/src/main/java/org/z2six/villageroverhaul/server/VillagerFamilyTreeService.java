@@ -29,6 +29,9 @@ public final class VillagerFamilyTreeService {
             if (!(child.level() instanceof ServerLevel level)) {
                 return false;
             }
+            VillagerGenderService.ensureAssigned(child);
+            VillagerGenderService.ensureAssigned(parentA);
+            VillagerGenderService.ensureAssigned(parentB);
             VillagerNameStateService.tryAdoptExistingName(child);
             VillagerNameStateService.tryAdoptExistingName(parentA);
             VillagerNameStateService.tryAdoptExistingName(parentB);
@@ -126,6 +129,7 @@ public final class VillagerFamilyTreeService {
                             uuid.getLeastSignificantBits(),
                             parts.firstName(),
                             parts.lastName(),
+                            resolveGenderId(uuid, villager, data),
                             stats.generosity(),
                             stats.timeliness(),
                             stats.intellect(),
@@ -177,6 +181,7 @@ public final class VillagerFamilyTreeService {
             return;
         }
         VillagerStatsService.StatSnapshot stats = VillagerStatsService.snapshot(villager);
+        int genderId = VillagerGenderService.ensureAssigned(villager);
 
         VillagerFamilyTreeSavedData.NodeData node = data.nodes().get(villager.getUUID());
         if (node == null) {
@@ -186,9 +191,11 @@ public final class VillagerFamilyTreeService {
         }
         if (!firstName.equals(node.firstName)
                 || !lastName.equals(node.lastName)
+                || node.genderId != genderId
                 || !matchesSnapshot(node, stats)) {
             node.firstName = firstName;
             node.lastName = lastName;
+            node.genderId = genderId;
             applySnapshot(node, stats);
             data.setDirty();
         }
@@ -450,6 +457,15 @@ public final class VillagerFamilyTreeService {
             return NodeStats.empty();
         }
         return NodeStats.from(node);
+    }
+
+    private static int resolveGenderId(UUID uuid, Villager selectedVillager, VillagerFamilyTreeSavedData data) {
+        if (uuid.equals(selectedVillager.getUUID()) && VillagerNameStateService.isTracked(selectedVillager)) {
+            return VillagerGenderService.ensureAssigned(selectedVillager);
+        }
+
+        VillagerFamilyTreeSavedData.NodeData node = data.nodes().get(uuid);
+        return node == null ? VillagerGenderService.GENDER_UNKNOWN : node.genderId;
     }
 
     private static boolean matchesSnapshot(VillagerFamilyTreeSavedData.NodeData node, VillagerStatsService.StatSnapshot stats) {

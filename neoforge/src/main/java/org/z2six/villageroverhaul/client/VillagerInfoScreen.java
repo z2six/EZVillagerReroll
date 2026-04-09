@@ -52,6 +52,7 @@ import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnExecute;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnPurge;
+import org.z2six.villageroverhaul.server.VillagerGenderService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 import java.util.ArrayList;
@@ -86,6 +87,7 @@ public final class VillagerInfoScreen extends Screen {
 
     private boolean hasStats = false;
     private boolean statsUnavailable = false;
+    private int genderId = VillagerGenderService.GENDER_UNKNOWN;
 
     // Merchant stats
     private int generosity = 0;
@@ -748,6 +750,7 @@ public final class VillagerInfoScreen extends Screen {
             if (!snap.ok()) {
                 this.statsUnavailable = true;
                 this.hasStats = false;
+                this.genderId = VillagerGenderService.GENDER_UNKNOWN;
                 return;
             }
 
@@ -768,6 +771,7 @@ public final class VillagerInfoScreen extends Screen {
             this.efficiency = VillagerStatsService.clampPoints(snap.efficiency());
             this.plantWhisperer = VillagerStatsService.clampPoints(snap.plantWhisperer());
             this.ranger = VillagerStatsService.clampPoints(snap.ranger());
+            this.genderId = snap.genderId();
 
             this.hasStats = true;
             this.statsUnavailable = false;
@@ -784,6 +788,7 @@ public final class VillagerInfoScreen extends Screen {
             if (pd == null || !pd.contains(VillagerStatsService.TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
                 this.hasStats = false;
                 this.statsUnavailable = true;
+                this.genderId = VillagerGenderService.GENDER_UNKNOWN;
                 return;
             }
 
@@ -803,12 +808,14 @@ public final class VillagerInfoScreen extends Screen {
             this.efficiency = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_EFFICIENCY));
             this.plantWhisperer = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_PLANT_WHISPERER));
             this.ranger = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
+            this.genderId = VillagerGenderService.getGenderIdFromPersistentData(pd);
 
             this.hasStats = true;
             this.statsUnavailable = false;
         } catch (Throwable ignored) {
             this.hasStats = false;
             this.statsUnavailable = true;
+            this.genderId = VillagerGenderService.GENDER_UNKNOWN;
         }
     }
 
@@ -968,11 +975,14 @@ public final class VillagerInfoScreen extends Screen {
                 Component name = safeName(le);
                 gg.drawString(font, Component.literal("Name: ").append(name), textX, textY, 0xFFFFFFFF, false);
 
+                gg.drawString(font, Component.literal("Gender: ").append(safeGenderLabel()), textX, textY + 12, 0xFFFFFFFF, false);
+
                 Component worksFor = safeWorksFor(le);
-                gg.drawString(font, Component.literal("Works for: ").append(worksFor), textX, textY + 12, 0xFFFFFFFF, false);
+                gg.drawString(font, Component.literal("Works for: ").append(worksFor), textX, textY + 24, 0xFFFFFFFF, false);
             }
 
             renderVillagerModel(gg, boxLeft, boxTop, boxRight, boxBottom, mouseX, mouseY);
+            renderGenderSymbolBadge(gg, font, boxTop, boxRight);
         }
 
         boolean tooltipDrawn = false;
@@ -1266,7 +1276,7 @@ public final class VillagerInfoScreen extends Screen {
 
     private int getOverviewListY() {
         int top = (this.height - PANEL_H) / 2;
-        return top + 64;
+        return top + 76;
     }
 
     private int getOverviewListW() {
@@ -2629,6 +2639,45 @@ public final class VillagerInfoScreen extends Screen {
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerInfoScreen entity render failed (soft): {}", t.toString());
         }
+    }
+
+    private void renderGenderSymbolBadge(GuiGraphics gg, Font font, int boxTop, int boxRight) {
+        try {
+            if (gg == null || font == null) return;
+            String symbol = VillagerGenderService.symbolForId(this.genderId);
+            if ("?".equals(symbol)) return;
+
+            int x = boxRight - 8 - font.width(symbol);
+            int y = boxTop + 8;
+            gg.drawString(font, symbol, x, y, genderColor(this.genderId), false);
+        } catch (Throwable ignored) {}
+    }
+
+    private Component safeGenderLabel() {
+        try {
+            if (this.genderId == VillagerGenderService.GENDER_UNKNOWN) {
+                return Component.literal(this.statsUnavailable ? "unknown" : "(syncing...)").withStyle(ChatFormatting.DARK_GRAY);
+            }
+            return Component.literal(VillagerGenderService.displayNameForId(this.genderId)).withStyle(genderStyle(this.genderId));
+        } catch (Throwable ignored) {
+            return Component.literal("unknown").withStyle(ChatFormatting.DARK_GRAY);
+        }
+    }
+
+    private static int genderColor(int genderId) {
+        return switch (genderId) {
+            case VillagerGenderService.GENDER_MALE -> 0xFF6CB6FF;
+            case VillagerGenderService.GENDER_FEMALE -> 0xFFFF8FC8;
+            default -> 0xFFAAAAAA;
+        };
+    }
+
+    private static ChatFormatting genderStyle(int genderId) {
+        return switch (genderId) {
+            case VillagerGenderService.GENDER_MALE -> ChatFormatting.AQUA;
+            case VillagerGenderService.GENDER_FEMALE -> ChatFormatting.LIGHT_PURPLE;
+            default -> ChatFormatting.DARK_GRAY;
+        };
     }
 
     private static Component safeName(LivingEntity le) {

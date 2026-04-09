@@ -13,6 +13,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.Nullable;
 import org.z2six.villageroverhaul.network.familytree.PacketVillagerFamilyTreeData;
+import org.z2six.villageroverhaul.server.VillagerGenderService;
 
 final class FamilyTreeGraphRenderer {
     static final int NODE_W = 96;
@@ -26,6 +27,8 @@ final class FamilyTreeGraphRenderer {
     private static final int NODE_BORDER_HOVER = 0xFFF0C75E;
     private static final int NAME_COLOR = 0xFFFFFFFF;
     private static final int SURNAME_COLOR = 0xFFC8C8C8;
+    private static final int GENDER_MALE_COLOR = 0xFF6CB6FF;
+    private static final int GENDER_FEMALE_COLOR = 0xFFFF8FC8;
 
     private FamilyTreeGraphRenderer() {
     }
@@ -129,6 +132,12 @@ final class FamilyTreeGraphRenderer {
                 int textY = node.y() + 5;
                 gg.drawString(font, first, firstX, textY, NAME_COLOR, false);
                 gg.drawString(font, last, firstX, textY + font.lineHeight + 1, SURNAME_COLOR, false);
+
+                String genderSymbol = VillagerGenderService.symbolForId(node.genderId());
+                if (!"?".equals(genderSymbol)) {
+                    int gx = node.x() + NODE_W - 4 - font.width(genderSymbol);
+                    gg.drawString(font, genderSymbol, gx, textY, genderColor(node.genderId()), false);
+                }
             }
 
             gg.pose().popPose();
@@ -275,8 +284,9 @@ final class FamilyTreeGraphRenderer {
     }
 
     private static List<Component> buildTooltip(PacketVillagerFamilyTreeData.Node node) {
-        List<Component> lines = new ArrayList<>(17);
+        List<Component> lines = new ArrayList<>(18);
         lines.add(Component.literal(fullName(node)).withStyle(ChatFormatting.WHITE));
+        lines.add(Component.literal("Gender: " + VillagerGenderService.displayNameForId(node.genderId())).withStyle(ChatFormatting.GRAY));
         lines.add(Component.empty());
         lines.add(Component.literal("Merchant Stats").withStyle(ChatFormatting.GOLD));
         lines.add(statLine("Generosity", node.generosity()));
@@ -298,6 +308,14 @@ final class FamilyTreeGraphRenderer {
 
     private static Component statLine(String label, int value) {
         return Component.literal(label + ": " + value).withStyle(ChatFormatting.GRAY);
+    }
+
+    private static int genderColor(int genderId) {
+        return switch (genderId) {
+            case VillagerGenderService.GENDER_MALE -> GENDER_MALE_COLOR;
+            case VillagerGenderService.GENDER_FEMALE -> GENDER_FEMALE_COLOR;
+            default -> NAME_COLOR;
+        };
     }
 
     record Bounds(int minX, int minY, int maxX, int maxY) {

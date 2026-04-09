@@ -50,6 +50,7 @@ public final class VillagerNamingEvents {
     }
 
     static boolean renameVillagerIfNeeded(Villager villager) {
+        VillagerGenderService.ensureAssigned(villager);
         VillagerNameStateService.tryAdoptExistingName(villager);
 
         if (!needsGeneratedName(villager)) {

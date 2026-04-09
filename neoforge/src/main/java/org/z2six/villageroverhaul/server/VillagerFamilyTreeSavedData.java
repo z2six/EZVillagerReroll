@@ -17,6 +17,7 @@ public final class VillagerFamilyTreeSavedData extends SavedData {
         public UUID villagerUuid;
         public String firstName = "";
         public String lastName = "";
+        public int genderId = VillagerGenderService.GENDER_UNKNOWN;
         public int generosity;
         public int timeliness;
         public int intellect;
@@ -74,6 +75,9 @@ public final class VillagerFamilyTreeSavedData extends SavedData {
                 node.villagerUuid = uuid;
                 node.firstName = nodeTag.getString("firstName");
                 node.lastName = nodeTag.getString("lastName");
+                node.genderId = nodeTag.contains("genderId", Tag.TAG_INT)
+                        ? nodeTag.getInt("genderId")
+                        : VillagerGenderService.GENDER_UNKNOWN;
                 node.generosity = nodeTag.getInt("generosity");
                 node.timeliness = nodeTag.getInt("timeliness");
                 node.intellect = nodeTag.getInt("intellect");
@@ -123,6 +127,7 @@ public final class VillagerFamilyTreeSavedData extends SavedData {
             writeUuid(nodeTag, "uuid", node.villagerUuid);
             nodeTag.putString("firstName", node.firstName == null ? "" : node.firstName);
             nodeTag.putString("lastName", node.lastName == null ? "" : node.lastName);
+            nodeTag.putInt("genderId", node.genderId);
             nodeTag.putInt("generosity", node.generosity);
             nodeTag.putInt("timeliness", node.timeliness);
             nodeTag.putInt("intellect", node.intellect);

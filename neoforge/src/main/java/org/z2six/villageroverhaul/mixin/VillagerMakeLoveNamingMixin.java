@@ -10,9 +10,24 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 import org.z2six.villageroverhaul.server.VillagerFamilyNames;
+import org.z2six.villageroverhaul.server.VillagerGenderService;
 
 @Mixin(VillagerMakeLove.class)
 abstract class VillagerMakeLoveNamingMixin {
+    @Inject(method = "breed", at = @At("HEAD"), cancellable = true, require = 0)
+    private void villageroverhaul$requireMaleFemalePair(
+            ServerLevel level,
+            Villager parent,
+            Villager partner,
+            CallbackInfoReturnable<Optional<Villager>> cir
+    ) {
+        VillagerGenderService.ensureAssigned(parent);
+        VillagerGenderService.ensureAssigned(partner);
+        if (!VillagerGenderService.isCompatibleBreedingPair(parent, partner)) {
+            cir.setReturnValue(Optional.empty());
+        }
+    }
+
     @Inject(
             method = "breed",
             at = @At(

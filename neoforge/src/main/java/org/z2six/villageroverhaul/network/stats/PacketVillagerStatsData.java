@@ -29,7 +29,8 @@ public record PacketVillagerStatsData(
         int motivation,
         int efficiency,
         int plantWhisperer,
-        int ranger
+        int ranger,
+        int genderId
 ) implements CustomPacketPayload {
 
     public static final Type<PacketVillagerStatsData> TYPE =
@@ -44,7 +45,7 @@ public record PacketVillagerStatsData(
 
                     int g = 0, t = 0, i = 0, h = 0;
                     int v = 0, a = 0, s = 0, ar = 0;
-                    int m = 0, e = 0, pw = 0, r = 0;
+                    int m = 0, e = 0, pw = 0, r = 0, genderId = -1;
 
                     try { id = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { ok = buf.readBoolean(); } catch (Throwable ignored) {}
@@ -65,8 +66,9 @@ public record PacketVillagerStatsData(
                     try { e = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { pw = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { r = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { genderId = buf.readVarInt(); } catch (Throwable ignored) {}
 
-                    return new PacketVillagerStatsData(id, ok, g, t, i, h, v, a, s, ar, m, e, pw, r);
+                    return new PacketVillagerStatsData(id, ok, g, t, i, h, v, a, s, ar, m, e, pw, r, genderId);
                 }
 
                 @Override
@@ -88,11 +90,12 @@ public record PacketVillagerStatsData(
                     buf.writeVarInt(d.efficiency());
                     buf.writeVarInt(d.plantWhisperer());
                     buf.writeVarInt(d.ranger());
+                    buf.writeVarInt(d.genderId());
                 }
             };
 
     public static PacketVillagerStatsData missing(int entityId) {
-        return new PacketVillagerStatsData(entityId, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new PacketVillagerStatsData(entityId, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1);
     }
 
     @Override

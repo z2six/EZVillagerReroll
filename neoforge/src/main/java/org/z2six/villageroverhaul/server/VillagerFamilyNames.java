@@ -12,20 +12,30 @@ public final class VillagerFamilyNames {
     }
 
     public static boolean inheritSurnameFromParents(Villager child, Villager parentA, Villager parentB) {
+        VillagerGenderService.ensureAssigned(child);
+        VillagerGenderService.ensureAssigned(parentA);
+        VillagerGenderService.ensureAssigned(parentB);
+
         VillagerNameStateService.tryAdoptExistingName(parentA);
         VillagerNameStateService.tryAdoptExistingName(parentB);
         if (!VillagerNameStateService.isTracked(parentA) || !VillagerNameStateService.isTracked(parentB)) {
             return false;
         }
 
-        String inheritedSurname = pickSurname(child, parentA, parentB);
+        Villager maleParent = VillagerGenderService.resolveMaleParent(parentA, parentB);
+        Villager femaleParent = VillagerGenderService.resolveFemaleParent(parentA, parentB);
+        if (maleParent == null || femaleParent == null) {
+            return false;
+        }
+
+        String inheritedSurname = pickSurname(maleParent, femaleParent);
         if (inheritedSurname == null) {
             return false;
         }
 
         VillagerNameStateService.assignGeneratedName(child, inheritedSurname);
-        VillagerStatsService.inheritStatsFromParents(child, parentA, parentB);
-        VillagerFamilyTreeService.recordBreeding(child, parentA, parentB);
+        VillagerStatsService.inheritStatsFromParents(child, maleParent, femaleParent);
+        VillagerFamilyTreeService.recordBreeding(child, maleParent, femaleParent);
         return true;
     }
 
@@ -57,17 +67,12 @@ public final class VillagerFamilyNames {
     }
 
     @Nullable
-    private static String pickSurname(Villager child, Villager parentA, Villager parentB) {
-        String surnameA = extractSurname(parentA);
-        String surnameB = extractSurname(parentB);
-
-        if (surnameA == null) {
-            return surnameB;
+    private static String pickSurname(Villager maleParent, Villager femaleParent) {
+        String maleSurname = extractSurname(maleParent);
+        if (maleSurname != null) {
+            return maleSurname;
         }
-        if (surnameB == null) {
-            return surnameA;
-        }
-        return child.getRandom().nextBoolean() ? surnameA : surnameB;
+        return extractSurname(femaleParent);
     }
 
     @Nullable

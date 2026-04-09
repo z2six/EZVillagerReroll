@@ -96,6 +96,7 @@ import org.z2six.villageroverhaul.network.respawn.PacketRespawnPurge;
 import org.z2six.villageroverhaul.logic.PaymentUtil;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
+import org.z2six.villageroverhaul.server.VillagerGenderService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 public final class Network {
@@ -810,6 +811,9 @@ public final class Network {
                 }
 
                 VillagerStatsService.ensureStats(ent);
+                int genderId = (ent instanceof Villager villager)
+                        ? VillagerGenderService.ensureAssigned(villager)
+                        : VillagerGenderService.GENDER_UNKNOWN;
 
                 CompoundTag pd = ent.getPersistentData();
                 if (pd == null || !pd.contains(VillagerStatsService.TAG_ROOT, CompoundTag.TAG_COMPOUND)) {
@@ -834,7 +838,7 @@ public final class Network {
                 int pw  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_PLANT_WHISPERER));
                 int rng = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
 
-                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng));
+                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng, genderId));
 
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerStatsQuery handler error", t);
@@ -957,6 +961,7 @@ public final class Network {
                     return;
                 }
 
+                VillagerGenderService.ensureAssigned(vill);
                 ctx.reply(org.z2six.villageroverhaul.server.VillagerFamilyTreeService.snapshot(vill));
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerFamilyTreeQuery handler error", t);
