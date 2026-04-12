@@ -13,9 +13,11 @@ import org.z2six.villageroverhaul.farming.FarmingSettings;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfileUpsert;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
+import org.z2six.villageroverhaul.server.PlayerFarmingProfilesSavedData;
 
 public final class FarmingSettingsScreen extends Screen {
 
@@ -23,6 +25,8 @@ public final class FarmingSettingsScreen extends Screen {
 
     private final Screen parent;
     private final int villagerEntityId;
+    private final boolean profileMode;
+    private final String profileName;
 
     private FarmingSettings settings = new FarmingSettings();
     private boolean farmingModuleEnabled = true;
@@ -61,6 +65,7 @@ public final class FarmingSettingsScreen extends Screen {
 
     private Button btnSave;
     private Button btnBack;
+    private Button btnProfiles;
 
     // Match VillagerInfoScreen sizing for consistent UI.
     private static final int PANEL_W = 316;
@@ -77,6 +82,17 @@ public final class FarmingSettingsScreen extends Screen {
         super(Component.literal("Farming Settings"));
         this.parent = parent;
         this.villagerEntityId = villagerEntityId;
+        this.profileMode = false;
+        this.profileName = "";
+    }
+
+    public FarmingSettingsScreen(Screen parent, String profileName, FarmingSettings initialSettings) {
+        super(Component.literal("Farming Settings"));
+        this.parent = parent;
+        this.villagerEntityId = 0;
+        this.profileMode = true;
+        this.profileName = PlayerFarmingProfilesSavedData.sanitizeName(profileName);
+        this.settings = PlayerFarmingProfilesSavedData.normalizeProfileSettings(initialSettings);
     }
 
     public int getVillagerEntityId() {
@@ -117,18 +133,29 @@ public final class FarmingSettingsScreen extends Screen {
         int left = (this.width - PANEL_W) / 2;
         int top = (this.height - PANEL_H) / 2;
 
+        int backX = left + PANEL_W - 58 - PAD;
         btnBack = Button.builder(Component.literal("Back"), b -> onClose())
-                .pos(left + PANEL_W - 58 - PAD, top + PAD)
+                .pos(backX, top + PAD)
                 .size(58, 18)
                 .build();
         btnBack.setTooltip(Tooltip.create(Component.literal("Close without saving.")));
         addRenderableWidget(btnBack);
 
+        if (!profileMode) {
+            int profilesX = backX - 6 - 62 - 6 - 58;
+            btnProfiles = Button.builder(Component.literal("Profiles"), b -> openProfiles())
+                    .pos(profilesX, top + PAD)
+                    .size(62, 18)
+                    .build();
+            btnProfiles.setTooltip(Tooltip.create(Component.literal("Open saved manual farming profiles and load one into this villager.")));
+            addRenderableWidget(btnProfiles);
+        }
+
         btnSave = Button.builder(Component.literal("Save"), b -> onSave())
-                .pos(left + PANEL_W - 58 - PAD - 6 - 58, top + PAD)
+                .pos(profileMode ? (backX - 6 - 58) : (backX - 6 - 58), top + PAD)
                 .size(58, 18)
                 .build();
-        btnSave.setTooltip(Tooltip.create(Component.literal("Save settings to the villager.")));
+        btnSave.setTooltip(Tooltip.create(Component.literal(profileMode ? "Save this preset profile." : "Save settings to the villager.")));
         addRenderableWidget(btnSave);
 
         // Tabs (below title)
@@ -269,7 +296,7 @@ public final class FarmingSettingsScreen extends Screen {
                 .pos(left + PAD, row5Y)
                 .size(innerW, 18)
                 .build();
-        btnWorkstationRegister.setTooltip(Tooltip.create(Component.literal("Register a workstation block.\nAfter clicking, RMB any block.\nIf not registered, the villager will fall back to its vanilla job site (if any).")));
+        btnWorkstationRegister.setTooltip(Tooltip.create(Component.literal("Register a workstation block.\nAfter clicking, RMB any block.\nOnce manual workstation override exists, manual farming will no longer use the vanilla job site fallback.")));
         addRenderableWidget(btnWorkstationRegister);
 
         int row6Y = row5Y + 22;
@@ -288,7 +315,7 @@ public final class FarmingSettingsScreen extends Screen {
         addRenderableWidget(btnDropOtherToggle);
 
         // Load cached settings and/or query server, unless we're returning from the item editor with a local draft.
-        if (!(hasInitializedOnce && preserveLocalDraftOnNextInit)) {
+        if (!profileMode && !(hasInitializedOnce && preserveLocalDraftOnNextInit)) {
             FarmingSettings cached = ClientFarmingSettingsCache.get(villagerEntityId);
             long age = ClientFarmingSettingsCache.getAgeMs(villagerEntityId);
             if (cached != null) {
@@ -304,6 +331,25 @@ public final class FarmingSettingsScreen extends Screen {
 
         applyToWidgets();
         updateTabVisibility();
+
+        if (profileMode) {
+            if (btnRegisterDepositChest != null) {
+                btnRegisterDepositChest.active = false;
+                btnRegisterDepositChest.setTooltip(Tooltip.create(Component.literal("Deposit chest registration is villager-specific and is not part of a profile.")));
+            }
+            if (btnRegisterWithdrawChest != null) {
+                btnRegisterWithdrawChest.active = false;
+                btnRegisterWithdrawChest.setTooltip(Tooltip.create(Component.literal("Withdraw chest registration is villager-specific and is not part of a profile.")));
+            }
+            if (btnWorkstationRegister != null) {
+                btnWorkstationRegister.active = false;
+                btnWorkstationRegister.setTooltip(Tooltip.create(Component.literal("Workstation registration is villager-specific and is not part of a profile.")));
+            }
+            settings.manualWorkstationRegistered = false;
+            settings.hasDepositChest = false;
+            settings.hasWithdrawChest = false;
+            applyToWidgets();
+        }
 
         if (!farmingModuleEnabled) {
             // Keep only navigation; server will reject updates anyway.
@@ -524,6 +570,7 @@ public final class FarmingSettingsScreen extends Screen {
 
     private void beginWorkstationRegister() {
         try {
+            if (profileMode) return;
             readFromWidgets();
             ClientUI.beginWorkstationRegistration(villagerEntityId);
         } catch (Throwable ignored) {}
@@ -531,6 +578,7 @@ public final class FarmingSettingsScreen extends Screen {
 
     private void beginDepositChestRegister() {
         try {
+            if (profileMode) return;
             readFromWidgets();
             ClientUI.beginChestRegistration(villagerEntityId);
         } catch (Throwable ignored) {}
@@ -538,19 +586,53 @@ public final class FarmingSettingsScreen extends Screen {
 
     private void beginWithdrawChestRegister() {
         try {
+            if (profileMode) return;
             readFromWidgets();
             ClientUI.beginWithdrawChestRegistration(villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
+    private void openProfiles() {
+        try {
+            if (profileMode) return;
+            readFromWidgets();
+            preserveLocalDraftOnNextInit = true;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+            mc.setScreen(new FarmingProfilesScreen(this, this));
         } catch (Throwable ignored) {}
     }
 
     private void onSave() {
         try {
             readFromWidgets();
-            ClientNetwork.sendToServer(new PacketFarmingSettingsUpdate(villagerEntityId, settings.toTag()));
+            if (profileMode) {
+                FarmingSettings profileSettings = buildProfileSettingsForSave();
+                if (!profileName.isBlank()) {
+                    ClientNetwork.sendToServer(new PacketFarmingProfileUpsert(profileName, profileSettings.toTag()));
+                }
+            } else {
+                ClientNetwork.sendToServer(new PacketFarmingSettingsUpdate(villagerEntityId, settings.toTag()));
+            }
             onClose();
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] FarmingSettingsScreen.onSave failed", t);
         }
+    }
+
+    public void applyProfileFromPreset(String loadedProfileName, FarmingSettings profileSettings) {
+        try {
+            readFromWidgets();
+            FarmingSettings merged = copySettings(profileSettings);
+            merged.manualWorkstationRegistered = this.settings.manualWorkstationRegistered;
+            merged.hasDepositChest = this.settings.hasDepositChest;
+            merged.hasWithdrawChest = this.settings.hasWithdrawChest;
+            merged.updatedAt = this.settings.updatedAt;
+            this.settings = merged;
+            applyToWidgets();
+            ClientNetwork.sendToServer(new PacketFarmingSettingsUpdate(villagerEntityId, this.settings.toTag()));
+            ClientUI.showFarmingOverlayText("Loaded profile: " + PlayerFarmingProfilesSavedData.sanitizeName(loadedProfileName), 1600);
+        } catch (Throwable ignored) {}
     }
 
     @Override
@@ -567,7 +649,8 @@ public final class FarmingSettingsScreen extends Screen {
         drawPanel(gg, left, top, PANEL_W, PANEL_H);
 
         Font font = Minecraft.getInstance().font;
-        gg.drawString(font, "Farming Settings", left + PAD, top + PAD + 5, 0xFFFFFFFF, true);
+        String title = profileMode && !profileName.isBlank() ? ("Farming Profile: " + profileName) : "Farming Settings";
+        gg.drawString(font, title, left + PAD, top + PAD + 5, 0xFFFFFFFF, true);
         if (!farmingModuleEnabled) {
             gg.drawString(font, "Farming module disabled by server", left + PAD, top + PAD + 50, 0xFFFF7777, false);
             super.render(gg, mouseX, mouseY, partialTick);
@@ -657,5 +740,24 @@ public final class FarmingSettingsScreen extends Screen {
         } catch (Throwable ignored) {
             return 10;
         }
+    }
+
+    private FarmingSettings buildProfileSettingsForSave() {
+        FarmingSettings out = copySettings(this.settings);
+        out.updatedAt = 0L;
+        out.manualWorkstationRegistered = false;
+        out.hasDepositChest = false;
+        out.hasWithdrawChest = false;
+        return out;
+    }
+
+    private static FarmingSettings copySettings(FarmingSettings source) {
+        if (source == null) return new FarmingSettings();
+        FarmingSettings copy = FarmingSettings.fromTag(source.toTag());
+        copy.updatedAt = source.updatedAt;
+        copy.manualWorkstationRegistered = source.manualWorkstationRegistered;
+        copy.hasDepositChest = source.hasDepositChest;
+        copy.hasWithdrawChest = source.hasWithdrawChest;
+        return copy;
     }
 }

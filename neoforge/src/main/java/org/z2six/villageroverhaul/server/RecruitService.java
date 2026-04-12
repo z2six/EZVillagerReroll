@@ -53,11 +53,11 @@ public final class RecruitService {
 
     /**
      * Cost model:
-     *  - Read 12 stats (points in [-100..100] each).
-     *  - Sum in [-1200..1200].
-     *  - Normalize alpha = (sum + 1200) / 2400.
-     *  - Lerp from maxCost (alpha=0) to minCost (alpha=1).
-     *    => very "bad" villager (negative sum) costs near max, very "good" costs near min.
+     *  - Read enabled-module stats (points in [-100..100] each).
+     *  - Sum in [minSum..maxSum].
+     *  - Normalize alpha = (sum - minSum) / (maxSum - minSum).
+     *  - Lerp from minCost (alpha=0) to maxCost (alpha=1).
+     *    => very "bad" villager (negative sum) costs near min, very "good" costs near max.
      */
     public static int computeRecruitCost(Villager vill) {
         try {
@@ -119,8 +119,8 @@ public final class RecruitService {
             if (alpha < 0.0) alpha = 0.0;
             if (alpha > 1.0) alpha = 1.0;
 
-            // alpha=0 => maxCost, alpha=1 => minCost
-            double costD = maxCost + (minCost - maxCost) * alpha;
+            // alpha=0 => minCost, alpha=1 => maxCost
+            double costD = minCost + (maxCost - minCost) * alpha;
             long costL = Math.round(costD);
 
             if (costL < minCost) costL = minCost;

@@ -23,6 +23,10 @@ import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.autoReroll.*;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfilesData;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfilesQuery;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfileDelete;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfileUpsert;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
@@ -91,6 +95,7 @@ import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
 import org.z2six.villageroverhaul.server.FarmingSettingsService;
 import org.z2six.villageroverhaul.server.CustomCommandsService;
+import org.z2six.villageroverhaul.server.PlayerFarmingProfilesSavedData;
 import org.z2six.villageroverhaul.server.PlayerChatCommandsSavedData;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 import net.minecraft.sounds.SoundEvents;
@@ -1454,11 +1459,7 @@ public final class ServerHandlers {
 
             var settings = FarmingSettingsService.getSettings(vill);
             try {
-                if (vill.level() instanceof ServerLevel sl) {
-                    settings.manualWorkstationRegistered = (FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null);
-                } else {
-                    settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
-                }
+                settings.manualWorkstationRegistered = FarmingSettingsService.hasManualWorkstationOverride(vill);
             } catch (Throwable ignored) {}
             net.minecraft.nbt.CompoundTag tag = settings.toTag();
             try { tag.putBoolean("__hasDepositChest", FarmingSettingsService.hasRegisteredChest(vill)); } catch (Throwable ignored) {}
@@ -1524,11 +1525,7 @@ public final class ServerHandlers {
 
             // Derived / server-owned
             try {
-                if (vill.level() instanceof ServerLevel sl) {
-                    settings.manualWorkstationRegistered = (FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null);
-                } else {
-                    settings.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
-                }
+                settings.manualWorkstationRegistered = FarmingSettingsService.hasManualWorkstationOverride(vill);
             } catch (Throwable ignored) {}
             FarmingSettingsService.setSettings(vill, settings);
 
@@ -1603,11 +1600,7 @@ public final class ServerHandlers {
             FarmingSettingsService.setRegisteredChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
             try {
                 var st = FarmingSettingsService.getSettings(vill);
-                if (vill.level() instanceof ServerLevel sl) {
-                    st.manualWorkstationRegistered = (FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null);
-                } else {
-                    st.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
-                }
+                st.manualWorkstationRegistered = FarmingSettingsService.hasManualWorkstationOverride(vill);
                 net.minecraft.nbt.CompoundTag tag = st.toTag();
                 try { tag.putBoolean("__hasDepositChest", true); } catch (Throwable ignored) {}
                 try { tag.putBoolean("__hasWithdrawChest", FarmingSettingsService.hasRegisteredWithdrawChest(vill)); } catch (Throwable ignored) {}
@@ -1681,11 +1674,7 @@ public final class ServerHandlers {
             FarmingSettingsService.setRegisteredWithdrawChest(vill, dim, pos.getX(), pos.getY(), pos.getZ(), isEnder);
             try {
                 var st = FarmingSettingsService.getSettings(vill);
-                if (vill.level() instanceof ServerLevel sl) {
-                    st.manualWorkstationRegistered = (FarmingSettingsService.getEffectiveWorkstation(sl, vill) != null);
-                } else {
-                    st.manualWorkstationRegistered = FarmingSettingsService.hasRegisteredWorkstation(vill);
-                }
+                st.manualWorkstationRegistered = FarmingSettingsService.hasManualWorkstationOverride(vill);
                 net.minecraft.nbt.CompoundTag tag = st.toTag();
                 try { tag.putBoolean("__hasDepositChest", FarmingSettingsService.hasRegisteredChest(vill)); } catch (Throwable ignored) {}
                 try { tag.putBoolean("__hasWithdrawChest", true); } catch (Throwable ignored) {}
@@ -1724,6 +1713,7 @@ public final class ServerHandlers {
             try {
                 var settings = FarmingSettingsService.getSettings(vill);
                 settings.manualWorkstationRegistered = true;
+                FarmingSettingsService.setSettings(vill, settings);
                 net.minecraft.nbt.CompoundTag tag = settings.toTag();
                 try { tag.putBoolean("__hasDepositChest", FarmingSettingsService.hasRegisteredChest(vill)); } catch (Throwable ignored) {}
                 try { tag.putBoolean("__hasWithdrawChest", FarmingSettingsService.hasRegisteredWithdrawChest(vill)); } catch (Throwable ignored) {}
@@ -2187,6 +2177,38 @@ public final class ServerHandlers {
 
             sd.update(sp.getUUID(), cfg);
             ctx.reply(new PacketPlayerChatCommandsData(PlayerChatCommandsSavedData.toTag(cfg)));
+        } catch (Throwable ignored) {}
+    }
+
+    // =====================
+    // Player Farming Profiles (per-player settings)
+    // =====================
+
+    public static void handleFarmingProfilesQuery(PacketFarmingProfilesQuery msg, IPayloadContext ctx) {
+        try {
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            PlayerFarmingProfilesSavedData sd = PlayerFarmingProfilesSavedData.get(sp.server);
+            ctx.reply(new PacketFarmingProfilesData(PlayerFarmingProfilesSavedData.toTag(sd.getProfiles(sp.getUUID()))));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleFarmingProfileUpsert(PacketFarmingProfileUpsert msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            PlayerFarmingProfilesSavedData sd = PlayerFarmingProfilesSavedData.get(sp.server);
+            sd.upsert(sp.getUUID(), msg.name(), org.z2six.villageroverhaul.farming.FarmingSettings.fromTag(msg.settings()));
+            ctx.reply(new PacketFarmingProfilesData(PlayerFarmingProfilesSavedData.toTag(sd.getProfiles(sp.getUUID()))));
+        } catch (Throwable ignored) {}
+    }
+
+    public static void handleFarmingProfileDelete(PacketFarmingProfileDelete msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            PlayerFarmingProfilesSavedData sd = PlayerFarmingProfilesSavedData.get(sp.server);
+            sd.delete(sp.getUUID(), msg.name());
+            ctx.reply(new PacketFarmingProfilesData(PlayerFarmingProfilesSavedData.toTag(sd.getProfiles(sp.getUUID()))));
         } catch (Throwable ignored) {}
     }
 

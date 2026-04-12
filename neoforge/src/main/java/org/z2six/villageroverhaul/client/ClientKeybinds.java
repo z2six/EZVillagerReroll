@@ -9,6 +9,7 @@ public final class ClientKeybinds {
 
     private static KeyMapping OPEN_GLOBAL_COMBAT_SETTINGS;
     private static KeyMapping OPEN_PLAYER_CHAT_COMMANDS;
+    private static KeyMapping OPEN_FARMING_PROFILES;
 
     private ClientKeybinds() {}
 
@@ -27,6 +28,13 @@ public final class ClientKeybinds {
                 "key.categories.vo"
         );
         e.register(OPEN_PLAYER_CHAT_COMMANDS);
+
+        OPEN_FARMING_PROFILES = new KeyMapping(
+                "key.vo.farming_profiles",
+                GLFW.GLFW_KEY_UNKNOWN,
+                "key.categories.vo"
+        );
+        e.register(OPEN_FARMING_PROFILES);
     }
 
     public static boolean consumeOpenGlobalCombatSettings() {
@@ -40,6 +48,14 @@ public final class ClientKeybinds {
     public static boolean consumeOpenPlayerChatCommands() {
         try {
             return OPEN_PLAYER_CHAT_COMMANDS != null && OPEN_PLAYER_CHAT_COMMANDS.consumeClick();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static boolean consumeOpenFarmingProfiles() {
+        try {
+            return OPEN_FARMING_PROFILES != null && OPEN_FARMING_PROFILES.consumeClick();
         } catch (Throwable t) {
             return false;
         }

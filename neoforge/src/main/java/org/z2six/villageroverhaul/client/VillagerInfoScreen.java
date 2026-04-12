@@ -2116,8 +2116,25 @@ public final class VillagerInfoScreen extends Screen {
             // Recruit cost estimate (same model as server, uses synced bounds if present)
             ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
             if (cfg != null) {
-                int sum = this.generosity + this.timeliness + this.intellect + this.hoarder + this.vitality + this.agility + this.strength + this.armor;
-                sum = Mth.clamp(sum, -800, 800);
+                int sum = 0;
+                int statCount = 0;
+                if (cfg.enableMerchantModule) {
+                    sum += this.generosity + this.timeliness + this.intellect + this.hoarder;
+                    statCount += 4;
+                }
+                if (cfg.enableCombatModule) {
+                    sum += this.vitality + this.agility + this.strength + this.armor;
+                    statCount += 4;
+                }
+                if (cfg.enableFarmingModule) {
+                    sum += this.motivation + this.efficiency + this.plantWhisperer + this.ranger;
+                    statCount += 4;
+                }
+
+                if (statCount <= 0) statCount = 1;
+                int minSum = -100 * statCount;
+                int maxSum = 100 * statCount;
+                sum = Mth.clamp(sum, minSum, maxSum);
 
                 int minCost = Math.max(0, cfg.recruitCostMin);
                 int maxCost = Math.max(0, cfg.recruitCostMax);
@@ -2126,9 +2143,9 @@ public final class VillagerInfoScreen extends Screen {
                 if (minCost == maxCost) {
                     out.add(Component.literal("Recruit cost: ").append(Component.literal(String.valueOf(minCost)).withStyle(ChatFormatting.DARK_GRAY)));
                 } else {
-                    double alpha = (sum + 800.0) / 1600.0;
+                    double alpha = (sum - (double) minSum) / ((double) maxSum - (double) minSum);
                     alpha = Mth.clamp((float) alpha, 0.0f, 1.0f);
-                    int cost = (int) Math.round(maxCost + (minCost - maxCost) * alpha);
+                    int cost = (int) Math.round(minCost + (maxCost - minCost) * alpha);
                     cost = Mth.clamp(cost, minCost, maxCost);
                     out.add(Component.literal("Recruit cost: ").append(Component.literal(String.valueOf(cost)).withStyle(ChatFormatting.DARK_GRAY)));
                 }

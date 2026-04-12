@@ -3,3 +3,6 @@
 ez actions instead of buttons
 or chat GUI's?
 
+
+new global Manual Farming presets feature
+

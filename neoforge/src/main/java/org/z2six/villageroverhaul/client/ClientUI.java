@@ -2915,6 +2915,14 @@ public final class ClientUI {
             } catch (Throwable ignored) {}
 
             try {
+                if (ClientKeybinds.consumeOpenFarmingProfiles()) {
+                    if (mc.screen == null) {
+                        openGlobalFarmingProfiles();
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            try {
                 Screen s = mc.screen;
                 if (s instanceof VillagerQuickActionsScreen qa) {
                     sendUiPauseKeepalive(qa.getVillagerEntityId());
@@ -3018,6 +3026,16 @@ public final class ClientUI {
             mc.setScreen(new CombatSettingsScreen(null, 0, true));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] openGlobalCombatSettings failed", t);
+        }
+    }
+
+    public static void openGlobalFarmingProfiles() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null) return;
+            mc.setScreen(new FarmingProfilesScreen(null));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] openGlobalFarmingProfiles failed", t);
         }
     }
 

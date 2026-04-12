@@ -160,6 +160,16 @@ public final class FarmingSettingsService {
         }
     }
 
+    public static boolean hasManualWorkstationOverride(Villager vill) {
+        try {
+            if (vill == null) return false;
+            FarmingSettings settings = getSettings(vill);
+            return settings != null && settings.manualWorkstationRegistered;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     public record RegisteredWorkstation(String dimId, int x, int y, int z) {}
 
     public static RegisteredWorkstation getRegisteredWorkstation(Villager vill) {
@@ -176,7 +186,7 @@ public final class FarmingSettingsService {
 
     /**
      * Returns the effective workstation for manual farming:
-     * - If the player registered one via our UI, use that.
+     * - If the player registered one via our UI, that explicit choice is authoritative.
      * - Otherwise fall back to the villager's vanilla JOB_SITE memory (job site block).
      *
      * Returns null if none exists or if it's not in the given level dimension.
@@ -188,10 +198,17 @@ public final class FarmingSettingsService {
             String dim = "";
             try { dim = String.valueOf(level.dimension().location()); } catch (Throwable ignored) { dim = ""; }
 
-            // Prefer explicit registered workstation (same-dim only)
+            // Any manual workstation override disables vanilla job-site fallback.
+            boolean manualOverride = hasManualWorkstationOverride(vill);
             RegisteredWorkstation reg = getRegisteredWorkstation(vill);
-            if (reg != null && reg.dimId() != null && !reg.dimId().isBlank() && reg.dimId().equals(dim)) {
-                return reg;
+            if (reg != null) {
+                if (reg.dimId() != null && !reg.dimId().isBlank() && reg.dimId().equals(dim)) {
+                    return reg;
+                }
+                return null;
+            }
+            if (manualOverride) {
+                return null;
             }
 
             // Fall back to vanilla job site (brain memory)

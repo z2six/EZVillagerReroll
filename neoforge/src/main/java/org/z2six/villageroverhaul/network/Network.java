@@ -11,6 +11,10 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.autoReroll.*;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfilesData;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfilesQuery;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfileDelete;
+import org.z2six.villageroverhaul.network.farming.PacketFarmingProfileUpsert;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsUpdate;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
@@ -201,6 +205,12 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleFarmingSettingsQuery(msg, ctx)));
             r.playToServer(PacketFarmingSettingsUpdate.TYPE, PacketFarmingSettingsUpdate.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleFarmingSettingsUpdate(msg, ctx)));
+            r.playToServer(PacketFarmingProfilesQuery.TYPE, PacketFarmingProfilesQuery.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleFarmingProfilesQuery(msg, ctx)));
+            r.playToServer(PacketFarmingProfileUpsert.TYPE, PacketFarmingProfileUpsert.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleFarmingProfileUpsert(msg, ctx)));
+            r.playToServer(PacketFarmingProfileDelete.TYPE, PacketFarmingProfileDelete.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleFarmingProfileDelete(msg, ctx)));
             r.playToServer(PacketRegisterFarmingChest.TYPE, PacketRegisterFarmingChest.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingChest(msg, ctx)));
             r.playToServer(PacketRegisterFarmingWithdrawChest.TYPE, PacketRegisterFarmingWithdrawChest.STREAM_CODEC,
@@ -281,6 +291,8 @@ public final class Network {
             // farming settings UI data
             r.playToClient(PacketFarmingSettingsData.TYPE, PacketFarmingSettingsData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onFarmingSettingsData", msg, ctx));
+            r.playToClient(PacketFarmingProfilesData.TYPE, PacketFarmingProfilesData.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onFarmingProfilesData", msg, ctx));
             r.playToClient(PacketFarmingOverlayText.TYPE, PacketFarmingOverlayText.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onFarmingOverlayText", msg, ctx));
 
