@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "WWW",
+    "PPP",
+    "P P"
+  ],
+  "key": {
+    "W": {
+      "item": "minecraft:white_carpet"
+    },
+    "P": {
+      "tag": "minecraft:planks"
+    }
+  },
+  "result": {
+    "id": "villageroverhaul:trading_hall",
+    "count": 1
+  }
+}
