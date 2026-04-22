@@ -240,7 +240,7 @@ public final class VillagerTradingGoal extends Goal {
         double distToStandSqr = vill.position().distanceToSqr(standCenter);
 
         if (phase == Phase.GO_TO_HALL) {
-            boolean openedPassage = openNearbyWoodenPassages(level);
+            boolean openedPassage = openNearbyWoodenPassages(level, standCenter);
             try {
                 vill.getLookControl().setLookAt(hall.getBlockPos().getX() + 0.5D, hall.getBlockPos().getY() + 0.5D, hall.getBlockPos().getZ() + 0.5D, 30.0F, 30.0F);
             } catch (Throwable ignored) {}
@@ -273,7 +273,6 @@ public final class VillagerTradingGoal extends Goal {
     }
 
     private void tickReturnPhase(ServerLevel level) {
-        boolean openedPassage = openNearbyWoodenPassages(level);
         hallTimeoutTicks++;
         if (hallTimeoutTicks >= HALL_ABORT_TICKS) {
             recoverFromFailedHallTravel("return_timeout");
@@ -290,6 +289,8 @@ public final class VillagerTradingGoal extends Goal {
                 return;
             }
         }
+
+        boolean openedPassage = openNearbyWoodenPassages(level, returnDest);
 
         if (tryFinalizeArrival(returnDest, RETURN_RESUME_ARRIVAL_DISTANCE_SQR) || vill.position().distanceToSqr(returnDest) <= RETURN_RESUME_ARRIVAL_DISTANCE_SQR) {
             finishHallTrip();
@@ -783,22 +784,64 @@ public final class VillagerTradingGoal extends Goal {
         return capacity;
     }
 
-    private boolean openNearbyWoodenPassages(ServerLevel level) {
-        boolean openedAny = false;
-        BlockPos base = vill.blockPosition();
-        for (BlockPos pos : BlockPos.betweenClosed(
-                base.offset(-PASSAGE_SCAN_RADIUS_HORIZONTAL, -PASSAGE_SCAN_RADIUS_VERTICAL, -PASSAGE_SCAN_RADIUS_HORIZONTAL),
-                base.offset(PASSAGE_SCAN_RADIUS_HORIZONTAL, PASSAGE_SCAN_RADIUS_VERTICAL, PASSAGE_SCAN_RADIUS_HORIZONTAL))) {
-            BlockState state = level.getBlockState(pos);
-            if (state.getBlock() instanceof FenceGateBlock) {
-                openedAny |= tryOpen(level, pos, state);
-                continue;
+    private boolean openNearbyWoodenPassages(ServerLevel level, Vec3 travelTarget) {
+        try {
+            if (level == null || travelTarget == null) return false;
+
+            Vec3 villPos = vill.position();
+            double dirX = travelTarget.x - villPos.x;
+            double dirZ = travelTarget.z - villPos.z;
+            double dirLen = Math.sqrt(dirX * dirX + dirZ * dirZ);
+            if (dirLen < 1.0e-4D) return false;
+            dirX /= dirLen;
+            dirZ /= dirLen;
+
+            BlockPos base = vill.blockPosition();
+            BlockPos bestPos = null;
+            BlockState bestState = null;
+            double bestScore = Double.POSITIVE_INFINITY;
+
+            for (BlockPos pos : BlockPos.betweenClosed(
+                    base.offset(-PASSAGE_SCAN_RADIUS_HORIZONTAL, -PASSAGE_SCAN_RADIUS_VERTICAL, -PASSAGE_SCAN_RADIUS_HORIZONTAL),
+                    base.offset(PASSAGE_SCAN_RADIUS_HORIZONTAL, PASSAGE_SCAN_RADIUS_VERTICAL, PASSAGE_SCAN_RADIUS_HORIZONTAL))) {
+                BlockState state = level.getBlockState(pos);
+                if (!isOpenableWoodenPassage(state)) continue;
+                if (state.hasProperty(BlockStateProperties.OPEN) && Boolean.TRUE.equals(state.getValue(BlockStateProperties.OPEN))) continue;
+
+                Vec3 center = Vec3.atCenterOf(pos);
+                double relX = center.x - villPos.x;
+                double relZ = center.z - villPos.z;
+                double forward = relX * dirX + relZ * dirZ;
+                if (forward < 0.1D || forward > 2.6D) continue;
+
+                double perpX = relX - (dirX * forward);
+                double perpZ = relZ - (dirZ * forward);
+                double lateral = Math.sqrt(perpX * perpX + perpZ * perpZ);
+                if (lateral > 1.15D) continue;
+
+                double score = (lateral * 4.0D) + forward + Math.abs(center.y - villPos.y);
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestPos = pos.immutable();
+                    bestState = state;
+                }
             }
-            if (state.getBlock() instanceof DoorBlock && state.is(BlockTags.WOODEN_DOORS)) {
-                openedAny |= tryOpen(level, pos, state);
-            }
+
+            if (bestPos == null || bestState == null) return false;
+            return tryOpen(level, bestPos, bestState);
+        } catch (Throwable ignored) {
+            return false;
         }
-        return openedAny;
+    }
+
+    private boolean isOpenableWoodenPassage(BlockState state) {
+        try {
+            if (state == null) return false;
+            if (state.getBlock() instanceof FenceGateBlock) return true;
+            return state.getBlock() instanceof DoorBlock && state.is(BlockTags.WOODEN_DOORS);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private boolean tryOpen(ServerLevel level, BlockPos pos, BlockState state) {

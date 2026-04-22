@@ -1,7 +1,19 @@
 {
   "variants": {
-    "": {
+    "facing=north": {
       "model": "villageroverhaul:block/trading_hall"
+    },
+    "facing=east": {
+      "model": "villageroverhaul:block/trading_hall",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "villageroverhaul:block/trading_hall",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "villageroverhaul:block/trading_hall",
+      "y": 270
     }
   }
 }
