@@ -81,6 +81,9 @@ public final class VillagerCombatDirector {
     private static final long SWING_COOLDOWN_TICKS = 30L;
     private static final long SWING_ANIM_TICKS = 6L;
     private static final long NO_HIT_SWING_DELAY_TICKS = 30L;
+    private static final long UNREACHABLE_TIMEOUT_TICKS = 160L;
+    private static final long UNREACHABLE_TARGET_COOLDOWN_TICKS = 200L;
+    private static final double UNREACHABLE_PROGRESS_DISTANCE = 1.0;
     private static final int BOW_FULL_DRAW_TICKS = 20;
     private static final double RANGED_MIN_RANGE_FLOOR = 4.0;
     private static final double RANGED_MAX_RANGE_PAD = 2.0;
@@ -89,7 +92,7 @@ public final class VillagerCombatDirector {
 
     private static final double TOO_CLOSE_PAD = 1.5;
     private static final double TOO_CLOSE_HYSTERESIS = 1.6;
-    private static final double PEARL_MIN_DISTANCE_SQR = 25.0;
+    private static final double PEARL_MIN_DISTANCE_SQR = 1.0;
 
     private static final Map<Villager, State> STATE = new WeakHashMap<>();
 
@@ -196,17 +199,17 @@ public final class VillagerCombatDirector {
         } catch (Throwable ignored) {}
     }
 
-    public static void tickAttack(Villager vill, LivingEntity target) {
+    public static boolean tickAttack(Villager vill, LivingEntity target) {
         try {
-            if (vill == null || target == null) return;
-            if (vill.level() == null || vill.level().isClientSide()) return;
+            if (vill == null || target == null) return false;
+            if (vill.level() == null || vill.level().isClientSide()) return false;
             if (!target.isAlive()) {
                 State st = STATE.get(vill);
                 if (st != null) {
                     cancelEatProcess(vill, st, "target_dead");
                     resetRangedState(vill, st, true, "target_dead");
                 }
-                return;
+                return false;
             }
 
             State st = STATE.computeIfAbsent(vill, v -> new State());
@@ -227,15 +230,17 @@ public final class VillagerCombatDirector {
                 st.eatUseDuration = 0;
                 st.eatLastUseLogAt = 0L;
                 st.eatLastUseRepairAt = 0L;
+
+                resetUnreachableState(st);
             }
             st.targetId = target.getUUID();
 
             if (!VillagerBrain.shouldCombatActNow(vill) || VillagerBrain.isUiPaused(vill)) {
                 stop(vill);
-                return;
+                return false;
             }
 
-            VillagerBrain.setCombatEngaged(vill, true);
+            enterCombatIfNeeded(vill, st);
 
             long now = vill.level().getGameTime();
 
@@ -245,7 +250,7 @@ public final class VillagerCombatDirector {
 
             // Low HP: prioritize escape-to-eat loop while we have food available.
             if (ai.enableEating && shouldTryEatInCombat(vill) && hasAnyFoodInPickupInv(vill)) {
-                if (tickEatEscapeProcess(vill, target, st, now)) return;
+                if (tickEatEscapeProcess(vill, target, st, now)) return true;
             } else {
                 // If we recovered above threshold or have no food, ensure we don't keep stale state.
                 if (st.eatPhase != EatPhase.NONE) cancelEatProcess(vill, st, "eat_abort_nofood_or_recovered");
@@ -253,7 +258,12 @@ public final class VillagerCombatDirector {
 
             RangedLoadout ranged = resolveRangedLoadout(vill);
             if (ranged != null && ranged.hasAmmo) {
-                if (tickRangedAttack(vill, target, st, now, ai, ranged)) return;
+                if (shouldAbortUnreachableCombat(vill, target, st, now, ranged)) {
+                    markTimedOutTarget(st, target, now);
+                    finishCombatAndResume(vill, "combat_unreachable_timeout");
+                    return false;
+                }
+                if (tickRangedAttack(vill, target, st, now, ai, ranged)) return true;
             } else {
                 resetRangedState(vill, st, false, (ranged == null ? "not_projectile_weapon" : "missing_offhand_ammo"));
             }
@@ -264,6 +274,12 @@ public final class VillagerCombatDirector {
 
             double dist = vill.distanceTo(target);
             boolean inSwingRange = dist <= swingRange;
+
+            if (shouldAbortUnreachableCombat(vill, target, st, now, null)) {
+                markTimedOutTarget(st, target, now);
+                finishCombatAndResume(vill, "combat_unreachable_timeout");
+                return false;
+            }
 
             if (!inSwingRange) {
                 try { vill.getNavigation().moveTo(target, MOVE_SPEED); } catch (Throwable ignored) {}
@@ -319,7 +335,7 @@ public final class VillagerCombatDirector {
                 performSwing(vill, target, st, now, swingReason);
                 faceTargetHard(vill, target);
                 lockYaw(vill, now, vill.getYRot());
-                return;
+                return true;
             }
 
             boolean allowBlocking = ENABLE_BLOCKING && ai.enableBlocking;
@@ -343,8 +359,11 @@ public final class VillagerCombatDirector {
             faceTargetHard(vill, target);
             lockYaw(vill, now, vill.getYRot());
 
+            return true;
+
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatDirector.tickAttack failed (soft): {}", t.toString());
+            return false;
         }
     }
 
@@ -355,6 +374,9 @@ public final class VillagerCombatDirector {
             if (st != null) {
                 cancelEatProcess(vill, st, "stop");
                 resetRangedState(vill, st, true, "stop");
+                st.targetId = null;
+                st.combatStartPos = null;
+                resetUnreachableState(st);
             }
             try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             try { vill.stopUsingItem(); } catch (Throwable ignored) {}
@@ -377,10 +399,28 @@ public final class VillagerCombatDirector {
         try {
             if (vill == null) return;
             boolean wasEngaged = VillagerBrain.isCombatEngaged(vill);
+            Vec3 resumeDest = null;
+            if (wasEngaged && vill.level() instanceof ServerLevel level) {
+                State st = STATE.get(vill);
+                resumeDest = resolveResumeDestination(vill, level, st);
+            }
             stop(vill);
             if (!wasEngaged) return;
-            tryUseResumeEnderPearl(vill, reason);
+            tryUseResumeEnderPearl(vill, resumeDest, reason);
         } catch (Throwable ignored) {}
+    }
+
+    public static boolean isTargetOnUnreachableCooldown(Villager vill, LivingEntity target) {
+        try {
+            if (vill == null || target == null || vill.level() == null) return false;
+            State st = STATE.get(vill);
+            if (st == null) return false;
+            long now = vill.level().getGameTime();
+            if (st.lastTimedOutTargetUntil <= now) return false;
+            return target.getUUID().equals(st.lastTimedOutTargetId);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static boolean tickEatEscapeProcess(Villager vill, LivingEntity target, State st, long now) {
@@ -645,16 +685,15 @@ public final class VillagerCombatDirector {
         }
     }
 
-    private static void tryUseResumeEnderPearl(Villager vill, String reason) {
+    public static boolean tryUseResumeEnderPearl(Villager vill, Vec3 dest, String reason) {
         try {
-            if (vill == null) return;
-            if (!(vill.level() instanceof ServerLevel level)) return;
-            if (!hasResumeEnderPearl(vill)) return;
+            if (vill == null) return false;
+            if (!(vill.level() instanceof ServerLevel level)) return false;
+            if (!hasResumeEnderPearl(vill)) return false;
 
-            Vec3 dest = resolveResumeDestination(vill, level);
-            if (dest == null) return;
-            if (!sameDimensionTarget(vill, level, dest)) return;
-            if (vill.position().distanceToSqr(dest) < PEARL_MIN_DISTANCE_SQR) return;
+            if (dest == null) return false;
+            if (!sameDimensionTarget(vill, level, dest)) return false;
+            if (vill.position().distanceToSqr(dest) < PEARL_MIN_DISTANCE_SQR) return false;
 
             playPearlFx(level, vill.position());
             vill.teleportTo(dest.x, dest.y, dest.z);
@@ -666,12 +705,14 @@ public final class VillagerCombatDirector {
                     VillagerBrain.getMode(vill).id,
                     safe(reason),
                     trim1(dest.x), trim1(dest.y), trim1(dest.z));
+            return true;
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [combat_resume_pearl] failed (soft): {}", t.toString());
         }
+        return false;
     }
 
-    private static boolean hasResumeEnderPearl(Villager vill) {
+    public static boolean hasResumeEnderPearl(Villager vill) {
         try {
             if (vill == null) return false;
             Container pickup = VillagerInventoryMenu.tryGetVillagerPickupInventory(vill);
@@ -694,9 +735,13 @@ public final class VillagerCombatDirector {
         return false;
     }
 
-    private static Vec3 resolveResumeDestination(Villager vill, ServerLevel level) {
+    private static Vec3 resolveResumeDestination(Villager vill, ServerLevel level, State st) {
         try {
             if (vill == null || level == null) return null;
+
+            if (st != null && st.combatStartPos != null && sameDimensionTarget(vill, level, st.combatStartPos)) {
+                return st.combatStartPos;
+            }
 
             if (VillagerBrain.isHelpReturnActive(vill)) {
                 Vec3 helpPos = VillagerBrain.getHelpReturnPos(vill);
@@ -2092,6 +2137,87 @@ public final class VillagerCombatDirector {
     private static volatile boolean REACH_ATTR_SCANNED = false;
     private static volatile Holder<Attribute> REACH_ATTR = null;
 
+    private static void enterCombatIfNeeded(Villager vill, State st) {
+        try {
+            if (vill == null || st == null) return;
+            if (!VillagerBrain.isCombatEngaged(vill)) {
+                st.combatStartPos = vill.position();
+                resetUnreachableState(st);
+            }
+            VillagerBrain.setCombatEngaged(vill, true);
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean shouldAbortUnreachableCombat(Villager vill, LivingEntity target, State st, long now, RangedLoadout ranged) {
+        try {
+            if (vill == null || target == null || st == null) return false;
+
+            boolean inEngagementWindow;
+            boolean hasLos = hasLineOfSightSafe(vill, target);
+            double dist = vill.distanceTo(target);
+
+            if (ranged != null && ranged.hasAmmo) {
+                double preferredRange = computePreferredRangedDistance(ranged);
+                double maxRange = Math.max(Math.max(RANGED_MIN_RANGE_FLOOR, preferredRange - RANGED_BACKPEDAL_RANGE_PAD) + 2.0,
+                        ranged.weaponItem.getDefaultProjectileRange() + RANGED_MAX_RANGE_PAD);
+                inEngagementWindow = hasLos && dist <= maxRange;
+            } else {
+                double swingRange = computeReach(vill, target) + SAFETY_MARGIN;
+                inEngagementWindow = dist <= swingRange;
+            }
+
+            if (inEngagementWindow) {
+                resetUnreachableState(st);
+                return false;
+            }
+
+            if (st.unreachableSince < 0L) {
+                st.unreachableSince = now;
+                st.lastProgressAt = now;
+                st.bestProgressDistance = dist;
+                st.lastHadLineOfSight = hasLos;
+                return false;
+            }
+
+            boolean progressed = false;
+            if (dist < (st.bestProgressDistance - UNREACHABLE_PROGRESS_DISTANCE)) {
+                st.bestProgressDistance = dist;
+                progressed = true;
+            }
+            if (hasLos && !st.lastHadLineOfSight) {
+                progressed = true;
+            }
+            st.lastHadLineOfSight = hasLos;
+
+            if (progressed) {
+                st.lastProgressAt = now;
+                return false;
+            }
+
+            return (now - st.lastProgressAt) >= UNREACHABLE_TIMEOUT_TICKS;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static void resetUnreachableState(State st) {
+        try {
+            if (st == null) return;
+            st.unreachableSince = -1L;
+            st.lastProgressAt = -1L;
+            st.bestProgressDistance = Double.MAX_VALUE;
+            st.lastHadLineOfSight = false;
+        } catch (Throwable ignored) {}
+    }
+
+    private static void markTimedOutTarget(State st, LivingEntity target, long now) {
+        try {
+            if (st == null || target == null) return;
+            st.lastTimedOutTargetId = target.getUUID();
+            st.lastTimedOutTargetUntil = now + UNREACHABLE_TARGET_COOLDOWN_TICKS;
+        } catch (Throwable ignored) {}
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static double tryGetReachAttribute(Villager vill) {
         try {
@@ -2234,6 +2360,7 @@ public final class VillagerCombatDirector {
 
     private static final class State {
         java.util.UUID targetId;
+        Vec3 combatStartPos = null;
 
         long nextSwingAt = 0L;
         long lastSwingAt = -9999L;
@@ -2273,6 +2400,14 @@ public final class VillagerCombatDirector {
         int eatUseDuration = 0;
         long eatLastUseLogAt = 0L;
         long eatLastUseRepairAt = 0L;
+
+        long unreachableSince = -1L;
+        long lastProgressAt = -1L;
+        double bestProgressDistance = Double.MAX_VALUE;
+        boolean lastHadLineOfSight = false;
+
+        java.util.UUID lastTimedOutTargetId = null;
+        long lastTimedOutTargetUntil = 0L;
     }
 
     private static final class RangedLoadout {

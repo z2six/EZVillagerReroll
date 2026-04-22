@@ -130,6 +130,7 @@ public final class VillagerBrain {
 
     public enum Mode {
         NEUTRAL("neutral"),
+        TRADING("trading"),
         IDLE("idle"),
         FOLLOW("follow"),
         PATROL_SETUP("patrol_setup"),
@@ -203,6 +204,19 @@ public final class VillagerBrain {
         setMode(vill, Mode.NEUTRAL);
 
         clearFollowPlayer(vill);
+        return true;
+    }
+
+    public static boolean trading(Villager vill) {
+        if (vill == null) return false;
+        if (!isControllable(vill)) return false;
+
+        ensureAttached(vill);
+        prepareForManualControl(vill);
+        setMode(vill, Mode.TRADING);
+
+        clearFollowPlayer(vill);
+        try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
         return true;
     }
 
@@ -1397,7 +1411,7 @@ public final class VillagerBrain {
 
             if (!hasGoal(vill, VillagerIdleGoal.class)) {
                 // Keep idle lower priority than storage/manual/commands.
-                vill.goalSelector.addGoal(8, new VillagerIdleGoal(vill));
+                vill.goalSelector.addGoal(9, new VillagerIdleGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerIdleGoal (villager={})", vill.getUUID());
             }
 
@@ -1427,9 +1441,14 @@ public final class VillagerBrain {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerHelpReturnGoal (villager={})", vill.getUUID());
             }
 
+            if (!hasGoal(vill, VillagerTradingGoal.class)) {
+                vill.goalSelector.addGoal(8, new VillagerTradingGoal(vill));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerTradingGoal (villager={})", vill.getUUID());
+            }
+
             if (!hasGoal(vill, VillagerManualFarmingGoal.class)) {
                 // Keep below combat/movement goals; when enabled it explicitly blocks those goals in canUse().
-                vill.goalSelector.addGoal(9, new VillagerManualFarmingGoal(vill));
+                vill.goalSelector.addGoal(10, new VillagerManualFarmingGoal(vill));
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Attached VillagerManualFarmingGoal (villager={})", vill.getUUID());
             }
 

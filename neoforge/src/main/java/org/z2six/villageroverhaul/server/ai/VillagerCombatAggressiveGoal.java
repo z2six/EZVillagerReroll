@@ -91,7 +91,10 @@ public final class VillagerCombatAggressiveGoal extends Goal {
 
             if (targetUuid == null) return false;
             LivingEntity t = findTargetByUuid(targetUuid);
-            return t != null && t.isAlive() && !IgnoredTargetService.isIgnoredByVillagers(t);
+            return t != null
+                    && t.isAlive()
+                    && !IgnoredTargetService.isIgnoredByVillagers(t)
+                    && !VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, t);
         } catch (Throwable t) {
             return false;
         }
@@ -149,7 +152,9 @@ public final class VillagerCombatAggressiveGoal extends Goal {
                 return;
             }
 
-            VillagerCombatDirector.tickAttack(vill, target);
+            if (!VillagerCombatDirector.tickAttack(vill, target)) {
+                targetUuid = null;
+            }
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatAggressiveGoal.tick failed (soft): {}", t.toString());
         }
@@ -163,7 +168,11 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
             lastScanAt = 0L;
-            VillagerCombatDirector.stop(vill);
+            if (VillagerBrain.isCombatEngaged(vill)) {
+                VillagerCombatDirector.finishCombatAndResume(vill, "aggressive_stop");
+            } else {
+                VillagerCombatDirector.stop(vill);
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -183,6 +192,7 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             for (LivingEntity e : nearby) {
                 if (e == vill) continue;
                 if (IgnoredTargetService.isIgnoredByVillagers(e)) continue;
+                if (VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, e)) continue;
                 if (isFriendlyToVillager(vill, e)) continue;
                 if (e instanceof Player player && isAggressivePlayerWhitelisted(settings, player)) {
                     logReject(safePlayerName(player), "player_whitelisted");

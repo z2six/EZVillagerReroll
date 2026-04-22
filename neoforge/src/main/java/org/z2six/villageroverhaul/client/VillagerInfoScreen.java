@@ -1891,7 +1891,18 @@ public final class VillagerInfoScreen extends Screen {
                 gg.drawString(font, label, lx, ly, groups[i].color(), false);
             }
 
-            return false;
+            boolean tooltipDrawn = false;
+            for (int i = 0; i < groups.length; i++) {
+                int nx = nodes[i][0];
+                int ny = nodes[i][1];
+                if (mouseX >= nx - 7 && mouseX <= nx + 7 && mouseY >= ny - 7 && mouseY <= ny + 7) {
+                    gg.renderComponentTooltip(font, buildRadarTooltip(groups[i]), mouseX, mouseY);
+                    tooltipDrawn = true;
+                    break;
+                }
+            }
+
+            return tooltipDrawn;
         } catch (Throwable ignored) {
             return false;
         }
@@ -1956,10 +1967,7 @@ public final class VillagerInfoScreen extends Screen {
 
                 if (!tooltipDrawn && mouseX >= nx - 7 && mouseX <= nx + 7 && mouseY >= ny - 7 && mouseY <= ny + 7) {
                     RadarGroup group = groups[i];
-                    gg.renderComponentTooltip(font, List.of(
-                            Component.literal(group.label()).withStyle(s -> s.withColor(TextColor.fromRgb(group.color() & 0x00FFFFFF))),
-                            Component.literal("Average: " + formatSigned1(group.average())).withStyle(ChatFormatting.GRAY)
-                    ), mouseX, mouseY);
+                    gg.renderComponentTooltip(font, buildRadarTooltip(group), mouseX, mouseY);
                     tooltipDrawn = true;
                 }
             }
@@ -2111,6 +2119,26 @@ public final class VillagerInfoScreen extends Screen {
             Double arm = pointsToArmorDeltaFromServerConfig(this.armor);
             out.add(Component.literal("Armor: ").append(Component.literal(
                     arm == null ? "(syncing...)" : ("Armor " + formatSigned1(arm))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            Double mot = pointsToPercentFromServerConfig(StatKind.MOTIVATION, this.motivation);
+            out.add(Component.literal("Motivation: ").append(Component.literal(
+                    mot == null ? "(syncing...)" : ("Work window " + formatSignedPercent1(mot))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            Double eff = pointsToPercentFromServerConfig(StatKind.EFFICIENCY, this.efficiency);
+            out.add(Component.literal("Efficiency: ").append(Component.literal(
+                    eff == null ? "(syncing...)" : ("Item use " + formatSignedPercent1(-eff))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            Double pw = pointsToPercentFromServerConfig(StatKind.PLANT_WHISPERER, this.plantWhisperer);
+            out.add(Component.literal("Plant Whisperer: ").append(Component.literal(
+                    pw == null ? "(syncing...)" : ("Growth chance " + formatSignedPercent1(pw))
+            ).withStyle(ChatFormatting.DARK_GRAY)));
+
+            Double range = pointsToPercentFromServerConfig(StatKind.RANGER, this.ranger);
+            out.add(Component.literal("Ranger: ").append(Component.literal(
+                    range == null ? "(syncing...)" : ("Range " + formatSignedPercent1(range))
             ).withStyle(ChatFormatting.DARK_GRAY)));
 
             // Recruit cost estimate (same model as server, uses synced bounds if present)

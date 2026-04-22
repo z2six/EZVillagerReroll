@@ -300,7 +300,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         int fallbackColor = 0xA06540;
         try { if (extensions != null) fallbackColor = extensions.getDefaultDyeColor(stack); } catch (Throwable ignored) {}
 
-        ezvr$infoOnce(
+        ezvr$debugOnce(
                 "armor_begin:" + String.valueOf(stack.getItem()) + ":" + slot,
                 "[VillagerOverhaul] Armor render begin: item={}, slot={}, modelClass={}, baseModelClass={}, extClass={}, materialLayers={}",
                 String.valueOf(stack.getItem()),
@@ -331,7 +331,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                 ArmorMaterial.Layer synthetic = new ArmorMaterial.Layer(syntheticAsset);
                 layers = List.of(synthetic);
 
-                ezvr$infoOnce(
+                ezvr$debugOnce(
                         "armor_layers_empty:" + String.valueOf(stack.getItem()) + ":" + slot,
                         "[VillagerOverhaul] ArmorMaterial.layers() was empty; using synthetic layer asset={} (item={}, slot={})",
                         String.valueOf(syntheticAsset),
@@ -378,7 +378,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                         }
                     } catch (Throwable ignored) {}
 
-                    ezvr$infoOnce(
+                    ezvr$debugOnce(
                             "armor_tint0:" + String.valueOf(stack.getItem()) + ":" + slot + ":" + layerIdx,
                             "[VillagerOverhaul] Armor tint was 0; forcing fallback tint so it renders (item={}, slot={}, layerIdx={}, dyeable={})",
                             String.valueOf(stack.getItem()),
@@ -396,7 +396,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                 }
                 if (tex == null) continue;
 
-                ezvr$infoOnce(
+                ezvr$debugOnce(
                         "armor_layer:" + String.valueOf(stack.getItem()) + ":" + slot + ":" + layerIdx,
                         "[VillagerOverhaul] Armor layer: item={}, slot={}, layerIdx={}, tex={}, packedColor={}",
                         String.valueOf(stack.getItem()),
@@ -427,7 +427,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
             try {
                 ArmorTrim trim = stack.get(DataComponents.TRIM);
                 if (trim != null) {
-                    ezvr$infoOnce(
+                    ezvr$debugOnce(
                             "armor_trim:" + String.valueOf(stack.getItem()) + ":" + slot,
                             "[VillagerOverhaul] Armor trim present: item={}, slot={}, pattern={}",
                             String.valueOf(stack.getItem()),
@@ -441,7 +441,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
             // Glint (vanilla parity)
             try {
                 if (stack.hasFoil()) {
-                    ezvr$infoOnce(
+                    ezvr$debugOnce(
                             "armor_glint:" + String.valueOf(stack.getItem()) + ":" + slot,
                             "[VillagerOverhaul] Armor glint present: item={}, slot={}",
                             String.valueOf(stack.getItem()),
@@ -531,12 +531,12 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         return false;
     }
 
-    private static void ezvr$infoOnce(String key, String fmt, Object... args) {
+    private static void ezvr$debugOnce(String key, String fmt, Object... args) {
         try {
-            if (!VillagerOverhaul.LOG().isInfoEnabled()) return;
+            if (!VillagerOverhaul.LOG().isDebugEnabled()) return;
             if (key == null) return;
             if (!EZVR_ARMOR_INFO_LOG_ONCE.add(key)) return;
-            VillagerOverhaul.LOG().info(fmt, args);
+            VillagerOverhaul.LOG().debug(fmt, args);
         } catch (Throwable ignored) {}
     }
 

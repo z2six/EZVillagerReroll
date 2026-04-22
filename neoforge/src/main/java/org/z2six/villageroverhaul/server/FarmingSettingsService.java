@@ -211,26 +211,33 @@ public final class FarmingSettingsService {
                 return null;
             }
 
-            // Fall back to vanilla job site (brain memory)
-            try {
-                var brain = vill.getBrain();
-                if (brain != null && brain.hasMemoryValue(MemoryModuleType.JOB_SITE)) {
-                    var opt = brain.getMemory(MemoryModuleType.JOB_SITE);
-                    if (opt != null && opt.isPresent()) {
-                        GlobalPos gp = opt.get();
-                        if (gp != null && gp.dimension() != null && gp.pos() != null) {
-                            String d2 = "";
-                            try { d2 = String.valueOf(gp.dimension().location()); } catch (Throwable ignored) { d2 = ""; }
-                            if (d2.equals(dim)) {
-                                BlockPos p = gp.pos();
-                                return new RegisteredWorkstation(dim, p.getX(), p.getY(), p.getZ());
-                            }
-                        }
-                    }
-                }
-            } catch (Throwable ignored) {}
-
+            return getVanillaJobSiteWorkstation(level, vill);
+        } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    public static RegisteredWorkstation getVanillaJobSiteWorkstation(ServerLevel level, Villager vill) {
+        try {
+            if (level == null || vill == null) return null;
+            String dim = "";
+            try { dim = String.valueOf(level.dimension().location()); } catch (Throwable ignored) { dim = ""; }
+
+            var brain = vill.getBrain();
+            if (brain == null || !brain.hasMemoryValue(MemoryModuleType.JOB_SITE)) return null;
+
+            var opt = brain.getMemory(MemoryModuleType.JOB_SITE);
+            if (opt == null || opt.isEmpty()) return null;
+
+            GlobalPos gp = opt.get();
+            if (gp == null || gp.dimension() == null || gp.pos() == null) return null;
+
+            String d2 = "";
+            try { d2 = String.valueOf(gp.dimension().location()); } catch (Throwable ignored) { d2 = ""; }
+            if (!d2.equals(dim)) return null;
+
+            BlockPos p = gp.pos();
+            return new RegisteredWorkstation(dim, p.getX(), p.getY(), p.getZ());
         } catch (Throwable ignored) {
             return null;
         }

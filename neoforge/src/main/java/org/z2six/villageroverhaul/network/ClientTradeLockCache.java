@@ -27,7 +27,7 @@ public final class ClientTradeLockCache {
             }
 
             MASKS_BY_CONTAINER.put(cid, mask);
-            VillagerOverhaul.LOG().info("[VillagerOverhaul] ClientTradeLockCache set: containerId={} mask={}",
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] ClientTradeLockCache set: containerId={} mask={}",
                     cid, Long.toUnsignedString(mask));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ClientTradeLockCache.set failed", t);

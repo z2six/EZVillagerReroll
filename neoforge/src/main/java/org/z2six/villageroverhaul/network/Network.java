@@ -88,6 +88,7 @@ import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocksQuery;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesData;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
+import org.z2six.villageroverhaul.network.trading.PacketRegisterTradingHall;
 import org.z2six.villageroverhaul.network.trades.ClientVillagerTradesCache;
 import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStart;
 import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStop;
@@ -217,6 +218,8 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingWithdrawChest(msg, ctx)));
             r.playToServer(PacketRegisterFarmingWorkstation.TYPE, PacketRegisterFarmingWorkstation.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingWorkstation(msg, ctx)));
+            r.playToServer(PacketRegisterTradingHall.TYPE, PacketRegisterTradingHall.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterTradingHall(msg, ctx)));
 
             // ============================
             // Custom Commands (CC) serverbound

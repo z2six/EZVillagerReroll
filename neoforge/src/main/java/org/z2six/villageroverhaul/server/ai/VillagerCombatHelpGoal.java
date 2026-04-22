@@ -116,7 +116,9 @@ public final class VillagerCombatHelpGoal extends Goal {
             }
 
             currentTarget = best.getUUID();
-            VillagerCombatDirector.tickAttack(vill, best);
+            if (!VillagerCombatDirector.tickAttack(vill, best)) {
+                currentTarget = null;
+            }
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatHelpGoal.tick failed (soft): {}", t.toString());
         }
@@ -128,7 +130,13 @@ public final class VillagerCombatHelpGoal extends Goal {
         currentTarget = null;
         lastObservedHurtByTs = 0;
         lastObservedHurtMobTs = 0;
-        try { VillagerCombatDirector.stop(vill); } catch (Throwable ignored) {}
+        try {
+            if (VillagerBrain.isCombatEngaged(vill)) {
+                VillagerCombatDirector.finishCombatAndResume(vill, "help_stop");
+            } else {
+                VillagerCombatDirector.stop(vill);
+            }
+        } catch (Throwable ignored) {}
     }
 
     private LivingEntity findClosestTarget(List<UUID> targets) {
@@ -144,12 +152,13 @@ public final class VillagerCombatHelpGoal extends Goal {
                 LivingEntity e = null;
                 try {
                     var ent = ((net.minecraft.server.level.ServerLevel) vill.level()).getEntity(u);
-                    if (ent instanceof LivingEntity le && le.isAlive()) e = le;
+                if (ent instanceof LivingEntity le && le.isAlive()) e = le;
                 } catch (Throwable ignored) { e = null; }
 
                 if (e == null || !e.isAlive()) continue;
                 if (e == vill) continue;
                 if (IgnoredTargetService.isIgnoredByVillagers(e)) continue;
+                if (VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, e)) continue;
 
                 double d2 = vill.distanceToSqr(e);
                 if (d2 < bestD2) {

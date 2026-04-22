@@ -33,6 +33,7 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingOverlayText;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
+import org.z2six.villageroverhaul.network.trading.PacketRegisterTradingHall;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailQuery;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcAddWaypoint;
@@ -97,6 +98,7 @@ import org.z2six.villageroverhaul.server.FarmingSettingsService;
 import org.z2six.villageroverhaul.server.CustomCommandsService;
 import org.z2six.villageroverhaul.server.PlayerFarmingProfilesSavedData;
 import org.z2six.villageroverhaul.server.PlayerChatCommandsSavedData;
+import org.z2six.villageroverhaul.server.TradingHallService;
 import org.z2six.villageroverhaul.combat.CombatSettings;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -1183,6 +1185,7 @@ public final class ServerHandlers {
                 case IDLE -> VillagerBrain.idle(vill);
                 case NEUTRAL -> VillagerBrain.neutral(vill);
                 case FOLLOW -> org.z2six.villageroverhaul.server.ai.VillagerBrain.follow(vill, sp);
+                case TRADING -> VillagerBrain.trading(vill);
             }
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCommand: player={} villager={} cmd={}",
@@ -1721,6 +1724,48 @@ public final class ServerHandlers {
             } catch (Throwable ignored) {}
             try { ctx.reply(new PacketFarmingOverlayText("Workstation registered", 2200)); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}
+    }
+
+    public static void handleRegisterTradingHall(PacketRegisterTradingHall msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager is not recruited", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
+
+            ServerLevel level = sp.serverLevel();
+            if (level == null) return;
+
+            var pos = msg.pos();
+            if (pos == null) return;
+            if (!level.getBlockState(pos).is(org.z2six.villageroverhaul.content.ModBlocks.TRADING_HALL.get())) {
+                try { ctx.reply(new PacketFarmingOverlayText("Not a Trading Hall", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
+            if (!TradingHallService.isWithinReasonableDistance(level, vill, pos)) {
+                try {
+                    ctx.reply(new PacketFarmingOverlayText(
+                            "Trading Hall must be within " + TradingHallService.MAX_HALL_DISTANCE_BLOCKS + " blocks of the villager workstation",
+                            2800
+                    ));
+                } catch (Throwable ignored) {}
+                return;
+            }
+
+            String dim = "";
+            try { dim = String.valueOf(level.dimension().location()); } catch (Throwable ignored) { dim = ""; }
+            TradingHallService.setRegisteredHall(vill, dim, pos.getX(), pos.getY(), pos.getZ());
+
+            try { ctx.reply(new PacketFarmingOverlayText("Trading Hall registered", 2200)); } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterTradingHall failed", t);
+        }
     }
 
     // =============================

@@ -20,6 +20,7 @@ import org.z2six.villageroverhaul.client.VillagerInventoryScreen;
 import org.z2six.villageroverhaul.client.render.ClientRenderEvents;
 import org.z2six.villageroverhaul.config.ClientConfig;
 import org.z2six.villageroverhaul.config.ServerConfig;
+import org.z2six.villageroverhaul.content.ModRegistries;
 import org.z2six.villageroverhaul.menu.ModMenus;
 import org.z2six.villageroverhaul.network.Network;
 import org.z2six.villageroverhaul.server.BusyVillagerBlocker;
@@ -58,6 +59,13 @@ public final class VillagerOverhaul {
             LOG.info("[VillagerOverhaul] Registered menu types.");
         } catch (Throwable t) {
             LOG.error("[VillagerOverhaul] Failed to register menu types (continuing).", t);
+        }
+
+        try {
+            ModRegistries.register(modBus);
+            LOG.info("[VillagerOverhaul] Registered blocks, items, block entities, and creative tab hooks.");
+        } catch (Throwable t) {
+            LOG.error("[VillagerOverhaul] Failed to register content registries (continuing).", t);
         }
 
         // --- Network payload registration ---

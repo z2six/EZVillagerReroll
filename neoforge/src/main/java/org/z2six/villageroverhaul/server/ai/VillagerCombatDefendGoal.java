@@ -82,7 +82,10 @@ public final class VillagerCombatDefendGoal extends Goal {
 
             if (targetUuid == null) return false;
             LivingEntity t = findThreatByUuid(targetUuid);
-            return t != null && t.isAlive() && !IgnoredTargetService.isIgnoredByVillagers(t);
+            return t != null
+                    && t.isAlive()
+                    && !IgnoredTargetService.isIgnoredByVillagers(t)
+                    && !VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, t);
         } catch (Throwable t) {
             return false;
         }
@@ -129,12 +132,19 @@ public final class VillagerCombatDefendGoal extends Goal {
                 target = null;
                 targetUuid = null;
             }
+            if (target != null && VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, target)) {
+                target = null;
+                targetUuid = null;
+            }
 
             // Priority 1: if THIS villager was attacked recently, retaliate against that attacker (unless friendly).
             LivingEntity selfAttacker = null;
             try { selfAttacker = vill.getLastHurtByMob(); } catch (Throwable ignored) {}
             if (selfAttacker != null && selfAttacker.isAlive()) {
                 if (IgnoredTargetService.isIgnoredByVillagers(selfAttacker)) {
+                    selfAttacker = null;
+                }
+                if (selfAttacker != null && VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, selfAttacker)) {
                     selfAttacker = null;
                 }
             }
@@ -166,7 +176,9 @@ public final class VillagerCombatDefendGoal extends Goal {
                 return;
             }
 
-            VillagerCombatDirector.tickAttack(vill, target);
+            if (!VillagerCombatDirector.tickAttack(vill, target)) {
+                targetUuid = null;
+            }
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerCombatDefendGoal.tick failed (soft): {}", t.toString());
         }
@@ -180,7 +192,11 @@ public final class VillagerCombatDefendGoal extends Goal {
             lastNoThreatLogAt = 0L;
             lastRejectLogAt = 0L;
             lastScanAt = 0L;
-            VillagerCombatDirector.stop(vill);
+            if (VillagerBrain.isCombatEngaged(vill)) {
+                VillagerCombatDirector.finishCombatAndResume(vill, "defend_stop");
+            } else {
+                VillagerCombatDirector.stop(vill);
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -226,6 +242,7 @@ public final class VillagerCombatDefendGoal extends Goal {
                 if (toAttack == null) continue;
 
                 if (IgnoredTargetService.isIgnoredByVillagers(toAttack)) continue;
+                if (VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, toAttack)) continue;
                 if (isFriendlyToVillager(vill, toAttack)) continue;
 
                 double d2 = vill.distanceToSqr(toAttack);

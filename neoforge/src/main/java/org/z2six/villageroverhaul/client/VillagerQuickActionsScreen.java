@@ -207,7 +207,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             // Row 1 (Movement): icon then buttons
             int mvX0 = movementX + w + gap;
 
-            mvNeutral = Button.builder(Component.literal("N"), b -> sendMovementCmd("neutral", PacketVillagerCommand.Command.NEUTRAL))
+            mvNeutral = Button.builder(Component.literal("T"), b -> sendMovementCmd("trading", PacketVillagerCommand.Command.TRADING))
                     .pos(mvX0 + 0 * (w + gap), row1Y).size(w, h).build();
             mvIdle = Button.builder(Component.literal("I"), b -> sendMovementCmd("idle", PacketVillagerCommand.Command.IDLE))
                     .pos(mvX0 + 1 * (w + gap), row1Y).size(w, h).build();
@@ -216,7 +216,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             mvPatrol = Button.builder(Component.literal("P"), b -> openPatrolPrompt())
                     .pos(mvX0 + 3 * (w + gap), row1Y).size(w, h).build();
 
-            mvNeutral.setTooltip(Tooltip.create(Component.literal("Neutral")));
+            mvNeutral.setTooltip(Tooltip.create(Component.literal("Trading")));
             mvIdle.setTooltip(Tooltip.create(Component.literal("Idle")));
             mvFollow.setTooltip(Tooltip.create(Component.literal("Follow")));
             mvPatrol.setTooltip(Tooltip.create(Component.literal("Patrol")));
@@ -226,7 +226,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             addRenderableWidget(mvFollow);
             addRenderableWidget(mvPatrol);
 
-            MOVEMENT_BTNS.put("neutral", mvNeutral);
+            MOVEMENT_BTNS.put("trading", mvNeutral);
             MOVEMENT_BTNS.put("idle", mvIdle);
             MOVEMENT_BTNS.put("follow", mvFollow);
             MOVEMENT_BTNS.put("patrol", mvPatrol);
@@ -370,13 +370,10 @@ public final class VillagerQuickActionsScreen extends Screen {
                 updateCommandsMainButtonVisual();
                 return;
             }
-
-            commandsExpanded = !commandsExpanded;
-            setCommandsVisible(commandsExpanded);
+            commandsExpanded = false;
+            setCommandsVisible(false);
             updateCommandsMainButtonVisual();
-
-            // Sync highlight immediately when opening
-            if (commandsExpanded) updateCommandButtonsHighlight();
+            ClientUI.openVillagerCommandsRadial(this, villagerEntityId);
 
         } catch (Throwable ignored) {}
     }
@@ -681,10 +678,11 @@ public final class VillagerQuickActionsScreen extends Screen {
 
             // match ClientUI: patrol_setup -> patrol
             String movementKey = switch (movementMode) {
+                case "trading" -> "trading";
                 case "idle" -> "idle";
                 case "follow" -> "follow";
                 case "patrol", "patrol_setup" -> "patrol";
-                default -> "neutral";
+                default -> "trading";
             };
 
             String combatMode = readCombatModeIdFromClientUI(villagerEntityId);
@@ -724,7 +722,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     private void applyHighlightKey(Map<String, Button> buttons, String activeKey) {
         try {
             if (buttons == null) return;
-            if (activeKey == null) activeKey = "neutral";
+            if (activeKey == null) activeKey = "trading";
             activeKey = activeKey.toLowerCase(Locale.ROOT);
 
             for (Map.Entry<String, Button> e : buttons.entrySet()) {

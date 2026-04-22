@@ -62,6 +62,7 @@ import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsQuery;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
+import org.z2six.villageroverhaul.network.trading.PacketRegisterTradingHall;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcCancelRecord;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginTeaching;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
@@ -164,6 +165,7 @@ public final class ClientUI {
 
     // Manual farming workstation registration flow (from settings screen)
     private static int PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+    private static int PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
     private static int PENDING_CC_RECORD_VILLAGER_ID = -1;
     private static long CHEST_REGISTER_MESSAGE_UNTIL_MS = 0L;
     private static String CHEST_REGISTER_MESSAGE = "";
@@ -452,6 +454,30 @@ public final class ClientUI {
                 return;
             }
 
+            if (PENDING_TRADING_HALL_REGISTER_VILLAGER_ID > 0) {
+                boolean isTradingHall = false;
+                try {
+                    var state = e.getLevel().getBlockState(pos);
+                    isTradingHall = state != null && state.is(org.z2six.villageroverhaul.content.ModBlocks.TRADING_HALL.get());
+                } catch (Throwable ignored) {
+                    isTradingHall = false;
+                }
+                if (!isTradingHall) return;
+
+                int id = PENDING_TRADING_HALL_REGISTER_VILLAGER_ID;
+                PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
+                try {
+                    ClientNetwork.sendToServer(PacketRegisterTradingHall.of(id, pos));
+                } catch (Throwable ignored) {}
+
+                setChestRegisterMessage("Trading Hall registered", 2200);
+                try {
+                    e.setCanceled(true);
+                    e.setCancellationResult(InteractionResult.SUCCESS);
+                } catch (Throwable ignored) {}
+                return;
+            }
+
             if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0) return;
 
             boolean isChest = false;
@@ -485,6 +511,7 @@ public final class ClientUI {
             if (e == null) return;
             if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0
                     && PENDING_WORKSTATION_REGISTER_VILLAGER_ID <= 0
+                    && PENDING_TRADING_HALL_REGISTER_VILLAGER_ID <= 0
                     && PENDING_CC_RECORD_VILLAGER_ID <= 0) return;
 
             int key = e.getKey();
@@ -510,6 +537,7 @@ public final class ClientUI {
             PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_WITHDRAW = false;
             PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+            PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
             setChestRegisterMessage("Registration canceled", 2200);
 
             // Keep player ingame (don't open pause menu)
@@ -623,6 +651,8 @@ public final class ClientUI {
                 }
             }
 
+            PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+            PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_VILLAGER_ID = villagerEntityId;
             PENDING_CHEST_REGISTER_WITHDRAW = false;
             setChestRegisterMessage("Please open a chest to register it for deposits", 1000000L);
@@ -643,6 +673,8 @@ public final class ClientUI {
                 }
             }
 
+            PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+            PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_VILLAGER_ID = villagerEntityId;
             PENDING_CHEST_REGISTER_WITHDRAW = true;
             setChestRegisterMessage("Please open a chest to register it for withdrawals", 1000000L);
@@ -663,8 +695,33 @@ public final class ClientUI {
                 }
             }
 
+            PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
+            PENDING_CHEST_REGISTER_WITHDRAW = false;
+            PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
             PENDING_WORKSTATION_REGISTER_VILLAGER_ID = villagerEntityId;
             setChestRegisterMessage("RMB on a block to register workstation", 1000000L);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void beginTradingHallRegistration(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc != null) {
+                mc.setScreen(null);
+                if (mc.player != null) {
+                    try {
+                        mc.player.closeContainer();
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
+            PENDING_CHEST_REGISTER_WITHDRAW = false;
+            PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+            PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = villagerEntityId;
+            setChestRegisterMessage("RMB on a Trading Hall to register it", 1000000L);
         } catch (Throwable ignored) {}
     }
 
@@ -975,58 +1032,8 @@ public final class ClientUI {
                                 return;
                             }
 
-                            boolean next = !isCommandsExpanded(screen);
-                            setCommandsExpanded(screen, next);
-
-                            // show/hide visuals
-                            CommandsBackdropWidget backdrop = COMMANDS_BACKDROPS.get(screen);
-                            if (backdrop != null) {
-                                backdrop.visible = next;
-                                backdrop.active = false;
-                            }
-
-                            List<Button> subs = COMMANDS_SUB_BUTTONS.get(screen);
-                            setButtonsVisible(subs, next);
-
-                            List<RowHeaderIconWidget> icons = COMMANDS_HEADER_ICONS.get(screen);
-                            if (icons != null) {
-                                for (RowHeaderIconWidget iw : icons) {
-                                    if (iw == null) continue;
-                                    iw.visible = next;
-                                    iw.active = false;
-                                }
-                            }
-
-                            // Hide module rows if the server disabled them.
-                            try {
-                                ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
-                                boolean showCombat = cfg == null || cfg.enableCombatModule;
-                                boolean showFarming = cfg == null || cfg.enableFarmingModule;
-
-                                if (icons != null && icons.size() >= 4) {
-                                    RowHeaderIconWidget combatIcon = icons.get(1);
-                                    if (combatIcon != null) { combatIcon.visible = next && showCombat; combatIcon.active = false; }
-                                    RowHeaderIconWidget farmingIcon = icons.get(2);
-                                    if (farmingIcon != null) { farmingIcon.visible = next && showFarming; farmingIcon.active = false; }
-                                }
-
-                                // Button order: movement(4), combat(4), farming(4), custom(2)
-                                if (subs != null && subs.size() >= 14) {
-                                    for (int i = 4; i < 8; i++) {
-                                        Button b = subs.get(i);
-                                        if (b != null) { b.visible = next && showCombat; b.active = next && showCombat; }
-                                    }
-                                    for (int i = 8; i < 12; i++) {
-                                        Button b = subs.get(i);
-                                        if (b != null) { b.visible = next && showFarming; b.active = next && showFarming; }
-                                    }
-                                }
-                            } catch (Throwable ignored) {}
-
-                            updateCommandsMainButtonVisual(screen);
-
-                            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Commands palette toggled expanded={} (villagerEntityId={})",
-                                    next, resolveTraderEntityId(screen));
+                            collapseCommands(screen);
+                            openVillagerCommandsRadial(screen, resolveTraderEntityId(screen));
 
                         } catch (Throwable t) {
                             VillagerOverhaul.LOG().error("[VillagerOverhaul] Commands button click failed", t);
@@ -3044,6 +3051,41 @@ public final class ClientUI {
             RecruitStateSnap snap = RECRUIT_STATE.get(villagerEntityId);
             return snap != null && snap.recruited && snap.canUseControls;
         } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static String getKnownCombatModeId(int villagerEntityId) {
+        try {
+            String mode = COMBAT_MODE_ID.get(villagerEntityId);
+            return mode == null ? "off" : mode;
+        } catch (Throwable ignored) {
+            return "off";
+        }
+    }
+
+    public static String getKnownMovementModeId(int villagerEntityId) {
+        try {
+            String mode = MODE_ID.get(villagerEntityId);
+            return mode == null ? "neutral" : mode;
+        } catch (Throwable ignored) {
+            return "neutral";
+        }
+    }
+
+    public static boolean isKnownManualFarmingEnabled(int villagerEntityId) {
+        try {
+            return Boolean.TRUE.equals(MANUAL_FARMING_ENABLED.get(villagerEntityId));
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    public static boolean openVillagerCommandsRadial(Screen parent, int villagerEntityId) {
+        try {
+            return VillagerCommandsRadial.open(parent, villagerEntityId);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] openVillagerCommandsRadial failed", t);
             return false;
         }
     }
