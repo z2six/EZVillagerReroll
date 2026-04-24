@@ -16,12 +16,17 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.block.TradingHallBlock;
+import org.z2six.villageroverhaul.block.entity.TradingHallBlockEntity;
 import org.z2six.villageroverhaul.config.ClientConfig;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
@@ -551,10 +556,6 @@ public final class ClientUI {
     private static void onRenderGuiPost(final RenderGuiEvent.Post e) {
         try {
             if (e == null) return;
-            long now = System.currentTimeMillis();
-            if (CHEST_REGISTER_MESSAGE_UNTIL_MS <= now) return;
-            if (CHEST_REGISTER_MESSAGE == null || CHEST_REGISTER_MESSAGE.isBlank()) return;
-
             Minecraft mc = Minecraft.getInstance();
             if (mc == null || mc.font == null) return;
 
@@ -572,9 +573,39 @@ public final class ClientUI {
             }
             if (w <= 0 || h <= 0) return;
 
-            int x = w / 2;
-            int y = h - 60;
-            gg.drawCenteredString(mc.font, Component.literal(CHEST_REGISTER_MESSAGE), x, y, CHEST_REGISTER_MESSAGE_COLOR);
+            long now = System.currentTimeMillis();
+            if (CHEST_REGISTER_MESSAGE_UNTIL_MS > now && CHEST_REGISTER_MESSAGE != null && !CHEST_REGISTER_MESSAGE.isBlank()) {
+                int x = w / 2;
+                int y = h - 60;
+                gg.drawCenteredString(mc.font, Component.literal(CHEST_REGISTER_MESSAGE), x, y, CHEST_REGISTER_MESSAGE_COLOR);
+            }
+
+            renderTradingHallEmeraldTooltip(gg, mc, w, h);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void renderTradingHallEmeraldTooltip(GuiGraphics gg, Minecraft mc, int screenW, int screenH) {
+        try {
+            if (gg == null || mc == null || mc.level == null || mc.player == null || mc.font == null) return;
+            HitResult hr = mc.hitResult;
+            if (!(hr instanceof BlockHitResult bhr)) return;
+            if (bhr.getType() != HitResult.Type.BLOCK) return;
+            if (!TradingHallBlock.isPileHit(bhr)) return;
+
+            BlockPos pos = bhr.getBlockPos();
+            if (pos == null) return;
+
+            BlockState state = mc.level.getBlockState(pos);
+            if (state == null || !(state.getBlock() instanceof TradingHallBlock)) return;
+            if (!(mc.level.getBlockEntity(pos) instanceof TradingHallBlockEntity hall)) return;
+
+            int emeralds = hall.getStoredEmeralds();
+            if (emeralds <= 0) return;
+
+            List<Component> lines = List.of(Component.literal("Emeralds on table: " + emeralds));
+            int x = (screenW / 2) + 14;
+            int y = (screenH / 2) - 18;
+            gg.renderComponentTooltip(mc.font, lines, x, y);
         } catch (Throwable ignored) {}
     }
 

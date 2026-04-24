@@ -6,7 +6,6 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
-import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.trading.Merchant;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
@@ -119,40 +118,13 @@ public final class RerollExecutor {
             boolean paid = false;
 
             if (cost > 0) {
-                boolean specIsTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
-                ResourceLocation itemId = specIsTag ? null : ResourceLocation.tryParse(ServerConfig.costSpec);
-                boolean isExactItem = itemId != null && !specIsTag;
-
-                if (ServerConfig.preferWallet && isExactItem && MoneyBridge.isLCPresent()) {
-                    boolean apiPaid = MoneyBridge.tryExtract(sp, itemId, cost);
-                    if (apiPaid) {
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost paid via LC MoneyAPI: {} x {}", cost, itemId);
-                        paid = true;
-                    } else {
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC MoneyAPI extraction failed; trying direct wallet next: {} x {}", cost, itemId);
-                    }
-                }
-
-                if (!paid && ServerConfig.preferWallet && isExactItem && WalletBridge.isLCPresent()) {
-                    boolean walletPaid = WalletBridge.tryWithdrawFromWallet(sp, itemId, cost);
-                    if (walletPaid) {
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost paid via LC wallet (direct): {} x {}", cost, itemId);
-                        paid = true;
-                    } else {
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] LC direct wallet failed; falling back to inventory: {} x {}", cost, itemId);
-                    }
-                }
-
+                paid = PaymentUtil.tryCharge(sp, cost);
                 if (!paid) {
-                    Ingredient ing = CostUtil.parseIngredient(ServerConfig.costSpec);
-                    if (ing == Ingredient.EMPTY || !CostUtil.consume(sp, ing, cost)) {
-                        toast(sp, "ezvr.msg.not_enough");
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: insufficient inventory for {} x {}", cost, ServerConfig.costSpec);
-                        return;
-                    }
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost consumed from inventory: {} x {}", cost, ServerConfig.costSpec);
-                    paid = true;
+                    toast(sp, "ezvr.msg.not_enough");
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: insufficient funds for {} x {}", cost, ServerConfig.costSpec);
+                    return;
                 }
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost paid via PaymentUtil: {} x {}", cost, ServerConfig.costSpec);
             } else {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Cost is zero (free reroll per offer-based config).");
                 paid = true;

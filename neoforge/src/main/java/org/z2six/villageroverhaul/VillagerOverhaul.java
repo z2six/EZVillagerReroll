@@ -131,6 +131,13 @@ public final class VillagerOverhaul {
             }
 
             try {
+                modBus.addListener(ClientRenderEvents::onRegisterRenderers);
+                LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onRegisterRenderers on MOD bus.");
+            } catch (Throwable t) {
+                LOG.error("[VillagerOverhaul] Failed to register ClientRenderEvents::onRegisterRenderers on MOD bus.", t);
+            }
+
+            try {
                 modBus.addListener(ClientRenderEvents::onAddLayers);
                 LOG.info("[VillagerOverhaul] Registered ClientRenderEvents::onAddLayers on MOD bus.");
             } catch (Throwable t) {

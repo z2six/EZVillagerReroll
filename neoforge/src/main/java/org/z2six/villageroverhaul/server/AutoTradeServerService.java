@@ -7,7 +7,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.MerchantOffer;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeState;
@@ -71,12 +70,6 @@ public final class AutoTradeServerService {
                 return;
             }
 
-            ItemStack out = safeResult(offer);
-            if (!out.is(Items.EMERALD)) {
-                sendState(sp, containerId, false, "not_emerald_offer");
-                return;
-            }
-
             // Clear stale inputs first.
             tryClearInputs(sp, menu);
 
@@ -131,12 +124,6 @@ public final class AutoTradeServerService {
                 MerchantOffer offer = safeOffer(menu, s.offerIndex);
                 if (offer == null) {
                     stop(sp, s.containerId, "offer_missing");
-                    continue;
-                }
-
-                ItemStack out = safeResult(offer);
-                if (!out.is(Items.EMERALD)) {
-                    stop(sp, s.containerId, "offer_changed");
                     continue;
                 }
 
@@ -235,16 +222,6 @@ public final class AutoTradeServerService {
             return offers.get(idx);
         } catch (Throwable t) {
             return null;
-        }
-    }
-
-    private static ItemStack safeResult(MerchantOffer offer) {
-        try {
-            if (offer == null) return ItemStack.EMPTY;
-            ItemStack r = offer.getResult();
-            return r == null ? ItemStack.EMPTY : r;
-        } catch (Throwable t) {
-            return ItemStack.EMPTY;
         }
     }
 

@@ -9,7 +9,6 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -72,7 +71,6 @@ public abstract class MerchantScreenAutoTradeCtrlRightClickMixin {
             } catch (Throwable ignored) {}
 
             if (sell == null) sell = ItemStack.EMPTY;
-            if (!sell.is(Items.EMERALD)) return; // only auto-sell for emerald output
 
             String key = AutoTradeConsentStore.keyFor(buyA, buyB, sell);
             AutoTradeConsentStore.Decision d = AutoTradeConsentStore.getDecision(key);

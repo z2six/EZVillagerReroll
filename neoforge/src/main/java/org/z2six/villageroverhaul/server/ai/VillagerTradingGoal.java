@@ -74,7 +74,6 @@ public final class VillagerTradingGoal extends Goal {
     private int navCooldown;
     private int hallTimeoutTicks;
     private long hallWaitUntilGameTime;
-    private Vec3 hallTripResumePos;
     private double travelLastTargetDistSqr;
     private int idleLookCooldown;
     private int idleLookHoldTicks;
@@ -110,7 +109,6 @@ public final class VillagerTradingGoal extends Goal {
         navCooldown = 0;
         hallTimeoutTicks = 0;
         hallWaitUntilGameTime = 0L;
-        hallTripResumePos = null;
         idleLookCooldown = 0;
         idleLookHoldTicks = 0;
         idleLookTarget = null;
@@ -125,7 +123,6 @@ public final class VillagerTradingGoal extends Goal {
         phase = Phase.WORKSTATION;
         hallTimeoutTicks = 0;
         hallWaitUntilGameTime = 0L;
-        hallTripResumePos = null;
         idleLookCooldown = 0;
         idleLookHoldTicks = 0;
         idleLookTarget = null;
@@ -176,14 +173,15 @@ public final class VillagerTradingGoal extends Goal {
         try {
             long day = Math.max(0L, level.getDayTime() / 24000L);
             int timeOfDay = (int) Math.floorMod(level.getDayTime(), 24000L);
+            normalizeDailyTradingStateForCurrentDay(day);
             long last = TradingHallService.getLastDailyCycleDay(vill);
             if (last >= day) return;
 
             int scheduledDayTime = ensureTodayRestockSchedule(day);
             if (timeOfDay < scheduledDayTime && timeOfDay <= RESTOCK_WINDOW_END_TOD) return;
 
+            if (!restockOffers()) return;
             TradingHallService.setLastDailyCycleDay(vill, day);
-            restockOffers();
 
             TradingHallBlockEntity hall = TradingHallService.getResolvedHall(level, vill);
             if (hall != null && hasAnyPurchasableHallTrade(hall)) {
@@ -194,6 +192,7 @@ public final class VillagerTradingGoal extends Goal {
 
     private int ensureTodayRestockSchedule(long day) {
         try {
+            normalizeDailyTradingStateForCurrentDay(day);
             long scheduledDay = TradingHallService.getRestockScheduledDay(vill);
             int scheduledTod = TradingHallService.getRestockTimeOfDay(vill);
             if (scheduledDay == day && scheduledTod >= RESTOCK_WINDOW_START_TOD && scheduledTod <= RESTOCK_WINDOW_END_TOD) {
@@ -208,6 +207,16 @@ public final class VillagerTradingGoal extends Goal {
         } catch (Throwable ignored) {
             return RESTOCK_WINDOW_START_TOD;
         }
+    }
+
+    private void normalizeDailyTradingStateForCurrentDay(long currentDay) {
+        try {
+            long last = TradingHallService.getLastDailyCycleDay(vill);
+            long scheduled = TradingHallService.getRestockScheduledDay(vill);
+            if (last > currentDay || scheduled > currentDay) {
+                TradingHallService.resetDailyTradingState(vill);
+            }
+        } catch (Throwable ignored) {}
     }
 
     private void maybeRunAmbientHallCheck(ServerLevel level) {
@@ -279,16 +288,15 @@ public final class VillagerTradingGoal extends Goal {
             return;
         }
 
-        Vec3 returnDest = hallTripResumePos;
-        if (returnDest == null) {
-            FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
-            if (ws != null) {
-                returnDest = new Vec3(ws.x() + 0.5D, ws.y() + 0.5D, ws.z() + 0.5D);
-            } else {
-                finishHallTrip();
-                return;
-            }
+        FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+        if (ws == null) {
+            finishHallTrip();
+            return;
         }
+        BlockPos workstationPos = new BlockPos(ws.x(), ws.y(), ws.z());
+        BlockPos anchorPos = findStandableAdjacent(level, workstationPos);
+        if (anchorPos == null) anchorPos = workstationPos.relative(Direction.SOUTH);
+        Vec3 returnDest = Vec3.atBottomCenterOf(anchorPos);
 
         boolean openedPassage = openNearbyWoodenPassages(level, returnDest);
 
@@ -401,15 +409,16 @@ public final class VillagerTradingGoal extends Goal {
         return freeHere && freeAbove && solidBelow ? pos : null;
     }
 
-    private void restockOffers() {
+    private boolean restockOffers() {
         try {
-            if (vill.getOffers() == null) return;
-            for (MerchantOffer offer : vill.getOffers()) {
-                if (offer == null) continue;
-                try { offer.resetUses(); } catch (Throwable ignored) {}
-            }
+            if (vill.getOffers() == null || vill.getOffers().isEmpty()) return false;
+            vill.restock();
             playRestockFx();
-        } catch (Throwable ignored) {}
+            return true;
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Trading mode restock failed (soft): {}", t.toString());
+            return false;
+        }
     }
 
     private void playRestockFx() {
@@ -437,6 +446,7 @@ public final class VillagerTradingGoal extends Goal {
         try {
             if (hall == null || vill.getOffers() == null) return;
             int totalXp = 0;
+            int totalEmeraldsCredited = 0;
             for (MerchantOffer offer : vill.getOffers()) {
                 if (offer == null) continue;
                 int trades = computeMaxHallTrades(hall, offer);
@@ -453,16 +463,15 @@ public final class VillagerTradingGoal extends Goal {
                         insertItem(hall, costA.copy());
                         break;
                     }
-                    if (!insertItem(hall, result.copy())) {
-                        insertItem(hall, costA.copy());
-                        if (!costB.isEmpty()) insertItem(hall, costB.copy());
-                        break;
-                    }
                     try { offer.increaseUses(); } catch (Throwable ignored) {}
+                    totalEmeraldsCredited += Math.max(0, result.getCount());
                     totalXp += safeOfferXp(offer);
                 }
             }
 
+            if (totalEmeraldsCredited > 0 && hall instanceof TradingHallBlockEntity tradingHall) {
+                tradingHall.addStoredEmeralds(totalEmeraldsCredited);
+            }
             if (totalXp > 0) {
                 VillagerXpService.grantXp(vill, totalXp, null);
                 try { hall.setChanged(); } catch (Throwable ignored) {}
@@ -476,7 +485,6 @@ public final class VillagerTradingGoal extends Goal {
         phase = Phase.GO_TO_HALL;
         hallTimeoutTicks = 0;
         hallWaitUntilGameTime = 0L;
-        hallTripResumePos = Vec3.atBottomCenterOf(vill.blockPosition());
         idleLookCooldown = 0;
         idleLookHoldTicks = 0;
         idleLookTarget = null;
@@ -488,7 +496,6 @@ public final class VillagerTradingGoal extends Goal {
         phase = Phase.WORKSTATION;
         hallTimeoutTicks = 0;
         hallWaitUntilGameTime = 0L;
-        hallTripResumePos = null;
         idleLookCooldown = 0;
         idleLookHoldTicks = 0;
         idleLookTarget = null;
@@ -545,7 +552,12 @@ public final class VillagerTradingGoal extends Goal {
                 return Vec3.atBottomCenterOf(standPos);
             }
             if (phase == Phase.RETURN_FROM_HALL) {
-                return hallTripResumePos;
+                FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+                if (ws == null) return null;
+                BlockPos workstationPos = new BlockPos(ws.x(), ws.y(), ws.z());
+                BlockPos anchorPos = findStandableAdjacent(level, workstationPos);
+                if (anchorPos == null) anchorPos = workstationPos.relative(Direction.SOUTH);
+                return Vec3.atBottomCenterOf(anchorPos);
             }
         } catch (Throwable ignored) {}
         return null;
@@ -653,7 +665,7 @@ public final class VillagerTradingGoal extends Goal {
     private void recoverFromFailedHallTravel(String reason) {
         try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
 
-        Vec3 resumeDest = hallTripResumePos;
+        Vec3 resumeDest = getWorkstationReturnTarget();
         boolean hasPearl = false;
         boolean teleported = false;
         try {
@@ -699,8 +711,6 @@ public final class VillagerTradingGoal extends Goal {
                 maxTrades = Math.min(maxTrades, byB);
             }
 
-            int emeraldCapacity = getInsertCapacity(hall, result);
-            maxTrades = Math.min(maxTrades, emeraldCapacity / Math.max(1, result.getCount()));
             return Math.max(0, maxTrades);
         } catch (Throwable ignored) {
             return 0;
@@ -767,21 +777,6 @@ public final class VillagerTradingGoal extends Goal {
 
         hall.setChanged();
         return stack.isEmpty();
-    }
-
-    private int getInsertCapacity(Container hall, ItemStack template) {
-        int capacity = 0;
-        for (int i = 0; i < hall.getContainerSize(); i++) {
-            ItemStack cur = hall.getItem(i);
-            if (cur.isEmpty()) {
-                capacity += Math.min(hall.getMaxStackSize(), template.getMaxStackSize());
-                continue;
-            }
-            if (!ItemStack.isSameItemSameComponents(cur, template)) continue;
-            int limit = Math.min(hall.getMaxStackSize(), cur.getMaxStackSize());
-            capacity += Math.max(0, limit - cur.getCount());
-        }
-        return capacity;
     }
 
     private boolean openNearbyWoodenPassages(ServerLevel level, Vec3 travelTarget) {
@@ -893,6 +888,20 @@ public final class VillagerTradingGoal extends Goal {
                 return;
             }
         } catch (Throwable ignored) {}
+    }
+
+    private Vec3 getWorkstationReturnTarget() {
+        try {
+            if (!(vill.level() instanceof ServerLevel level)) return null;
+            FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+            if (ws == null) return null;
+            BlockPos workstationPos = new BlockPos(ws.x(), ws.y(), ws.z());
+            BlockPos anchorPos = findStandableAdjacent(level, workstationPos);
+            if (anchorPos == null) anchorPos = workstationPos.relative(Direction.SOUTH);
+            return Vec3.atBottomCenterOf(anchorPos);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     private static ItemStack safeCopy(ItemStack stack) {

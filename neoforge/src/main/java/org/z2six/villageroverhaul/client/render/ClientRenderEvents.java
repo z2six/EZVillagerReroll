@@ -11,6 +11,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.content.ModBlockEntities;
 
 /**
  * Client-only renderer wiring (registered from VillagerOverhaul main class on MOD bus).
@@ -33,6 +34,15 @@ public final class ClientRenderEvents {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ClientRenderEvents.onRegisterLayerDefinitions failed", t);
+        }
+    }
+
+    public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers e) {
+        try {
+            if (e == null) return;
+            e.registerBlockEntityRenderer(ModBlockEntities.TRADING_HALL.get(), TradingHallBlockEntityRenderer::new);
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] ClientRenderEvents.onRegisterRenderers failed", t);
         }
     }
 

@@ -147,6 +147,16 @@ public final class TradingHallService {
         } catch (Throwable ignored) {}
     }
 
+    public static void resetDailyTradingState(Villager vill) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.remove(K_LAST_DAILY_CYCLE_DAY);
+            root.remove(K_RESTOCK_SCHEDULED_DAY);
+            root.remove(K_RESTOCK_TIME_OF_DAY);
+        } catch (Throwable ignored) {}
+    }
+
     public static boolean hasPendingPurchaseCheck(Villager vill) {
         try {
             if (vill == null) return false;

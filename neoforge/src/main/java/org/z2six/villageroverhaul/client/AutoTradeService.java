@@ -7,8 +7,6 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.MerchantMenu;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -17,14 +15,10 @@ import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStart;
 import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStop;
 
 /**
- * Client-only “spam sell” automation for MerchantScreen.
+ * Client-only merchant auto-trade controller.
  *
  * Triggered via CTRL+LMB on a trade button (see mixin).
- * Performs normal vanilla UI actions:
- * - selects the offer via gameMode.handleInventoryButtonClick(containerId, offerIndex)
- * - shift-clicks result slot to execute the trade
- *
- * No server simulation / no direct inventory mutations.
+ * Server performs the actual MerchantMenu actions to avoid client-side desync.
  */
 public final class AutoTradeService {
 
@@ -74,21 +68,11 @@ public final class AutoTradeService {
             MerchantOffer offer = safeGetOffer(menu.getOffers(), absoluteOfferIndex);
             if (offer == null) return;
 
-            ItemStack out = ItemStack.EMPTY;
-            try { out = offer.getResult(); } catch (Throwable ignored) {}
-            if (out == null) out = ItemStack.EMPTY;
-
-            // Only “sell” offers: output is emeralds.
-            if (!out.is(Items.EMERALD)) {
-                return;
-            }
-
             ACTIVE = new State(cid, absoluteOfferIndex);
             ACTIVE.lastReason = "start_client";
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [autotrade] client_start containerId={} offerIdx={}", cid, absoluteOfferIndex);
 
-            // Server-driven execution.
             ClientNetwork.sendToServer(new PacketAutoTradeStart(cid, absoluteOfferIndex));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] AutoTrade start failed", t);
@@ -186,7 +170,6 @@ public final class AutoTradeService {
         try {
             if (screen == null) return 0;
 
-            // Prefer name matches.
             for (String name : names) {
                 if (name == null || name.isEmpty()) continue;
                 Class<?> c = screen.getClass();
@@ -197,13 +180,11 @@ public final class AutoTradeService {
                         f.setAccessible(true);
                         return f.getInt(screen);
                     } catch (NoSuchFieldException ignored) {
-                        // keep walking
                     }
                     c = c.getSuperclass();
                 }
             }
 
-            // Fallback: heuristics
             String want = (names != null && names.length > 0 && names[0] != null) ? names[0].toLowerCase() : "";
             Class<?> c = screen.getClass();
             while (c != null && c != Object.class) {
@@ -240,7 +221,6 @@ public final class AutoTradeService {
             }
 
             if (ACTIVE == null || ACTIVE.containerId != containerId) {
-                // If server says active but our client didn't start (edge case), still show overlay.
                 ACTIVE = new State(containerId, -1);
             }
             ACTIVE.lastReason = r;
