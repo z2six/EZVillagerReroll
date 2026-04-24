@@ -25,7 +25,6 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateQuery;
 
-import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -314,10 +313,20 @@ public final class VillagerQuickActionsScreen extends Screen {
         try {
             boolean controls = ClientUI.canUseControlsForVillager(villagerEntityId);
             boolean showMerchant = true;
+            boolean showCombat = true;
+            boolean showFarming = true;
             try {
                 var cfg = ClientSyncedConfig.get();
-                if (cfg != null) showMerchant = cfg.enableMerchantModule;
-            } catch (Throwable ignored) { showMerchant = true; }
+                if (cfg != null) {
+                    showMerchant = cfg.enableMerchantModule;
+                    showCombat = cfg.enableCombatModule;
+                    showFarming = cfg.enableFarmingModule;
+                }
+            } catch (Throwable ignored) {
+                showMerchant = true;
+                showCombat = true;
+                showFarming = true;
+            }
 
             // Info always allowed
             infoBtn.active = true;
@@ -330,6 +339,10 @@ public final class VillagerQuickActionsScreen extends Screen {
             invBtn.visible = controls;
             cmdBtn.active = controls;
             cmdBtn.visible = controls;
+
+            if (mvNeutral != null) { mvNeutral.visible = controls && showMerchant; mvNeutral.active = controls && showMerchant; }
+            if (combatHeaderIcon != null) { combatHeaderIcon.visible = commandsExpanded && controls && showCombat; }
+            if (farmingHeaderIcon != null) { farmingHeaderIcon.visible = commandsExpanded && controls && showFarming; }
 
             if (!controls) {
                 commandsExpanded = false;
@@ -380,15 +393,18 @@ public final class VillagerQuickActionsScreen extends Screen {
 
     private void setCommandsVisible(boolean v) {
         try {
+            boolean showMerchant = true;
             boolean showCombat = true;
             boolean showFarming = true;
             try {
                 var cfg = ClientSyncedConfig.get();
                 if (cfg != null) {
+                    showMerchant = cfg.enableMerchantModule;
                     showCombat = cfg.enableCombatModule;
                     showFarming = cfg.enableFarmingModule;
                 }
             } catch (Throwable ignored) {
+                showMerchant = true;
                 showCombat = true;
                 showFarming = true;
             }
@@ -399,7 +415,7 @@ public final class VillagerQuickActionsScreen extends Screen {
             setWidgetVisible(farmingHeaderIcon, v && showFarming);
             setWidgetVisible(customHeaderIcon, v);
 
-            setWidgetVisible(mvNeutral, v);
+            setWidgetVisible(mvNeutral, v && showMerchant);
             setWidgetVisible(mvIdle, v);
             setWidgetVisible(mvFollow, v);
             setWidgetVisible(mvPatrol, v);
@@ -765,78 +781,25 @@ public final class VillagerQuickActionsScreen extends Screen {
         } catch (Throwable ignored) {}
     }
 
-    @SuppressWarnings("unchecked")
     private static String readModeIdFromClientUI(int villagerId) {
         try {
-            // ClientUI has:
-            // private static final Map<Integer, String> MODE_ID = new WeakHashMap<>();
-            Class<?> clz = Class.forName("org.z2six.villageroverhaul.client.ClientUI");
-
-            Field f = null;
-            try {
-                f = clz.getDeclaredField("MODE_ID");
-            } catch (NoSuchFieldException ignored) {}
-
-            if (f == null) return null;
-            f.setAccessible(true);
-
-            Object mapObj = f.get(null);
-            if (!(mapObj instanceof Map<?, ?> m)) return null;
-
-            Object v = m.get(villagerId);
-            return (v instanceof String s) ? s : null;
-
+            return ClientUI.getKnownMovementModeId(villagerId);
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static String readCombatModeIdFromClientUI(int villagerId) {
         try {
-            // ClientUI has:
-            // private static final Map<Integer, String> COMBAT_MODE_ID = new WeakHashMap<>();
-            Class<?> clz = Class.forName("org.z2six.villageroverhaul.client.ClientUI");
-
-            Field f = null;
-            try {
-                f = clz.getDeclaredField("COMBAT_MODE_ID");
-            } catch (NoSuchFieldException ignored) {}
-
-            if (f == null) return null;
-            f.setAccessible(true);
-
-            Object mapObj = f.get(null);
-            if (!(mapObj instanceof Map<?, ?> m)) return null;
-
-            Object v = m.get(villagerId);
-            return (v instanceof String s) ? s : null;
-
+            return ClientUI.getKnownCombatModeId(villagerId);
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static boolean readManualFarmingEnabledFromClientUI(int villagerId) {
         try {
-            // ClientUI has:
-            // private static final Map<Integer, Boolean> MANUAL_FARMING_ENABLED = new WeakHashMap<>();
-            Class<?> clz = Class.forName("org.z2six.villageroverhaul.client.ClientUI");
-
-            Field f = null;
-            try {
-                f = clz.getDeclaredField("MANUAL_FARMING_ENABLED");
-            } catch (NoSuchFieldException ignored) {}
-
-            if (f == null) return false;
-            f.setAccessible(true);
-
-            Object mapObj = f.get(null);
-            if (!(mapObj instanceof Map<?, ?> m)) return false;
-
-            Object v = m.get(villagerId);
-            return (v instanceof Boolean b) && b;
+            return ClientUI.isKnownManualFarmingEnabled(villagerId);
         } catch (Throwable ignored) {
             return false;
         }

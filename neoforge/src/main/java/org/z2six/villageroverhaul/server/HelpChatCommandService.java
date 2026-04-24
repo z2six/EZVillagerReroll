@@ -3,6 +3,8 @@ package org.z2six.villageroverhaul.server;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -25,6 +27,7 @@ public final class HelpChatCommandService {
 
     private static final class Session {
         final Set<UUID> targets = new HashSet<>();
+        final Map<UUID, ResourceKey<Level>> targetLevels = new HashMap<>();
         int lastHurtByTs = 0;
         int lastHurtMobTs = 0;
 
@@ -110,6 +113,9 @@ public final class HelpChatCommandService {
 
             if (chosen != null) {
                 s.targets.add(chosen);
+                try {
+                    if (sp.serverLevel() != null) s.targetLevels.put(chosen, sp.serverLevel().dimension());
+                } catch (Throwable ignored) {}
             } else {
                 // No target: rally near the owner for a short window.
                 s.rallyUntil = now + RALLY_TICKS;
@@ -228,6 +234,11 @@ public final class HelpChatCommandService {
                 try { attacker = sp.getLastHurtByMob(); } catch (Throwable ignored) { attacker = null; }
                 if (attacker != null && attacker.isAlive()) {
                     s.targets.add(attacker.getUUID());
+                    try {
+                        if (attacker.level() instanceof ServerLevel attackerLevel) {
+                            s.targetLevels.put(attacker.getUUID(), attackerLevel.dimension());
+                        }
+                    } catch (Throwable ignored) {}
                     try { recordOwnerAttackedBy(sp, attacker.getUUID()); } catch (Throwable ignored2) {}
                 }
             }
@@ -238,6 +249,11 @@ public final class HelpChatCommandService {
                 try { victim = sp.getLastHurtMob(); } catch (Throwable ignored) { victim = null; }
                 if (victim != null && victim.isAlive()) {
                     s.targets.add(victim.getUUID());
+                    try {
+                        if (victim.level() instanceof ServerLevel victimLevel) {
+                            s.targetLevels.put(victim.getUUID(), victimLevel.dimension());
+                        }
+                    } catch (Throwable ignored) {}
                     try { recordOwnerAttacked(sp, victim.getUUID()); } catch (Throwable ignored2) {}
                 }
             }
@@ -254,21 +270,39 @@ public final class HelpChatCommandService {
                 UUID u = it.next();
                 if (u == null) { it.remove(); continue; }
 
-                Entity ent = findEntity(server, u);
+                Entity ent = findEntity(server, u, s);
                 if (!(ent instanceof LivingEntity le) || !le.isAlive()) {
+                    s.targetLevels.remove(u);
                     it.remove();
                 }
             }
         } catch (Throwable ignored) {}
     }
 
-    private static Entity findEntity(MinecraftServer server, UUID uuid) {
+    private static Entity findEntity(MinecraftServer server, UUID uuid, Session s) {
         try {
             if (server == null || uuid == null) return null;
+            if (s != null) {
+                ResourceKey<Level> cachedLevelKey = s.targetLevels.get(uuid);
+                if (cachedLevelKey != null) {
+                    try {
+                        ServerLevel cachedLevel = server.getLevel(cachedLevelKey);
+                        if (cachedLevel != null) {
+                            Entity cached = cachedLevel.getEntity(uuid);
+                            if (cached != null) return cached;
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
             for (ServerLevel lvl : server.getAllLevels()) {
                 try {
                     Entity e = lvl.getEntity(uuid);
-                    if (e != null) return e;
+                    if (e != null) {
+                        try {
+                            if (s != null) s.targetLevels.put(uuid, lvl.dimension());
+                        } catch (Throwable ignored) {}
+                        return e;
+                    }
                 } catch (Throwable ignored) {}
             }
             return null;

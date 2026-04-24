@@ -66,13 +66,17 @@ final class VillagerCommandsRadial {
         String movementMode = normalizeMovementMode(ClientUI.getKnownMovementModeId(villagerEntityId));
         String combatMode = normalizeCombatMode(ClientUI.getKnownCombatModeId(villagerEntityId));
         boolean tradingMode = "trading".equals(movementMode);
+        ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+        boolean showMerchant = cfg == null || cfg.enableMerchantModule;
+        boolean showCombat = cfg == null || cfg.enableCombatModule;
+        boolean showFarming = cfg == null || cfg.enableFarmingModule;
 
         List<Object> root = new ArrayList<>();
         root.add(category(menuItemCtor, iconItem, withActive,
                 "Movement",
-                manualFarming ? "Manual farming is active" : tradingMode ? "Trading mode is active" : "Current: " + prettyModeName(movementMode),
+                manualFarming ? "Manual farming is active" : (showMerchant && tradingMode) ? "Trading mode is active" : "Current: " + prettyModeName(movementMode),
                 "minecraft:leather_boots",
-                !manualFarming && !tradingMode,
+                !manualFarming && (!showMerchant || !tradingMode),
                 List.of(
                         action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Idle", "Stand in place", "minecraft:clock",
                                 !manualFarming && "idle".equals(movementMode),
@@ -84,10 +88,6 @@ final class VillagerCommandsRadial {
                                 !manualFarming && "patrol".equals(movementMode),
                                 () -> openPatrolPrompt(parent, villagerEntityId))
                 )));
-
-        ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
-        boolean showCombat = cfg == null || cfg.enableCombatModule;
-        boolean showFarming = cfg == null || cfg.enableFarmingModule;
 
         if (showFarming) {
             root.add(category(menuItemCtor, iconItem, withActive,
@@ -114,19 +114,21 @@ final class VillagerCommandsRadial {
                     )));
         }
 
-        root.add(category(menuItemCtor, iconItem, withActive,
-                "Trading",
-                tradingMode ? "Trading mode active" : "Trading mode and Trading Hall",
-                "minecraft:emerald",
-                tradingMode,
-                List.of(
-                        action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Trading", "Stay near workstation and process the hall", "minecraft:emerald",
-                                tradingMode,
-                                () -> sendMovementCommand(villagerEntityId, PacketVillagerCommand.Command.TRADING, "Trading")),
-                        action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Hall", "Register Trading Hall", "villageroverhaul:trading_hall",
-                                false,
-                                () -> ClientUI.beginTradingHallRegistration(villagerEntityId))
-                )));
+        if (showMerchant) {
+            root.add(category(menuItemCtor, iconItem, withActive,
+                    "Trading",
+                    tradingMode ? "Trading mode active" : "Trading mode and Trading Hall",
+                    "minecraft:emerald",
+                    tradingMode,
+                    List.of(
+                            action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Trading", "Stay near workstation and process the hall", "minecraft:emerald",
+                                    tradingMode,
+                                    () -> sendMovementCommand(villagerEntityId, PacketVillagerCommand.Command.TRADING, "Trading")),
+                            action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Hall", "Register Trading Hall", "villageroverhaul:trading_hall",
+                                    false,
+                                    () -> ClientUI.beginTradingHallRegistration(villagerEntityId))
+                    )));
+        }
 
         if (showCombat) {
             root.add(category(menuItemCtor, iconItem, withActive,

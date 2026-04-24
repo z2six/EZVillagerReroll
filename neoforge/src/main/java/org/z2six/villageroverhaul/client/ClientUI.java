@@ -737,6 +737,11 @@ public final class ClientUI {
     public static void beginTradingHallRegistration(int villagerEntityId) {
         try {
             if (villagerEntityId <= 0) return;
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg != null && !cfg.enableMerchantModule) {
+                setChestRegisterMessage("Merchant module disabled by server", 2200L, 0xFFFF7777);
+                return;
+            }
 
             Minecraft mc = Minecraft.getInstance();
             if (mc != null) {
@@ -884,6 +889,11 @@ public final class ClientUI {
     public static void openCombatSettings(Screen parent, int villagerEntityId) {
         try {
             if (villagerEntityId <= 0) return;
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg != null && !cfg.enableCombatModule) {
+                setChestRegisterMessage("Combat module disabled by server", 2200L, 0xFFFF7777);
+                return;
+            }
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
 
@@ -897,6 +907,11 @@ public final class ClientUI {
     public static void openFarmingSettings(Screen parent, int villagerEntityId) {
         try {
             if (villagerEntityId <= 0) return;
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg != null && !cfg.enableFarmingModule) {
+                setChestRegisterMessage("Farming module disabled by server", 2200L, 0xFFFF7777);
+                return;
+            }
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return;
 

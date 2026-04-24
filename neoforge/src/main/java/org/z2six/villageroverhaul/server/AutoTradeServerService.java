@@ -15,6 +15,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Server-side auto-trade executor (uses vanilla MerchantMenu click paths).
@@ -32,6 +33,9 @@ public final class AutoTradeServerService {
     private static final int MAX_SESSION_TICKS = 20 * 60; // 60s
 
     private static final Map<UUID, Session> SESSIONS = new HashMap<>();
+    private static final Map<MenuMethodKey, Method> MENU_INT_METHOD_CACHE = new ConcurrentHashMap<>();
+
+    private record MenuMethodKey(Class<?> ownerClass, String methodName) {}
 
     private static final class Session {
         final UUID playerId;
@@ -244,25 +248,34 @@ public final class AutoTradeServerService {
     private static void tryInvokeMenuInt(MerchantMenu menu, String methodName, int arg) {
         try {
             if (menu == null || methodName == null) return;
+            Class<?> menuClass = menu.getClass();
+            MenuMethodKey key = new MenuMethodKey(menuClass, methodName);
+            Method cached = MENU_INT_METHOD_CACHE.get(key);
+            if (cached != null) {
+                cached.invoke(menu, arg);
+                return;
+            }
 
             // First: public method by name/signature.
             try {
-                Method m = menu.getClass().getMethod(methodName, int.class);
+                Method m = menuClass.getMethod(methodName, int.class);
                 m.setAccessible(true);
+                MENU_INT_METHOD_CACHE.putIfAbsent(key, m);
                 m.invoke(menu, arg);
                 return;
             } catch (Throwable ignored) {}
 
             // Second: declared method by name/signature (covers private/protected).
             try {
-                Method m = menu.getClass().getDeclaredMethod(methodName, int.class);
+                Method m = menuClass.getDeclaredMethod(methodName, int.class);
                 m.setAccessible(true);
+                MENU_INT_METHOD_CACHE.putIfAbsent(key, m);
                 m.invoke(menu, arg);
                 return;
             } catch (Throwable ignored) {}
 
             // Fallback: find any method with (int) params and void/boolean return (name may be mapped).
-            for (Method m : menu.getClass().getDeclaredMethods()) {
+            for (Method m : menuClass.getDeclaredMethods()) {
                 try {
                     if (m.getParameterCount() != 1) continue;
                     if (m.getParameterTypes()[0] != int.class) continue;
@@ -270,6 +283,7 @@ public final class AutoTradeServerService {
                     if (!(rt == void.class || rt == boolean.class || rt == Boolean.class)) continue;
 
                     m.setAccessible(true);
+                    MENU_INT_METHOD_CACHE.putIfAbsent(key, m);
                     m.invoke(menu, arg);
                     return;
                 } catch (Throwable ignored) {}

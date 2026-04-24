@@ -22,8 +22,17 @@ import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 
 import java.lang.reflect.Method;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class VillagerInventoryMenu extends AbstractContainerMenu {
+
+    private static final Map<Class<?>, Method> CLIENT_LEVEL_GET_ENTITY_METHOD_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Method> VILLAGER_GET_INVENTORY_METHOD_CACHE = new ConcurrentHashMap<>();
+    private static volatile Class<?> CLIENT_MINECRAFT_CLASS;
+    private static volatile Method CLIENT_GET_INSTANCE_METHOD;
+    private static volatile java.lang.reflect.Field CLIENT_LEVEL_FIELD;
+    private static volatile Method LIVING_ENTITY_GET_EQUIPMENT_SLOT_FOR_ITEM_METHOD;
 
     // =========================
     // GUI SIZE (SHRUNK)
@@ -392,14 +401,28 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
             try {
                 if (serverRefOrNull != null) return serverRefOrNull;
 
-                Class<?> mcClz = Class.forName("net.minecraft.client.Minecraft");
-                Object mc = mcClz.getMethod("getInstance").invoke(null);
+                Class<?> mcClz = getClientMinecraftClass();
+                if (mcClz == null) return null;
+                Method getInstance = getClientGetInstanceMethod(mcClz);
+                if (getInstance == null) return null;
+                Object mc = getInstance.invoke(null);
                 if (mc == null) return null;
 
-                Object level = mcClz.getField("level").get(mc);
+                java.lang.reflect.Field levelField = getClientLevelField(mcClz);
+                if (levelField == null) return null;
+                Object level = levelField.get(mc);
                 if (level == null) return null;
 
-                Method getEntity = level.getClass().getMethod("getEntity", int.class);
+                Method getEntity = CLIENT_LEVEL_GET_ENTITY_METHOD_CACHE.computeIfAbsent(level.getClass(), cls -> {
+                    try {
+                        Method m = cls.getMethod("getEntity", int.class);
+                        m.setAccessible(true);
+                        return m;
+                    } catch (Throwable ignored) {
+                        return null;
+                    }
+                });
+                if (getEntity == null) return null;
                 Object e = getEntity.invoke(level, this.entityId);
                 if (e instanceof LivingEntity le) return le;
 
@@ -443,7 +466,8 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
 
                 // 2) Version-safe: LivingEntity.getEquipmentSlotForItem(stack)
                 try {
-                    Method m = LivingEntity.class.getMethod("getEquipmentSlotForItem", ItemStack.class);
+                    Method m = getLivingEntityEquipmentSlotForItemMethod();
+                    if (m == null) return false;
                     Object out = m.invoke(null, stack);
                     if (out instanceof EquipmentSlot es) {
                         return es == equipSlot;
@@ -488,20 +512,7 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
         try {
             if (vill == null) return null;
 
-            Method m = null;
-            Class<?> c = vill.getClass();
-            while (c != null && c != Object.class) {
-                for (Method mm : c.getDeclaredMethods()) {
-                    if (mm == null) continue;
-                    if (!"getInventory".equals(mm.getName())) continue;
-                    if (mm.getParameterCount() != 0) continue;
-                    mm.setAccessible(true);
-                    m = mm;
-                    break;
-                }
-                if (m != null) break;
-                c = c.getSuperclass();
-            }
+            Method m = findVillagerInventoryMethod(vill.getClass());
             if (m == null) return null;
 
             Object out = m.invoke(vill);
@@ -526,5 +537,80 @@ public final class VillagerInventoryMenu extends AbstractContainerMenu {
                 },
                 net.minecraft.network.chat.Component.literal("Villager Inventory")
         );
+    }
+
+    private static Class<?> getClientMinecraftClass() {
+        try {
+            Class<?> cached = CLIENT_MINECRAFT_CLASS;
+            if (cached != null) return cached;
+            Class<?> loaded = Class.forName("net.minecraft.client.Minecraft");
+            CLIENT_MINECRAFT_CLASS = loaded;
+            return loaded;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Method getClientGetInstanceMethod(Class<?> mcClz) {
+        try {
+            Method cached = CLIENT_GET_INSTANCE_METHOD;
+            if (cached != null) return cached;
+            Method loaded = mcClz.getMethod("getInstance");
+            loaded.setAccessible(true);
+            CLIENT_GET_INSTANCE_METHOD = loaded;
+            return loaded;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static java.lang.reflect.Field getClientLevelField(Class<?> mcClz) {
+        try {
+            java.lang.reflect.Field cached = CLIENT_LEVEL_FIELD;
+            if (cached != null) return cached;
+            java.lang.reflect.Field loaded = mcClz.getField("level");
+            loaded.setAccessible(true);
+            CLIENT_LEVEL_FIELD = loaded;
+            return loaded;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Method findVillagerInventoryMethod(Class<?> startClass) {
+        try {
+            if (startClass == null) return null;
+            Method cached = VILLAGER_GET_INVENTORY_METHOD_CACHE.get(startClass);
+            if (cached != null) return cached;
+
+            Class<?> c = startClass;
+            while (c != null && c != Object.class) {
+                for (Method mm : c.getDeclaredMethods()) {
+                    if (mm == null) continue;
+                    if (!"getInventory".equals(mm.getName())) continue;
+                    if (mm.getParameterCount() != 0) continue;
+                    mm.setAccessible(true);
+                    VILLAGER_GET_INVENTORY_METHOD_CACHE.put(startClass, mm);
+                    return mm;
+                }
+                c = c.getSuperclass();
+            }
+            return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Method getLivingEntityEquipmentSlotForItemMethod() {
+        try {
+            Method cached = LIVING_ENTITY_GET_EQUIPMENT_SLOT_FOR_ITEM_METHOD;
+            if (cached != null) return cached;
+            Method loaded = LivingEntity.class.getMethod("getEquipmentSlotForItem", ItemStack.class);
+            loaded.setAccessible(true);
+            LIVING_ENTITY_GET_EQUIPMENT_SLOT_FOR_ITEM_METHOD = loaded;
+            return loaded;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 }

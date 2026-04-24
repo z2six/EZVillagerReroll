@@ -81,6 +81,13 @@ public final class VillagerTradingGoal extends Goal {
     private final Set<BlockPos> openedPassages = new HashSet<>();
     private int travelStuckCheckCooldown;
     private int travelStuckTicks;
+    private BlockPos cachedHallPos;
+    private BlockPos cachedHallStandPos;
+    private BlockPos cachedWorkstationPos;
+    private BlockPos cachedWorkstationStandPos;
+    private Vec3 activeTravelTarget;
+    private BlockPos lastPassageScanOrigin;
+    private BlockPos lastPassageScanTargetBlock;
 
     public VillagerTradingGoal(Villager vill) {
         this.vill = vill;
@@ -92,6 +99,7 @@ public final class VillagerTradingGoal extends Goal {
         if (vill == null) return false;
         if (vill.level().isClientSide()) return false;
         if (!(vill.level() instanceof ServerLevel)) return false;
+        if (!org.z2six.villageroverhaul.config.ServerConfig.enableMerchantModule) return false;
         if (VillagerBrain.getMode(vill) != VillagerBrain.Mode.TRADING) return false;
         if (VillagerBrain.isStorageActive(vill)) return false;
         if (VillagerBrain.isManualFarmingActive(vill)) return false;
@@ -113,6 +121,7 @@ public final class VillagerTradingGoal extends Goal {
         idleLookHoldTicks = 0;
         idleLookTarget = null;
         openedPassages.clear();
+        clearTravelCaches();
         resetTravelProgress();
     }
 
@@ -127,6 +136,7 @@ public final class VillagerTradingGoal extends Goal {
         idleLookHoldTicks = 0;
         idleLookTarget = null;
         openedPassages.clear();
+        clearTravelCaches();
         resetTravelProgress();
     }
 
@@ -236,8 +246,7 @@ public final class VillagerTradingGoal extends Goal {
             return;
         }
 
-        BlockPos standPos = findStandableAdjacent(level, hall.getBlockPos());
-        if (standPos == null) standPos = hall.getBlockPos().relative(Direction.SOUTH);
+        BlockPos standPos = resolveHallStandPos(level, hall);
 
         hallTimeoutTicks++;
         if (hallTimeoutTicks >= HALL_ABORT_TICKS) {
@@ -246,10 +255,11 @@ public final class VillagerTradingGoal extends Goal {
         }
 
         Vec3 standCenter = Vec3.atBottomCenterOf(standPos);
+        activeTravelTarget = standCenter;
         double distToStandSqr = vill.position().distanceToSqr(standCenter);
 
         if (phase == Phase.GO_TO_HALL) {
-            boolean openedPassage = openNearbyWoodenPassages(level, standCenter);
+            boolean openedPassage = maybeOpenNearbyWoodenPassages(level, standCenter);
             try {
                 vill.getLookControl().setLookAt(hall.getBlockPos().getX() + 0.5D, hall.getBlockPos().getY() + 0.5D, hall.getBlockPos().getZ() + 0.5D, 30.0F, 30.0F);
             } catch (Throwable ignored) {}
@@ -293,12 +303,11 @@ public final class VillagerTradingGoal extends Goal {
             finishHallTrip();
             return;
         }
-        BlockPos workstationPos = new BlockPos(ws.x(), ws.y(), ws.z());
-        BlockPos anchorPos = findStandableAdjacent(level, workstationPos);
-        if (anchorPos == null) anchorPos = workstationPos.relative(Direction.SOUTH);
+        BlockPos anchorPos = resolveWorkstationStandPos(level, ws);
         Vec3 returnDest = Vec3.atBottomCenterOf(anchorPos);
+        activeTravelTarget = returnDest;
 
-        boolean openedPassage = openNearbyWoodenPassages(level, returnDest);
+        boolean openedPassage = maybeOpenNearbyWoodenPassages(level, returnDest);
 
         if (tryFinalizeArrival(returnDest, RETURN_RESUME_ARRIVAL_DISTANCE_SQR) || vill.position().distanceToSqr(returnDest) <= RETURN_RESUME_ARRIVAL_DISTANCE_SQR) {
             finishHallTrip();
@@ -321,9 +330,7 @@ public final class VillagerTradingGoal extends Goal {
             return;
         }
 
-        BlockPos workstationPos = new BlockPos(ws.x(), ws.y(), ws.z());
-        BlockPos anchorPos = findStandableAdjacent(level, workstationPos);
-        if (anchorPos == null) anchorPos = workstationPos.relative(Direction.SOUTH);
+        BlockPos anchorPos = resolveWorkstationStandPos(level, ws);
         Vec3 anchor = Vec3.atBottomCenterOf(anchorPos);
 
         if (vill.position().distanceToSqr(anchor) > WORKSTATION_STATION_RADIUS_SQR) {
@@ -489,6 +496,7 @@ public final class VillagerTradingGoal extends Goal {
         idleLookHoldTicks = 0;
         idleLookTarget = null;
         openedPassages.clear();
+        clearTravelCaches();
         resetTravelProgress();
     }
 
@@ -501,6 +509,7 @@ public final class VillagerTradingGoal extends Goal {
         idleLookTarget = null;
         closeTrackedPassages();
         openedPassages.clear();
+        clearTravelCaches();
         resetTravelProgress();
     }
 
@@ -544,20 +553,16 @@ public final class VillagerTradingGoal extends Goal {
 
     private Vec3 getActiveTravelTarget(ServerLevel level) {
         try {
+            if (activeTravelTarget != null) return activeTravelTarget;
             if (phase == Phase.GO_TO_HALL) {
                 TradingHallBlockEntity hall = TradingHallService.getResolvedHall(level, vill);
                 if (hall == null) return null;
-                BlockPos standPos = findStandableAdjacent(level, hall.getBlockPos());
-                if (standPos == null) standPos = hall.getBlockPos().relative(Direction.SOUTH);
-                return Vec3.atBottomCenterOf(standPos);
+                return Vec3.atBottomCenterOf(resolveHallStandPos(level, hall));
             }
             if (phase == Phase.RETURN_FROM_HALL) {
                 FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
                 if (ws == null) return null;
-                BlockPos workstationPos = new BlockPos(ws.x(), ws.y(), ws.z());
-                BlockPos anchorPos = findStandableAdjacent(level, workstationPos);
-                if (anchorPos == null) anchorPos = workstationPos.relative(Direction.SOUTH);
-                return Vec3.atBottomCenterOf(anchorPos);
+                return Vec3.atBottomCenterOf(resolveWorkstationStandPos(level, ws));
             }
         } catch (Throwable ignored) {}
         return null;
@@ -895,12 +900,53 @@ public final class VillagerTradingGoal extends Goal {
             if (!(vill.level() instanceof ServerLevel level)) return null;
             FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
             if (ws == null) return null;
-            BlockPos workstationPos = new BlockPos(ws.x(), ws.y(), ws.z());
-            BlockPos anchorPos = findStandableAdjacent(level, workstationPos);
-            if (anchorPos == null) anchorPos = workstationPos.relative(Direction.SOUTH);
-            return Vec3.atBottomCenterOf(anchorPos);
+            return Vec3.atBottomCenterOf(resolveWorkstationStandPos(level, ws));
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    private void clearTravelCaches() {
+        activeTravelTarget = null;
+        lastPassageScanOrigin = null;
+        lastPassageScanTargetBlock = null;
+    }
+
+    private BlockPos resolveHallStandPos(ServerLevel level, TradingHallBlockEntity hall) {
+        BlockPos hallPos = hall == null ? null : hall.getBlockPos();
+        if (hallPos == null) return null;
+        if (hallPos.equals(cachedHallPos) && cachedHallStandPos != null && findStandableSpot(level, cachedHallStandPos) != null) return cachedHallStandPos;
+        BlockPos resolved = findStandableAdjacent(level, hallPos);
+        if (resolved == null) resolved = hallPos.relative(Direction.SOUTH);
+        cachedHallPos = hallPos.immutable();
+        cachedHallStandPos = resolved == null ? null : resolved.immutable();
+        return cachedHallStandPos;
+    }
+
+    private BlockPos resolveWorkstationStandPos(ServerLevel level, FarmingSettingsService.RegisteredWorkstation ws) {
+        if (ws == null) return null;
+        BlockPos workstationPos = new BlockPos(ws.x(), ws.y(), ws.z());
+        if (workstationPos.equals(cachedWorkstationPos) && cachedWorkstationStandPos != null && findStandableSpot(level, cachedWorkstationStandPos) != null) return cachedWorkstationStandPos;
+        BlockPos resolved = findStandableAdjacent(level, workstationPos);
+        if (resolved == null) resolved = workstationPos.relative(Direction.SOUTH);
+        cachedWorkstationPos = workstationPos.immutable();
+        cachedWorkstationStandPos = resolved == null ? null : resolved.immutable();
+        return cachedWorkstationStandPos;
+    }
+
+    private boolean maybeOpenNearbyWoodenPassages(ServerLevel level, Vec3 travelTarget) {
+        try {
+            if (level == null || travelTarget == null) return false;
+            BlockPos origin = vill.blockPosition();
+            BlockPos targetBlock = BlockPos.containing(travelTarget.x, travelTarget.y, travelTarget.z);
+            if (origin.equals(lastPassageScanOrigin) && targetBlock.equals(lastPassageScanTargetBlock)) {
+                return false;
+            }
+            lastPassageScanOrigin = origin.immutable();
+            lastPassageScanTargetBlock = targetBlock.immutable();
+            return openNearbyWoodenPassages(level, travelTarget);
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 

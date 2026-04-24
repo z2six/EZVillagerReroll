@@ -1162,6 +1162,10 @@ public final class ServerHandlers {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
+            if (msg.command() == PacketVillagerCommand.Command.TRADING && !ServerConfig.enableMerchantModule) {
+                return;
+            }
+
             int id = msg.villagerEntityId();
             Villager vill = resolveVillagerFor(sp, id);
             if (vill == null) return;
@@ -1730,6 +1734,7 @@ public final class ServerHandlers {
         try {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableMerchantModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;

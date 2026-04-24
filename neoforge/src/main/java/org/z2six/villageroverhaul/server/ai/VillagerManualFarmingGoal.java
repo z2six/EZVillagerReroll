@@ -64,6 +64,14 @@ public final class VillagerManualFarmingGoal extends Goal {
         ROAM
     }
 
+    private static final class ActionScanResult {
+        ItemEntity pickup;
+        BlockPos bonemeal;
+        BlockPos plant;
+        BlockPos harvest;
+        BlockPos till;
+    }
+
     private final Villager vill;
     private final RandomSource rng;
 
@@ -493,75 +501,186 @@ public final class VillagerManualFarmingGoal extends Goal {
             clearAction();
 
             Set<Item> harvestItems = resolveItemSet(settings.manualHarvestItemIds);
-            Set<Item> plantItems = resolveItemSet(settings.manualPlantItemIds);
             Set<Item> pickupItems = resolveItemSet(settings.pickupItemIds);
             boolean pickupAll = pickupItems.isEmpty();
+            boolean canBonemeal = settings.manualUseBonemeal && hasBonemealInInv();
+            Set<Block> plantBlocks = canBonemeal ? resolvePlantBlockSet(settings.manualPlantItemIds) : Set.of();
+            Pair<String, Integer> plantSlot = findFirstPlantItemSlot(settings.manualPlantItemIds);
+            String plantItemId = plantSlot == null ? null : plantSlot.getFirst();
+            Block plantBase = null;
+            if (plantItemId != null) {
+                Item plantItem = resolveItem(plantItemId);
+                if (plantItem instanceof BlockItem bi) {
+                    plantBase = getPlantingBaseBlock(bi.getBlock());
+                }
+            }
+            boolean canTill = settings.manualTillSoil && isHoldingHoe();
+            ActionScanResult scan = scanForNextActionTargets(
+                    level,
+                    center,
+                    range,
+                    circular,
+                    pickupAll ? null : pickupItems,
+                    canBonemeal ? plantBlocks : Set.of(),
+                    plantBase,
+                    harvestItems,
+                    canTill
+            );
 
             // 1) Bonemeal (optional, highest priority inside manual farming)
-            if (settings.manualUseBonemeal && hasBonemealInInv()) {
-                Set<Block> plantBlocks = resolvePlantBlockSet(settings.manualPlantItemIds);
-                BlockPos bm = findNearestBonemealTarget(level, center, range, circular, plantBlocks);
-                if (bm != null) {
-                    action = Action.BONEMEAL;
-                    actionStartGameTime = level.getGameTime();
-                    targetPos = bm;
-                    return;
-                }
+            if (scan.bonemeal != null) {
+                action = Action.BONEMEAL;
+                actionStartGameTime = level.getGameTime();
+                targetPos = scan.bonemeal;
+                return;
             }
 
             // 2) Pickup
-            ItemEntity nearest = findNearestItem(level, center, range, circular, pickupAll ? null : pickupItems);
-            if (nearest != null) {
+            if (scan.pickup != null) {
                 action = Action.PICKUP;
                 actionStartGameTime = level.getGameTime();
-                targetItemEntityId = nearest.getId();
+                targetItemEntityId = scan.pickup.getId();
                 return;
             }
 
             // 3) Plant
-            Pair<String, Integer> plantSlot = findFirstPlantItemSlot(settings.manualPlantItemIds);
-            if (plantSlot != null) {
-                String id = plantSlot.getFirst();
-                Item plantItem = resolveItem(id);
-                if (plantItem instanceof BlockItem bi) {
-                    Block base = getPlantingBaseBlock(bi.getBlock());
-                    BlockPos soil = findNearestEmptyPlantingBase(level, center, range, circular, base);
-                    if (soil != null) {
-                        action = Action.PLANT;
-                        actionStartGameTime = level.getGameTime();
-                        targetPos = soil;
-                        targetPlantItemId = id;
-                        return;
-                    }
-                }
+            if (plantItemId != null && scan.plant != null) {
+                action = Action.PLANT;
+                actionStartGameTime = level.getGameTime();
+                targetPos = scan.plant;
+                targetPlantItemId = plantItemId;
+                return;
             }
 
             // 4) Harvest
-            if (!harvestItems.isEmpty()) {
-                BlockPos harvest = findNearestMatureHarvestable(level, center, range, circular, harvestItems);
-                if (harvest != null) {
-                    action = Action.HARVEST;
-                    actionStartGameTime = level.getGameTime();
-                    targetPos = harvest;
-                    return;
-                }
+            if (scan.harvest != null) {
+                action = Action.HARVEST;
+                actionStartGameTime = level.getGameTime();
+                targetPos = scan.harvest;
+                return;
             }
 
             // 5) Till dirt -> farmland (lowest priority)
-            if (settings.manualTillSoil && isHoldingHoe()) {
-                BlockPos dirt = findNearestTillableDirt(level, center, range, circular);
-                if (dirt != null) {
-                    action = Action.TILL;
-                    actionStartGameTime = level.getGameTime();
-                    targetPos = dirt;
-                    return;
-                }
+            if (scan.till != null) {
+                action = Action.TILL;
+                actionStartGameTime = level.getGameTime();
+                targetPos = scan.till;
+                return;
             }
 
             // 6) Roam
             action = Action.ROAM;
             actionStartGameTime = 0L;
         } catch (Throwable ignored) {}
+    }
+
+    private ActionScanResult scanForNextActionTargets(ServerLevel level,
+                                                      net.minecraft.world.phys.Vec3 center,
+                                                      int range,
+                                                      boolean circular,
+                                                      Set<Item> pickupItemsOrNull,
+                                                      Set<Block> bonemealBlocks,
+                                                      Block plantBaseBlock,
+                                                      Set<Item> harvestItems,
+                                                      boolean scanTill) {
+        ActionScanResult out = new ActionScanResult();
+        try {
+            out.pickup = findNearestItem(level, center, range, circular, pickupItemsOrNull);
+
+            if (level == null || center == null) return out;
+
+            int r = Math.max(1, range);
+            int cx = (int) Math.floor(center.x);
+            int cy = (int) Math.floor(center.y);
+            int cz = (int) Math.floor(center.z);
+            BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
+
+            double bestBonemealDist = Double.MAX_VALUE;
+            double bestPlantDist = Double.MAX_VALUE;
+            double bestHarvestDist = Double.MAX_VALUE;
+            double bestTillDist = Double.MAX_VALUE;
+
+            boolean wantBonemeal = bonemealBlocks != null && !bonemealBlocks.isEmpty();
+            boolean wantPlant = plantBaseBlock != null;
+            boolean wantHarvest = harvestItems != null && !harvestItems.isEmpty();
+
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (circular && ((long) dx * dx + (long) dz * dz) > (long) r * r) continue;
+                    for (int dy = -3; dy <= 3; dy++) {
+                        mp.set(cx + dx, cy + dy, cz + dz);
+                        BlockState st = level.getBlockState(mp);
+                        if (st == null) continue;
+
+                        if (wantPlant) {
+                            try {
+                                if (st.getBlock() == plantBaseBlock) {
+                                    BlockState above = level.getBlockState(mp.above());
+                                    if (above != null && above.isAir()) {
+                                        double dist = center.distanceToSqr(mp.getX() + 0.5, mp.getY() + 0.5, mp.getZ() + 0.5);
+                                        if (dist < bestPlantDist) {
+                                            bestPlantDist = dist;
+                                            out.plant = mp.immutable();
+                                        }
+                                    }
+                                }
+                            } catch (Throwable ignored) {}
+                        }
+
+                        if (dy >= -1 && dy <= 2) {
+                            if (wantBonemeal) {
+                                try {
+                                    if (!st.isAir() && st.getBlock() instanceof BonemealableBlock bb && bonemealBlocks.contains(st.getBlock()) && !isMature(st)) {
+                                        BlockState below = level.getBlockState(mp.below());
+                                        if (below != null && below.getBlock() == Blocks.FARMLAND && bb.isValidBonemealTarget(level, mp, st)) {
+                                            double dist = vill.distanceToSqr(mp.getX() + 0.5, mp.getY() + 0.5, mp.getZ() + 0.5);
+                                            if (dist < bestBonemealDist) {
+                                                bestBonemealDist = dist;
+                                                out.bonemeal = mp.immutable();
+                                            }
+                                        }
+                                    }
+                                } catch (Throwable ignored) {}
+                            }
+
+                            if (wantHarvest) {
+                                try {
+                                    if (!st.isAir() && isMature(st)) {
+                                        BlockState below = level.getBlockState(mp.below());
+                                        if (below != null) {
+                                            boolean validBase = st.getBlock() == Blocks.NETHER_WART
+                                                    ? below.getBlock() == Blocks.SOUL_SAND
+                                                    : below.getBlock() == Blocks.FARMLAND;
+                                            if (validBase && dropsContainAny(level, mp, st, harvestItems)) {
+                                                double dist = vill.distanceToSqr(mp.getX() + 0.5, mp.getY() + 0.5, mp.getZ() + 0.5);
+                                                if (dist < bestHarvestDist) {
+                                                    bestHarvestDist = dist;
+                                                    out.harvest = mp.immutable();
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+
+                        if (scanTill && dy >= -1 && dy <= 1) {
+                            try {
+                                Block b = st.getBlock();
+                                if ((b == Blocks.DIRT || b == Blocks.GRASS_BLOCK) && level.getBlockState(mp.above()).isAir()) {
+                                    double dist = vill.distanceToSqr(mp.getX() + 0.5, mp.getY() + 0.5, mp.getZ() + 0.5);
+                                    if (dist < bestTillDist) {
+                                        bestTillDist = dist;
+                                        out.till = mp.immutable();
+                                    }
+                                }
+                            } catch (Throwable ignored) {}
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return out;
     }
 
     private boolean isHoldingHoe() {

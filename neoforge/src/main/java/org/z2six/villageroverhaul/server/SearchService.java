@@ -18,6 +18,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 import org.z2six.villageroverhaul.Constants;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
@@ -217,6 +219,9 @@ public final class SearchService {
 
     private static final Map<UUID, Task> TASKS = new ConcurrentHashMap<>();
     private static final Map<UUID, Settlement> SETTLEMENTS = new ConcurrentHashMap<>();
+    private static final Map<UUID, ResourceKey<Level>> VILLAGER_LEVEL_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, Method> REFLECTION_METHOD_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, java.lang.reflect.Field> REFLECTION_FIELD_CACHE = new ConcurrentHashMap<>();
 
     private static final double GLOW_RANGE_BLOCKS = 6.0;
     private static final double GLOW_RANGE_SQR = GLOW_RANGE_BLOCKS * GLOW_RANGE_BLOCKS;
@@ -1165,10 +1170,25 @@ public final class SearchService {
         try {
             if (server == null || uuid == null) return null;
 
+            ResourceKey<Level> cachedLevelKey = VILLAGER_LEVEL_CACHE.get(uuid);
+            if (cachedLevelKey != null) {
+                try {
+                    ServerLevel cachedLevel = server.getLevel(cachedLevelKey);
+                    if (cachedLevel != null) {
+                        Entity cached = cachedLevel.getEntity(uuid);
+                        if (cached instanceof Villager v) return v;
+                    }
+                } catch (Throwable ignored) {}
+            }
+
             for (ServerLevel lvl : server.getAllLevels()) {
                 Entity e = lvl.getEntity(uuid);
-                if (e instanceof Villager v) return v;
+                if (e instanceof Villager v) {
+                    try { VILLAGER_LEVEL_CACHE.put(uuid, lvl.dimension()); } catch (Throwable ignored) {}
+                    return v;
+                }
             }
+            VILLAGER_LEVEL_CACHE.remove(uuid);
             return null;
         } catch (Throwable t) {
             return null;
@@ -2024,14 +2044,21 @@ public final class SearchService {
 
             Class<?> c = target.getClass();
             while (c != null && c != Object.class) {
+                Method cached = getCachedMethod(c, name, "noarg_bool");
+                if (cached != null) {
+                    Object r = cached.invoke(target);
+                    return (r instanceof Boolean b) && b;
+                }
                 try {
                     Method m = c.getDeclaredMethod(name);
                     m.setAccessible(true);
+                    putCachedMethod(c, name, "noarg_bool", m);
                     Object r = m.invoke(target);
                     return (r instanceof Boolean b) && b;
                 } catch (NoSuchMethodException ignored) {
                     try {
                         Method m2 = c.getMethod(name);
+                        putCachedMethod(c, name, "noarg_bool", m2);
                         Object r2 = m2.invoke(target);
                         return (r2 instanceof Boolean b2) && b2;
                     } catch (NoSuchMethodException ignored2) {
@@ -2053,14 +2080,21 @@ public final class SearchService {
 
             Class<?> c = target.getClass();
             while (c != null && c != Object.class) {
+                Method cached = getCachedMethod(c, name, "noarg_void");
+                if (cached != null) {
+                    cached.invoke(target);
+                    return true;
+                }
                 try {
                     Method m = c.getDeclaredMethod(name);
                     m.setAccessible(true);
+                    putCachedMethod(c, name, "noarg_void", m);
                     m.invoke(target);
                     return true;
                 } catch (NoSuchMethodException ignored) {
                     try {
                         Method m2 = c.getMethod(name);
+                        putCachedMethod(c, name, "noarg_void", m2);
                         m2.invoke(target);
                         return true;
                     } catch (NoSuchMethodException ignored2) {
@@ -2143,16 +2177,23 @@ public final class SearchService {
 
             Class<?> c = target.getClass();
             while (c != null && c != Object.class) {
+                Method cached = getCachedMethod(c, name, "int");
+                if (cached != null) {
+                    cached.invoke(target, arg);
+                    return true;
+                }
                 // Try declared (covers private/protected/package)
                 try {
                     Method m = c.getDeclaredMethod(name, int.class);
                     m.setAccessible(true);
+                    putCachedMethod(c, name, "int", m);
                     m.invoke(target, arg);
                     return true;
                 } catch (NoSuchMethodException ignored) {
                     // Try public/inherited
                     try {
                         Method m2 = c.getMethod(name, int.class);
+                        putCachedMethod(c, name, "int", m2);
                         m2.invoke(target, arg);
                         return true;
                     } catch (NoSuchMethodException ignored2) {
@@ -2183,9 +2224,12 @@ public final class SearchService {
 
             Class<?> c = cls;
             while (c != null && c != Object.class) {
+                java.lang.reflect.Field cached = getCachedField(c, name);
+                if (cached != null) return cached;
                 try {
                     java.lang.reflect.Field f = c.getDeclaredField(name);
                     f.setAccessible(true);
+                    putCachedField(c, name, f);
                     return f;
                 } catch (NoSuchFieldException ignored) {
                     c = c.getSuperclass();
@@ -2195,6 +2239,44 @@ public final class SearchService {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    private static String methodCacheKey(Class<?> ownerClass, String name, String sig) {
+        return ownerClass.getName() + "#" + name + "#" + sig;
+    }
+
+    private static Method getCachedMethod(Class<?> ownerClass, String name, String sig) {
+        try {
+            return REFLECTION_METHOD_CACHE.get(methodCacheKey(ownerClass, name, sig));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static void putCachedMethod(Class<?> ownerClass, String name, String sig, Method method) {
+        try {
+            if (ownerClass == null || name == null || sig == null || method == null) return;
+            REFLECTION_METHOD_CACHE.putIfAbsent(methodCacheKey(ownerClass, name, sig), method);
+        } catch (Throwable ignored) {}
+    }
+
+    private static String fieldCacheKey(Class<?> ownerClass, String name) {
+        return ownerClass.getName() + "#" + name;
+    }
+
+    private static java.lang.reflect.Field getCachedField(Class<?> ownerClass, String name) {
+        try {
+            return REFLECTION_FIELD_CACHE.get(fieldCacheKey(ownerClass, name));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static void putCachedField(Class<?> ownerClass, String name, java.lang.reflect.Field field) {
+        try {
+            if (ownerClass == null || name == null || field == null) return;
+            REFLECTION_FIELD_CACHE.putIfAbsent(fieldCacheKey(ownerClass, name), field);
+        } catch (Throwable ignored) {}
     }
 
     // yuh

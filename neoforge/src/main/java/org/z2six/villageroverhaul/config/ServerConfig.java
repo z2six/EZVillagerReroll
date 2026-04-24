@@ -197,7 +197,7 @@ public final class ServerConfig {
         B.push("modules");
 
         ENABLE_MERCHANT_MODULE =
-                B.comment("Enable Merchant module (rerolls, locks, auto-search).")
+                B.comment("Enable Merchant module (rerolls, locks, auto-search, manual trading mode, Trading Hall features).")
                         .define("enableMerchantModule", true);
 
         ENABLE_COMBAT_MODULE =

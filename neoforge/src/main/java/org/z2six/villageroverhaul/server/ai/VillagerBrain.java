@@ -209,6 +209,7 @@ public final class VillagerBrain {
 
     public static boolean trading(Villager vill) {
         if (vill == null) return false;
+        if (!org.z2six.villageroverhaul.config.ServerConfig.enableMerchantModule) return false;
         if (!isControllable(vill)) return false;
 
         ensureAttached(vill);
