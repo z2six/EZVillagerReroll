@@ -31,6 +31,7 @@ import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.resources.RegistryOps;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.logic.MerchantCompatibility;
 import org.z2six.villageroverhaul.network.ClientVillagerAttributesCache;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
@@ -176,6 +177,7 @@ public final class VillagerInfoScreen extends Screen {
     private long nextHistoryRebuildAtTick = 0L;
     private int historyLastWrapWidth = -1;
     private boolean historyDraggingScroll = false;
+    private boolean merchantOnlyInfo = false;
 
     // Family tree viewport
     private float familyZoom = 1.0F;
@@ -356,6 +358,7 @@ public final class VillagerInfoScreen extends Screen {
         super.init();
 
         resolveEntity();
+        this.merchantOnlyInfo = MerchantCompatibility.usesMerchantOnlyInfo(this.cachedEntity);
 
         int panelW = PANEL_W;
         int left = (this.width - PANEL_W) / 2;
@@ -443,8 +446,9 @@ public final class VillagerInfoScreen extends Screen {
         } catch (Throwable ignored) {}
 
         showMerchantModule = showMerchant;
-        showCombatModule = showCombat;
-        showFarmingModule = showFarming;
+        showCombatModule = merchantOnlyInfo ? false : showCombat;
+        showFarmingModule = merchantOnlyInfo ? false : showFarming;
+        showMerchantModule = showMerchant;
 
         tabStatsBtn = new IconTabButton(tabsX + TAB_BTN_SIZE + TAB_BTN_GAP, tabsY, TAB_BTN_SIZE, "*",
                 Component.literal("Stats"), Tab.STATS);
@@ -460,8 +464,10 @@ public final class VillagerInfoScreen extends Screen {
         if (showMerchant) this.addRenderableWidget(tabMerchantBtn);
         if (showCombat) this.addRenderableWidget(tabCombatBtn);
         if (showFarming) this.addRenderableWidget(tabFarmingBtn);
-        this.addRenderableWidget(tabFamilyBtn);
-        this.addRenderableWidget(tabHistoryBtn);
+        if (!merchantOnlyInfo) {
+            this.addRenderableWidget(tabFamilyBtn);
+            this.addRenderableWidget(tabHistoryBtn);
+        }
 
         if ((!showMerchant && this.currentTab == Tab.MERCHANT)
                 || (!showCombat && this.currentTab == Tab.COMBAT)
@@ -469,6 +475,9 @@ public final class VillagerInfoScreen extends Screen {
             this.currentTab = Tab.OVERVIEW;
         }
         if (!(showMerchantModule || showCombatModule || showFarmingModule) && this.currentTab == Tab.STATS) {
+            this.currentTab = Tab.OVERVIEW;
+        }
+        if (merchantOnlyInfo && (this.currentTab == Tab.FAMILY || this.currentTab == Tab.HISTORY || this.currentTab == Tab.COMBAT || this.currentTab == Tab.FARMING)) {
             this.currentTab = Tab.OVERVIEW;
         }
         this.currentStatsGroup = getFirstAvailableStatsGroup();
@@ -857,6 +866,7 @@ public final class VillagerInfoScreen extends Screen {
 
     private void trySendHistoryQuery(boolean debounced) {
         try {
+            if (merchantOnlyInfo) return;
             long now = System.currentTimeMillis();
             if (debounced && (now - lastHistoryQueryMs) < STATS_QUERY_DEBOUNCE_MS) return;
             lastHistoryQueryMs = now;
@@ -867,6 +877,7 @@ public final class VillagerInfoScreen extends Screen {
 
     private void trySendFamilyTreeQuery(boolean debounced) {
         try {
+            if (merchantOnlyInfo) return;
             if (respawnMode || this.villagerEntityId <= 0) return;
             long now = System.currentTimeMillis();
             if (debounced && (now - lastFamilyTreeQueryMs) < STATS_QUERY_DEBOUNCE_MS) return;

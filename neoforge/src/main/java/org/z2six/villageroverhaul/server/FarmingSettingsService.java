@@ -16,6 +16,7 @@ import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import net.minecraft.world.phys.AABB;
 
 /**
  * Per-villager farming/storage settings + registered chest location.
@@ -181,6 +182,26 @@ public final class FarmingSettingsService {
             return new RegisteredWorkstation(dim, root.getInt(K_MX), root.getInt(K_MY), root.getInt(K_MZ));
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    public static boolean isRegisteredWorkstationClaimedByAnother(ServerLevel level, Villager vill, BlockPos pos) {
+        try {
+            if (level == null || vill == null || pos == null) return false;
+
+            AABB searchBox = buildLevelSearchBox(level);
+            for (Villager other : level.getEntitiesOfClass(Villager.class, searchBox)) {
+                if (other == null || other == vill) continue;
+                RegisteredWorkstation reg = getRegisteredWorkstation(other);
+                if (reg == null) continue;
+                if (!sameDimension(level, reg.dimId())) continue;
+                if (reg.x() == pos.getX() && reg.y() == pos.getY() && reg.z() == pos.getZ()) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
@@ -370,5 +391,29 @@ public final class FarmingSettingsService {
             pd.put(TAG_ROOT, new CompoundTag());
         }
         return pd.getCompound(TAG_ROOT);
+    }
+
+    private static boolean sameDimension(ServerLevel level, String dimId) {
+        try {
+            if (level == null) return false;
+            String cur = String.valueOf(level.dimension().location());
+            return cur.equals(dimId == null ? "" : dimId);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static AABB buildLevelSearchBox(ServerLevel level) {
+        try {
+            var border = level.getWorldBorder();
+            double centerX = border.getCenterX();
+            double centerZ = border.getCenterZ();
+            double half = Math.max(16.0D, border.getSize() / 2.0D);
+            double minY = level.getMinBuildHeight() - 16.0D;
+            double maxY = level.getMaxBuildHeight() + 16.0D;
+            return new AABB(centerX - half, minY, centerZ - half, centerX + half, maxY, centerZ + half);
+        } catch (Throwable ignored) {
+            return new AABB(-30_000_000D, -1024D, -30_000_000D, 30_000_000D, 4096D, 30_000_000D);
+        }
     }
 }

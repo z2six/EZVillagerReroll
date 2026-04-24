@@ -10,6 +10,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -23,6 +24,7 @@ import net.minecraft.world.level.Level;
 import org.z2six.villageroverhaul.Constants;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
+import org.z2six.villageroverhaul.logic.MerchantCompatibility;
 import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.logic.TradeUtil;
 import org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchDone;
@@ -79,7 +81,7 @@ public final class SearchService {
         long nextRerollGameTime;
         int cooldownTicks;
 
-        Task(Villager vill, ServerPlayer owner, List<ItemStack> requested, long now, int cooldownTicks) {
+        Task(Entity vill, ServerPlayer owner, List<ItemStack> requested, long now, int cooldownTicks) {
             this(
                     vill == null ? null : vill.getUUID(),
                     vill == null ? -1 : vill.getId(),
@@ -226,7 +228,7 @@ public final class SearchService {
     private static final double GLOW_RANGE_BLOCKS = 6.0;
     private static final double GLOW_RANGE_SQR = GLOW_RANGE_BLOCKS * GLOW_RANGE_BLOCKS;
 
-    public static boolean isBusy(Villager vill) {
+    public static boolean isBusy(Entity vill) {
         try {
             if (vill == null) return false;
             UUID id = vill.getUUID();
@@ -236,7 +238,7 @@ public final class SearchService {
         }
     }
 
-    public static boolean isAwaitingPayment(Villager vill) {
+    public static boolean isAwaitingPayment(Entity vill) {
         try {
             if (vill == null) return false;
             return SETTLEMENTS.containsKey(vill.getUUID());
@@ -245,7 +247,7 @@ public final class SearchService {
         }
     }
 
-    public static Settlement getSettlement(Villager vill) {
+    public static Settlement getSettlement(Entity vill) {
         try {
             if (vill == null) return null;
             return SETTLEMENTS.get(vill.getUUID());
@@ -394,7 +396,7 @@ public final class SearchService {
 
                     td.wasGlowingAtStart = false;
                     try {
-                        Villager vill = resolveVillagerByUuid(server, t.villagerUuid);
+                        Entity vill = resolveMerchantByUuid(server, t.villagerUuid);
                         if (vill != null) td.wasGlowingAtStart = vill.isCurrentlyGlowing();
                     } catch (Throwable ignored) {}
 
@@ -451,7 +453,7 @@ public final class SearchService {
         }
     }
 
-    public static void start(ServerPlayer sp, Villager vill, List<ItemStack> requested) {
+    public static void start(ServerPlayer sp, Entity vill, List<ItemStack> requested) {
         try {
             if (sp == null || vill == null) return;
 
@@ -479,9 +481,11 @@ public final class SearchService {
             long now = vill.level().getGameTime();
 
             // Ensure Hoarder is enforced before we snapshot "offersBeforeTag" for settlement decline/restore correctness.
-            try {
-                org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vill, sp);
-            } catch (Throwable ignored) {}
+            if (vill instanceof Villager vv) {
+                try {
+                    org.z2six.villageroverhaul.logic.HoarderOffers.normalizeOffers(vv, sp);
+                } catch (Throwable ignored) {}
+            }
 
             Task t = new Task(vill, sp, requested, now, cooldown);
 
@@ -530,9 +534,9 @@ public final class SearchService {
         try {
             if (sp == null) return;
 
-            Villager vill = resolveVillagerByEntityId(sp.serverLevel(), villagerEntityId);
-            if (vill == null) {
-                VillagerOverhaul.LOG().warn("[VillagerOverhaul] cancelByEntityId: villager not found (entityId={}, player={})",
+            Entity vill = resolveMerchantByEntityId(sp.serverLevel(), villagerEntityId);
+            if (vill == null || !MerchantCompatibility.supportsAutoSearch(vill)) {
+                VillagerOverhaul.LOG().warn("[VillagerOverhaul] cancelByEntityId: merchant not found (entityId={}, player={})",
                         villagerEntityId, sp.getGameProfile().getName());
                 return;
             }
@@ -562,14 +566,7 @@ public final class SearchService {
                 if (sp.containerMenu instanceof net.minecraft.world.inventory.MerchantMenu menu) {
                     var trader = ((org.z2six.villageroverhaul.mixin.MerchantMenuAccessor) menu).ezvr$getTrader();
                     if (trader == vill) {
-                        sp.sendMerchantOffers(
-                                menu.containerId,
-                                vill.getOffers(),
-                                vill.getVillagerData().getLevel(),
-                                vill.getVillagerXp(),
-                                vill.showProgressBar(),
-                                vill.canRestock()
-                        );
+                        MerchantCompatibility.syncOffersToPlayer(sp, vill, menu);
                     }
                 }
             } catch (Throwable ignored) {}
@@ -581,7 +578,7 @@ public final class SearchService {
         }
     }
 
-    public static void openBusyScreen(ServerPlayer sp, Villager vill) {
+    public static void openBusyScreen(ServerPlayer sp, Entity vill) {
         try {
             if (sp == null || vill == null) return;
 
@@ -608,7 +605,7 @@ public final class SearchService {
                         if (ownerUuid != null && srv != null) {
                             // Pay row: current live offers
                             try {
-                                MerchantOffers offers = vill.getOffers();
+                                MerchantOffers offers = MerchantCompatibility.getOffers(vill);
                                 int n = offers == null ? 0 : Math.min(256, offers.size());
                                 for (int i = 0; i < n; i++) {
                                     MerchantOffer o = offers.get(i);
@@ -725,8 +722,8 @@ public final class SearchService {
                         continue;
                     }
 
-                    Villager vill = resolveVillagerByUuid(server, task.villagerUuid);
-                    if (vill == null) continue;
+                    Entity vill = resolveMerchantByUuid(server, task.villagerUuid);
+                    if (vill == null || !MerchantCompatibility.supportsAutoSearch(vill)) continue;
 
                     if (SETTLEMENTS.containsKey(vill.getUUID())) {
                         VillagerOverhaul.LOG().warn("[VillagerOverhaul] SearchService.tick: task exists but settlement pending; removing task (villager={})", vill.getUUID());
@@ -772,9 +769,13 @@ public final class SearchService {
 
                     try {
                         // This is a rebuild/replace type operation.
-                        TradeUtil.rebuildOffersInternal(vill, null, false);
+                        if (!MerchantCompatibility.rebuildOffers(vill, null, false)) {
+                            throw new IllegalStateException("merchant rebuild failed");
+                        }
                         task.rerollCount = Math.max(0, task.rerollCount + 1);
-                        try { org.z2six.villageroverhaul.server.VillagerHistoryService.addAutoReroll(vill, 1); } catch (Throwable ignored) {}
+                        if (vill instanceof Villager vv) {
+                            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addAutoReroll(vv, 1); } catch (Throwable ignored) {}
+                        }
 
                         // auto-reroll hook:
                         // - updates cooldown tracking (RerollState.lastTick)
@@ -786,8 +787,10 @@ public final class SearchService {
                         } catch (Throwable ignored) {}
 
                         // After a rebuild, reset baseline/applied then normalize.
-                        try { HoarderOffers.normalizeAfterOfferRebuild(vill, null); } catch (Throwable ignored) {}
-                        try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
+                        if (vill instanceof Villager vv) {
+                            try { HoarderOffers.normalizeAfterOfferRebuild(vv, null); } catch (Throwable ignored) {}
+                            try { VillagerGenerosityOfferService.normalizeAndApply(vv); } catch (Throwable ignored) {}
+                        }
 
                         // Critical rule: locked slots must NEVER be effectively rerolled during auto-search.
                         // After rebuilding, overwrite locked indices with the original (pre-search) snapshot offers.
@@ -840,7 +843,7 @@ public final class SearchService {
             int processed = 0;
             for (Settlement s : SETTLEMENTS.values()) {
                 if (s == null || s.villagerUuid == null) continue;
-                Villager vill = resolveVillagerByUuid(server, s.villagerUuid);
+                Entity vill = resolveMerchantByUuid(server, s.villagerUuid);
                 if (vill == null) continue;
                 updateGlowForSettlement(vill, server, s);
 
@@ -850,7 +853,7 @@ public final class SearchService {
         } catch (Throwable ignored) {}
     }
 
-    private static void createSettlementAndNotify(MinecraftServer server, Villager vill, Task task, long completedAtGameTime) {
+    private static void createSettlementAndNotify(MinecraftServer server, Entity vill, Task task, long completedAtGameTime) {
         try {
             if (server == null || vill == null || task == null) return;
 
@@ -893,15 +896,18 @@ public final class SearchService {
             // - re-assert locked offers from snapshots
             int offersBeforeSanity = -1;
             int offersAfterSanity = -1;
-            try { offersBeforeSanity = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
-            try { HoarderOffers.normalizeOffers(vill, null); } catch (Throwable ignored) {}
+            try { offersBeforeSanity = MerchantCompatibility.offerCount(vill); } catch (Throwable ignored) {}
+            if (vill instanceof Villager vv) {
+                try { HoarderOffers.normalizeOffers(vv, null); } catch (Throwable ignored) {}
+            }
             try {
+                MerchantOffers offers = MerchantCompatibility.getOffers(vill);
                 org.z2six.villageroverhaul.logic.TradeLockState.ensureSnapshotsForLockedMask(vill);
-                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, vill.getOffers());
+                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, offers);
                 long m = org.z2six.villageroverhaul.logic.TradeLockState.getMask(vill);
-                org.z2six.villageroverhaul.logic.TradeLockState.sanitizeLockedOfferSnapshots(vill, m, vill.getOffers() == null ? 0 : vill.getOffers().size());
+                org.z2six.villageroverhaul.logic.TradeLockState.sanitizeLockedOfferSnapshots(vill, m, offers == null ? 0 : offers.size());
             } catch (Throwable ignored) {}
-            try { offersAfterSanity = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
+            try { offersAfterSanity = MerchantCompatibility.offerCount(vill); } catch (Throwable ignored) {}
             if (offersBeforeSanity != offersAfterSanity && VillagerOverhaul.LOG().isInfoEnabled()) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] [auto_search] settlement_sanity_offer_count villager={} size {}->{} lockMask={}",
                         vill.getUUID(),
@@ -931,7 +937,7 @@ public final class SearchService {
             try { updateGlowForSettlement(vill, server, settle); } catch (Throwable ignored) {}
 
             int offersNow = -1;
-            try { offersNow = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
+            try { offersNow = MerchantCompatibility.offerCount(vill); } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Auto-search SETTLEMENT created: villager={} entityId={} hourly={} elapsedTicks={} finalCost={} owner={} offersBeforeTag={} offersNow={} lockMaskBefore={} requestedTargets={} rerollCount={} offersAtStart={} lockedAtStart={} offersRerolledPerRerollAtStart={} totalVillagerXp={}",
@@ -954,7 +960,7 @@ public final class SearchService {
         }
     }
 
-    private static int computeTotalVillagerXpForTask(Task task, Villager vill) {
+    private static int computeTotalVillagerXpForTask(Task task, Entity vill) {
         try {
             if (task == null) return 0;
 
@@ -1001,14 +1007,14 @@ public final class SearchService {
         }
     }
 
-    public static int computeHourlyCostServer(Villager vill) {
+    public static int computeHourlyCostServer(Entity vill) {
         try {
             if (vill == null) return 0;
 
             // Ensure villager has stats (no-op if already present)
             try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
 
-            int totalOffers = (vill.getOffers() == null) ? 0 : Math.max(0, vill.getOffers().size());
+            int totalOffers = MerchantCompatibility.offerCount(vill);
 
             long lockMask = TradeLockState.getMask(vill);
             long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, totalOffers);
@@ -1105,12 +1111,12 @@ public final class SearchService {
         }
     }
 
-    private static boolean containsAnyRequested(Villager vill, Set<String> requestedKeys) {
+    private static boolean containsAnyRequested(Entity vill, Set<String> requestedKeys) {
         try {
             if (vill == null) return false;
             if (requestedKeys == null || requestedKeys.isEmpty()) return false;
 
-            MerchantOffers offers = vill.getOffers();
+            MerchantOffers offers = MerchantCompatibility.getOffers(vill);
             if (offers == null || offers.isEmpty()) return false;
 
             for (MerchantOffer o : offers) {
@@ -1127,12 +1133,12 @@ public final class SearchService {
         }
     }
 
-    private static boolean containsAnyRequestedUnlocked(Villager vill, Set<String> requestedKeys, long lockMask) {
+    private static boolean containsAnyRequestedUnlocked(Entity vill, Set<String> requestedKeys, long lockMask) {
         try {
             if (vill == null) return false;
             if (requestedKeys == null || requestedKeys.isEmpty()) return false;
 
-            MerchantOffers offers = vill.getOffers();
+            MerchantOffers offers = MerchantCompatibility.getOffers(vill);
             if (offers == null || offers.isEmpty()) return false;
 
             long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, offers.size());
@@ -1155,18 +1161,18 @@ public final class SearchService {
         }
     }
 
-    private static Villager resolveVillagerByEntityId(ServerLevel lvl, int entityId) {
+    private static Entity resolveMerchantByEntityId(ServerLevel lvl, int entityId) {
         try {
             if (lvl == null) return null;
             if (entityId < 0) return null;
             Entity e = lvl.getEntity(entityId);
-            return (e instanceof Villager v) ? v : null;
+            return MerchantCompatibility.supportsMerchantModule(e) ? e : null;
         } catch (Throwable t) {
             return null;
         }
     }
 
-    private static Villager resolveVillagerByUuid(MinecraftServer server, UUID uuid) {
+    private static Entity resolveMerchantByUuid(MinecraftServer server, UUID uuid) {
         try {
             if (server == null || uuid == null) return null;
 
@@ -1176,16 +1182,16 @@ public final class SearchService {
                     ServerLevel cachedLevel = server.getLevel(cachedLevelKey);
                     if (cachedLevel != null) {
                         Entity cached = cachedLevel.getEntity(uuid);
-                        if (cached instanceof Villager v) return v;
+                        if (MerchantCompatibility.supportsMerchantModule(cached)) return cached;
                     }
                 } catch (Throwable ignored) {}
             }
 
             for (ServerLevel lvl : server.getAllLevels()) {
                 Entity e = lvl.getEntity(uuid);
-                if (e instanceof Villager v) {
+                if (MerchantCompatibility.supportsMerchantModule(e)) {
                     try { VILLAGER_LEVEL_CACHE.put(uuid, lvl.dimension()); } catch (Throwable ignored) {}
-                    return v;
+                    return e;
                 }
             }
             VILLAGER_LEVEL_CACHE.remove(uuid);
@@ -1195,7 +1201,7 @@ public final class SearchService {
         }
     }
 
-    private static void updateGlowForBusyVillager(Villager vill, MinecraftServer server) {
+    private static void updateGlowForBusyVillager(Entity vill, MinecraftServer server) {
         try {
             if (vill == null || server == null) return;
             if (!(vill.level() instanceof ServerLevel sl)) return;
@@ -1218,7 +1224,7 @@ public final class SearchService {
         }
     }
 
-    private static void updateGlowForSettlement(Villager vill, MinecraftServer server, Settlement settlement) {
+    private static void updateGlowForSettlement(Entity vill, MinecraftServer server, Settlement settlement) {
         try {
             if (vill == null || server == null || settlement == null) return;
             if (!(vill.level() instanceof ServerLevel sl)) return;
@@ -1236,7 +1242,7 @@ public final class SearchService {
         } catch (Throwable ignored) {}
     }
 
-    private static boolean isAnyNonSpectatorPlayerNear(ServerLevel sl, Villager vill, double rangeSqr) {
+    private static boolean isAnyNonSpectatorPlayerNear(ServerLevel sl, Entity vill, double rangeSqr) {
         try {
             if (sl == null || vill == null) return false;
             List<ServerPlayer> players = sl.players();
@@ -1252,7 +1258,7 @@ public final class SearchService {
         }
     }
 
-    private static String getCurrentTeamName(Villager vill, MinecraftServer server) {
+    private static String getCurrentTeamName(Entity vill, MinecraftServer server) {
         try {
             if (vill == null || server == null) return null;
             Object scoreboard = server.getScoreboard();
@@ -1278,7 +1284,7 @@ public final class SearchService {
         }
     }
 
-    private static void setBusyGlowState(Villager vill, MinecraftServer server, boolean glow) {
+    private static void setBusyGlowState(Entity vill, MinecraftServer server, boolean glow) {
         try {
             if (vill == null || server == null) return;
 
@@ -1307,7 +1313,7 @@ public final class SearchService {
         }
     }
 
-    private static void ensureBusyTeam(Villager vill, MinecraftServer server) {
+    private static void ensureBusyTeam(Entity vill, MinecraftServer server) {
         try {
             if (vill == null || server == null) return;
 
@@ -1359,7 +1365,7 @@ public final class SearchService {
         } catch (Throwable ignored) {}
     }
 
-    private static void clearBusyTeam(Villager vill, MinecraftServer server, String restoreTeamName) {
+    private static void clearBusyTeam(Entity vill, MinecraftServer server, String restoreTeamName) {
         try {
             if (vill == null || server == null) return;
 
@@ -1408,7 +1414,7 @@ public final class SearchService {
         } catch (Throwable ignored) {}
     }
 
-    private static void removeFromBusyTeamOnly(Villager vill, MinecraftServer server) {
+    private static void removeFromBusyTeamOnly(Entity vill, MinecraftServer server) {
         try {
             if (vill == null || server == null) return;
             Object scoreboard = server.getScoreboard();
@@ -1434,11 +1440,12 @@ public final class SearchService {
         } catch (Throwable ignored) {}
     }
 
-    private static void applyBusyMovementFreeze(Villager vill) {
+    private static void applyBusyMovementFreeze(Entity vill) {
         try {
             if (vill == null) return;
+            if (!(vill instanceof Mob mob)) return;
 
-            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            try { mob.getNavigation().stop(); } catch (Throwable ignored) {}
 
             try {
                 var dm = vill.getDeltaMovement();
@@ -1446,7 +1453,7 @@ public final class SearchService {
             } catch (Throwable ignored) {}
 
             AttributeInstance inst;
-            try { inst = vill.getAttribute(Attributes.MOVEMENT_SPEED); } catch (Throwable ignored) { return; }
+            try { inst = mob.getAttribute(Attributes.MOVEMENT_SPEED); } catch (Throwable ignored) { return; }
             if (inst == null) return;
 
             try {
@@ -1462,17 +1469,18 @@ public final class SearchService {
         } catch (Throwable ignored) {}
     }
 
-    private static void clearBusyMovementFreeze(Villager vill) {
+    private static void clearBusyMovementFreeze(Entity vill) {
         try {
             if (vill == null) return;
+            if (!(vill instanceof Mob mob)) return;
             AttributeInstance inst;
-            try { inst = vill.getAttribute(Attributes.MOVEMENT_SPEED); } catch (Throwable ignored) { return; }
+            try { inst = mob.getAttribute(Attributes.MOVEMENT_SPEED); } catch (Throwable ignored) { return; }
             if (inst == null) return;
             try { inst.removeModifier(MOD_BUSY_FREEZE_SPEED); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}
     }
 
-    private static void emitBusyParticles(Villager vill) {
+    private static void emitBusyParticles(Entity vill) {
         try {
             if (vill == null) return;
             if (!(vill.level() instanceof ServerLevel sl)) return;
@@ -1497,11 +1505,11 @@ public final class SearchService {
         } catch (Throwable ignored) {}
     }
 
-    private static void clearBusyState(Villager vill, MinecraftServer server) {
+    private static void clearBusyState(Entity vill, MinecraftServer server) {
         clearBusyState(vill, server, null);
     }
 
-    private static void clearBusyState(Villager vill, MinecraftServer server, Task task) {
+    private static void clearBusyState(Entity vill, MinecraftServer server, Task task) {
         try {
             clearBusyMovementFreeze(vill);
             if (vill != null && server != null) {
@@ -1517,12 +1525,12 @@ public final class SearchService {
 
     private static final String TAG_WRAP_VALUE = "v";
 
-    private static ListTag serializeOffersCodec(Villager vill) {
+    private static ListTag serializeOffersCodec(Entity vill) {
         try {
             if (vill == null) return new ListTag();
             if (!(vill.level() instanceof ServerLevel level)) return new ListTag();
 
-            MerchantOffers offers = vill.getOffers();
+            MerchantOffers offers = MerchantCompatibility.getOffers(vill);
             if (offers == null) return new ListTag();
 
             var ops = RegistryOps.create(NbtOps.INSTANCE, level.registryAccess());
@@ -1561,7 +1569,7 @@ public final class SearchService {
         }
     }
 
-    private static ListTag snapshotOffersCodecSafe(Villager vill) {
+    private static ListTag snapshotOffersCodecSafe(Entity vill) {
         try {
             return serializeOffersCodec(vill);
         } catch (Throwable t) {
@@ -1569,10 +1577,10 @@ public final class SearchService {
         }
     }
 
-    private static long snapshotLockMaskSafe(Villager vill) {
+    private static long snapshotLockMaskSafe(Entity vill) {
         try {
             if (vill == null) return 0L;
-            int offerCount = vill.getOffers() == null ? 0 : Math.max(0, vill.getOffers().size());
+            int offerCount = MerchantCompatibility.offerCount(vill);
             long m = TradeLockState.getMask(vill);
             return TradeLockState.sanitizeMaskForSize(m, offerCount);
         } catch (Throwable t) {
@@ -1597,7 +1605,7 @@ public final class SearchService {
         }
     }
 
-    private static MerchantOffer decodeOfferFromWrappedCodecListAtIndex(Villager vill, ListTag wrappedList, int idx, String reason) {
+    private static MerchantOffer decodeOfferFromWrappedCodecListAtIndex(Entity vill, ListTag wrappedList, int idx, String reason) {
         try {
             if (vill == null) return null;
             if (wrappedList == null || wrappedList.isEmpty()) return null;
@@ -1629,10 +1637,10 @@ public final class SearchService {
      * Auto-search rule: locked slots are immutable.
      * This forcibly overwrites locked indices in the CURRENT offer list with their pre-search snapshot versions.
      */
-    private static int overwriteLockedSlotsFromSnapshot(Villager vill, ListTag offersBeforeTag, long lockMaskBefore, String reason) {
+    private static int overwriteLockedSlotsFromSnapshot(Entity vill, ListTag offersBeforeTag, long lockMaskBefore, String reason) {
         try {
             if (vill == null) return 0;
-            MerchantOffers cur = vill.getOffers();
+            MerchantOffers cur = MerchantCompatibility.getOffers(vill);
             if (cur == null || cur.isEmpty()) return 0;
             if (offersBeforeTag == null || offersBeforeTag.isEmpty()) return 0;
 
@@ -1670,7 +1678,7 @@ public final class SearchService {
     // -----------------------------------------------------------------------------------------
 // Restore offers from snapshot (wrapper format: { "v": <offerTag> })
 // -----------------------------------------------------------------------------------------
-    private static boolean applyOffersFromWrappedCodecList(Villager vill, ListTag wrappedList, String reason) {
+    private static boolean applyOffersFromWrappedCodecList(Entity vill, ListTag wrappedList, String reason) {
         try {
             if (vill == null) return false;
             if (wrappedList == null || wrappedList.isEmpty()) return false;
@@ -1710,7 +1718,8 @@ public final class SearchService {
             }
 
             // Apply by mutating existing list (safest for vanilla references)
-            MerchantOffers cur = vill.getOffers();
+            MerchantOffers cur = MerchantCompatibility.getOffers(vill);
+            if (cur == null) return false;
             cur.clear();
             cur.addAll(decoded);
 
@@ -1729,7 +1738,7 @@ public final class SearchService {
     // Settlement accessors
     // ---------------------------------------------------------------------
 
-    public static ListTag getSettlementOffersBeforeTag(Villager vill) {
+    public static ListTag getSettlementOffersBeforeTag(Entity vill) {
         try {
             if (vill == null) return new ListTag();
             Settlement s = SETTLEMENTS.get(vill.getUUID());
@@ -1739,7 +1748,7 @@ public final class SearchService {
         }
     }
 
-    public static long getSettlementLockMaskBefore(Villager vill) {
+    public static long getSettlementLockMaskBefore(Entity vill) {
         try {
             if (vill == null) return 0L;
             Settlement s = SETTLEMENTS.get(vill.getUUID());
@@ -1749,7 +1758,7 @@ public final class SearchService {
         }
     }
 
-    public static int getSettlementFinalCost(Villager vill) {
+    public static int getSettlementFinalCost(Entity vill) {
         try {
             if (vill == null) return 0;
             Settlement s = SETTLEMENTS.get(vill.getUUID());
@@ -1782,7 +1791,7 @@ public final class SearchService {
         }
     }
 
-    private static int computeSettlementFinalCostFromV(Villager vill, Settlement s) {
+    private static int computeSettlementFinalCostFromV(Entity vill, Settlement s) {
         try {
             if (vill == null || s == null) return 0;
             if (s.ownerPlayerUuid == null) return 0;
@@ -1812,7 +1821,7 @@ public final class SearchService {
         }
     }
 
-    public static int getSettlementHourlyCost(Villager vill) {
+    public static int getSettlementHourlyCost(Entity vill) {
         try {
             Settlement s = SETTLEMENTS.get(vill.getUUID());
             return s == null ? 0 : Math.max(0, s.hourlyCost);
@@ -1821,7 +1830,7 @@ public final class SearchService {
         }
     }
 
-    public static List<String> getSettlementRequestedTargets(Villager vill) {
+    public static List<String> getSettlementRequestedTargets(Entity vill) {
         try {
             if (vill == null) return List.of();
             Settlement s = SETTLEMENTS.get(vill.getUUID());
@@ -1832,7 +1841,7 @@ public final class SearchService {
         }
     }
 
-    public static int getSettlementElapsedTicks(Villager vill) {
+    public static int getSettlementElapsedTicks(Entity vill) {
         try {
             Settlement s = SETTLEMENTS.get(vill.getUUID());
             if (s == null) return 0;
@@ -1842,7 +1851,7 @@ public final class SearchService {
         }
     }
 
-    public static int getSettlementTotalVillagerXp(Villager vill) {
+    public static int getSettlementTotalVillagerXp(Entity vill) {
         try {
             Settlement s = SETTLEMENTS.get(vill.getUUID());
             return s == null ? 0 : Math.max(0, s.totalVillagerXp);
@@ -1860,7 +1869,7 @@ public final class SearchService {
         }
     }
 
-    public static Settlement popSettlementAndClearVisuals(Villager vill, MinecraftServer server) {
+    public static Settlement popSettlementAndClearVisuals(Entity vill, MinecraftServer server) {
         try {
             if (vill == null) return null;
             Settlement s = SETTLEMENTS.remove(vill.getUUID());
@@ -1882,11 +1891,11 @@ public final class SearchService {
     // XP award helper (call this ONLY after payment has succeeded)
     // ---------------------------------------------------------------------
 
-    public static int awardSettlementVillagerXpIfAny(Villager vill, Settlement settlement) {
+    public static int awardSettlementVillagerXpIfAny(Entity vill, Settlement settlement) {
         return awardSettlementVillagerXpIfAny(null, vill, settlement);
     }
 
-    public static int awardSettlementVillagerXpIfAny(ServerPlayer payer, Villager vill, Settlement settlement) {
+    public static int awardSettlementVillagerXpIfAny(ServerPlayer payer, Entity vill, Settlement settlement) {
         try {
             if (vill == null || settlement == null) return 0;
 
@@ -1896,39 +1905,45 @@ public final class SearchService {
 
                 // Nothing awarded, but vanilla/mods may still have changed offers.
                 // Use normalizeOffers (drift correction) since this is NOT guaranteed to be a rebuild.
-                try { HoarderOffers.normalizeOffers(vill, payer); } catch (Throwable ignored) {}
-                try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
+                if (vill instanceof Villager vv) {
+                    try { HoarderOffers.normalizeOffers(vv, payer); } catch (Throwable ignored) {}
+                    try { VillagerGenerosityOfferService.normalizeAndApply(vv); } catch (Throwable ignored) {}
+                }
 
                 scheduleNextTickHoarderRecheck(vill, payer);
                 return 0;
             }
 
+            if (!(vill instanceof Villager vv)) {
+                return 0;
+            }
+
             int lvlBefore = 0;
             int xpBefore = 0;
-            try { lvlBefore = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
-            try { xpBefore = vill.getVillagerXp(); } catch (Throwable ignored) {}
+            try { lvlBefore = vv.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            try { xpBefore = vv.getVillagerXp(); } catch (Throwable ignored) {}
 
-            boolean ok = addVillagerXpSafe(vill, xp);
+            boolean ok = addVillagerXpSafe(vv, xp);
 
             boolean scheduledVanillaLevelUp = false;
             if (ok) {
-                scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vill);
+                scheduledVanillaLevelUp = maybeInvokeVanillaLevelUpFlow(vv);
             }
 
             // Level-up appends offers. Do NOT reset baseline.
-            try { HoarderOffers.normalizeOffers(vill, payer); } catch (Throwable ignored) {}
-            try { VillagerGenerosityOfferService.normalizeAndApply(vill); } catch (Throwable ignored) {}
+            try { HoarderOffers.normalizeOffers(vv, payer); } catch (Throwable ignored) {}
+            try { VillagerGenerosityOfferService.normalizeAndApply(vv); } catch (Throwable ignored) {}
 
             int lvlAfter = lvlBefore;
             int xpAfter = xpBefore;
-            try { lvlAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
-            try { xpAfter = vill.getVillagerXp(); } catch (Throwable ignored) {}
+            try { lvlAfter = vv.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            try { xpAfter = vv.getVillagerXp(); } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] awardSettlementVillagerXpIfAny: villager={} entityId={} addXp={} success={} scheduledVanillaLevelUp={} level {}->{} xp {}->{} offersNow={}",
                     vill.getUUID(), vill.getId(), xp, ok, scheduledVanillaLevelUp,
                     lvlBefore, lvlAfter, xpBefore, xpAfter,
-                    (vill.getOffers() == null ? -1 : vill.getOffers().size())
+                    MerchantCompatibility.offerCount(vill)
             );
 
             scheduleNextTickHoarderRecheck(vill, payer);
@@ -1946,7 +1961,7 @@ public final class SearchService {
      *
      * IMPORTANT: use normalizeAfterOfferRebuild here, because vanilla may have replaced or appended offers.
      */
-    private static void scheduleNextTickHoarderRecheck(Villager vill, ServerPlayer payer) {
+    private static void scheduleNextTickHoarderRecheck(Entity vill, ServerPlayer payer) {
         try {
             if (vill == null) return;
 
@@ -1965,8 +1980,8 @@ public final class SearchService {
 
             srv.execute(() -> {
                 try {
-                    Villager v = resolveVillagerByUuid(srv, vId);
-                    if (v == null) return;
+                    Entity resolved = resolveMerchantByUuid(srv, vId);
+                    if (!(resolved instanceof Villager v)) return;
 
                     ServerPlayer p = null;
                     if (payerId != null) {
@@ -2281,10 +2296,9 @@ public final class SearchService {
 
     // yuh
 
-    private static int safeOfferSize(Villager vill) {
+    private static int safeOfferSize(Entity vill) {
         try {
-            if (vill == null || vill.getOffers() == null) return 0;
-            return Math.max(0, vill.getOffers().size());
+            return MerchantCompatibility.offerCount(vill);
         } catch (Throwable ignored) {
             return 0;
         }

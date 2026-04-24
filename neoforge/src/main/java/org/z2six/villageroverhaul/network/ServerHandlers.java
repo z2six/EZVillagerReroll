@@ -1,6 +1,7 @@
 // neoforge\src\main\java\org\z2six\villageroverhaul\network\ServerHandlers.java
 package org.z2six.villageroverhaul.network;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
@@ -16,6 +17,7 @@ import net.minecraft.world.item.trading.MerchantOffers;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
+import org.z2six.villageroverhaul.logic.MerchantCompatibility;
 import org.z2six.villageroverhaul.logic.RerollExecutor;
 import org.z2six.villageroverhaul.logic.RerollState;
 import org.z2six.villageroverhaul.logic.TradeLockState;
@@ -34,6 +36,7 @@ import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
 import org.z2six.villageroverhaul.network.trading.PacketRegisterTradingHall;
+import org.z2six.villageroverhaul.network.trading.PacketRegisterStorefront;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailData;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcActionDetailQuery;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcAddWaypoint;
@@ -170,10 +173,10 @@ public final class ServerHandlers {
             try {
                 if (sp.containerMenu instanceof MerchantMenu menu) {
                     var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-                    if (trader instanceof Villager vill) {
-                        if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                    if (trader instanceof Entity entity && MerchantCompatibility.supportsReroll(entity)) {
+                        if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(entity, sp)) {
                             VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleReroll denied (player={} villager={})",
-                                    sp.getGameProfile().getName(), vill.getUUID());
+                                    sp.getGameProfile().getName(), entity.getUUID());
                             return;
                         }
                     }
@@ -202,8 +205,8 @@ public final class ServerHandlers {
             try {
                 if (sp.containerMenu instanceof MerchantMenu menu) {
                     var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-                    if (trader instanceof Villager vill) {
-                        if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                    if (trader instanceof Entity entity && MerchantCompatibility.supportsReroll(entity)) {
+                        if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(entity, sp)) {
                             return;
                         }
                     }
@@ -225,36 +228,38 @@ public final class ServerHandlers {
             if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
 
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-            if (!(trader instanceof Villager vill)) return;
+            if (!(trader instanceof Entity entity) || !MerchantCompatibility.supportsTradeLocks(entity)) return;
 
-            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(entity, sp)) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleToggleTradeLock denied (player={} villager={})",
-                        sp.getGameProfile().getName(), vill.getUUID());
+                        sp.getGameProfile().getName(), entity.getUUID());
                 return;
             }
 
-            long next = TradeLockState.toggle(vill, idx);
-            long sanitized = TradeLockState.sanitizeMaskForSize(next, vill.getOffers().size());
-            TradeLockState.setMask(vill, sanitized);
+            long next = TradeLockState.toggle(entity, idx);
+            long sanitized = TradeLockState.sanitizeMaskForSize(next, MerchantCompatibility.offerCount(entity));
+            TradeLockState.setMask(entity, sanitized);
 
             // Snapshot or clear the locked offer itself (mask alone is not sufficient for robust locks).
             try {
                 boolean nowLocked = idx >= 0 && idx < 63 && (sanitized & (1L << idx)) != 0L;
                 if (nowLocked) {
-                    TradeLockState.captureLockedOffer(vill, idx);
+                    TradeLockState.captureLockedOffer(entity, idx);
                 } else {
-                    TradeLockState.clearLockedOfferSnapshot(vill, idx);
+                    TradeLockState.clearLockedOfferSnapshot(entity, idx);
                 }
-                TradeLockState.sanitizeLockedOfferSnapshots(vill, sanitized, vill.getOffers() == null ? 0 : vill.getOffers().size());
+                TradeLockState.sanitizeLockedOfferSnapshots(entity, sanitized, MerchantCompatibility.offerCount(entity));
             } catch (Throwable ignored) {}
 
-            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addTradeLockToggle(vill, 1); } catch (Throwable ignored) {}
+            if (entity instanceof Villager vill) {
+                try { org.z2six.villageroverhaul.server.VillagerHistoryService.addTradeLockToggle(vill, 1); } catch (Throwable ignored) {}
+            }
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [lock] toggled player={} villager={} idx={} mask={}",
-                    sp.getGameProfile().getName(), vill.getUUID(), idx, Long.toUnsignedString(sanitized));
+                    sp.getGameProfile().getName(), entity.getUUID(), idx, Long.toUnsignedString(sanitized));
 
             ctx.reply(new PacketTradeLocks(menu.containerId, sanitized));
-            ctx.reply(org.z2six.villageroverhaul.server.TooltipService.computeSnapshot(sp, vill.getId()));
+            ctx.reply(org.z2six.villageroverhaul.server.TooltipService.computeSnapshot(sp, entity.getId()));
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleToggleTradeLock failed", t);
@@ -269,39 +274,39 @@ public final class ServerHandlers {
                 return;
             }
 
-            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
-            if (vill == null) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery: villager not resolved for entityId={} (player={})",
+            Entity merchant = resolveMerchantFor(sp, msg.villagerEntityId());
+            if (merchant == null) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery: merchant not resolved for entityId={} (player={})",
                         msg.villagerEntityId(), sp.getGameProfile().getName());
                 ctx.reply(PacketSearchCatalogData.minimal(msg.villagerEntityId(), List.of()));
                 return;
             }
 
             // HARD GATE: catalog is a control feature
-            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(merchant, sp)) {
                 ctx.reply(PacketSearchCatalogData.minimal(msg.villagerEntityId(), List.of()));
                 return;
             }
 
             List<net.minecraft.world.item.ItemStack> items;
             try {
-                items = CatalogBuilder.buildCatalog(vill);
+                items = MerchantCompatibility.buildCatalog(merchant);
             } catch (Throwable t) {
-                VillagerOverhaul.LOG().error("[VillagerOverhaul] handleSearchCatalogQuery: CatalogBuilder.buildCatalog failed (villager={})",
-                        vill.getUUID(), t);
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] handleSearchCatalogQuery: buildCatalog failed (merchant={})",
+                        merchant.getUUID(), t);
                 items = List.of();
             }
 
             int offerCount = 0;
             try {
-                offerCount = (vill.getOffers() == null) ? 0 : Math.max(0, vill.getOffers().size());
+                offerCount = MerchantCompatibility.offerCount(merchant);
             } catch (Throwable ignored) {
                 offerCount = 0;
             }
 
             long lockMask = 0L;
             try {
-                lockMask = TradeLockState.getMask(vill);
+                lockMask = TradeLockState.getMask(merchant);
             } catch (Throwable ignored) {
                 lockMask = 0L;
             }
@@ -309,16 +314,16 @@ public final class ServerHandlers {
             try {
                 long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, offerCount);
                 if (sanitized != lockMask) {
-                    TradeLockState.setMask(vill, sanitized);
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery: sanitized lock mask due to offer size change (villager={} before={} after={} offers={})",
-                            vill.getUUID(),
+                    TradeLockState.setMask(merchant, sanitized);
+                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery: sanitized lock mask due to offer size change (merchant={} before={} after={} offers={})",
+                            merchant.getUUID(),
                             Long.toUnsignedString(lockMask),
                             Long.toUnsignedString(sanitized),
                             offerCount);
                     lockMask = sanitized;
 
                     try {
-                        org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(vill, lockMask);
+                        org.z2six.villageroverhaul.server.TradeLockSyncService.syncToActiveTraders(merchant, lockMask);
                     } catch (Throwable syncIgnored) {
                         // soft
                     }
@@ -346,7 +351,7 @@ public final class ServerHandlers {
 
             int hourlyCost;
             try {
-                hourlyCost = SearchService.computeHourlyCostServer(vill);
+                hourlyCost = SearchService.computeHourlyCostServer(merchant);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery: computeHourlyCostServer failed (soft): {}", t.toString());
                 hourlyCost = 0;
@@ -354,7 +359,7 @@ public final class ServerHandlers {
 
             if (VillagerOverhaul.LOG().isDebugEnabled()) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleSearchCatalogQuery snapshot: villager={} offers={} locked={} unlocked={} free={} paid={} manual={} hourly={}",
-                        vill.getUUID(),
+                        merchant.getUUID(),
                         offerCount,
                         lockedCount,
                         unlockedOffers,
@@ -365,7 +370,7 @@ public final class ServerHandlers {
             }
 
             ctx.reply(new PacketSearchCatalogData(
-                    vill.getId(),
+                    merchant.getId(),
                     items,
                     offerCount,
                     lockedCount,
@@ -386,16 +391,16 @@ public final class ServerHandlers {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             if (!ServerConfig.enableMerchantModule) return;
 
-            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
-            if (vill == null) return;
+            Entity merchant = resolveMerchantFor(sp, msg.villagerEntityId());
+            if (merchant == null) return;
 
-            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(merchant, sp)) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleStartAutoSearch denied (player={} villager={})",
-                        sp.getGameProfile().getName(), vill.getUUID());
+                        sp.getGameProfile().getName(), merchant.getUUID());
                 return;
             }
 
-            SearchService.start(sp, vill, msg.targets());
+            SearchService.start(sp, merchant, msg.targets());
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleStartAutoSearch failed", t);
         }
@@ -406,12 +411,12 @@ public final class ServerHandlers {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             if (!ServerConfig.enableMerchantModule) return;
 
-            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
-            if (vill == null) return;
+            Entity merchant = resolveMerchantFor(sp, msg.villagerEntityId());
+            if (merchant == null) return;
 
-            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(merchant, sp)) {
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleCancelAutoSearch denied (player={} villager={})",
-                        sp.getGameProfile().getName(), vill.getUUID());
+                        sp.getGameProfile().getName(), merchant.getUUID());
                 return;
             }
 
@@ -430,7 +435,7 @@ public final class ServerHandlers {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             if (!ServerConfig.enableMerchantModule) return;
 
-            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            Entity vill = resolveMerchantFor(sp, msg.villagerEntityId());
             if (vill == null) return;
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
@@ -445,8 +450,8 @@ public final class ServerHandlers {
             int offersNowBefore = -1;
             int levelBefore = -1;
             long lockMaskNow = 0L;
-            try { offersNowBefore = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
-            try { levelBefore = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            try { offersNowBefore = safeOfferSize(vill); } catch (Throwable ignored) {}
+            try { levelBefore = vill instanceof Villager vv ? vv.getVillagerData().getLevel() : 0; } catch (Throwable ignored) {}
             try { lockMaskNow = TradeLockState.getMask(vill); } catch (Throwable ignored) { lockMaskNow = 0L; }
             int offersBeforeSnapshot = -1;
             try { offersBeforeSnapshot = SearchService.getSettlementOffersBeforeTag(vill) == null ? -1 : SearchService.getSettlementOffersBeforeTag(vill).size(); } catch (Throwable ignored) {}
@@ -484,8 +489,8 @@ public final class ServerHandlers {
                     // Track emeralds only when the configured currency is exactly emerald.
                     boolean specIsTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
                     ResourceLocation itemId = specIsTag ? null : ResourceLocation.tryParse(ServerConfig.costSpec);
-                    if (!specIsTag && itemId != null && "minecraft:emerald".equals(itemId.toString())) {
-                        org.z2six.villageroverhaul.server.VillagerHistoryService.addEmeraldsFromAutoRerolls(vill, cost);
+                    if (!specIsTag && itemId != null && "minecraft:emerald".equals(itemId.toString()) && vill instanceof Villager vv) {
+                        org.z2six.villageroverhaul.server.VillagerHistoryService.addEmeraldsFromAutoRerolls(vv, cost);
                     }
                 }
             } catch (Throwable ignored) {}
@@ -512,7 +517,7 @@ public final class ServerHandlers {
             // Safety: ensure locked trades remain exactly as locked even after auto-search / settlement.
             try {
                 org.z2six.villageroverhaul.logic.TradeLockState.ensureSnapshotsForLockedMask(vill);
-                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, vill.getOffers());
+                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, MerchantCompatibility.getOffers(vill));
                 org.z2six.villageroverhaul.logic.TradeLockState.sanitizeLockedOfferSnapshots(
                         vill,
                         org.z2six.villageroverhaul.logic.TradeLockState.sanitizeMaskForSize(
@@ -526,8 +531,8 @@ public final class ServerHandlers {
             int offersNowAfter = -1;
             int levelAfter = -1;
             long lockMaskAfter = 0L;
-            try { offersNowAfter = (vill.getOffers() == null ? -1 : vill.getOffers().size()); } catch (Throwable ignored) {}
-            try { levelAfter = vill.getVillagerData().getLevel(); } catch (Throwable ignored) {}
+            try { offersNowAfter = safeOfferSize(vill); } catch (Throwable ignored) {}
+            try { levelAfter = vill instanceof Villager vv ? vv.getVillagerData().getLevel() : 0; } catch (Throwable ignored) {}
             try { lockMaskAfter = TradeLockState.getMask(vill); } catch (Throwable ignored) { lockMaskAfter = 0L; }
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] [auto_search] pay_success player={} villager={} cost={} awardedXp={} settlementXp={} offers {}->{} level {}->{} lockMask {}->{}",
@@ -562,7 +567,7 @@ public final class ServerHandlers {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             if (!ServerConfig.enableMerchantModule) return;
 
-            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            Entity vill = resolveMerchantFor(sp, msg.villagerEntityId());
             if (vill == null) return;
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
@@ -586,7 +591,7 @@ public final class ServerHandlers {
             // Safety: restore exact locked offers (mask alone is not sufficient).
             try {
                 org.z2six.villageroverhaul.logic.TradeLockState.ensureSnapshotsForLockedMask(vill);
-                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, vill.getOffers());
+                org.z2six.villageroverhaul.logic.TradeLockState.restoreLockedOffersFromSnapshots(vill, MerchantCompatibility.getOffers(vill));
                 org.z2six.villageroverhaul.logic.TradeLockState.sanitizeLockedOfferSnapshots(vill, sanitized, safeOfferSize(vill));
             } catch (Throwable ignored) {}
 
@@ -1016,22 +1021,30 @@ public final class ServerHandlers {
         }
     }
 
+    private static Entity resolveMerchantFor(ServerPlayer sp, int entityId) {
+        try {
+            return MerchantCompatibility.resolveSupportedMerchantEntity(sp, entityId);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static void sendCooldownStateSnapshot(ServerPlayer sp, IPayloadContext ctx) {
         try {
             if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-            if (!(trader instanceof Villager vill)) return;
+            if (!(trader instanceof Entity entity) || !MerchantCompatibility.supportsReroll(entity)) return;
 
-            int remaining = RerollState.cooldownRemainingTicks(sp.serverLevel(), vill);
+            int remaining = RerollState.cooldownRemainingTicks(sp.serverLevel(), entity);
 
             int configured = 0;
             try {
                 int base = ServerConfig.cooldownTicks;
                 if (base > 0) {
-                    try { VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
+                    try { VillagerStatsService.ensureStats(entity); } catch (Throwable ignored) {}
 
                     double pct = 0.0;
-                    try { pct = VillagerTraitEffects.timelinessPct(vill); } catch (Throwable ignored) { pct = 0.0; }
+                    try { pct = VillagerTraitEffects.timelinessPct(entity); } catch (Throwable ignored) { pct = 0.0; }
 
                     configured = VillagerTraitEffects.applyCooldownPercent(base, pct);
 
@@ -1051,14 +1064,14 @@ public final class ServerHandlers {
         try {
             if (!(sp.containerMenu instanceof MerchantMenu menu)) return;
             var trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-            if (!(trader instanceof Villager vill)) return;
+            if (!(trader instanceof Entity entity) || !MerchantCompatibility.supportsTradeLocks(entity)) return;
 
-            long mask = TradeLockState.getMask(vill);
+            long mask = TradeLockState.getMask(entity);
             ctx.reply(new PacketTradeLocks(menu.containerId, mask));
         } catch (Throwable ignored) {}
     }
 
-    private static boolean applyOffersFromOfferTagList(Villager vill, ListTag offerList, String reason) {
+    private static boolean applyOffersFromOfferTagList(Entity vill, ListTag offerList, String reason) {
         try {
             if (vill == null) return false;
             if (offerList == null || offerList.isEmpty()) return false;
@@ -1090,7 +1103,8 @@ public final class ServerHandlers {
                 ).ifPresent(decoded::add);
             }
 
-            MerchantOffers current = vill.getOffers();
+            MerchantOffers current = MerchantCompatibility.getOffers(vill);
+            if (current == null) return false;
             current.clear();
             current.addAll(decoded);
 
@@ -1148,10 +1162,9 @@ public final class ServerHandlers {
         }
     }
 
-    private static int safeOfferSize(Villager vill) {
+    private static int safeOfferSize(Entity vill) {
         try {
-            if (vill == null || vill.getOffers() == null) return 0;
-            return Math.max(0, vill.getOffers().size());
+            return vill == null ? 0 : MerchantCompatibility.offerCount(vill);
         } catch (Throwable ignored) {
             return 0;
         }
@@ -1714,6 +1727,23 @@ public final class ServerHandlers {
             if (level == null) return;
             if (pos == null) return;
 
+            FarmingSettingsService.RegisteredWorkstation vanillaWs = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+            if (vanillaWs == null) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager has no vanilla workstation memory", 2600)); } catch (Throwable ignored) {}
+                return;
+            }
+
+            var vanillaState = level.getBlockState(new BlockPos(vanillaWs.x(), vanillaWs.y(), vanillaWs.z()));
+            var requestedState = level.getBlockState(pos);
+            if (vanillaState == null || requestedState == null || vanillaState.getBlock() != requestedState.getBlock()) {
+                try { ctx.reply(new PacketFarmingOverlayText("Registered block must match the vanilla workstation block type", 3200)); } catch (Throwable ignored) {}
+                return;
+            }
+            if (FarmingSettingsService.isRegisteredWorkstationClaimedByAnother(level, vill, pos)) {
+                try { ctx.reply(new PacketFarmingOverlayText("That workstation is already assigned to another villager", 2800)); } catch (Throwable ignored) {}
+                return;
+            }
+
             String dim = "";
             try { dim = String.valueOf(level.dimension().location()); } catch (Throwable ignored) { dim = ""; }
             FarmingSettingsService.setRegisteredWorkstation(vill, dim, pos.getX(), pos.getY(), pos.getZ());
@@ -1728,6 +1758,41 @@ public final class ServerHandlers {
             } catch (Throwable ignored) {}
             try { ctx.reply(new PacketFarmingOverlayText("Workstation registered", 2200)); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}
+    }
+
+    public static void handleRegisterStorefront(PacketRegisterStorefront msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableMerchantModule) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) return;
+            if (!RecruitService.isRecruited(vill)) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager is not recruited", 2200)); } catch (Throwable ignored) {}
+                return;
+            }
+
+            ServerLevel level = sp.serverLevel();
+            if (level == null) return;
+
+            BlockPos pos;
+            try {
+                pos = vill.blockPosition();
+            } catch (Throwable ignored) {
+                pos = null;
+            }
+            if (pos == null) return;
+
+            String dim = "";
+            try { dim = String.valueOf(level.dimension().location()); } catch (Throwable ignored) { dim = ""; }
+            TradingHallService.setRegisteredStorefront(vill, dim, pos.getX(), pos.getY(), pos.getZ());
+            try { VillagerBrain.trading(vill); } catch (Throwable ignored) {}
+            try { ctx.reply(new PacketFarmingOverlayText("Storefront position recorded", 2200)); } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleRegisterStorefront failed", t);
+        }
     }
 
     public static void handleRegisterTradingHall(PacketRegisterTradingHall msg, IPayloadContext ctx) {
@@ -2272,20 +2337,20 @@ public final class ServerHandlers {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
             int id = msg.villagerEntityId();
-            Villager vill = resolveVillagerFor(sp, id);
+            Entity entity = resolveMerchantFor(sp, id);
 
-            if (vill == null) {
+            if (entity == null || !MerchantCompatibility.supportsRecruit(entity)) {
                 ctx.reply(new PacketRecruitGateData(id, false, false, false, ""));
                 return;
             }
 
-            boolean recruited = RecruitService.isRecruited(vill);
-            boolean canUse = recruited && org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp);
+            boolean recruited = RecruitService.isRecruited(entity);
+            boolean canUse = recruited && org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(entity, sp);
 
             String byName = "";
             if (recruited) {
                 try {
-                    var pd = vill.getPersistentData();
+                    var pd = entity.getPersistentData();
                     if (pd != null && pd.contains(RecruitService.TAG_RECRUITED_BY_NAME)) {
                         byName = pd.getString(RecruitService.TAG_RECRUITED_BY_NAME);
                     }
@@ -2294,7 +2359,7 @@ public final class ServerHandlers {
                 // Best-effort fallback: resolve from UUID via server cache.
                 if ((byName == null || byName.isBlank())) {
                     try {
-                        java.util.UUID rid = RecruitService.getRecruiterUuid(vill);
+                        java.util.UUID rid = RecruitService.getRecruiterUuid(entity);
                         if (rid != null) {
                             Object cache = sp.server.getProfileCache();
                             if (cache != null) {

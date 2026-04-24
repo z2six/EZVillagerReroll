@@ -4,6 +4,7 @@ package org.z2six.villageroverhaul.logic;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.trading.Merchant;
@@ -31,47 +32,48 @@ public final class RerollExecutor {
             }
 
             Merchant trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
-            if (!(trader instanceof Villager vill)) {
+            if (!(trader instanceof Entity entity) || !MerchantCompatibility.supportsReroll(entity)) {
                 toast(sp, "ezvr.msg.not_villager");
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: trader is not a Villager (player={}, traderType={})",
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: trader unsupported (player={}, traderType={})",
                         sp.getGameProfile().getName(),
                         trader == null ? "null" : trader.getClass().getName()
                 );
                 return;
             }
+            Villager vill = entity instanceof Villager v ? v : null;
 
-            try { org.z2six.villageroverhaul.server.VillagerStatsService.ensureStats(vill); } catch (Throwable ignored) {}
+            try { org.z2six.villageroverhaul.server.VillagerStatsService.ensureStats(entity); } catch (Throwable ignored) {}
 
-            int level = Math.max(1, Math.min(5, vill.getVillagerData().getLevel()));
-            int xp = vill.getVillagerXp();
+            int level = vill == null ? 0 : Math.max(1, Math.min(5, vill.getVillagerData().getLevel()));
+            int xp = MerchantCompatibility.getMerchantXp(entity);
 
-            int offersBefore = vill.getOffers() != null ? vill.getOffers().size() : -1;
+            int offersBefore = MerchantCompatibility.offerCount(entity);
 
-            if (!RerollState.canReroll(sp, vill)) {
+            if (vill != null && !RerollState.canReroll(sp, vill)) {
                 toast(sp, "ezvr.msg.cooldown_or_cap");
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: cooldown/cap (player={}, villager={})",
-                        sp.getGameProfile().getName(), vill.getUUID());
+                        sp.getGameProfile().getName(), entity.getUUID());
                 return;
             }
 
-            if (!ServerConfig.allowAfterTradeUsed && xp > 0) {
+            if (vill != null && !ServerConfig.allowAfterTradeUsed && xp > 0) {
                 toast(sp, "ezvr.msg.after_used_disabled");
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Reroll refused: allowAfterTradeUsed=false (player={}, villager={})",
-                        sp.getGameProfile().getName(), vill.getUUID());
+                        sp.getGameProfile().getName(), entity.getUUID());
                 return;
             }
 
             int totalOffers = Math.max(0, offersBefore);
-            long lockMask = TradeLockState.getMask(vill);
+            long lockMask = TradeLockState.getMask(entity);
 
             long beforeMaskForLog = lockMask;
             long sanitized = TradeLockState.sanitizeMaskForSize(lockMask, totalOffers);
             if (sanitized != lockMask) {
-                TradeLockState.setMask(vill, sanitized);
+                TradeLockState.setMask(entity, sanitized);
                 lockMask = sanitized;
 
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Sanitized lock mask during reroll cost calc (villager={} beforeMask={} afterMask={})",
-                        vill.getUUID(), Long.toUnsignedString(beforeMaskForLog), Long.toUnsignedString(sanitized));
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] Sanitized lock mask during reroll cost calc (merchant={} beforeMask={} afterMask={})",
+                        entity.getUUID(), Long.toUnsignedString(beforeMaskForLog), Long.toUnsignedString(sanitized));
             }
 
             int lockedCount = Long.bitCount(lockMask);
@@ -96,7 +98,7 @@ public final class RerollExecutor {
             double generosityPct = 0.0;
             int cost = baseCost;
             try {
-                generosityPct = VillagerTraitEffects.generosityPct(vill);
+                generosityPct = VillagerTraitEffects.generosityPct(entity);
                 cost = VillagerTraitEffects.applyCostPercent(baseCost, generosityPct);
             } catch (Throwable ignored) {
                 cost = baseCost;
@@ -106,8 +108,8 @@ public final class RerollExecutor {
             VillagerOverhaul.LOG().debug(
                     "[VillagerOverhaul] Reroll attempt: player={}, villager={}, prof={}, level={}, xp={}, offersBefore={}, lockedCount={}, offersRerolled(unlocked)={}, freeOffers={}, paidOffers={}, costPerOffer={}, baseCost={}, generosityPct={}, cost={}, costSpec='{}' (preferWallet={})",
                     sp.getGameProfile().getName(),
-                    vill.getUUID(),
-                    vill.getVillagerData().getProfession(),
+                    entity.getUUID(),
+                    vill == null ? "n/a" : vill.getVillagerData().getProfession(),
                     level, xp, offersBefore,
                     lockedCount, offersRerolled,
                     freeOffers, paidOffers, costPerOffer,
@@ -130,28 +132,36 @@ public final class RerollExecutor {
                 paid = true;
             }
 
-            if (!TradeUtil.rebuildOffers(vill, sp)) {
-                VillagerOverhaul.LOG().warn("[VillagerOverhaul] Reroll failed during rebuild (villager={})", vill.getUUID());
+            if (!MerchantCompatibility.rebuildOffers(entity, sp, true)) {
+                VillagerOverhaul.LOG().warn("[VillagerOverhaul] Reroll failed during rebuild (merchant={})", entity.getUUID());
                 toast(sp, "ezvr.msg.failed");
                 return;
             }
 
             // ✅ This IS a rebuild, so reset baseline/applied then enforce Hoarder.
-            try {
-                HoarderOffers.normalizeAfterOfferRebuild(vill, sp);
-                VillagerGenerosityOfferService.normalizeAndApply(vill);
-            } catch (Throwable ignored) {}
+            if (vill != null) {
+                try {
+                    HoarderOffers.normalizeAfterOfferRebuild(vill, sp);
+                    VillagerGenerosityOfferService.normalizeAndApply(vill);
+                } catch (Throwable ignored) {}
+            }
 
             // XP + potential level-up (which now re-normalizes inside grantVillagerXpForManualReroll)
-            grantVillagerXpForManualReroll(sp, menu, vill, offersRerolled);
+            if (vill != null) {
+                grantVillagerXpForManualReroll(sp, menu, vill, offersRerolled);
+            }
 
-            int offersAfter = vill.getOffers() != null ? vill.getOffers().size() : -1;
-            RerollState.markRerolled(sp, vill);
+            int offersAfter = MerchantCompatibility.offerCount(entity);
+            if (vill != null) {
+                RerollState.markRerolled(sp, vill);
+            }
             toast(sp, "ezvr.msg.success");
-            try { org.z2six.villageroverhaul.server.VillagerHistoryService.addManualReroll(vill, 1); } catch (Throwable ignored) {}
+            if (vill != null) {
+                try { org.z2six.villageroverhaul.server.VillagerHistoryService.addManualReroll(vill, 1); } catch (Throwable ignored) {}
+            }
             try {
                 // Track emeralds earned from manual rerolls (only when the costSpec is exactly emerald).
-                if (cost > 0) {
+                if (vill != null && cost > 0) {
                     boolean specIsTag = ServerConfig.isTagSpec(ServerConfig.costSpec);
                     ResourceLocation itemId = specIsTag ? null : ResourceLocation.tryParse(ServerConfig.costSpec);
                     if (!specIsTag && itemId != null && "minecraft:emerald".equals(itemId.toString())) {
@@ -161,8 +171,8 @@ public final class RerollExecutor {
             } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] Reroll success: villager={}, offers {} -> {}, player={}, paid={}",
-                    vill.getUUID(), offersBefore, offersAfter, sp.getGameProfile().getName(),
+                    "[VillagerOverhaul] Reroll success: merchant={}, offers {} -> {}, player={}, paid={}",
+                    entity.getUUID(), offersBefore, offersAfter, sp.getGameProfile().getName(),
                     (cost <= 0) ? "free" : (paid ? "yes" : "no")
             );
 

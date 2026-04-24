@@ -124,6 +124,12 @@ final class VillagerCommandsRadial {
                             action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Trading", "Stay near workstation and process the hall", "minecraft:emerald",
                                     tradingMode,
                                     () -> sendMovementCommand(villagerEntityId, PacketVillagerCommand.Command.TRADING, "Trading")),
+                            action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Storefront", "Record a storefront return position", "minecraft:oak_sign",
+                                    false,
+                                    () -> ClientUI.beginStorefrontRegistration(villagerEntityId)),
+                            action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Workstation", "Register workstation from vanilla job-site type", "minecraft:composter",
+                                    false,
+                                    () -> ClientUI.beginWorkstationRegistration(villagerEntityId)),
                             action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Hall", "Register Trading Hall", "villageroverhaul:trading_hall",
                                     false,
                                     () -> ClientUI.beginTradingHallRegistration(villagerEntityId))

@@ -2,7 +2,7 @@
 package org.z2six.villageroverhaul.logic;
 
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.Entity;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
@@ -25,23 +25,23 @@ public final class VillagerTraitEffects {
     // Public API: percents
     // -----------------------------------------------------------------------------------------
 
-    public static double generosityPct(Villager vill) {
+    public static double generosityPct(Entity vill) {
         int pts = getPointsSafe(vill, VillagerStatsService.K_GENEROSITY);
         return pointsToPct(pts, ServerConfig.generosityMinPct, ServerConfig.generosityMaxPct);
     }
 
-    public static double timelinessPct(Villager vill) {
+    public static double timelinessPct(Entity vill) {
         int pts = getPointsSafe(vill, VillagerStatsService.K_TIMELINESS);
         return pointsToPct(pts, ServerConfig.timelinessMinPct, ServerConfig.timelinessMaxPct);
     }
 
-    public static double intellectPct(Villager vill) {
+    public static double intellectPct(Entity vill) {
         int pts = getPointsSafe(vill, VillagerStatsService.K_INTELLECT);
         return pointsToPct(pts, ServerConfig.intellectMinPct, ServerConfig.intellectMaxPct);
     }
 
     // Farming stats
-    public static double motivationPct(Villager vill) {
+    public static double motivationPct(Entity vill) {
         int pts = getPointsSafe(vill, VillagerStatsService.K_MOTIVATION);
         return pointsToPct(pts, ServerConfig.motivationMinPct, ServerConfig.motivationMaxPct);
     }
@@ -51,17 +51,17 @@ public final class VillagerTraitEffects {
      * Positive => chance to save a seed/bonemeal.
      * Negative => chance to consume an extra seed/bonemeal.
      */
-    public static double efficiencyPct(Villager vill) {
+    public static double efficiencyPct(Entity vill) {
         int pts = getPointsSafe(vill, VillagerStatsService.K_EFFICIENCY);
         return pointsToPct(pts, ServerConfig.efficiencyMinPct, ServerConfig.efficiencyMaxPct);
     }
 
-    public static double plantWhispererPct(Villager vill) {
+    public static double plantWhispererPct(Entity vill) {
         int pts = getPointsSafe(vill, VillagerStatsService.K_PLANT_WHISPERER);
         return pointsToPct(pts, ServerConfig.plantWhispererMinPct, ServerConfig.plantWhispererMaxPct);
     }
 
-    public static double rangerPct(Villager vill) {
+    public static double rangerPct(Entity vill) {
         int pts = getPointsSafe(vill, VillagerStatsService.K_RANGER);
         return pointsToPct(pts, ServerConfig.rangerMinPct, ServerConfig.rangerMaxPct);
     }
@@ -133,7 +133,7 @@ public final class VillagerTraitEffects {
         return min + (max - min) * t;
     }
 
-    private static int getPointsSafe(Villager vill, String key) {
+    private static int getPointsSafe(Entity vill, String key) {
         try {
             if (vill == null || key == null) return 0;
 

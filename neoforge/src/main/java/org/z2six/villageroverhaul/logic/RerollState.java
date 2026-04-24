@@ -5,7 +5,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.Entity;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
@@ -23,12 +23,12 @@ public final class RerollState {
     private static final String TAG_DAY_IDX = "midnightDayIdx";
     private static final String TAG_REMAINING = "remaining";
 
-    public static boolean canReroll(ServerPlayer sp, Villager vill) {
+    public static boolean canReroll(ServerPlayer sp, Entity vill) {
         if (sp == null || vill == null) return false;
         return canReroll(sp.serverLevel(), vill);
     }
 
-    public static boolean canReroll(ServerLevel lvl, Villager vill) {
+    public static boolean canReroll(ServerLevel lvl, Entity vill) {
         if (lvl == null || vill == null) return false;
 
         // cooldown (unchanged)
@@ -49,7 +49,7 @@ public final class RerollState {
         return true;
     }
 
-    public static void markRerolled(ServerPlayer sp, Villager vill) {
+    public static void markRerolled(ServerPlayer sp, Entity vill) {
         if (sp == null || vill == null) return;
         markRerolled(sp.serverLevel(), vill, true);
     }
@@ -57,7 +57,7 @@ public final class RerollState {
     /**
      * @param countsTowardDailyCap true for MANUAL reroll, false for SearchService auto rerolls
      */
-    public static void markRerolled(ServerLevel lvl, Villager vill, boolean countsTowardDailyCap) {
+    public static void markRerolled(ServerLevel lvl, Entity vill, boolean countsTowardDailyCap) {
         if (lvl == null || vill == null) return;
 
         long now = lvl.getGameTime();
@@ -76,11 +76,11 @@ public final class RerollState {
     // Daily cap getters (server-authoritative)
     // -----------------------------
 
-    public static int getDailyCap(ServerLevel lvl, Villager vill) {
+    public static int getDailyCap(ServerLevel lvl, Entity vill) {
         return Math.max(0, ServerConfig.perVillagerDaily);
     }
 
-    public static int getDailyRemaining(ServerLevel lvl, Villager vill) {
+    public static int getDailyRemaining(ServerLevel lvl, Entity vill) {
         int cap = Math.max(0, ServerConfig.perVillagerDaily);
         if (cap <= 0) return 0;
 
@@ -92,7 +92,7 @@ public final class RerollState {
         return rem;
     }
 
-    private static void consumeDailyReroll(ServerLevel lvl, Villager vill, int cap) {
+    private static void consumeDailyReroll(ServerLevel lvl, Entity vill, int cap) {
         ensureDailyDataUpToDate(lvl, vill, cap);
         CompoundTag daily = getDailyTag(vill);
 
@@ -120,7 +120,7 @@ public final class RerollState {
         return (dayTime + 6000L) / 24000L;
     }
 
-    private static void ensureDailyDataUpToDate(ServerLevel lvl, Villager vill, int cap) {
+    private static void ensureDailyDataUpToDate(ServerLevel lvl, Entity vill, int cap) {
         if (lvl == null || vill == null) return;
 
         CompoundTag daily = getDailyTag(vill);
@@ -146,7 +146,7 @@ public final class RerollState {
         }
     }
 
-    private static CompoundTag getDailyTag(Villager vill) {
+    private static CompoundTag getDailyTag(Entity vill) {
         // vill.getPersistentData() exists on NeoForge entities
         CompoundTag root = vill.getPersistentData();
 
@@ -170,7 +170,7 @@ public final class RerollState {
     }
 
     // cooldown helpers (unchanged)
-    private static int effectiveCooldownTicks(Villager vill) {
+    private static int effectiveCooldownTicks(Entity vill) {
         try {
             int base = ServerConfig.cooldownTicks;
             if (base <= 0) return 0;
@@ -191,7 +191,7 @@ public final class RerollState {
         }
     }
 
-    public static int cooldownRemainingTicks(ServerLevel lvl, Villager vill) {
+    public static int cooldownRemainingTicks(ServerLevel lvl, Entity vill) {
         try {
             if (lvl == null || vill == null) return 0;
 

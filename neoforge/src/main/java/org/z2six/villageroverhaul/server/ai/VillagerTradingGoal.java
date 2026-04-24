@@ -85,6 +85,8 @@ public final class VillagerTradingGoal extends Goal {
     private BlockPos cachedHallStandPos;
     private BlockPos cachedWorkstationPos;
     private BlockPos cachedWorkstationStandPos;
+    private BlockPos cachedStorefrontPos;
+    private BlockPos cachedStorefrontStandPos;
     private Vec3 activeTravelTarget;
     private BlockPos lastPassageScanOrigin;
     private BlockPos lastPassageScanTargetBlock;
@@ -299,11 +301,11 @@ public final class VillagerTradingGoal extends Goal {
         }
 
         FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
-        if (ws == null) {
+        BlockPos anchorPos = resolveReturnAnchorStandPos(level, ws);
+        if (anchorPos == null) {
             finishHallTrip();
             return;
         }
-        BlockPos anchorPos = resolveWorkstationStandPos(level, ws);
         Vec3 returnDest = Vec3.atBottomCenterOf(anchorPos);
         activeTravelTarget = returnDest;
 
@@ -324,13 +326,12 @@ public final class VillagerTradingGoal extends Goal {
 
     private void tickWorkstationPhase(ServerLevel level) {
         FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
-        if (ws == null) {
+        BlockPos anchorPos = resolveReturnAnchorStandPos(level, ws);
+        if (anchorPos == null) {
             try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             tickIdleLook();
             return;
         }
-
-        BlockPos anchorPos = resolveWorkstationStandPos(level, ws);
         Vec3 anchor = Vec3.atBottomCenterOf(anchorPos);
 
         if (vill.position().distanceToSqr(anchor) > WORKSTATION_STATION_RADIUS_SQR) {
@@ -899,8 +900,8 @@ public final class VillagerTradingGoal extends Goal {
         try {
             if (!(vill.level() instanceof ServerLevel level)) return null;
             FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
-            if (ws == null) return null;
-            return Vec3.atBottomCenterOf(resolveWorkstationStandPos(level, ws));
+            BlockPos anchor = resolveReturnAnchorStandPos(level, ws);
+            return anchor == null ? null : Vec3.atBottomCenterOf(anchor);
         } catch (Throwable ignored) {
             return null;
         }
@@ -910,6 +911,8 @@ public final class VillagerTradingGoal extends Goal {
         activeTravelTarget = null;
         lastPassageScanOrigin = null;
         lastPassageScanTargetBlock = null;
+        cachedStorefrontPos = null;
+        cachedStorefrontStandPos = null;
     }
 
     private BlockPos resolveHallStandPos(ServerLevel level, TradingHallBlockEntity hall) {
@@ -932,6 +935,38 @@ public final class VillagerTradingGoal extends Goal {
         cachedWorkstationPos = workstationPos.immutable();
         cachedWorkstationStandPos = resolved == null ? null : resolved.immutable();
         return cachedWorkstationStandPos;
+    }
+
+    private BlockPos resolveStorefrontStandPos(ServerLevel level) {
+        try {
+            BlockPos storefrontPos = TradingHallService.getResolvedStorefrontPos(level, vill);
+            if (storefrontPos == null) return null;
+            if (storefrontPos.equals(cachedStorefrontPos) && cachedStorefrontStandPos != null && findStandableSpot(level, cachedStorefrontStandPos) != null) {
+                return cachedStorefrontStandPos;
+            }
+
+            BlockPos resolved = findStandableSpot(level, storefrontPos);
+            if (resolved == null) {
+                resolved = findStandableAdjacent(level, storefrontPos);
+            }
+            if (resolved == null) {
+                resolved = storefrontPos.immutable();
+            }
+
+            cachedStorefrontPos = storefrontPos.immutable();
+            cachedStorefrontStandPos = resolved == null ? null : resolved.immutable();
+            return cachedStorefrontStandPos;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private BlockPos resolveReturnAnchorStandPos(ServerLevel level, FarmingSettingsService.RegisteredWorkstation ws) {
+        try {
+            BlockPos storefront = resolveStorefrontStandPos(level);
+            if (storefront != null) return storefront;
+        } catch (Throwable ignored) {}
+        return resolveWorkstationStandPos(level, ws);
     }
 
     private boolean maybeOpenNearbyWoodenPassages(ServerLevel level, Vec3 travelTarget) {

@@ -24,10 +24,20 @@ public final class TradingHallService {
     private static final String K_RESTOCK_SCHEDULED_DAY = "restock_scheduled_day";
     private static final String K_RESTOCK_TIME_OF_DAY = "restock_time_of_day";
     private static final String K_PENDING_PURCHASE_CHECK = "pending_purchase_check";
+    private static final String K_STOREFRONT_DIM = "storefront_dim";
+    private static final String K_STOREFRONT_X = "storefront_x";
+    private static final String K_STOREFRONT_Y = "storefront_y";
+    private static final String K_STOREFRONT_Z = "storefront_z";
 
     private TradingHallService() {}
 
     public record RegisteredHall(String dimId, int x, int y, int z) {
+        public BlockPos pos() {
+            return new BlockPos(x, y, z);
+        }
+    }
+
+    public record RegisteredStorefront(String dimId, int x, int y, int z) {
         public BlockPos pos() {
             return new BlockPos(x, y, z);
         }
@@ -51,6 +61,43 @@ public final class TradingHallService {
             String dim = root.getString(K_DIM);
             if (dim == null || dim.isBlank()) return null;
             return new RegisteredHall(dim, root.getInt(K_X), root.getInt(K_Y), root.getInt(K_Z));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static void setRegisteredStorefront(Villager vill, String dimId, int x, int y, int z) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.putString(K_STOREFRONT_DIM, dimId == null ? "" : dimId);
+            root.putInt(K_STOREFRONT_X, x);
+            root.putInt(K_STOREFRONT_Y, y);
+            root.putInt(K_STOREFRONT_Z, z);
+        } catch (Throwable ignored) {}
+    }
+
+    public static RegisteredStorefront getRegisteredStorefront(Villager vill) {
+        try {
+            if (vill == null) return null;
+            CompoundTag root = getOrCreateRoot(vill);
+            String dim = root.getString(K_STOREFRONT_DIM);
+            if (dim == null || dim.isBlank()) return null;
+            return new RegisteredStorefront(dim, root.getInt(K_STOREFRONT_X), root.getInt(K_STOREFRONT_Y), root.getInt(K_STOREFRONT_Z));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static BlockPos getResolvedStorefrontPos(ServerLevel level, Villager vill) {
+        try {
+            RegisteredStorefront reg = getRegisteredStorefront(vill);
+            if (level == null || reg == null) return null;
+            String curDim = String.valueOf(level.dimension().location());
+            if (!curDim.equals(reg.dimId())) return null;
+            BlockPos pos = reg.pos();
+            if (!level.isLoaded(pos)) return null;
+            return pos;
         } catch (Throwable ignored) {
             return null;
         }

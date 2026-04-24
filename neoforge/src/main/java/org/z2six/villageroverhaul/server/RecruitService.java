@@ -3,9 +3,10 @@ package org.z2six.villageroverhaul.server;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.Entity;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.config.ServerConfig;
+import org.z2six.villageroverhaul.logic.MerchantCompatibility;
 
 import java.util.UUID;
 
@@ -18,18 +19,17 @@ public final class RecruitService {
 
     private RecruitService() {}
 
-    public static boolean isEligible(Villager vill) {
+    public static boolean isEligible(Entity vill) {
         try {
             if (vill == null) return false;
-            if (vill.isBaby()) return false;
-            // Allow recruiting merchant villagers too (profession doesn't matter).
-            return true;
+            if (!MerchantCompatibility.supportsRecruit(vill)) return false;
+            return !(vill instanceof net.minecraft.world.entity.AgeableMob ageable) || !ageable.isBaby();
         } catch (Throwable t) {
             return false;
         }
     }
 
-    public static boolean isRecruited(Villager vill) {
+    public static boolean isRecruited(Entity vill) {
         try {
             if (vill == null) return false;
             CompoundTag pd = vill.getPersistentData();
@@ -39,7 +39,7 @@ public final class RecruitService {
         }
     }
 
-    public static UUID getRecruiterUuid(Villager vill) {
+    public static UUID getRecruiterUuid(Entity vill) {
         try {
             if (vill == null) return null;
             CompoundTag pd = vill.getPersistentData();
@@ -59,7 +59,7 @@ public final class RecruitService {
      *  - Lerp from minCost (alpha=0) to maxCost (alpha=1).
      *    => very "bad" villager (negative sum) costs near min, very "good" costs near max.
      */
-    public static int computeRecruitCost(Villager vill) {
+    public static int computeRecruitCost(Entity vill) {
         try {
             if (vill == null) return 0;
 
@@ -135,7 +135,7 @@ public final class RecruitService {
         }
     }
 
-    public static boolean markRecruited(ServerPlayer sp, Villager vill) {
+    public static boolean markRecruited(ServerPlayer sp, Entity vill) {
         try {
             if (vill == null) return false;
 

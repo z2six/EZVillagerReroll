@@ -6,7 +6,7 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -18,7 +18,7 @@ public final class TradeLockState {
     private static final String NBT_LOCKED_OFFERS = "locked_trade_offers";
     private static final String TAG_WRAP_VALUE = "v";
 
-    public static long getMask(Villager vill) {
+    public static long getMask(Entity vill) {
         try {
             if (vill == null) return 0L;
             CompoundTag pd = vill.getPersistentData();
@@ -32,7 +32,7 @@ public final class TradeLockState {
         }
     }
 
-    public static void setMask(Villager vill, long mask) {
+    public static void setMask(Entity vill, long mask) {
         try {
             if (vill == null) return;
             CompoundTag pd = vill.getPersistentData();
@@ -47,10 +47,10 @@ public final class TradeLockState {
     /**
      * Store an exact snapshot of the CURRENT offer at idx so locks remain stable even if vanilla/mods mutate offers.
      */
-    public static void captureLockedOffer(Villager vill, int idx) {
+    public static void captureLockedOffer(Entity vill, int idx) {
         try {
             if (vill == null) return;
-            MerchantOffers offers = vill.getOffers();
+            MerchantOffers offers = MerchantCompatibility.getOffers(vill);
             if (offers == null) return;
             if (idx < 0 || idx >= offers.size()) return;
 
@@ -78,7 +78,7 @@ public final class TradeLockState {
         }
     }
 
-    public static boolean hasLockedOfferSnapshot(Villager vill, int idx) {
+    public static boolean hasLockedOfferSnapshot(Entity vill, int idx) {
         try {
             if (vill == null) return false;
             if (idx < 0 || idx >= 63) return false;
@@ -94,10 +94,10 @@ public final class TradeLockState {
      * Best-effort: ensure snapshots exist for every currently-locked index.
      * Used for backward compatibility with villagers that already had a lock mask stored before snapshots existed.
      */
-    public static void ensureSnapshotsForLockedMask(Villager vill) {
+    public static void ensureSnapshotsForLockedMask(Entity vill) {
         try {
             if (vill == null) return;
-            MerchantOffers offers = vill.getOffers();
+            MerchantOffers offers = MerchantCompatibility.getOffers(vill);
             if (offers == null || offers.isEmpty()) return;
 
             long mask = sanitizeMaskForSize(getMask(vill), offers.size());
@@ -111,7 +111,7 @@ public final class TradeLockState {
         } catch (Throwable ignored) {}
     }
 
-    public static void clearLockedOfferSnapshot(Villager vill, int idx) {
+    public static void clearLockedOfferSnapshot(Entity vill, int idx) {
         try {
             if (vill == null) return;
 
@@ -136,7 +136,7 @@ public final class TradeLockState {
      *
      * @return number of offers restored.
      */
-    public static int restoreLockedOffersFromSnapshots(Villager vill, MerchantOffers offers) {
+    public static int restoreLockedOffersFromSnapshots(Entity vill, MerchantOffers offers) {
         try {
             if (vill == null || offers == null) return 0;
 
@@ -203,7 +203,7 @@ public final class TradeLockState {
     /**
      * Removes stored snapshots for indices that are no longer valid (size shrink) or no longer locked.
      */
-    public static void sanitizeLockedOfferSnapshots(Villager vill, long mask, int size) {
+    public static void sanitizeLockedOfferSnapshots(Entity vill, long mask, int size) {
         try {
             if (vill == null) return;
             if (size <= 0) {
@@ -244,7 +244,7 @@ public final class TradeLockState {
         } catch (Throwable ignored) {}
     }
 
-    public static long toggle(Villager vill, int idx) {
+    public static long toggle(Entity vill, int idx) {
         try {
             long mask = getMask(vill);
             long bit = (1L << idx);
@@ -267,7 +267,7 @@ public final class TradeLockState {
         return mask & allowed;
     }
 
-    private static CompoundTag getLockedOffersCompound(Villager vill) {
+    private static CompoundTag getLockedOffersCompound(Entity vill) {
         try {
             if (vill == null) return null;
             CompoundTag pd = vill.getPersistentData();
@@ -280,7 +280,7 @@ public final class TradeLockState {
         }
     }
 
-    private static CompoundTag encodeOfferWrapped(Villager vill, MerchantOffer offer) {
+    private static CompoundTag encodeOfferWrapped(Entity vill, MerchantOffer offer) {
         try {
             if (vill == null || offer == null) return null;
             if (!(vill.level() instanceof ServerLevel sl)) return null;
@@ -298,7 +298,7 @@ public final class TradeLockState {
         }
     }
 
-    private static MerchantOffer decodeOffer(Villager vill, Tag offerTag) {
+    private static MerchantOffer decodeOffer(Entity vill, Tag offerTag) {
         try {
             if (vill == null || offerTag == null) return null;
             if (!(vill.level() instanceof ServerLevel sl)) return null;

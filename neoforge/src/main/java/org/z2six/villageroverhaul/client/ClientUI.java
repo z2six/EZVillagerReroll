@@ -28,6 +28,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.block.TradingHallBlock;
 import org.z2six.villageroverhaul.block.entity.TradingHallBlockEntity;
 import org.z2six.villageroverhaul.config.ClientConfig;
+import org.z2six.villageroverhaul.logic.MerchantCompatibility;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.tooltip.ClientTooltipCache;
@@ -68,6 +69,7 @@ import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWithdrawChest;
 import org.z2six.villageroverhaul.network.farming.PacketRegisterFarmingWorkstation;
 import org.z2six.villageroverhaul.network.trading.PacketRegisterTradingHall;
+import org.z2six.villageroverhaul.network.trading.PacketRegisterStorefront;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcCancelRecord;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginTeaching;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
@@ -171,6 +173,7 @@ public final class ClientUI {
     // Manual farming workstation registration flow (from settings screen)
     private static int PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
     private static int PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
+    private static int PENDING_STOREFRONT_REGISTER_VILLAGER_ID = -1;
     private static int PENDING_CC_RECORD_VILLAGER_ID = -1;
     private static long CHEST_REGISTER_MESSAGE_UNTIL_MS = 0L;
     private static String CHEST_REGISTER_MESSAGE = "";
@@ -244,7 +247,7 @@ public final class ClientUI {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null || mc.level == null) return false;
 
-            return mc.level.getEntity(id) instanceof Villager;
+            return MerchantCompatibility.supportsMerchantModule(mc.level.getEntity(id));
         } catch (Throwable t) {
             return false;
         }
@@ -302,22 +305,39 @@ public final class ClientUI {
                 if (cfg != null) showMerchant = cfg.enableMerchantModule;
             } catch (Throwable ignored) { showMerchant = true; }
 
+            Entity merchantEntity = null;
+            try {
+                if (screen instanceof MerchantScreen ms) {
+                    int id = resolveTraderEntityId(ms);
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc != null && mc.level != null && id > 0) {
+                        merchantEntity = mc.level.getEntity(id);
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            boolean supportsReroll = MerchantCompatibility.supportsReroll(merchantEntity);
+            boolean supportsInventory = MerchantCompatibility.supportsInventory(merchantEntity);
+            boolean supportsCommands = MerchantCompatibility.supportsCommands(merchantEntity);
+            boolean supportsRecruit = MerchantCompatibility.supportsRecruit(merchantEntity);
+            boolean supportsInfo = MerchantCompatibility.supportsInfoPanel(merchantEntity);
+
             // Controls gated
             b = REROLL_BUTTONS.get(screen);
-            if (b != null) { b.visible = controlsVisibleAndEnabled && showMerchant; b.active = controlsVisibleAndEnabled && showMerchant; }
+            if (b != null) { b.visible = controlsVisibleAndEnabled && showMerchant && supportsReroll; b.active = controlsVisibleAndEnabled && showMerchant && supportsReroll; }
 
             b = INVENTORY_BUTTONS.get(screen);
-            if (b != null) { b.visible = controlsVisibleAndEnabled; b.active = controlsVisibleAndEnabled; }
+            if (b != null) { b.visible = controlsVisibleAndEnabled && supportsInventory; b.active = controlsVisibleAndEnabled && supportsInventory; }
 
             b = COMMANDS_BUTTONS.get(screen);
-            if (b != null) { b.visible = controlsVisibleAndEnabled; b.active = controlsVisibleAndEnabled; }
+            if (b != null) { b.visible = controlsVisibleAndEnabled && supportsCommands; b.active = controlsVisibleAndEnabled && supportsCommands; }
 
             // Recruit button: only when villager is NOT recruited yet (still allow viewing Info)
             b = RECRUIT_BUTTONS.get(screen);
             if (b != null) {
                 boolean show = false;
                 try {
-                    if (screen instanceof MerchantScreen ms && isVillagerTrader(ms)) {
+                    if (screen instanceof MerchantScreen ms && supportsRecruit && isVillagerTrader(ms)) {
                         int id = resolveTraderEntityId(ms);
                         RecruitStateSnap snap = RECRUIT_STATE.get(id);
                         show = snap == null || !snap.recruited;
@@ -335,7 +355,7 @@ public final class ClientUI {
 
             // Info is ALWAYS available
             b = STATS_BUTTONS.get(screen);
-            if (b != null) { b.visible = true; b.active = true; }
+            if (b != null) { b.visible = supportsInfo; b.active = supportsInfo; }
 
             // If controls are gated off, always collapse palette
             if (!controlsVisibleAndEnabled) {
@@ -396,6 +416,21 @@ public final class ClientUI {
             if (!(target instanceof Villager)) return;
 
             int id = target.getId();
+
+            if (PENDING_STOREFRONT_REGISTER_VILLAGER_ID > 0) {
+                if (PENDING_STOREFRONT_REGISTER_VILLAGER_ID == id) {
+                    PENDING_STOREFRONT_REGISTER_VILLAGER_ID = -1;
+                    try {
+                        ClientNetwork.sendToServer(new PacketRegisterStorefront(id));
+                        ClientNetwork.sendToServer(new PacketVillagerCommand(id, PacketVillagerCommand.Command.TRADING));
+                    } catch (Throwable ignored) {}
+                    setChestRegisterMessage("Storefront position recorded", 2200L);
+                    e.setCanceled(true);
+                    e.setCancellationResult(InteractionResult.SUCCESS);
+                    PENDING_QUICK_VILLAGER_ID = -1;
+                    return;
+                }
+            }
 
             // Always ask server about patrol setup GUI eligibility (existing behavior)
             ClientNetwork.sendToServer(new PacketPatrolInteractRequest(id));
@@ -517,6 +552,7 @@ public final class ClientUI {
             if (PENDING_CHEST_REGISTER_VILLAGER_ID <= 0
                     && PENDING_WORKSTATION_REGISTER_VILLAGER_ID <= 0
                     && PENDING_TRADING_HALL_REGISTER_VILLAGER_ID <= 0
+                    && PENDING_STOREFRONT_REGISTER_VILLAGER_ID <= 0
                     && PENDING_CC_RECORD_VILLAGER_ID <= 0) return;
 
             int key = e.getKey();
@@ -543,6 +579,7 @@ public final class ClientUI {
             PENDING_CHEST_REGISTER_WITHDRAW = false;
             PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
             PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
+            PENDING_STOREFRONT_REGISTER_VILLAGER_ID = -1;
             setChestRegisterMessage("Registration canceled", 2200);
 
             // Keep player ingame (don't open pause menu)
@@ -684,6 +721,7 @@ public final class ClientUI {
 
             PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
             PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
+            PENDING_STOREFRONT_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_VILLAGER_ID = villagerEntityId;
             PENDING_CHEST_REGISTER_WITHDRAW = false;
             setChestRegisterMessage("Please open a chest to register it for deposits", 1000000L);
@@ -706,6 +744,7 @@ public final class ClientUI {
 
             PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
             PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
+            PENDING_STOREFRONT_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_VILLAGER_ID = villagerEntityId;
             PENDING_CHEST_REGISTER_WITHDRAW = true;
             setChestRegisterMessage("Please open a chest to register it for withdrawals", 1000000L);
@@ -729,8 +768,9 @@ public final class ClientUI {
             PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_WITHDRAW = false;
             PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
+            PENDING_STOREFRONT_REGISTER_VILLAGER_ID = -1;
             PENDING_WORKSTATION_REGISTER_VILLAGER_ID = villagerEntityId;
-            setChestRegisterMessage("RMB on a block to register workstation", 1000000L);
+            setChestRegisterMessage("RMB on a block matching the vanilla workstation type", 1000000L);
         } catch (Throwable ignored) {}
     }
 
@@ -756,8 +796,40 @@ public final class ClientUI {
             PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
             PENDING_CHEST_REGISTER_WITHDRAW = false;
             PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+            PENDING_STOREFRONT_REGISTER_VILLAGER_ID = -1;
             PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = villagerEntityId;
             setChestRegisterMessage("RMB on a Trading Hall to register it", 1000000L);
+        } catch (Throwable ignored) {}
+    }
+
+    public static void beginStorefrontRegistration(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            ClientSyncedConfig.Snapshot cfg = ClientSyncedConfig.get();
+            if (cfg != null && !cfg.enableMerchantModule) {
+                setChestRegisterMessage("Merchant module disabled by server", 2200L, 0xFFFF7777);
+                return;
+            }
+
+            Minecraft mc = Minecraft.getInstance();
+            if (mc != null) {
+                mc.setScreen(null);
+                if (mc.player != null) {
+                    try {
+                        mc.player.closeContainer();
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            PENDING_CHEST_REGISTER_VILLAGER_ID = -1;
+            PENDING_CHEST_REGISTER_WITHDRAW = false;
+            PENDING_WORKSTATION_REGISTER_VILLAGER_ID = -1;
+            PENDING_TRADING_HALL_REGISTER_VILLAGER_ID = -1;
+            PENDING_STOREFRONT_REGISTER_VILLAGER_ID = villagerEntityId;
+            try {
+                ClientNetwork.sendToServer(new PacketVillagerCommand(villagerEntityId, PacketVillagerCommand.Command.FOLLOW));
+            } catch (Throwable ignored) {}
+            setChestRegisterMessage("Lead the villager to the storefront, then RMB the villager again", 1000000L);
         } catch (Throwable ignored) {}
     }
 
@@ -925,6 +997,7 @@ public final class ClientUI {
     private static void onScreenInitPost(final ScreenEvent.Init.Post e) {
         try {
             if (!(e.getScreen() instanceof MerchantScreen screen)) return;
+            if (!isVillagerTrader(screen)) return;
 
             ClientConfig.bake();
 
@@ -3186,7 +3259,7 @@ public final class ClientUI {
      */
     private static boolean isControlsUiEnabled(MerchantScreen screen) {
         try {
-            if (!isVillagerTrader(screen)) return true; // non-villager traders unchanged
+            if (!isVillagerTrader(screen)) return false;
 
             int id = resolveTraderEntityId(screen);
             if (id <= 0) return false;

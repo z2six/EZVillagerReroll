@@ -10,8 +10,10 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.logic.MerchantCompatibility;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.ClientVillagerStatsCache;
 import org.z2six.villageroverhaul.network.Network;
@@ -304,6 +306,7 @@ public final class RecruitVillagerScreen extends Screen {
         boolean showMerchant = true;
         boolean showCombat = true;
         boolean showFarming = true;
+        boolean merchantOnly = false;
         try {
             var cfg = ClientSyncedConfig.get();
             if (cfg != null) {
@@ -311,7 +314,16 @@ public final class RecruitVillagerScreen extends Screen {
                 showCombat = cfg.enableCombatModule;
                 showFarming = cfg.enableFarmingModule;
             }
+            Minecraft mc = Minecraft.getInstance();
+            if (mc != null && mc.level != null) {
+                Entity entity = mc.level.getEntity(this.villagerEntityId);
+                merchantOnly = MerchantCompatibility.usesMerchantOnlyInfo(entity);
+            }
         } catch (Throwable ignored) {}
+        if (merchantOnly) {
+            showCombat = false;
+            showFarming = false;
+        }
 
         if (showMerchant) gg.drawString(this.font, "Merchant stats", col1X, statsTop, 0xFFFFFFFF);
         if (showCombat) gg.drawString(this.font, "Combat stats", col2X, statsTop, 0xFFFFFFFF);

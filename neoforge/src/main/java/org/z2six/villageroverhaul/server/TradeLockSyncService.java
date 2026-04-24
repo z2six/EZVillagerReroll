@@ -4,9 +4,10 @@ package org.z2six.villageroverhaul.server;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.inventory.MerchantMenu;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.logic.MerchantCompatibility;
 import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.trades.PacketTradeLocks;
@@ -15,12 +16,12 @@ public final class TradeLockSyncService {
 
     private TradeLockSyncService() {}
 
-    public static long sanitizeAndSyncToActiveTraders(Villager vill) {
+    public static long sanitizeAndSyncToActiveTraders(Entity vill) {
         try {
             if (vill == null) return 0L;
 
             int offerCount = 0;
-            try { offerCount = vill.getOffers() == null ? 0 : vill.getOffers().size(); } catch (Throwable ignored) {}
+            try { offerCount = MerchantCompatibility.offerCount(vill); } catch (Throwable ignored) {}
 
             long mask = TradeLockState.getMask(vill);
             long sanitized = TradeLockState.sanitizeMaskForSize(mask, offerCount);
@@ -44,7 +45,7 @@ public final class TradeLockSyncService {
      * Sends the current lock mask to every player who is actively trading with this villager.
      * This is what makes it "other players can see it as well" (server authoritative).
      */
-    public static void syncToActiveTraders(Villager vill, long mask) {
+    public static void syncToActiveTraders(Entity vill, long mask) {
         try {
             if (vill == null) return;
             MinecraftServer server = vill.getServer();

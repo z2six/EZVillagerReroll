@@ -89,6 +89,7 @@ import org.z2six.villageroverhaul.network.trades.PacketTradeLocksQuery;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesData;
 import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
 import org.z2six.villageroverhaul.network.trading.PacketRegisterTradingHall;
+import org.z2six.villageroverhaul.network.trading.PacketRegisterStorefront;
 import org.z2six.villageroverhaul.network.trades.ClientVillagerTradesCache;
 import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStart;
 import org.z2six.villageroverhaul.network.autotrade.PacketAutoTradeStop;
@@ -98,6 +99,7 @@ import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnExecute;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnInfoQuery;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnPurge;
+import org.z2six.villageroverhaul.logic.MerchantCompatibility;
 import org.z2six.villageroverhaul.logic.PaymentUtil;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
@@ -220,6 +222,8 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterFarmingWorkstation(msg, ctx)));
             r.playToServer(PacketRegisterTradingHall.TYPE, PacketRegisterTradingHall.STREAM_CODEC,
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterTradingHall(msg, ctx)));
+            r.playToServer(PacketRegisterStorefront.TYPE, PacketRegisterStorefront.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleRegisterStorefront(msg, ctx)));
 
             // ============================
             // Custom Commands (CC) serverbound
@@ -997,7 +1001,7 @@ public final class Network {
                 }
 
                 var ent = level.getEntity(id);
-                if (!(ent instanceof net.minecraft.world.entity.npc.AbstractVillager av)) {
+                if (!MerchantCompatibility.supportsInfoPanel(ent) || !(ent instanceof net.minecraft.world.item.trading.Merchant av)) {
                     ctx.reply(PacketVillagerTradesData.missing(id));
                     return;
                 }
@@ -1021,13 +1025,11 @@ public final class Network {
                 }
 
                 long mask = 0L;
-                if (ent instanceof Villager vill) {
-                    try {
-                        long raw = org.z2six.villageroverhaul.logic.TradeLockState.getMask(vill);
-                        mask = org.z2six.villageroverhaul.logic.TradeLockState.sanitizeMaskForSize(raw, n);
-                    } catch (Throwable ignored) {
-                        mask = 0L;
-                    }
+                try {
+                    long raw = org.z2six.villageroverhaul.logic.TradeLockState.getMask(ent);
+                    mask = org.z2six.villageroverhaul.logic.TradeLockState.sanitizeMaskForSize(raw, n);
+                } catch (Throwable ignored) {
+                    mask = 0L;
                 }
 
                 ctx.reply(new PacketVillagerTradesData(id, true, mask, results));
@@ -1206,24 +1208,24 @@ public final class Network {
                 if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
 
                 int id = msg.villagerEntityId();
-                Villager vill = getVillagerById(sp, id);
-                if (vill == null) {
+                Entity entity = MerchantCompatibility.resolveSupportedMerchantEntity(sp, id);
+                if (entity == null || !MerchantCompatibility.supportsRecruit(entity)) {
                     ctx.reply(PacketRecruitCostData.missing(id));
                     return;
                 }
 
-                boolean recruited = RecruitService.isRecruited(vill);
-                boolean eligible = RecruitService.isEligible(vill);
+                boolean recruited = RecruitService.isRecruited(entity);
+                boolean eligible = RecruitService.isEligible(entity);
 
                 int cost = 0;
                 String m = "";
 
                 if (!eligible) {
-                    m = vill.isBaby() ? "Too young" : "Not eligible";
+                    m = entity instanceof net.minecraft.world.entity.AgeableMob ageable && ageable.isBaby() ? "Too young" : "Not eligible";
                 } else if (recruited) {
                     m = "Already recruited";
                 } else {
-                    cost = Math.max(0, RecruitService.computeRecruitCost(vill));
+                    cost = Math.max(0, RecruitService.computeRecruitCost(entity));
                 }
 
                 ctx.reply(new PacketRecruitCostData(id, true, eligible, recruited, cost, m));
@@ -1246,17 +1248,18 @@ public final class Network {
                 if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
 
                 int id = msg.villagerEntityId();
-                Villager vill = getVillagerById(sp, id);
-                if (vill == null) {
+                Entity entity = MerchantCompatibility.resolveSupportedMerchantEntity(sp, id);
+                if (entity == null || !MerchantCompatibility.supportsRecruit(entity)) {
                     ctx.reply(new PacketRecruitResult(id, false, false, 0, "Missing villager"));
                     return;
                 }
 
-                boolean eligible = RecruitService.isEligible(vill);
-                boolean recruited = RecruitService.isRecruited(vill);
+                boolean eligible = RecruitService.isEligible(entity);
+                boolean recruited = RecruitService.isRecruited(entity);
 
                 if (!eligible) {
-                    ctx.reply(new PacketRecruitResult(id, false, recruited, 0, vill.isBaby() ? "Too young" : "Not eligible"));
+                    boolean tooYoung = entity instanceof net.minecraft.world.entity.AgeableMob ageable && ageable.isBaby();
+                    ctx.reply(new PacketRecruitResult(id, false, recruited, 0, tooYoung ? "Too young" : "Not eligible"));
                     return;
                 }
                 if (recruited) {
@@ -1264,7 +1267,7 @@ public final class Network {
                     return;
                 }
 
-                int cost = Math.max(0, RecruitService.computeRecruitCost(vill));
+                int cost = Math.max(0, RecruitService.computeRecruitCost(entity));
                 if (cost > 0) {
                     boolean paid = PaymentUtil.tryCharge(sp, cost);
                     if (!paid) {
@@ -1273,13 +1276,13 @@ public final class Network {
                     }
                 }
 
-                boolean marked = RecruitService.markRecruited(sp, vill);
+                boolean marked = RecruitService.markRecruited(sp, entity);
                 if (!marked) {
                     ctx.reply(new PacketRecruitResult(id, false, false, 0, "Failed to recruit (server error)"));
                     return;
                 }
 
-                try {
+                if (entity instanceof Villager vill) try {
                     org.z2six.villageroverhaul.combat.CombatSettings globalSettings =
                             org.z2six.villageroverhaul.server.CombatSettingsService.getGlobal(sp.serverLevel());
                     org.z2six.villageroverhaul.server.CombatSettingsService.setPerVillager(vill, globalSettings);
@@ -1288,7 +1291,7 @@ public final class Network {
                 ctx.reply(new PacketRecruitResult(id, true, true, cost, "Recruited!"));
 
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Recruited villager: player={} villagerUuid={} cost={}",
-                        sp.getGameProfile().getName(), vill.getUUID(), cost);
+                        sp.getGameProfile().getName(), entity.getUUID(), cost);
 
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] RecruitVillager handler error", t);
