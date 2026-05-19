@@ -72,6 +72,9 @@ final class VillagerCommandsRadial {
         boolean showFarming = cfg == null || cfg.enableFarmingModule;
 
         List<Object> root = new ArrayList<>();
+        root.add(action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Neutral", "Return to vanilla AI", "minecraft:villager_spawn_egg",
+                !manualFarming && "neutral".equals(movementMode),
+                () -> sendMovementCommand(villagerEntityId, PacketVillagerCommand.Command.NEUTRAL, "Neutral")));
         root.add(category(menuItemCtor, iconItem, withActive,
                 "Movement",
                 manualFarming ? "Manual farming is active" : (showMerchant && tradingMode) ? "Trading mode is active" : "Current: " + prettyModeName(movementMode),
