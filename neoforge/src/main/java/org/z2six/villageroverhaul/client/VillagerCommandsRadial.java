@@ -11,6 +11,7 @@ import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginTeaching;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
@@ -31,8 +32,10 @@ final class VillagerCommandsRadial {
         try {
             if (villagerEntityId <= 0) return false;
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return false;
+            sendUiPause(villagerEntityId, true);
             return openEzActionsRadial(parent, villagerEntityId);
         } catch (Throwable t) {
+            sendUiPause(villagerEntityId, false);
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Failed to open villager commands radial", t);
             showFailureMessage();
             return false;
@@ -285,11 +288,13 @@ final class VillagerCommandsRadial {
     }
 
     private static void sendMovementCommand(int villagerEntityId, PacketVillagerCommand.Command cmd, String label) {
+        sendUiPause(villagerEntityId, false);
         ClientNetwork.sendToServer(new PacketVillagerCommand(villagerEntityId, cmd));
         showClientToast("Command sent: " + label);
     }
 
     private static void sendCombatCommand(int villagerEntityId, String key, PacketVillagerCombatCommand.Command cmd) {
+        sendUiPause(villagerEntityId, false);
         String current = ClientUI.getKnownCombatModeId(villagerEntityId);
         String normKey = key == null ? "" : key.toLowerCase(Locale.ROOT);
         PacketVillagerCombatCommand.Command actual = normKey.equals(current)
@@ -299,17 +304,20 @@ final class VillagerCommandsRadial {
     }
 
     private static void toggleManualFarming(int villagerEntityId) {
+        sendUiPause(villagerEntityId, false);
         boolean next = !ClientUI.isKnownManualFarmingEnabled(villagerEntityId);
         ClientNetwork.sendToServer(new PacketVillagerManualFarmingModeCommand(villagerEntityId, next));
     }
 
     private static void openPatrolPrompt(Screen parent, int villagerEntityId) {
+        sendUiPause(villagerEntityId, false);
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         mc.setScreen(new PatrolBeginPromptScreen(parent, villagerEntityId));
     }
 
     private static void beginTeachCustomCommand(int villagerEntityId) {
+        sendUiPause(villagerEntityId, false);
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         ClientNetwork.sendToServer(new PacketCcBeginTeaching(villagerEntityId, -1));
@@ -320,15 +328,24 @@ final class VillagerCommandsRadial {
     }
 
     private static void openCustomCommandsList(Screen parent, int villagerEntityId) {
+        sendUiPause(villagerEntityId, false);
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         mc.setScreen(new CustomCommandsListScreen(parent, villagerEntityId));
     }
 
     private static void openCustomCommandsSettings(Screen parent, int villagerEntityId) {
+        sendUiPause(villagerEntityId, false);
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         mc.setScreen(new CustomCommandsSettingsScreen(parent, villagerEntityId));
+    }
+
+    private static void sendUiPause(int villagerEntityId, boolean paused) {
+        try {
+            if (villagerEntityId <= 0) return;
+            ClientNetwork.sendToServer(new PacketVillagerUiPause(villagerEntityId, paused));
+        } catch (Throwable ignored) {}
     }
 
     private static void showClientToast(String msg) {

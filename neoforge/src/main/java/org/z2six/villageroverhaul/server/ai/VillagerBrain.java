@@ -1616,7 +1616,7 @@ public final class VillagerBrain {
             if (vill == null || !(vill.level() instanceof ServerLevel sl)) return;
             CompoundTag root = getOrCreateRoot(vill);
             if (paused) {
-                root.putLong(K_UI_PAUSED_UNTIL, sl.getGameTime() + 40L);
+                root.putLong(K_UI_PAUSED_UNTIL, sl.getGameTime() + 200L);
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             } else {
                 root.putLong(K_UI_PAUSED_UNTIL, 0L);

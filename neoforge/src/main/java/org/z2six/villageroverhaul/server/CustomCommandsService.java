@@ -164,6 +164,7 @@ public final class CustomCommandsService {
         public boolean caseSensitive = true;
         public boolean chain = false;
         public boolean anyone = false;
+        public boolean combatOverride = true;
         public int timeoutSeconds = 10;
         public int retryAfterSeconds = 10;
         public int stopAfterRetries = 0;
@@ -226,6 +227,7 @@ public final class CustomCommandsService {
                     s.caseSensitive = existing.caseSensitive();
                     s.chain = existing.chain();
                     s.anyone = existing.anyone();
+                    s.combatOverride = existing.combatOverride();
                     s.timeoutSeconds = existing.timeoutSeconds();
                     s.retryAfterSeconds = existing.retryAfterSeconds();
                     s.stopAfterRetries = existing.stopAfterRetries();
@@ -575,6 +577,11 @@ public final class CustomCommandsService {
 
     public static void saveFromSession(ServerPlayer sp, Villager vill, String title, String command, boolean caseSensitive,
                                        boolean chain, boolean anyone, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries, int editIndex) {
+        saveFromSession(sp, vill, title, command, caseSensitive, chain, anyone, true, desc, timeoutSeconds, retryAfterSeconds, stopAfterRetries, editIndex);
+    }
+
+    public static void saveFromSession(ServerPlayer sp, Villager vill, String title, String command, boolean caseSensitive,
+                                       boolean chain, boolean anyone, boolean combatOverride, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries, int editIndex) {
         try {
             if (sp == null || vill == null) return;
             TeachSession s = getSessionFor(sp, vill);
@@ -594,14 +601,8 @@ public final class CustomCommandsService {
             CompoundTag root = getOrCreateRoot(vill);
             ListTag list = root.contains(K_ACTIONS, Tag.TAG_LIST) ? root.getList(K_ACTIONS, Tag.TAG_COMPOUND) : new ListTag();
 
-            boolean combatOverride = true;
+            s.combatOverride = combatOverride;
             int idx = editIndex;
-            if (idx >= 0 && idx < list.size()) {
-                try {
-                    CompoundTag prev = list.getCompound(idx);
-                    combatOverride = !prev.contains(K_COMBAT_OVERRIDE) || prev.getBoolean(K_COMBAT_OVERRIDE);
-                } catch (Throwable ignored) { combatOverride = true; }
-            }
 
             CompoundTag action = new CompoundTag();
             action.putString(K_TITLE, t);
@@ -609,7 +610,7 @@ public final class CustomCommandsService {
             action.putBoolean(K_CASE, caseSensitive);
             action.putBoolean(K_CHAIN, chain);
             action.putBoolean(K_ANYONE, anyone);
-            action.putBoolean(K_COMBAT_OVERRIDE, combatOverride);
+            action.putBoolean(K_COMBAT_OVERRIDE, s.combatOverride);
             action.putString(K_DESC, d);
             action.putInt(K_TIMEOUT, to);
             action.putInt(K_RETRY, ra);
@@ -639,7 +640,7 @@ public final class CustomCommandsService {
     }
 
     public static void updateActionMeta(Villager vill, int index, String title, String command, boolean caseSensitive,
-                                        boolean chain, boolean anyone, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries) {
+                                        boolean chain, boolean anyone, boolean combatOverride, String desc, int timeoutSeconds, int retryAfterSeconds, int stopAfterRetries) {
         try {
             if (vill == null) return;
             CompoundTag root = getOrCreateRoot(vill);
@@ -665,6 +666,7 @@ public final class CustomCommandsService {
             action.putBoolean(K_CASE, caseSensitive);
             action.putBoolean(K_CHAIN, chain);
             action.putBoolean(K_ANYONE, anyone);
+            action.putBoolean(K_COMBAT_OVERRIDE, combatOverride);
             action.putString(K_DESC, d);
             action.putInt(K_TIMEOUT, to);
             action.putInt(K_RETRY, ra);
@@ -852,6 +854,7 @@ public final class CustomCommandsService {
             out.putBoolean("case", s.caseSensitive);
             out.putBoolean("chain", s.chain);
             out.putBoolean("anyone", s.anyone);
+            out.putBoolean("co", s.combatOverride);
             out.putInt("timeout", s.timeoutSeconds);
             out.putInt("retry", s.retryAfterSeconds);
             out.putInt("stop", s.stopAfterRetries);
@@ -899,6 +902,7 @@ public final class CustomCommandsService {
             out.putBoolean("case", a.caseSensitive());
             out.putBoolean("chain", a.chain());
             out.putBoolean("anyone", a.anyone());
+            out.putBoolean("co", a.combatOverride());
             out.putString("d", a.description() == null ? "" : a.description());
             out.putInt("to", a.timeoutSeconds());
             out.putInt("ra", a.retryAfterSeconds());

@@ -37,6 +37,8 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
     private boolean chain = false;
     private Button anyoneBtn;
     private boolean anyone = false;
+    private Button combatOverrideBtn;
+    private boolean combatOverride = true;
 
     private int editIndex = -1;
     private final List<CompoundTag> steps = new ArrayList<>();
@@ -80,11 +82,11 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
         descBox.setTooltip(Tooltip.create(Component.literal("Optional notes for you (shown in the list).")));
         addRenderableWidget(descBox);
 
-        caseBtn = Button.builder(Component.literal("Case sensitive [x]"), b -> {
+        caseBtn = Button.builder(Component.literal("Case [x]"), b -> {
                     caseSensitive = !caseSensitive;
                     updateCaseButton();
                 })
-                .pos(left + 10, top + 94).size(140, 18).build();
+                .pos(left + 10, top + 94).size(72, 18).build();
         caseBtn.setTooltip(Tooltip.create(Component.literal("If enabled, uppercase/lowercase must match exactly.")));
         addRenderableWidget(caseBtn);
 
@@ -92,7 +94,7 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
                     chain = !chain;
                     updateChainButton();
                 })
-                .pos(left + 10 + 144, top + 94).size(90, 18).build();
+                .pos(left + 86, top + 94).size(70, 18).build();
         chainBtn.setTooltip(Tooltip.create(Component.literal("If enabled, villagers can pass this command through a chain to reach far away villagers.")));
         addRenderableWidget(chainBtn);
 
@@ -100,9 +102,17 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
                     anyone = !anyone;
                     updateAnyoneButton();
                 })
-                .pos(left + 10 + 144 + 90 + 4, top + 94).size(78, 18).build();
+                .pos(left + 160, top + 94).size(78, 18).build();
         anyoneBtn.setTooltip(Tooltip.create(Component.literal("If enabled, ANY player can trigger this teaching (not just the owner).")));
         addRenderableWidget(anyoneBtn);
+
+        combatOverrideBtn = Button.builder(Component.literal("Combat [x]"), b -> {
+                    combatOverride = !combatOverride;
+                    updateCombatOverrideButton();
+                })
+                .pos(left + 242, top + 94).size(84, 18).build();
+        combatOverrideBtn.setTooltip(Tooltip.create(Component.literal("If enabled, combat can cancel this teaching and the villager returns to its previous task after combat.")));
+        addRenderableWidget(combatOverrideBtn);
 
         int smallW = 46;
         int rowY = top + 116;
@@ -157,12 +167,14 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
             try { caseSensitive = tag.getBoolean("case"); } catch (Throwable ignored) {}
             try { chain = tag.getBoolean("chain"); } catch (Throwable ignored) {}
             try { anyone = tag.getBoolean("anyone"); } catch (Throwable ignored) {}
+            try { combatOverride = !tag.contains("co") || tag.getBoolean("co"); } catch (Throwable ignored) {}
             try { timeoutBox.setValue(String.valueOf(tag.getInt("timeout"))); } catch (Throwable ignored) {}
             try { retryBox.setValue(String.valueOf(tag.getInt("retry"))); } catch (Throwable ignored) {}
             try { stopBox.setValue(String.valueOf(tag.getInt("stop"))); } catch (Throwable ignored) {}
             updateCaseButton();
             updateChainButton();
             updateAnyoneButton();
+            updateCombatOverrideButton();
 
             steps.clear();
             if (tag.contains("steps", Tag.TAG_LIST)) {
@@ -371,7 +383,7 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
     private void updateCaseButton() {
         try {
             if (caseBtn == null) return;
-            caseBtn.setMessage(Component.literal("Case sensitive " + (caseSensitive ? "[x]" : "[]")));
+            caseBtn.setMessage(Component.literal("Case " + (caseSensitive ? "[x]" : "[]")));
         } catch (Throwable ignored) {}
     }
 
@@ -386,6 +398,13 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
         try {
             if (anyoneBtn == null) return;
             anyoneBtn.setMessage(Component.literal("Anyone " + (anyone ? "[x]" : "[]")));
+        } catch (Throwable ignored) {}
+    }
+
+    private void updateCombatOverrideButton() {
+        try {
+            if (combatOverrideBtn == null) return;
+            combatOverrideBtn.setMessage(Component.literal("Combat " + (combatOverride ? "[x]" : "[]")));
         } catch (Throwable ignored) {}
     }
 
@@ -413,6 +432,7 @@ public final class CustomCommandsFinishTeachingScreen extends Screen {
                     caseSensitive,
                     chain,
                     anyone,
+                    combatOverride,
                     descBox == null ? "" : descBox.getValue(),
                     timeout,
                     retry,
