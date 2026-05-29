@@ -41,7 +41,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     private boolean commandsExpanded = false;
 
     // Movement buttons
-    private Button mvNeutral, mvIdle, mvFollow, mvPatrol;
+    private Button mvIdle, mvFollow, mvPatrol;
 
     // Combat buttons (placeholders like ClientUI unless you later wire real packets)
     private Button cbFlee, cbDefend, cbAggressive, cbSettings;
@@ -206,26 +206,21 @@ public final class VillagerQuickActionsScreen extends Screen {
             // Row 1 (Movement): icon then buttons
             int mvX0 = movementX + w + gap;
 
-            mvNeutral = Button.builder(Component.literal("N"), b -> sendMovementCmd("neutral", PacketVillagerCommand.Command.NEUTRAL))
-                    .pos(mvX0 + 0 * (w + gap), row1Y).size(w, h).build();
             mvIdle = Button.builder(Component.literal("I"), b -> sendMovementCmd("idle", PacketVillagerCommand.Command.IDLE))
-                    .pos(mvX0 + 1 * (w + gap), row1Y).size(w, h).build();
+                    .pos(mvX0 + 0 * (w + gap), row1Y).size(w, h).build();
             mvFollow = Button.builder(Component.literal("F"), b -> sendMovementCmd("follow", PacketVillagerCommand.Command.FOLLOW))
-                    .pos(mvX0 + 2 * (w + gap), row1Y).size(w, h).build();
+                    .pos(mvX0 + 1 * (w + gap), row1Y).size(w, h).build();
             mvPatrol = Button.builder(Component.literal("P"), b -> openPatrolPrompt())
-                    .pos(mvX0 + 3 * (w + gap), row1Y).size(w, h).build();
+                    .pos(mvX0 + 2 * (w + gap), row1Y).size(w, h).build();
 
-            mvNeutral.setTooltip(Tooltip.create(Component.literal("Neutral")));
             mvIdle.setTooltip(Tooltip.create(Component.literal("Idle")));
             mvFollow.setTooltip(Tooltip.create(Component.literal("Follow")));
             mvPatrol.setTooltip(Tooltip.create(Component.literal("Patrol")));
 
-            addRenderableWidget(mvNeutral);
             addRenderableWidget(mvIdle);
             addRenderableWidget(mvFollow);
             addRenderableWidget(mvPatrol);
 
-            MOVEMENT_BTNS.put("neutral", mvNeutral);
             MOVEMENT_BTNS.put("idle", mvIdle);
             MOVEMENT_BTNS.put("follow", mvFollow);
             MOVEMENT_BTNS.put("patrol", mvPatrol);
@@ -340,7 +335,6 @@ public final class VillagerQuickActionsScreen extends Screen {
             cmdBtn.active = controls;
             cmdBtn.visible = controls;
 
-            if (mvNeutral != null) { mvNeutral.visible = controls; mvNeutral.active = controls; }
             if (combatHeaderIcon != null) { combatHeaderIcon.visible = commandsExpanded && controls && showCombat; }
             if (farmingHeaderIcon != null) { farmingHeaderIcon.visible = commandsExpanded && controls && showFarming; }
 
@@ -415,7 +409,6 @@ public final class VillagerQuickActionsScreen extends Screen {
             setWidgetVisible(farmingHeaderIcon, v && showFarming);
             setWidgetVisible(customHeaderIcon, v);
 
-            setWidgetVisible(mvNeutral, v);
             setWidgetVisible(mvIdle, v);
             setWidgetVisible(mvFollow, v);
             setWidgetVisible(mvPatrol, v);
@@ -690,15 +683,14 @@ public final class VillagerQuickActionsScreen extends Screen {
     private void updateCommandButtonsHighlight() {
         try {
             String movementMode = readModeIdFromClientUI(villagerEntityId);
-            if (movementMode == null) movementMode = "neutral";
+            if (movementMode == null) movementMode = "";
 
             // match ClientUI: patrol_setup -> patrol
             String movementKey = switch (movementMode) {
-                case "neutral" -> "neutral";
                 case "idle" -> "idle";
                 case "follow" -> "follow";
                 case "patrol", "patrol_setup" -> "patrol";
-                default -> "neutral";
+                default -> "";
             };
 
             String combatMode = readCombatModeIdFromClientUI(villagerEntityId);
@@ -738,7 +730,7 @@ public final class VillagerQuickActionsScreen extends Screen {
     private void applyHighlightKey(Map<String, Button> buttons, String activeKey) {
         try {
             if (buttons == null) return;
-            if (activeKey == null) activeKey = "neutral";
+            if (activeKey == null) activeKey = "";
             activeKey = activeKey.toLowerCase(Locale.ROOT);
 
             for (Map.Entry<String, Button> e : buttons.entrySet()) {

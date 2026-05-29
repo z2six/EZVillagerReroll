@@ -1467,6 +1467,10 @@ public final class ServerEvents {
             } catch (Throwable ignored) {}
 
             try {
+                VillagerReleaseService.tick(server);
+            } catch (Throwable ignored) {}
+
+            try {
                 AutoTradeServerService.tick(server);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] ServerEvents: AutoTradeServerService.tick failed", t);

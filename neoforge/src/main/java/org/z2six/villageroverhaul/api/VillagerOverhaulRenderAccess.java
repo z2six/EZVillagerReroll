@@ -13,6 +13,9 @@ public interface VillagerOverhaulRenderAccess {
     byte ezvr$getRenderFlags();
     void ezvr$setRenderFlags(byte flags);
 
+    byte ezvr$getReleaseAlpha();
+    void ezvr$setReleaseAlpha(byte alpha);
+
     /**
      * Server-synced "combat loadout" items for client rendering while the villager is not actively holding them.
      * These are cosmetic only; server authority remains in {@code VillagerCombatLoadoutService}.

@@ -35,6 +35,8 @@
     "MerchantScreenAutoTradeEscStopMixin",
     "villagerRendering.VillagerModelVisibilityMixin",
     "villagerRendering.VillagerRendererVisibilityMixin",
+    "villagerRendering.LivingEntityRendererReleaseFadeMixin",
+    "villagerRendering.RenderLayerReleaseFadeMixin",
     "villagerRendering.ItemInHandLayerDisableForVillagerMixin",
     "villagerRendering.CrossedArmsItemLayerDisableForVillagerMixin",
     "villagerRendering.VillagerModelPartVisEnforceMixin"

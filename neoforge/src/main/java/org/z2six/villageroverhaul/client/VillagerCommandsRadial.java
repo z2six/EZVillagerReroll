@@ -3,6 +3,7 @@ package org.z2six.villageroverhaul.client;
 import com.google.gson.JsonObject;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -78,6 +79,9 @@ final class VillagerCommandsRadial {
         root.add(action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Neutral", "Return to vanilla AI", "minecraft:villager_spawn_egg",
                 !manualFarming && "neutral".equals(movementMode),
                 () -> sendMovementCommand(villagerEntityId, PacketVillagerCommand.Command.NEUTRAL, "Neutral")));
+        root.add(action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Release", "Permanently remove this villager", "minecraft:ender_pearl",
+                false,
+                () -> openReleaseConfirm(parent, villagerEntityId)));
         root.add(category(menuItemCtor, iconItem, withActive,
                 "Movement",
                 manualFarming ? "Manual farming is active" : (showMerchant && tradingMode) ? "Trading mode is active" : "Current: " + prettyModeName(movementMode),
@@ -339,6 +343,45 @@ final class VillagerCommandsRadial {
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         mc.setScreen(new CustomCommandsSettingsScreen(parent, villagerEntityId));
+    }
+
+    private static void openReleaseConfirm(Screen parent, int villagerEntityId) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc == null) return;
+        final boolean[] releaseConfirmed = new boolean[] { false };
+        mc.setScreen(new ConfirmScreen(confirmed -> {
+            try {
+                if (confirmed) {
+                    releaseConfirmed[0] = true;
+                    ClientNetwork.sendToServer(new PacketVillagerCommand(villagerEntityId, PacketVillagerCommand.Command.RELEASE));
+                    showClientToast("Releasing villager...");
+                    mc.setScreen(null);
+                } else {
+                    sendUiPause(villagerEntityId, false);
+                    mc.setScreen(parent);
+                }
+            } catch (Throwable t) {
+                sendUiPause(villagerEntityId, false);
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] Release confirmation failed", t);
+            }
+        }, Component.literal("Release villager?"),
+                Component.literal("This permanently removes the villager and it cannot be revived from a Spawn Anchor."),
+                Component.literal("Release"),
+                Component.literal("Cancel")) {
+            private int pauseTick;
+
+            @Override
+            public void tick() {
+                super.tick();
+                if ((pauseTick++ % 20) == 0) sendUiPause(villagerEntityId, true);
+            }
+
+            @Override
+            public void removed() {
+                super.removed();
+                if (!releaseConfirmed[0]) sendUiPause(villagerEntityId, false);
+            }
+        });
     }
 
     private static void sendUiPause(int villagerEntityId, boolean paused) {

@@ -57,6 +57,7 @@ public final class RespawnService {
             if (!(vill.level() instanceof ServerLevel level)) return;
             if (level.isClientSide()) return;
             if (!RecruitService.isRecruited(vill)) return;
+            if (VillagerReleaseService.isReleasedNoRespawn(vill)) return;
 
             UUID owner = RecruitService.getRecruiterUuid(vill);
             if (owner == null) return;

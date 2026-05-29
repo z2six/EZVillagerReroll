@@ -137,8 +137,10 @@ public final class VillagerHistoryEvents {
             // If a recruited villager died, snapshot it for respawn.
             try {
                 if (dead instanceof Villager dv && RecruitService.isRecruited(dv)) {
-                    VillagerHistoryService.addDeath(dv, 1);
-                    RespawnService.captureOnDeath(dv);
+                    if (!VillagerReleaseService.isReleasedNoRespawn(dv)) {
+                        VillagerHistoryService.addDeath(dv, 1);
+                        RespawnService.captureOnDeath(dv);
+                    }
                 }
             } catch (Throwable ignored) {}
 

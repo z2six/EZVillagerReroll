@@ -13,7 +13,8 @@ public record PacketVillagerCommand(int villagerEntityId, Command command) imple
         IDLE(1),
         NEUTRAL(2),
         FOLLOW(3),
-        TRADING(4);
+        TRADING(4),
+        RELEASE(5);
 
         public final int id;
         Command(int id) { this.id = id; }

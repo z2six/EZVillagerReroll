@@ -1189,6 +1189,11 @@ public final class ServerHandlers {
                 return;
             }
 
+            if (msg.command() == PacketVillagerCommand.Command.RELEASE) {
+                org.z2six.villageroverhaul.server.VillagerReleaseService.beginRelease(vill, sp);
+                return;
+            }
+
             // Any movement command should stop manual farming.
             if (VillagerBrain.isManualFarmingActive(vill)) {
                 try {
@@ -1203,6 +1208,7 @@ public final class ServerHandlers {
                 case NEUTRAL -> VillagerBrain.neutral(vill);
                 case FOLLOW -> org.z2six.villageroverhaul.server.ai.VillagerBrain.follow(vill, sp);
                 case TRADING -> VillagerBrain.trading(vill);
+                case RELEASE -> {}
             }
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCommand: player={} villager={} cmd={}",
