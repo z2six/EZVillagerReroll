@@ -1,11 +1,21 @@
 {
-  "type": "minecraft:crafting_shapeless",
+  "type": "minecraft:crafting_shaped",
   "category": "misc",
-  "ingredients": [
-    {
-      "item": "minecraft:paper"
-    }
+  "pattern": [
+    "PIP",
+    " E "
   ],
+  "key": {
+    "P": {
+      "item": "minecraft:paper"
+    },
+    "I": {
+      "item": "minecraft:ink_sac"
+    },
+    "E": {
+      "item": "minecraft:emerald"
+    }
+  },
   "result": {
     "id": "villageroverhaul:family_name_deed",
     "count": 1
