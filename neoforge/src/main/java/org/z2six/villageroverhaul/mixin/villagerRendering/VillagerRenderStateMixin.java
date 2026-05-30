@@ -39,16 +39,16 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
             SynchedEntityData.defineId(Villager.class, EntityDataSerializers.BYTE);
 
     @Unique
-    private static final EntityDataAccessor<Byte> EZVR_RELEASE_ALPHA =
-            SynchedEntityData.defineId(Villager.class, EntityDataSerializers.BYTE);
-
-    @Unique
     private static final EntityDataAccessor<ItemStack> EZVR_COMBAT_LOADOUT_MAIN =
             SynchedEntityData.defineId(Villager.class, EntityDataSerializers.ITEM_STACK);
 
     @Unique
     private static final EntityDataAccessor<ItemStack> EZVR_COMBAT_LOADOUT_OFF =
             SynchedEntityData.defineId(Villager.class, EntityDataSerializers.ITEM_STACK);
+
+    @Unique
+    private static final EntityDataAccessor<Byte> EZVR_RELEASE_ALPHA =
+            SynchedEntityData.defineId(Villager.class, EntityDataSerializers.BYTE);
 
     @Inject(method = "defineSynchedData", at = @At("TAIL"))
     private void ezvr$defineSynchedData(SynchedEntityData.Builder builder, CallbackInfo ci) {
@@ -58,9 +58,9 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
             builder.define(EZVR_RENDER_FLAGS, VillagerRenderFlags.defaultFlags());
             builder.define(EZVR_SWING_SEQ, 0);
             builder.define(EZVR_SWING_HAND, (byte) 0);
-            builder.define(EZVR_RELEASE_ALPHA, (byte) 255);
             builder.define(EZVR_COMBAT_LOADOUT_MAIN, ItemStack.EMPTY);
             builder.define(EZVR_COMBAT_LOADOUT_OFF, ItemStack.EMPTY);
+            builder.define(EZVR_RELEASE_ALPHA, (byte) 255);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerRenderStateMixin#defineSynchedData failed (soft): {}", t.toString());
