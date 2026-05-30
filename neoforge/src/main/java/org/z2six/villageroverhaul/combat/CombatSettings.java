@@ -76,12 +76,16 @@ public final class CombatSettings {
         private static final String K_ENABLE_CIRCLING = "enable_circling";
         private static final String K_EAT_FORCE_HITS = "eat_force_hits";
         private static final String K_EAT_MAX_RESETS = "eat_max_resets";
+        private static final String K_TARGET_TIMEOUT_SECONDS = "target_timeout_seconds";
 
         // These are intentionally conservative clamps.
         private static final int EAT_FORCE_HITS_MIN = 0;   // 0 => immediately force-eat
         private static final int EAT_FORCE_HITS_MAX = 6;
         private static final int EAT_MAX_RESETS_MIN = 0;
         private static final int EAT_MAX_RESETS_MAX = 5;
+        private static final int TARGET_TIMEOUT_SECONDS_MIN = 0; // 0 => disabled
+        private static final int TARGET_TIMEOUT_SECONDS_MAX = 600;
+        private static final int TARGET_TIMEOUT_SECONDS_DEFAULT = 16;
 
         public boolean enableBlocking = true;
         public boolean enableEating = true;
@@ -89,6 +93,7 @@ public final class CombatSettings {
 
         public int eatForceHits = 2;
         public int eatMaxResets = 1;
+        public int targetTimeoutSeconds = TARGET_TIMEOUT_SECONDS_DEFAULT;
 
         public CompoundTag toTag() {
             CompoundTag tag = new CompoundTag();
@@ -97,6 +102,7 @@ public final class CombatSettings {
             tag.putBoolean(K_ENABLE_CIRCLING, enableCircling);
             tag.putInt(K_EAT_FORCE_HITS, clampInt(eatForceHits, EAT_FORCE_HITS_MIN, EAT_FORCE_HITS_MAX));
             tag.putInt(K_EAT_MAX_RESETS, clampInt(eatMaxResets, EAT_MAX_RESETS_MIN, EAT_MAX_RESETS_MAX));
+            tag.putInt(K_TARGET_TIMEOUT_SECONDS, clampInt(targetTimeoutSeconds, TARGET_TIMEOUT_SECONDS_MIN, TARGET_TIMEOUT_SECONDS_MAX));
             return tag;
         }
 
@@ -107,6 +113,9 @@ public final class CombatSettings {
             enableCircling = tag.getBoolean(K_ENABLE_CIRCLING);
             eatForceHits = clampInt(tag.getInt(K_EAT_FORCE_HITS), EAT_FORCE_HITS_MIN, EAT_FORCE_HITS_MAX);
             eatMaxResets = clampInt(tag.getInt(K_EAT_MAX_RESETS), EAT_MAX_RESETS_MIN, EAT_MAX_RESETS_MAX);
+            targetTimeoutSeconds = tag.contains(K_TARGET_TIMEOUT_SECONDS, Tag.TAG_ANY_NUMERIC)
+                    ? clampInt(tag.getInt(K_TARGET_TIMEOUT_SECONDS), TARGET_TIMEOUT_SECONDS_MIN, TARGET_TIMEOUT_SECONDS_MAX)
+                    : TARGET_TIMEOUT_SECONDS_DEFAULT;
         }
     }
 

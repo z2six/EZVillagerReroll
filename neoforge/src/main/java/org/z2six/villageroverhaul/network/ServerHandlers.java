@@ -12,6 +12,7 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -22,6 +23,7 @@ import org.z2six.villageroverhaul.logic.RerollExecutor;
 import org.z2six.villageroverhaul.logic.RerollState;
 import org.z2six.villageroverhaul.logic.TradeLockState;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
+import org.z2six.villageroverhaul.content.ModItems;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.network.autoReroll.*;
 import org.z2six.villageroverhaul.network.farming.PacketFarmingSettingsData;
@@ -82,6 +84,7 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.naming.PacketVillagerLastNameChange;
 import org.z2six.villageroverhaul.network.patrol.*;
 import org.z2six.villageroverhaul.network.recruit.*;
 import org.z2six.villageroverhaul.network.trades.PacketToggleTradeLock;
@@ -1205,11 +1208,22 @@ public final class ServerHandlers {
 
             switch (msg.command()) {
                 case IDLE -> VillagerBrain.idle(vill);
-                case NEUTRAL -> VillagerBrain.neutral(vill);
+                case NEUTRAL -> {
+                    if (VillagerBrain.getMode(vill) == VillagerBrain.Mode.NEUTRAL) {
+                        VillagerBrain.idle(vill);
+                    } else {
+                        VillagerBrain.neutral(vill);
+                    }
+                }
                 case FOLLOW -> org.z2six.villageroverhaul.server.ai.VillagerBrain.follow(vill, sp);
                 case TRADING -> VillagerBrain.trading(vill);
                 case RELEASE -> {}
             }
+
+            try {
+                var mode = VillagerBrain.getMode(vill);
+                ctx.reply(new PacketVillagerModeData(vill.getId(), mode == null ? "neutral" : mode.id));
+            } catch (Throwable ignored) {}
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerCommand: player={} villager={} cmd={}",
                     sp.getGameProfile().getName(), vill.getUUID(), msg.command());
@@ -2333,6 +2347,57 @@ public final class ServerHandlers {
             sd.delete(sp.getUUID(), msg.name());
             ctx.reply(new PacketFarmingProfilesData(PlayerFarmingProfilesSavedData.toTag(sd.getProfiles(sp.getUUID()))));
         } catch (Throwable ignored) {}
+    }
+
+    // =====================
+    // Villager last-name deed
+    // =====================
+
+    public static void handleVillagerLastNameChange(PacketVillagerLastNameChange msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) {
+                ctx.reply(new PacketFarmingOverlayText("Villager not found", 1800));
+                return;
+            }
+            if (!RecruitService.isRecruited(vill)
+                    || !org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                ctx.reply(new PacketFarmingOverlayText("You can only rename your recruited villagers", 2200));
+                return;
+            }
+            if (!hasFamilyNameDeedInEitherHand(sp)) {
+                ctx.reply(new PacketFarmingOverlayText("Hold a Family Name Deed to rename", 2200));
+                return;
+            }
+
+            boolean changed = org.z2six.villageroverhaul.server.VillagerFamilyTreeService.changeLastNameFromFamilyTree(vill, msg.lastName());
+            if (!changed) {
+                ctx.reply(new PacketFarmingOverlayText("That family name is not in this tree", 2200));
+                return;
+            }
+
+            playVillagerSound(vill, SoundEvents.VILLAGER_YES, 1.0f, 1.15f);
+            String fullName = org.z2six.villageroverhaul.server.VillagerNameStateService.getTrackedFullName(vill);
+            ctx.reply(new PacketFarmingOverlayText(fullName == null ? "Family name changed" : "Renamed to " + fullName, 2200));
+            try { ctx.reply(org.z2six.villageroverhaul.server.VillagerFamilyTreeService.snapshot(vill)); } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerLastNameChange failed", t);
+        }
+    }
+
+    private static boolean hasFamilyNameDeedInEitherHand(ServerPlayer sp) {
+        try {
+            if (sp == null) return false;
+            ItemStack main = sp.getMainHandItem();
+            if (main != null && main.is(ModItems.FAMILY_NAME_DEED.get())) return true;
+            ItemStack off = sp.getOffhandItem();
+            return off != null && off.is(ModItems.FAMILY_NAME_DEED.get());
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     // =====================

@@ -112,6 +112,12 @@ public final class VillagerManualFarmingGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        try {
+            if (vill != null && VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return VillagerBrain.isManualFarmingControlling(vill);
+            }
+        } catch (Throwable ignored) {}
         return canUse();
     }
 
@@ -136,6 +142,10 @@ public final class VillagerManualFarmingGoal extends Goal {
             vill.getNavigation().stop();
         } catch (Throwable ignored) {}
 
+        try {
+            if (VillagerBrain.isUiPaused(vill)) return;
+        } catch (Throwable ignored) {}
+
         action = Action.NONE;
         bonemealUseCooldown = 0;
         actionStartGameTime = 0L;
@@ -148,6 +158,13 @@ public final class VillagerManualFarmingGoal extends Goal {
     public void tick() {
         try {
             if (!(vill.level() instanceof ServerLevel level)) return;
+
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                if (actionStartGameTime > 0L) actionStartGameTime++;
+                if (nextRoamAt > 0L) nextRoamAt++;
+                return;
+            }
 
             // Mimic vanilla: do active farming only during the "work window" (configurable),
             // modulated by Motivation.

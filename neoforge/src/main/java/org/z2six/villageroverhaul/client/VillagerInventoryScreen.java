@@ -59,6 +59,14 @@ public final class VillagerInventoryScreen extends AbstractContainerScreen<Villa
         this.imageHeight = VillagerInventoryMenu.IMAGE_H;
     }
 
+    public int getVillagerEntityId() {
+        try {
+            return this.menu == null ? -1 : this.menu.getVillagerEntityId();
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
     @Override
     protected void init() {
         super.init();

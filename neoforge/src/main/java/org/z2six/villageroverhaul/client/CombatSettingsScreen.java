@@ -94,6 +94,7 @@ public final class CombatSettingsScreen extends Screen {
     private CheckBoxWidget cbAiBlocking;
     private CheckBoxWidget cbAiEating;
     private CheckBoxWidget cbAiCircling;
+    private Button btnAiTargetTimeout;
     private Button btnAiEatForceHits;
     private Button btnAiEatMaxResets;
 
@@ -257,8 +258,8 @@ public final class CombatSettingsScreen extends Screen {
         // AI tab
         // ------------------------------------------------------------------
         int aiX = left + PAD;
-        int aiY = top + 72;
-        int aiGap = 22;
+        int aiY = top + 62;
+        int aiGap = 21;
 
         cbAiBlocking = new CheckBoxWidget(aiX, aiY, "Enable blocking (shield)");
         cbAiEating = new CheckBoxWidget(aiX, aiY + aiGap, "Enable eating to heal");
@@ -268,9 +269,22 @@ public final class CombatSettingsScreen extends Screen {
         addAiWidget(cbAiEating);
         addAiWidget(cbAiCircling);
 
-        int btnY = aiY + aiGap * 3 + 8;
+        int btnY = top + 136;
         int btnW2 = 240;
         int btnH2 = 18;
+
+        btnAiTargetTimeout = Button.builder(Component.literal("Target timeout: ..."), b -> {
+                    try {
+                        if (settings == null) settings = new CombatSettings();
+                        int v = settings.ai.targetTimeoutSeconds;
+                        v = nextTargetTimeoutSeconds(v);
+                        settings.ai.targetTimeoutSeconds = v;
+                        b.setMessage(Component.literal(targetTimeoutLabel(v)));
+                    } catch (Throwable ignored) {}
+                })
+                .pos(aiX, btnY)
+                .size(btnW2, btnH2)
+                .build();
 
         btnAiEatForceHits = Button.builder(Component.literal("Force-eat after hits: ..."), b -> {
                     try {
@@ -281,7 +295,7 @@ public final class CombatSettingsScreen extends Screen {
                         b.setMessage(Component.literal("Force-eat after hits: " + v));
                     } catch (Throwable ignored) {}
                 })
-                .pos(aiX, btnY)
+                .pos(aiX, btnY + btnH2 + 6)
                 .size(btnW2, btnH2)
                 .build();
 
@@ -294,10 +308,11 @@ public final class CombatSettingsScreen extends Screen {
                         b.setMessage(Component.literal("Eat resets before force: " + v));
                     } catch (Throwable ignored) {}
                 })
-                .pos(aiX, btnY + btnH2 + 6)
+                .pos(aiX, btnY + (btnH2 + 6) * 2)
                 .size(btnW2, btnH2)
                 .build();
 
+        addAiWidget(btnAiTargetTimeout);
         addAiWidget(btnAiEatForceHits);
         addAiWidget(btnAiEatMaxResets);
 
@@ -353,6 +368,7 @@ public final class CombatSettingsScreen extends Screen {
             cbAiEating.setChecked(settings.ai.enableEating);
             cbAiCircling.setChecked(settings.ai.enableCircling);
 
+            if (btnAiTargetTimeout != null) btnAiTargetTimeout.setMessage(Component.literal(targetTimeoutLabel(settings.ai.targetTimeoutSeconds)));
             if (btnAiEatForceHits != null) btnAiEatForceHits.setMessage(Component.literal("Force-eat after hits: " + settings.ai.eatForceHits));
             if (btnAiEatMaxResets != null) btnAiEatMaxResets.setMessage(Component.literal("Eat resets before force: " + settings.ai.eatMaxResets));
             return;
@@ -526,6 +542,20 @@ public final class CombatSettingsScreen extends Screen {
                 .size(w, h)
                 .build();
         return b;
+    }
+
+    private static int nextTargetTimeoutSeconds(int current) {
+        int[] values = { 0, 5, 8, 10, 15, 16, 20, 30, 45, 60, 90, 120, 180, 300, 600 };
+        int safe = Math.max(0, Math.min(600, current));
+        for (int v : values) {
+            if (safe < v) return v;
+        }
+        return values[0];
+    }
+
+    private static String targetTimeoutLabel(int seconds) {
+        int safe = Math.max(0, Math.min(600, seconds));
+        return safe <= 0 ? "Target timeout: Off" : "Target timeout: " + safe + "s";
     }
 
     private void openListForOwnerAttacked(boolean whitelist) {

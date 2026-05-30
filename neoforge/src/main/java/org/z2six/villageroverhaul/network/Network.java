@@ -69,6 +69,8 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeQ
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.naming.PacketOpenVillagerLastNameScreen;
+import org.z2six.villageroverhaul.network.naming.PacketVillagerLastNameChange;
 import org.z2six.villageroverhaul.network.patrol.*;
 import org.z2six.villageroverhaul.network.recruit.*;
 import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
@@ -158,6 +160,8 @@ public final class Network {
             // villager family tree query
             r.playToServer(PacketVillagerFamilyTreeQuery.TYPE, PacketVillagerFamilyTreeQuery.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerFamilyTreeQueryServer(msg, ctx));
+            r.playToServer(PacketVillagerLastNameChange.TYPE, PacketVillagerLastNameChange.STREAM_CODEC,
+                    (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleVillagerLastNameChange(msg, ctx)));
 
             // villager trades (offers + lock mask) query
             r.playToServer(PacketVillagerTradesQuery.TYPE, PacketVillagerTradesQuery.STREAM_CODEC,
@@ -356,6 +360,8 @@ public final class Network {
             // villager family tree data (we update cache directly; no client-only class refs)
             r.playToClient(PacketVillagerFamilyTreeData.TYPE, PacketVillagerFamilyTreeData.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerFamilyTreeDataClient(msg, ctx));
+            r.playToClient(PacketOpenVillagerLastNameScreen.TYPE, PacketOpenVillagerLastNameScreen.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onOpenVillagerLastNameScreen", msg, ctx));
 
             // villager trades data (we update cache directly; no client-only class refs)
             r.playToClient(PacketVillagerTradesData.TYPE, PacketVillagerTradesData.STREAM_CODEC,

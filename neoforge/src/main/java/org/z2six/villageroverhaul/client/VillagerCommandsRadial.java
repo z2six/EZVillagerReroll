@@ -78,7 +78,9 @@ final class VillagerCommandsRadial {
         List<Object> root = new ArrayList<>();
         root.add(action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Neutral", "Return to vanilla AI", "minecraft:villager_spawn_egg",
                 !manualFarming && "neutral".equals(movementMode),
-                () -> sendMovementCommand(villagerEntityId, PacketVillagerCommand.Command.NEUTRAL, "Neutral")));
+                () -> sendMovementCommand(villagerEntityId,
+                        "neutral".equals(movementMode) ? PacketVillagerCommand.Command.IDLE : PacketVillagerCommand.Command.NEUTRAL,
+                        "neutral".equals(movementMode) ? "Idle" : "Neutral")));
         root.add(action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Release", "Permanently remove this villager", "minecraft:ender_pearl",
                 false,
                 () -> openReleaseConfirm(parent, villagerEntityId)));

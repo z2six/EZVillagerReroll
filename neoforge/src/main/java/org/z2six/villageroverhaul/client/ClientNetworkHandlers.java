@@ -37,6 +37,7 @@ import org.z2six.villageroverhaul.network.modes.PacketCombatSettingsData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
+import org.z2six.villageroverhaul.network.naming.PacketOpenVillagerLastNameScreen;
 import org.z2six.villageroverhaul.network.recruit.PacketRecruitGateData;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnAnchorScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
@@ -661,6 +662,37 @@ public final class ClientNetworkHandlers {
             });
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenRespawnInfoScreen enqueue failed", t);
+        }
+    }
+
+    public static void onOpenVillagerLastNameScreen(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketOpenVillagerLastNameScreen p) {
+                onOpenVillagerLastNameScreen(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onOpenVillagerLastNameScreen(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenVillagerLastNameScreen(Object) failed", t);
+        }
+    }
+
+    public static void onOpenVillagerLastNameScreen(PacketOpenVillagerLastNameScreen msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    if (msg == null) return;
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+                    mc.setScreen(new VillagerLastNameScreen(msg));
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenVillagerLastNameScreen failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenVillagerLastNameScreen enqueue failed", t);
         }
     }
 

@@ -77,7 +77,10 @@ public final class VillagerCombatDefendGoal extends Goal {
             if (VillagerBrain.isStorageActive(vill)) return false;
 
             if (!VillagerBrain.shouldCombatActNow(vill)) return false;
-            if (VillagerBrain.isUiPaused(vill)) return false;
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return targetUuid != null || VillagerBrain.isCombatEngaged(vill);
+            }
             if (VillagerBrain.getCombatMode(vill) != VillagerBrain.CombatMode.DEFEND) return false;
 
             if (targetUuid == null) return false;
@@ -106,6 +109,11 @@ public final class VillagerCombatDefendGoal extends Goal {
     public void tick() {
         try {
             // Step 1: do nothing besides optional debug.
+            if (VillagerBrain.isUiPaused(vill)) {
+                VillagerCombatDirector.suspendForUi(vill);
+                return;
+            }
+
             if (!loggedActive) {
                 loggedActive = true;
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: DEFEND (villager={}, mode={})",
@@ -133,8 +141,12 @@ public final class VillagerCombatDefendGoal extends Goal {
                 targetUuid = null;
             }
             if (target != null && VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, target)) {
-                target = null;
-                targetUuid = null;
+                if (isRecentThreat(target, vill, 40)) {
+                    VillagerCombatDirector.clearTargetUnreachableCooldown(vill, target);
+                } else {
+                    target = null;
+                    targetUuid = null;
+                }
             }
 
             // Priority 1: if THIS villager was attacked recently, retaliate against that attacker (unless friendly).
@@ -145,7 +157,11 @@ public final class VillagerCombatDefendGoal extends Goal {
                     selfAttacker = null;
                 }
                 if (selfAttacker != null && VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, selfAttacker)) {
-                    selfAttacker = null;
+                    if (isRecentThreat(selfAttacker, vill, 40)) {
+                        VillagerCombatDirector.clearTargetUnreachableCooldown(vill, selfAttacker);
+                    } else {
+                        selfAttacker = null;
+                    }
                 }
             }
             if (selfAttacker != null && selfAttacker.isAlive()) {
@@ -187,6 +203,10 @@ public final class VillagerCombatDefendGoal extends Goal {
     @Override
     public void stop() {
         try {
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return;
+            }
             loggedActive = false;
             targetUuid = null;
             lastNoThreatLogAt = 0L;
@@ -242,7 +262,9 @@ public final class VillagerCombatDefendGoal extends Goal {
                 if (toAttack == null) continue;
 
                 if (IgnoredTargetService.isIgnoredByVillagers(toAttack)) continue;
-                if (VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, toAttack)) continue;
+                if (VillagerCombatDirector.isTargetOnUnreachableCooldown(vill, toAttack)) {
+                    VillagerCombatDirector.clearTargetUnreachableCooldown(vill, toAttack);
+                }
                 if (isFriendlyToVillager(vill, toAttack)) continue;
 
                 double d2 = vill.distanceToSqr(toAttack);
@@ -297,6 +319,17 @@ public final class VillagerCombatDefendGoal extends Goal {
             }
 
             return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isRecentThreat(LivingEntity attacker, LivingEntity victim, int ticks) {
+        try {
+            if (attacker == null || victim == null) return false;
+            if (victim.getLastHurtByMob() != attacker) return false;
+            int hurtAt = victim.getLastHurtByMobTimestamp();
+            return (victim.tickCount - hurtAt) <= Math.max(1, ticks);
         } catch (Throwable ignored) {
             return false;
         }

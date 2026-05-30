@@ -46,12 +46,14 @@ import org.z2six.villageroverhaul.network.stats.PacketVillagerStatsData;
 import org.z2six.villageroverhaul.network.ServerSync;
 import org.z2six.villageroverhaul.logic.HoarderOffers;
 import org.z2six.villageroverhaul.config.ServerConfig;
+import org.z2six.villageroverhaul.content.ModItems;
 import org.z2six.villageroverhaul.server.RespawnService;
 import org.z2six.villageroverhaul.server.CustomCommandsService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 import org.z2six.villageroverhaul.server.ai.VillagerCombatLoadoutService;
 import org.z2six.villageroverhaul.server.ai.VillagerEatTestService;
 import org.z2six.villageroverhaul.server.AutoTradeServerService;
+import org.z2six.villageroverhaul.network.naming.PacketOpenVillagerLastNameScreen;
 
 import java.util.List;
 import java.util.UUID;
@@ -232,6 +234,12 @@ public final class ServerEvents {
 
             if (!(e.getTarget() instanceof Villager vill)) return;
 
+            if (tryOpenLastNameScreen(sp, vill)) {
+                e.setCanceled(true);
+                e.setCancellationResult(InteractionResult.SUCCESS);
+                return;
+            }
+
             // Only unemployed villagers
             if (vill.getVillagerData().getProfession() != VillagerProfession.NONE) return;
 
@@ -254,6 +262,46 @@ public final class ServerEvents {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] onEntityInteract failed (soft): {}", t.toString());
+        }
+    }
+
+    private static boolean tryOpenLastNameScreen(ServerPlayer sp, Villager vill) {
+        try {
+            if (sp == null || vill == null || sp.connection == null) return false;
+            ItemStack held = sp.getMainHandItem();
+            if (held == null || !held.is(ModItems.FAMILY_NAME_DEED.get())) return false;
+
+            if (!RecruitService.isRecruited(vill)) {
+                sendOverlayText(sp, "Use this on one of your recruited villagers", 2200);
+                return true;
+            }
+            if (!VillagerAccessGate.canUseControls(vill, sp)) {
+                sendOverlayText(sp, "You can only rename your own villagers", 2200);
+                return true;
+            }
+
+            List<String> lastNames = VillagerFamilyTreeService.collectUniqueLastNames(vill);
+            if (lastNames.isEmpty()) {
+                sendOverlayText(sp, "No family names found for this villager", 2200);
+                return true;
+            }
+
+            String currentLastName = VillagerNameStateService.getTrackedLastName(vill);
+            VillagerBrain.setUiPaused(vill, true);
+            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            try { vill.setTradingPlayer(null); } catch (Throwable ignored) {}
+
+            sp.connection.send(new ClientboundCustomPayloadPacket(new PacketOpenVillagerLastNameScreen(
+                    vill.getId(),
+                    currentLastName == null ? "" : currentLastName,
+                    lastNames,
+                    ""
+            )));
+            try { vill.level().playSound(null, vill.blockPosition(), SoundEvents.BOOK_PAGE_TURN, SoundSource.NEUTRAL, 0.7f, 1.1f); } catch (Throwable ignored) {}
+            return true;
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] tryOpenLastNameScreen failed (soft): {}", t.toString());
+            return false;
         }
     }
 

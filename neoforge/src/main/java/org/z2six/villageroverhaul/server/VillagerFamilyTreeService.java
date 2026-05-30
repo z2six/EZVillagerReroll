@@ -174,6 +174,117 @@ public final class VillagerFamilyTreeService {
         }
     }
 
+    public static List<String> collectUniqueLastNames(Villager villager) {
+        try {
+            VillagerNameStateService.tryAdoptExistingName(villager);
+            if (villager == null || !VillagerNameStateService.isTracked(villager)) {
+                return List.of();
+            }
+            if (!(villager.level() instanceof ServerLevel level)) {
+                return List.of();
+            }
+
+            VillagerFamilyTreeSavedData data = VillagerFamilyTreeSavedData.get(level.getServer().overworld());
+            putNode(data, villager);
+
+            UUID selected = villager.getUUID();
+            Map<UUID, VillagerFamilyTreeSavedData.ParentLink> parentsByChild = data.parentsByChild();
+            Map<UUID, Set<UUID>> childrenByParent = buildChildrenIndex(parentsByChild.values());
+
+            Set<UUID> component = collectComponent(selected, parentsByChild, childrenByParent);
+            if (component.isEmpty()) {
+                component.add(selected);
+            }
+            refreshLoadedComponentNodes(level.getServer(), data, component);
+
+            String currentLastName = VillagerNameStateService.getTrackedLastName(villager);
+            List<String> names = new ArrayList<>();
+            addUniqueLastName(names, currentLastName);
+
+            List<String> discovered = new ArrayList<>();
+            for (UUID uuid : component) {
+                String lastName = null;
+                if (uuid != null && uuid.equals(selected)) {
+                    lastName = currentLastName;
+                } else {
+                    VillagerFamilyTreeSavedData.NodeData node = data.nodes().get(uuid);
+                    if (node != null) {
+                        lastName = node.lastName;
+                    }
+                }
+                addUniqueLastName(discovered, lastName);
+            }
+            discovered.sort(String.CASE_INSENSITIVE_ORDER);
+            for (String lastName : discovered) {
+                addUniqueLastName(names, lastName);
+            }
+
+            return List.copyOf(names);
+        } catch (Throwable ignored) {
+            return List.of();
+        }
+    }
+
+    public static boolean changeLastNameFromFamilyTree(Villager villager, String requestedLastName) {
+        try {
+            VillagerNameStateService.tryAdoptExistingName(villager);
+            if (villager == null || requestedLastName == null || requestedLastName.isBlank()) {
+                return false;
+            }
+            String firstName = VillagerNameStateService.getTrackedFirstName(villager);
+            if (firstName == null || firstName.isBlank()) {
+                return false;
+            }
+
+            String allowedLastName = findAllowedLastName(collectUniqueLastNames(villager), requestedLastName);
+            if (allowedLastName == null) {
+                return false;
+            }
+
+            VillagerNameStateService.applyTrackedName(villager, firstName, allowedLastName);
+            if (villager.level() instanceof ServerLevel level) {
+                VillagerFamilyTreeSavedData data = VillagerFamilyTreeSavedData.get(level.getServer().overworld());
+                putNode(data, villager);
+                data.setDirty();
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static void addUniqueLastName(List<String> names, @Nullable String lastName) {
+        if (names == null || lastName == null) {
+            return;
+        }
+        String normalized = lastName.trim();
+        if (normalized.isEmpty()) {
+            return;
+        }
+        for (String existing : names) {
+            if (existing != null && existing.equalsIgnoreCase(normalized)) {
+                return;
+            }
+        }
+        names.add(normalized);
+    }
+
+    private static @Nullable String findAllowedLastName(List<String> allowed, String requestedLastName) {
+        if (allowed == null || requestedLastName == null) {
+            return null;
+        }
+        String normalized = requestedLastName.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        for (String lastName : allowed) {
+            if (lastName != null && lastName.equalsIgnoreCase(normalized)) {
+                return lastName.trim();
+            }
+        }
+        return null;
+    }
+
     private static void putNode(VillagerFamilyTreeSavedData data, Villager villager) {
         String firstName = VillagerNameStateService.getTrackedFirstName(villager);
         String lastName = VillagerNameStateService.getTrackedLastName(villager);

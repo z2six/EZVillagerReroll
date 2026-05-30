@@ -970,6 +970,7 @@ public final class ClientUI {
             if (mc == null) return;
 
             ClientNetwork.sendToServer(new PacketCombatSettingsQuery(villagerEntityId, false));
+            sendUiPauseNow(villagerEntityId, true);
             mc.setScreen(new CombatSettingsScreen(parent, villagerEntityId, false));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] openCombatSettings failed", t);
@@ -988,6 +989,7 @@ public final class ClientUI {
             if (mc == null) return;
 
             ClientNetwork.sendToServer(new PacketFarmingSettingsQuery(villagerEntityId));
+            sendUiPauseNow(villagerEntityId, true);
             mc.setScreen(new FarmingSettingsScreen(parent, villagerEntityId));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] openFarmingSettings failed", t);
@@ -1792,12 +1794,8 @@ public final class ClientUI {
     private static void onScreenClosed(final ScreenEvent.Closing e) {
         try {
             try {
-                Screen s = e.getScreen();
-                if (s instanceof VillagerQuickActionsScreen qa) {
-                    sendUiPauseNow(qa.getVillagerEntityId(), false);
-                } else if (s instanceof CombatSettingsScreen cs && !cs.isGlobal()) {
-                    sendUiPauseNow(cs.getVillagerEntityId(), false);
-                }
+                int villagerEntityId = extractVillagerUiPauseId(e.getScreen());
+                if (villagerEntityId > 0) sendUiPauseNow(villagerEntityId, false);
             } catch (Throwable ignored) {}
 
             REROLL_BUTTONS.remove(e.getScreen());
@@ -2730,6 +2728,81 @@ public final class ClientUI {
         } catch (Throwable ignored) {}
     }
 
+    private static int extractVillagerUiPauseId(Screen screen) {
+        return extractVillagerUiPauseId(screen, 0);
+    }
+
+    private static int extractVillagerUiPauseId(Screen screen, int depth) {
+        try {
+            if (screen == null || depth > 4) return -1;
+
+            if (screen instanceof CombatSettingsScreen cs && cs.isGlobal()) return -1;
+            if (screen instanceof MerchantScreen ms) return resolveTraderEntityId(ms);
+
+            String className = screen.getClass().getName();
+            if (className == null || !className.startsWith("org.z2six.villageroverhaul.client")) return -1;
+
+            int direct = readVillagerIdViaGetter(screen);
+            if (direct > 0) return direct;
+
+            direct = readVillagerIdViaField(screen);
+            if (direct > 0) return direct;
+
+            Screen parent = readParentScreen(screen);
+            if (parent != null && parent != screen) {
+                return extractVillagerUiPauseId(parent, depth + 1);
+            }
+        } catch (Throwable ignored) {}
+        return -1;
+    }
+
+    private static int readVillagerIdViaGetter(Screen screen) {
+        try {
+            Method m = screen.getClass().getMethod("getVillagerEntityId");
+            Object out = m.invoke(screen);
+            if (out instanceof Integer i) return i;
+        } catch (Throwable ignored) {}
+        return -1;
+    }
+
+    private static int readVillagerIdViaField(Screen screen) {
+        try {
+            Class<?> c = screen.getClass();
+            while (c != null && c != Object.class) {
+                try {
+                    Field f = c.getDeclaredField("villagerEntityId");
+                    f.setAccessible(true);
+                    Object out = f.get(screen);
+                    if (out instanceof Integer i) return i;
+                } catch (NoSuchFieldException ignored) {
+                    c = c.getSuperclass();
+                    continue;
+                }
+                break;
+            }
+        } catch (Throwable ignored) {}
+        return -1;
+    }
+
+    private static Screen readParentScreen(Screen screen) {
+        try {
+            Class<?> c = screen.getClass();
+            while (c != null && c != Object.class) {
+                try {
+                    Field f = c.getDeclaredField("parent");
+                    f.setAccessible(true);
+                    Object out = f.get(screen);
+                    if (out instanceof Screen s) return s;
+                } catch (NoSuchFieldException ignored) {
+                    c = c.getSuperclass();
+                    continue;
+                }
+                break;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
     // ===================================
     // SHARED WIDGETS
     // ===================================
@@ -3050,13 +3123,8 @@ public final class ClientUI {
 
             try {
                 Screen s = mc.screen;
-                if (s instanceof VillagerQuickActionsScreen qa) {
-                    sendUiPauseKeepalive(qa.getVillagerEntityId());
-                } else if (s instanceof CombatSettingsScreen cs && !cs.isGlobal()) {
-                    sendUiPauseKeepalive(cs.getVillagerEntityId());
-                } else if (s instanceof PatrolSetupScreen ps) {
-                    sendUiPauseKeepalive(ps.getVillagerEntityId());
-                }
+                int villagerEntityId = extractVillagerUiPauseId(s);
+                if (villagerEntityId > 0) sendUiPauseKeepalive(villagerEntityId);
             } catch (Throwable ignored) {}
 
             if (PENDING_QUICK_VILLAGER_ID <= 0) return;
@@ -3089,6 +3157,7 @@ public final class ClientUI {
                 return;
             }
 
+            sendUiPauseNow(id, true);
             mc.setScreen(new VillagerQuickActionsScreen(id));
 
         } catch (Throwable ignored) {}

@@ -34,12 +34,17 @@ public final class VillagerPatrolGoal extends Goal {
     private static final int STUCK_MAX_TICKS = 100;        // 10s
     private static final double STUCK_MOVE_EPS = 0.02;     // moved < 0.02 blocks in 1s => considered not moving
     private static final double STUCK_MOVE_EPS_SQR = STUCK_MOVE_EPS * STUCK_MOVE_EPS;
+    private static final long PATROL_LEG_PEARL_TIMEOUT_TICKS = 20L * 60L * 3L;
 
     private int recalcCooldown = 0;
 
     private int stuckCheckCooldown = 0;
     private int stuckTicks = 0;
     private Vec3 lastPos = null;
+    private int activeTargetIndex = -1;
+    private int activeTargetDir = 0;
+    private long legStartedAt = -1L;
+    private Vec3 legStartWaypoint = null;
 
     public VillagerPatrolGoal(Villager vill) {
         this.vill = vill;
@@ -67,6 +72,14 @@ public final class VillagerPatrolGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        try {
+            if (vill != null && VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return VillagerBrain.getMode(vill) == VillagerBrain.Mode.PATROL
+                        && VillagerBrain.hasFinalizedPatrol(vill)
+                        && VillagerBrain.getPatrolWaypointCount(vill) >= 2;
+            }
+        } catch (Throwable ignored) {}
         return canUse();
     }
 
@@ -77,11 +90,21 @@ public final class VillagerPatrolGoal extends Goal {
         stuckCheckCooldown = 0;
         stuckTicks = 0;
         lastPos = vill == null ? null : vill.position();
+        activeTargetIndex = -1;
+        activeTargetDir = 0;
+        legStartedAt = -1L;
+        legStartWaypoint = null;
     }
 
     @Override
     public void tick() {
         try {
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                if (legStartedAt > 0L) legStartedAt++;
+                return;
+            }
+
             if (!canUse()) {
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                 return;
@@ -100,11 +123,19 @@ public final class VillagerPatrolGoal extends Goal {
 
             Vec3 target = waypoints.get(idx);
             if (target == null) return;
+            long now = vill.level().getGameTime();
 
             // STRICT arrival: must actually be inside the waypoint block (x/z match), y tolerance <= 1
             if (isInWaypointBlock(target)) {
                 resetStuck();
+                resetLegTracking();
                 advance(n);
+                recalcCooldown = 0;
+                return;
+            }
+
+            trackLeg(waypoints, idx, dir, n, now);
+            if (tryPearlBackToLegStart(now)) {
                 recalcCooldown = 0;
                 return;
             }
@@ -257,7 +288,7 @@ public final class VillagerPatrolGoal extends Goal {
 
             if (stuckTicks >= STUCK_MAX_TICKS) {
                 resetStuck();
-                advance(n);
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                 return true;
             }
 
@@ -272,6 +303,61 @@ public final class VillagerPatrolGoal extends Goal {
         stuckCheckCooldown = 0;
         stuckTicks = 0;
         lastPos = vill == null ? null : vill.position();
+    }
+
+    private void resetLegTracking() {
+        activeTargetIndex = -1;
+        activeTargetDir = 0;
+        legStartedAt = -1L;
+        legStartWaypoint = null;
+    }
+
+    private void trackLeg(List<Vec3> waypoints, int targetIdx, int dir, int n, long now) {
+        try {
+            if (waypoints == null || n <= 0) return;
+            if (dir == 0) dir = 1;
+            if (targetIdx == activeTargetIndex && dir == activeTargetDir && legStartedAt > 0L) return;
+
+            activeTargetIndex = targetIdx;
+            activeTargetDir = dir;
+            legStartedAt = now;
+            int prevIdx = previousWaypointIndexForTarget(targetIdx, dir, n);
+            legStartWaypoint = prevIdx >= 0 && prevIdx < waypoints.size() ? waypoints.get(prevIdx) : null;
+        } catch (Throwable ignored) {}
+    }
+
+    private int previousWaypointIndexForTarget(int targetIdx, int dir, int n) {
+        try {
+            if (n <= 0) return -1;
+            VillagerBrain.PatrolRouteType type = VillagerBrain.getPatrolRouteType(vill);
+            if (type == VillagerBrain.PatrolRouteType.CIRCULAR) {
+                int prev = targetIdx - (dir == 0 ? 1 : dir);
+                while (prev < 0) prev += n;
+                while (prev >= n) prev -= n;
+                return prev;
+            }
+
+            int prev = targetIdx - (dir == 0 ? 1 : dir);
+            if (prev < 0) return 0;
+            if (prev >= n) return n - 1;
+            return prev;
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    private boolean tryPearlBackToLegStart(long now) {
+        try {
+            if (legStartedAt <= 0L || legStartWaypoint == null) return false;
+            if ((now - legStartedAt) < PATROL_LEG_PEARL_TIMEOUT_TICKS) return false;
+
+            boolean teleported = VillagerCombatDirector.tryUseResumeEnderPearl(vill, legStartWaypoint, "patrol_waypoint_timeout");
+            legStartedAt = now;
+            resetStuck();
+            return teleported;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private void advance(int n) {

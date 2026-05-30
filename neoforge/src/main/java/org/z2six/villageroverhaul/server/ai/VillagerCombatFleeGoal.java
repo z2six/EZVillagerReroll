@@ -84,6 +84,12 @@ public final class VillagerCombatFleeGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        try {
+            if (vill != null && VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return threatUuid != null || VillagerBrain.isCombatEngaged(vill);
+            }
+        } catch (Throwable ignored) {}
         return canUse();
     }
 
@@ -112,6 +118,13 @@ public final class VillagerCombatFleeGoal extends Goal {
 
             long now = vill.level().getGameTime();
 
+            if (VillagerBrain.isUiPaused(vill)) {
+                VillagerCombatDirector.suspendForUi(vill);
+                if (fleeUntilTick > 0L) fleeUntilTick++;
+                if (lastThreatAt > 0L) lastThreatAt++;
+                return;
+            }
+
             if (detectContact(vill, now)) {
                 // If we got hit once (including shield-blocked hits), stop fleeing and immediately return to combat.
                 VillagerBrain.exitFleeToPreviousCombatMode(vill);
@@ -132,7 +145,7 @@ public final class VillagerCombatFleeGoal extends Goal {
                         threatUuid = stored;
                         lastThreatPos = t.position();
                         lastThreatAt = now;
-                        fleeUntilTick = now + 20L * 30L;
+                        fleeUntilTick = now + targetTimeoutTicksOrDefault(vill, 20L * 30L);
                         VillagerBrain.setCombatEngaged(vill, true);
                     }
                 }
@@ -145,8 +158,9 @@ public final class VillagerCombatFleeGoal extends Goal {
                     threatUuid = attacker.getUUID();
                     lastThreatPos = attacker.position();
                     lastThreatAt = now;
-                    fleeUntilTick = now + 20L * 30L;
+                    fleeUntilTick = now + targetTimeoutTicksOrDefault(vill, 20L * 30L);
                     VillagerBrain.setCombatEngaged(vill, true);
+                    VillagerCombatDirector.clearTargetUnreachableCooldown(vill, attacker);
 
                     VillagerOverhaul.LOG().debug("[VillagerOverhaul] Flee threat set (villager={} attacker={})",
                             vill.getUUID(), attacker.getUUID());
@@ -202,6 +216,10 @@ public final class VillagerCombatFleeGoal extends Goal {
     @Override
     public void stop() {
         try {
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return;
+            }
             loggedActive = false;
             threatUuid = null;
             lastThreatPos = null;
@@ -277,6 +295,7 @@ public final class VillagerCombatFleeGoal extends Goal {
                 }
 
                 lastThreatPos = attacker.position();
+                VillagerCombatDirector.clearTargetUnreachableCooldown(vill, attacker);
                 return attacker;
             }
         } catch (Throwable ignored) {}
@@ -323,5 +342,17 @@ public final class VillagerCombatFleeGoal extends Goal {
             lastNoThreatLogAt = now;
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] FLEE waiting (villager={} reason={})", vill.getUUID(), reason);
         } catch (Throwable ignored) {}
+    }
+
+    private static long targetTimeoutTicksOrDefault(Villager vill, long fallback) {
+        try {
+            var settings = CombatSettingsService.getPerVillager(vill);
+            if (settings == null || settings.ai == null) return fallback;
+            int seconds = Math.max(0, settings.ai.targetTimeoutSeconds);
+            if (seconds <= 0) return fallback;
+            return (long) seconds * 20L;
+        } catch (Throwable ignored) {
+            return fallback;
+        }
     }
 }

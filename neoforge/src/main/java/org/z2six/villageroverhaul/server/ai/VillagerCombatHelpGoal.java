@@ -55,6 +55,12 @@ public final class VillagerCombatHelpGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        try {
+            if (vill != null && VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return currentTarget != null || VillagerBrain.isCombatEngaged(vill);
+            }
+        } catch (Throwable ignored) {}
         return canUse();
     }
 
@@ -69,6 +75,11 @@ public final class VillagerCombatHelpGoal extends Goal {
     @Override
     public void tick() {
         try {
+            if (VillagerBrain.isUiPaused(vill)) {
+                VillagerCombatDirector.suspendForUi(vill);
+                return;
+            }
+
             if (!loggedActive) {
                 loggedActive = true;
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: HELP (villager={})", vill.getUUID());
@@ -126,6 +137,12 @@ public final class VillagerCombatHelpGoal extends Goal {
 
     @Override
     public void stop() {
+        try {
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return;
+            }
+        } catch (Throwable ignored) {}
         loggedActive = false;
         currentTarget = null;
         lastObservedHurtByTs = 0;

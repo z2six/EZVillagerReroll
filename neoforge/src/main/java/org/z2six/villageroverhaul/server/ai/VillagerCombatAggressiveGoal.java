@@ -86,7 +86,10 @@ public final class VillagerCombatAggressiveGoal extends Goal {
             if (VillagerBrain.isStorageActive(vill)) return false;
 
             if (!VillagerBrain.shouldCombatActNow(vill)) return false;
-            if (VillagerBrain.isUiPaused(vill)) return false;
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return targetUuid != null || VillagerBrain.isCombatEngaged(vill);
+            }
             if (VillagerBrain.getCombatMode(vill) != VillagerBrain.CombatMode.AGGRESSIVE) return false;
 
             if (targetUuid == null) return false;
@@ -115,6 +118,11 @@ public final class VillagerCombatAggressiveGoal extends Goal {
     public void tick() {
         try {
             // Step 1: do nothing besides optional debug.
+            if (VillagerBrain.isUiPaused(vill)) {
+                VillagerCombatDirector.suspendForUi(vill);
+                return;
+            }
+
             if (!loggedActive) {
                 loggedActive = true;
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] Combat goal active: AGGRESSIVE (villager={}, mode={})",
@@ -163,6 +171,10 @@ public final class VillagerCombatAggressiveGoal extends Goal {
     @Override
     public void stop() {
         try {
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return;
+            }
             loggedActive = false;
             targetUuid = null;
             lastNoThreatLogAt = 0L;

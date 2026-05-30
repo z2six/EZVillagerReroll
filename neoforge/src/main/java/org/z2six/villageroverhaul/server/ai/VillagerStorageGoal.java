@@ -211,6 +211,10 @@ public final class VillagerStorageGoal extends Goal {
         try {
             if (vill == null) return false;
             if (vill.level().isClientSide()) return false;
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return targetPos != null;
+            }
             return targetPos != null;
         } catch (Throwable ignored) {
             return false;
@@ -237,6 +241,12 @@ public final class VillagerStorageGoal extends Goal {
 
             // Timeout (real-world seconds): give up and let other behavior resume.
             long now = System.currentTimeMillis();
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                if (startedAtMs > 0L) startedAtMs += 50L;
+                if (waitUntilMs > 0L) waitUntilMs += 50L;
+                return;
+            }
             if (timeoutMs > 0L && startedAtMs > 0L && (now - startedAtMs) > timeoutMs) {
                 lastFailureAtMs = now;
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}

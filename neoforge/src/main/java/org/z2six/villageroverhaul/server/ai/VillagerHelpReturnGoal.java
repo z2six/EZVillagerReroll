@@ -51,6 +51,12 @@ public final class VillagerHelpReturnGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        try {
+            if (vill != null && VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return VillagerBrain.isHelpReturnActive(vill);
+            }
+        } catch (Throwable ignored) {}
         return canUse();
     }
 
@@ -72,6 +78,11 @@ public final class VillagerHelpReturnGoal extends Goal {
         try {
             if (vill == null) return;
             if (!(vill.level() instanceof ServerLevel sl)) return;
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                VillagerBrain.shiftHelpReturnSince(vill, 1L);
+                return;
+            }
             if (target == null) {
                 VillagerBrain.clearHelpReturn(vill);
                 return;

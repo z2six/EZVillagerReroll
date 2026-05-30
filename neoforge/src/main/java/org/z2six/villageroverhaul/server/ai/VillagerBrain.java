@@ -457,6 +457,16 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
+    public static void shiftHelpReturnSince(Villager vill, long deltaTicks) {
+        try {
+            if (vill == null || deltaTicks <= 0L) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            if (!root.contains(K_HELP_RETURN_SINCE, Tag.TAG_LONG)) return;
+            long since = root.getLong(K_HELP_RETURN_SINCE);
+            if (since > 0L) root.putLong(K_HELP_RETURN_SINCE, since + deltaTicks);
+        } catch (Throwable ignored) {}
+    }
+
     public static Vec3 getHelpReturnPos(Villager vill) {
         try {
             if (vill == null) return null;
@@ -1619,7 +1629,7 @@ public final class VillagerBrain {
                 root.putLong(K_UI_PAUSED_UNTIL, sl.getGameTime() + 200L);
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             } else {
-                root.putLong(K_UI_PAUSED_UNTIL, 0L);
+                root.putLong(K_UI_PAUSED_UNTIL, sl.getGameTime() + 2L);
             }
         } catch (Throwable ignored) {}
     }

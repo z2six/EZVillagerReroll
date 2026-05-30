@@ -82,6 +82,7 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             if (vill == null) return false;
             if (!(vill.level() instanceof ServerLevel)) return false;
             if (!RecruitService.isRecruited(vill)) return false;
+            if (VillagerBrain.isUiPaused(vill)) return false;
             if (!CustomCommandsService.isExecuting(vill)) return false;
 
             int idx = CustomCommandsService.getExecutingIndex(vill);
@@ -126,6 +127,10 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
         try {
             if (vill == null) return false;
             if (!(vill.level() instanceof ServerLevel)) return false;
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return action != null && CustomCommandsService.isExecuting(vill);
+            }
             if (!CustomCommandsService.isExecuting(vill)) return false;
             int idx = CustomCommandsService.getExecutingIndex(vill);
             if (idx != actionIndex) return false;
@@ -140,6 +145,12 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
         try {
             boolean combat = false;
             try { combat = VillagerBrain.isCombatEngaged(vill); } catch (Throwable ignored) { combat = false; }
+            boolean uiPaused = false;
+            try { uiPaused = VillagerBrain.isUiPaused(vill); } catch (Throwable ignored) { uiPaused = false; }
+            if (uiPaused) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                return;
+            }
             if (!combat) {
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
             }
@@ -157,6 +168,15 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             if (vill == null || action == null || action.steps() == null) return;
 
             long now = vill.level().getGameTime();
+
+            if (VillagerBrain.isUiPaused(vill)) {
+                try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                stepStartGameTime++;
+                if (cooldownUntilGameTime > 0L) cooldownUntilGameTime++;
+                if (chestOpenedAtGameTime > 0L) chestOpenedAtGameTime++;
+                if (lookHoldStartGameTime > 0L) lookHoldStartGameTime++;
+                return;
+            }
 
             // Support delayed retries: stay idle until the delay elapses, then restart from step 0.
             long delayUntil = CustomCommandsService.getExecutionDelayUntil(vill);
