@@ -113,6 +113,7 @@ public final class ServerEvents {
 
             // Villager brain/module attach (AI goals)
             bus.addListener(VillagerBrain::onEntityJoinLevel);
+            bus.addListener(VillagerReleaseService::onEntityJoinLevel);
             
             // Villager's on spawn event for CombatInventory
             VillagerCombatInventoryProbeEvents.register(bus);
@@ -1464,10 +1465,6 @@ public final class ServerEvents {
 
             try {
                 VillagerEatTestService.tick(server);
-            } catch (Throwable ignored) {}
-
-            try {
-                VillagerReleaseService.tick(server);
             } catch (Throwable ignored) {}
 
             try {

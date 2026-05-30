@@ -2,18 +2,27 @@ package org.z2six.villageroverhaul.server;
 
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.nbt.Tag;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
+
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public final class VillagerReleaseService {
 
@@ -23,16 +32,26 @@ public final class VillagerReleaseService {
     private static final String K_RELEASE_X = "ezvr_release_x";
     private static final String K_RELEASE_Y = "ezvr_release_y";
     private static final String K_RELEASE_Z = "ezvr_release_z";
-    private static final AABB GLOBAL_ENTITY_AABB = new AABB(-3.0E7, -2048.0, -3.0E7, 3.0E7, 4096.0, 3.0E7);
     private static final int FADE_TICKS = 80;
     private static final int REMOVE_AFTER_TICKS = 100;
+    private static final Map<UUID, ResourceKey<Level>> ACTIVE = new ConcurrentHashMap<>();
+    private static final Set<UUID> SCHEDULED = ConcurrentHashMap.newKeySet();
+    private static final ScheduledExecutorService RELEASE_SCHEDULER = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "VillagerOverhaul Release Scheduler");
+        t.setDaemon(true);
+        return t;
+    });
 
     private VillagerReleaseService() {}
 
     public static void beginRelease(Villager vill, ServerPlayer actor) {
         try {
             if (vill == null || !(vill.level() instanceof ServerLevel level)) return;
-            if (isReleasing(vill)) return;
+            if (isReleasing(vill)) {
+                rememberActive(vill);
+                scheduleNext(level.getServer(), vill.getUUID(), level.dimension());
+                return;
+            }
 
             CompoundTag pd = vill.getPersistentData();
             long now = level.getGameTime();
@@ -49,6 +68,8 @@ public final class VillagerReleaseService {
             try { vill.setNoAi(true); } catch (Throwable ignored) {}
             try { vill.setInvulnerable(true); } catch (Throwable ignored) {}
             setReleaseAlpha(vill, 255);
+            rememberActive(vill);
+            scheduleNext(level.getServer(), vill.getUUID(), level.dimension());
 
             try {
                 level.playSound(null, vill.blockPosition(), SoundEvents.BEACON_DEACTIVATE, SoundSource.NEUTRAL, 0.7F, 1.35F);
@@ -80,24 +101,19 @@ public final class VillagerReleaseService {
         }
     }
 
-    public static void tick(MinecraftServer server) {
+    public static void onEntityJoinLevel(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent e) {
         try {
-            if (server == null) return;
-            for (ServerLevel level : server.getAllLevels()) {
-                try {
-                    for (Villager vill : level.getEntitiesOfClass(Villager.class, GLOBAL_ENTITY_AABB, VillagerReleaseService::isReleasing)) {
-                        tickVillager(level, vill);
-                    }
-                } catch (Throwable t) {
-                    VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerReleaseService level tick failed (soft): {}", t.toString());
+            if (e == null || e.getLevel() == null || e.getLevel().isClientSide()) return;
+            if (e.getEntity() instanceof Villager vill && isReleasing(vill)) {
+                rememberActive(vill);
+                if (vill.level() instanceof ServerLevel level) {
+                    scheduleNext(level.getServer(), vill.getUUID(), level.dimension());
                 }
             }
-        } catch (Throwable t) {
-            VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerReleaseService.tick failed", t);
-        }
+        } catch (Throwable ignored) {}
     }
 
-    private static void tickVillager(ServerLevel level, Villager vill) {
+    private static boolean tickVillager(ServerLevel level, Villager vill) {
         try {
             CompoundTag pd = vill.getPersistentData();
             long start = pd.getLong(K_RELEASE_START);
@@ -133,9 +149,66 @@ public final class VillagerReleaseService {
                     level.playSound(null, vill.blockPosition(), SoundEvents.ENDERMAN_TELEPORT, SoundSource.NEUTRAL, 0.5F, 1.55F);
                 } catch (Throwable ignored) {}
                 try { vill.remove(Entity.RemovalReason.DISCARDED); } catch (Throwable ignored) { vill.discard(); }
+                return false;
             }
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerReleaseService.tickVillager failed (soft): {}", t.toString());
+        }
+        return true;
+    }
+
+    private static void rememberActive(Villager vill) {
+        try {
+            if (vill == null || !(vill.level() instanceof ServerLevel level)) return;
+            ACTIVE.put(vill.getUUID(), level.dimension());
+        } catch (Throwable ignored) {}
+    }
+
+    private static void scheduleNext(MinecraftServer server, UUID villagerUuid, ResourceKey<Level> dimension) {
+        try {
+            if (server == null || villagerUuid == null || dimension == null) return;
+            if (!SCHEDULED.add(villagerUuid)) return;
+            RELEASE_SCHEDULER.schedule(() -> {
+                try {
+                    server.execute(() -> stepScheduled(server, villagerUuid, dimension));
+                } catch (Throwable ignored) {
+                    SCHEDULED.remove(villagerUuid);
+                }
+            }, 50L, TimeUnit.MILLISECONDS);
+        } catch (Throwable t) {
+            SCHEDULED.remove(villagerUuid);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerReleaseService scheduleNext failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void stepScheduled(MinecraftServer server, UUID villagerUuid, ResourceKey<Level> dimension) {
+        try {
+            SCHEDULED.remove(villagerUuid);
+            ResourceKey<Level> activeDimension = ACTIVE.get(villagerUuid);
+            if (activeDimension == null) return;
+            if (!activeDimension.equals(dimension)) dimension = activeDimension;
+
+            ServerLevel level = server.getLevel(dimension);
+            if (level == null) {
+                ACTIVE.remove(villagerUuid);
+                return;
+            }
+
+            Entity entity = level.getEntity(villagerUuid);
+            if (!(entity instanceof Villager vill) || !isReleasing(vill)) {
+                ACTIVE.remove(villagerUuid);
+                return;
+            }
+
+            if (tickVillager(level, vill)) {
+                scheduleNext(server, villagerUuid, dimension);
+            } else {
+                ACTIVE.remove(villagerUuid);
+            }
+        } catch (Throwable t) {
+            SCHEDULED.remove(villagerUuid);
+            ACTIVE.remove(villagerUuid);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerReleaseService scheduled step failed (soft): {}", t.toString());
         }
     }
 
