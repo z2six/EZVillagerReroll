@@ -26,6 +26,10 @@ import java.util.concurrent.atomic.AtomicLong;
 final class VillagerCommandsRadial {
 
     private static final AtomicLong NEXT_ID = new AtomicLong();
+    private static final long RADIAL_PAUSE_KEEPALIVE_MS = 600L;
+
+    private static int activePauseVillagerEntityId = -1;
+    private static long activePauseSentAtMs = 0L;
 
     private VillagerCommandsRadial() {}
 
@@ -33,14 +37,40 @@ final class VillagerCommandsRadial {
         try {
             if (villagerEntityId <= 0) return false;
             if (!ClientUI.canUseControlsForVillager(villagerEntityId)) return false;
+            beginRadialPause(villagerEntityId);
             sendUiPause(villagerEntityId, true);
-            return openEzActionsRadial(parent, villagerEntityId);
+            boolean opened = openEzActionsRadial(parent, villagerEntityId);
+            if (!opened) {
+                endRadialPause(villagerEntityId, false);
+            }
+            return opened;
         } catch (Throwable t) {
-            sendUiPause(villagerEntityId, false);
+            endRadialPause(villagerEntityId, false);
             VillagerOverhaul.LOG().error("[VillagerOverhaul] Failed to open villager commands radial", t);
             showFailureMessage();
             return false;
         }
+    }
+
+    static boolean isTakingOverUiPauseFor(int villagerEntityId) {
+        return villagerEntityId > 0 && villagerEntityId == activePauseVillagerEntityId;
+    }
+
+    static void tickUiPauseKeepalive() {
+        try {
+            int villagerEntityId = activePauseVillagerEntityId;
+            if (villagerEntityId <= 0) return;
+
+            if (!isTemporaryRadialOpen()) {
+                endRadialPause(villagerEntityId, false);
+                return;
+            }
+
+            long now = System.currentTimeMillis();
+            if (now - activePauseSentAtMs >= RADIAL_PAUSE_KEEPALIVE_MS) {
+                sendUiPause(villagerEntityId, true);
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static boolean openEzActionsRadial(Screen parent, int villagerEntityId) throws Exception {
@@ -294,13 +324,13 @@ final class VillagerCommandsRadial {
     }
 
     private static void sendMovementCommand(int villagerEntityId, PacketVillagerCommand.Command cmd, String label) {
-        sendUiPause(villagerEntityId, false);
+        endRadialPause(villagerEntityId, false);
         ClientNetwork.sendToServer(new PacketVillagerCommand(villagerEntityId, cmd));
         showClientToast("Command sent: " + label);
     }
 
     private static void sendCombatCommand(int villagerEntityId, String key, PacketVillagerCombatCommand.Command cmd) {
-        sendUiPause(villagerEntityId, false);
+        endRadialPause(villagerEntityId, false);
         String current = ClientUI.getKnownCombatModeId(villagerEntityId);
         String normKey = key == null ? "" : key.toLowerCase(Locale.ROOT);
         PacketVillagerCombatCommand.Command actual = normKey.equals(current)
@@ -310,20 +340,20 @@ final class VillagerCommandsRadial {
     }
 
     private static void toggleManualFarming(int villagerEntityId) {
-        sendUiPause(villagerEntityId, false);
+        endRadialPause(villagerEntityId, false);
         boolean next = !ClientUI.isKnownManualFarmingEnabled(villagerEntityId);
         ClientNetwork.sendToServer(new PacketVillagerManualFarmingModeCommand(villagerEntityId, next));
     }
 
     private static void openPatrolPrompt(Screen parent, int villagerEntityId) {
-        sendUiPause(villagerEntityId, false);
+        clearRadialPause(villagerEntityId);
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         mc.setScreen(new PatrolBeginPromptScreen(parent, villagerEntityId));
     }
 
     private static void beginTeachCustomCommand(int villagerEntityId) {
-        sendUiPause(villagerEntityId, false);
+        endRadialPause(villagerEntityId, false);
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         ClientNetwork.sendToServer(new PacketCcBeginTeaching(villagerEntityId, -1));
@@ -334,14 +364,14 @@ final class VillagerCommandsRadial {
     }
 
     private static void openCustomCommandsList(Screen parent, int villagerEntityId) {
-        sendUiPause(villagerEntityId, false);
+        clearRadialPause(villagerEntityId);
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         mc.setScreen(new CustomCommandsListScreen(parent, villagerEntityId));
     }
 
     private static void openCustomCommandsSettings(Screen parent, int villagerEntityId) {
-        sendUiPause(villagerEntityId, false);
+        clearRadialPause(villagerEntityId);
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         mc.setScreen(new CustomCommandsSettingsScreen(parent, villagerEntityId));
@@ -350,6 +380,7 @@ final class VillagerCommandsRadial {
     private static void openReleaseConfirm(Screen parent, int villagerEntityId) {
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
+        clearRadialPause(villagerEntityId);
         final boolean[] releaseConfirmed = new boolean[] { false };
         mc.setScreen(new ConfirmScreen(confirmed -> {
             try {
@@ -390,7 +421,44 @@ final class VillagerCommandsRadial {
         try {
             if (villagerEntityId <= 0) return;
             ClientNetwork.sendToServer(new PacketVillagerUiPause(villagerEntityId, paused));
+            if (paused && villagerEntityId == activePauseVillagerEntityId) {
+                activePauseSentAtMs = System.currentTimeMillis();
+            }
         } catch (Throwable ignored) {}
+    }
+
+    private static void beginRadialPause(int villagerEntityId) {
+        activePauseVillagerEntityId = villagerEntityId;
+        activePauseSentAtMs = 0L;
+    }
+
+    private static void endRadialPause(int villagerEntityId, boolean keepPaused) {
+        clearRadialPause(villagerEntityId);
+        sendUiPause(villagerEntityId, keepPaused);
+    }
+
+    private static void clearRadialPause(int villagerEntityId) {
+        if (villagerEntityId == activePauseVillagerEntityId) {
+            activePauseVillagerEntityId = -1;
+            activePauseSentAtMs = 0L;
+        }
+    }
+
+    private static boolean isTemporaryRadialOpen() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.screen == null) return false;
+            if (!"org.z2six.ezactions.gui.RadialMenuScreen".equals(mc.screen.getClass().getName())) {
+                return false;
+            }
+
+            Class<?> radialMenuClass = Class.forName("org.z2six.ezactions.data.menu.RadialMenu");
+            Method isTemporarySession = radialMenuClass.getMethod("isTemporarySession");
+            Object out = isTemporarySession.invoke(null);
+            return !(out instanceof Boolean b) || b;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static void showClientToast(String msg) {

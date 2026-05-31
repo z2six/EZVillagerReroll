@@ -2373,9 +2373,13 @@ public final class ServerHandlers {
                 return;
             }
 
-            boolean changed = org.z2six.villageroverhaul.server.VillagerFamilyTreeService.changeLastNameFromFamilyTree(vill, msg.lastName());
+            boolean changed = msg.generateNew()
+                    ? org.z2six.villageroverhaul.server.VillagerFamilyTreeService.changeLastNameToGenerated(vill)
+                    : org.z2six.villageroverhaul.server.VillagerFamilyTreeService.changeLastNameFromFamilyTree(vill, msg.lastName());
             if (!changed) {
-                ctx.reply(new PacketFarmingOverlayText("That family name is not in this tree", 2200));
+                ctx.reply(new PacketFarmingOverlayText(msg.generateNew()
+                        ? "Could not generate a new family name"
+                        : "That family name is not in this tree", 2200));
                 return;
             }
 

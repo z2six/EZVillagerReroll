@@ -253,6 +253,35 @@ public final class VillagerFamilyTreeService {
         }
     }
 
+    public static boolean changeLastNameToGenerated(Villager villager) {
+        try {
+            VillagerNameStateService.tryAdoptExistingName(villager);
+            if (villager == null) {
+                return false;
+            }
+            String firstName = VillagerNameStateService.getTrackedFirstName(villager);
+            if (firstName == null || firstName.isBlank()) {
+                return false;
+            }
+
+            List<String> existing = collectUniqueLastNames(villager);
+            String generatedLastName = generateUnusedLastName(existing);
+            if (generatedLastName == null || generatedLastName.isBlank()) {
+                return false;
+            }
+
+            VillagerNameStateService.applyTrackedName(villager, firstName, generatedLastName);
+            if (villager.level() instanceof ServerLevel level) {
+                VillagerFamilyTreeSavedData data = VillagerFamilyTreeSavedData.get(level.getServer().overworld());
+                putNode(data, villager);
+                data.setDirty();
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     private static void addUniqueLastName(List<String> names, @Nullable String lastName) {
         if (names == null || lastName == null) {
             return;
@@ -283,6 +312,29 @@ public final class VillagerFamilyTreeService {
             }
         }
         return null;
+    }
+
+    private static @Nullable String generateUnusedLastName(List<String> existing) {
+        for (int i = 0; i < 64; i++) {
+            String candidate = VillagerNameGenerator.createLastName(UUID.randomUUID());
+            if (!containsLastName(existing, candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static boolean containsLastName(List<String> names, String candidate) {
+        if (names == null || candidate == null || candidate.isBlank()) {
+            return false;
+        }
+        String normalized = candidate.trim();
+        for (String name : names) {
+            if (name != null && name.equalsIgnoreCase(normalized)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void putNode(VillagerFamilyTreeSavedData data, Villager villager) {

@@ -281,11 +281,6 @@ public final class ServerEvents {
             }
 
             List<String> lastNames = VillagerFamilyTreeService.collectUniqueLastNames(vill);
-            if (lastNames.isEmpty()) {
-                sendOverlayText(sp, "No family names found for this villager", 2200);
-                return true;
-            }
-
             String currentLastName = VillagerNameStateService.getTrackedLastName(vill);
             VillagerBrain.setUiPaused(vill, true);
             try { vill.getNavigation().stop(); } catch (Throwable ignored) {}

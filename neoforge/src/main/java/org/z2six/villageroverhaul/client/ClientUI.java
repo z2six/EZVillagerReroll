@@ -1795,7 +1795,9 @@ public final class ClientUI {
         try {
             try {
                 int villagerEntityId = extractVillagerUiPauseId(e.getScreen());
-                if (villagerEntityId > 0) sendUiPauseNow(villagerEntityId, false);
+                if (villagerEntityId > 0 && !VillagerCommandsRadial.isTakingOverUiPauseFor(villagerEntityId)) {
+                    sendUiPauseNow(villagerEntityId, false);
+                }
             } catch (Throwable ignored) {}
 
             REROLL_BUTTONS.remove(e.getScreen());
@@ -3119,6 +3121,10 @@ public final class ClientUI {
                         openGlobalFarmingProfiles();
                     }
                 }
+            } catch (Throwable ignored) {}
+
+            try {
+                VillagerCommandsRadial.tickUiPauseKeepalive();
             } catch (Throwable ignored) {}
 
             try {

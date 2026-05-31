@@ -28,7 +28,14 @@ final class VillagerNameGenerator {
             "Eldon", "Fenris", "Gideon", "Hadar", "Isen", "Jorren", "Kieran", "Lorcan",
             "Marek", "Nicen", "Orlan", "Peregrin", "Quillan", "Ronan", "Stellan", "Torin",
             "Ariadne", "Briona", "Calista", "Daphne", "Elysia", "Freya", "Giselle", "Honora",
-            "Illyria", "Jocelyn", "Kerensa", "Luneth", "Meridia", "Nimue", "Ophelia", "Petra"
+            "Illyria", "Jocelyn", "Kerensa", "Luneth", "Meridia", "Nimue", "Ophelia", "Petra",
+            "Aderyn", "Althea", "Aravel", "Astrid", "Avalyn", "Bellamy", "Beryl", "Briar",
+            "Calanthe", "Celwyn", "Della", "Edda", "Elspeth", "Esme", "Farin", "Fenella",
+            "Gilda", "Halwen", "Idris", "Iona", "Jessa", "Keira", "Laurel", "Linnea",
+            "Maera", "Maeve", "Mirren", "Nelda", "Odelia", "Orla", "Perrin", "Rhea",
+            "Sancia", "Seren", "Tilda", "Vaila", "Willa", "Wynne", "Ylva", "Zephyra",
+            "Alden", "Borin", "Caedmon", "Dorian", "Ewan", "Finley", "Hollis", "Jory",
+            "Linden", "Marlow", "Oren", "Quincy", "Riven", "Silas", "Tobin", "Wystan"
     };
 
     private static final String[] CURATED_LAST_NAMES = {
@@ -50,7 +57,13 @@ final class VillagerNameGenerator {
             "Brighthelm", "Coldstream", "Darkwater", "Dawnforge", "Duskwharf", "Eaglewatch", "Eastmere", "Elderbrook",
             "Emberfall", "Farrowmere", "Featherstone", "Fennwatch", "Frostfall", "Glowmere", "Greymantle", "Hallowmere",
             "Hearthmere", "Highwall", "Hollowmere", "Ivorymere", "Juniper", "Kingsbrook", "Lantern", "Mapleford",
-            "Mossbrook", "Northmere", "Rimeward", "Shadowbrook", "Southmere", "Thistlewick", "Umbermoor", "Westwatch"
+            "Mossbrook", "Northmere", "Rimeward", "Shadowbrook", "Southmere", "Thistlewick", "Umbermoor", "Westwatch",
+            "Applebrook", "Barleyfield", "Bellweather", "Birchhaven", "Cloverwick", "Copperfield", "Dewfall", "Emberwick",
+            "Farrowfield", "Fennelbrook", "Goldenvale", "Hearthfield", "Honeywick", "Ivybrook", "Lanternwick", "Meadowbrook",
+            "Millstone", "Mossvale", "Orchardwell", "Pepperfield", "Plumfield", "Rootwhistle", "Sagewick", "Saltmere",
+            "Seedwell", "Sprucemere", "Starfall", "Sunmeadow", "Thatchwood", "Wheatbrook", "Wheatfield", "Wildbriar",
+            "Woodsmoke", "Yewbrook", "Belltower", "Brightmill", "Cloverfield", "Fairweather", "Goodbarrel", "Greenmantle",
+            "Hearthsong", "Kindlewick", "Mirthwell", "Oakbarrel", "Proudfellow", "Quietbrook", "Warmhearth", "Wellspring"
     };
 
     private static final String[] FIRST_PREFIXES = {
@@ -67,7 +80,9 @@ final class VillagerNameGenerator {
             "Rae", "Ren", "Riv", "Ro", "Sar", "Sel", "Ser", "Syl",
             "Tae", "Tal", "Tar", "Ther", "Tor", "Ul", "Uri", "Vael",
             "Val", "Var", "Ver", "Vor", "Wyn", "Yor", "Ys", "Yva",
-            "Zev"
+            "Ader", "Bell", "Bri", "Clo", "Dun", "Edda", "Els", "Fenn",
+            "Holl", "Iona", "Jas", "Keir", "Lin", "Marl", "Odel", "Perr",
+            "Ser", "Tild", "Wes", "Zev"
     };
 
     private static final String[] FIRST_MIDDLES = {
@@ -86,6 +101,7 @@ final class VillagerNameGenerator {
             "lor", "lys", "mir", "na", "ner", "or", "os", "ric",
             "rid", "rin", "ron", "ser", "sian", "ta", "ter", "thas",
             "ther", "ton", "tyr", "var", "vel", "vian", "win", "wyr",
+            "wyn", "wen", "well", "wick", "ley", "low", "nell", "rell",
             "yn"
     };
 
@@ -102,7 +118,9 @@ final class VillagerNameGenerator {
             "Rune", "Shadow", "Silver", "Sky", "Snow", "South", "Star", "Still",
             "Stone", "Storm", "Summer", "Sun", "Swift", "Thorn", "Timber", "Umber",
             "Vale", "West", "White", "Wild", "Willow", "Wind", "Winter", "Wolf",
-            "Wren"
+            "Apple", "Barley", "Bell", "Birch", "Clover", "Fennel", "Honey", "Ivy",
+            "Meadow", "Mill", "Orchard", "Pepper", "Plum", "Sage", "Salt", "Seed",
+            "Spruce", "Thatch", "Wheat", "Wood", "Yew", "Wren"
     };
 
     private static final String[] LAST_LINKERS = {
@@ -118,7 +136,9 @@ final class VillagerNameGenerator {
             "mere", "moor", "peak", "reach", "ridge", "ring", "run", "shade",
             "shaw", "shield", "song", "spire", "spring", "stone", "thorn", "vale",
             "ward", "watch", "water", "well", "wharf", "wick", "wild", "wall",
-            "wind", "wood", "worth", "wright"
+            "bell", "binder", "blossom", "bower", "branch", "brew", "croft", "fall",
+            "fen", "grove", "mill", "root", "seed", "smoke", "stead", "whistle",
+            "yard", "wind", "wood", "worth", "wright"
     };
 
     private static final String[] FIRST_NAMES = buildFirstNames();

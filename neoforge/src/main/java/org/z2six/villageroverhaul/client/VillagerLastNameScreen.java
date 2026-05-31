@@ -16,6 +16,7 @@ public final class VillagerLastNameScreen extends Screen {
     private static final int PAD = 12;
     private static final int ROW_H = 20;
     private static final int SCROLLBAR_W = 6;
+    private static final String NEW_LAST_NAME_OPTION = "New";
 
     private final int villagerEntityId;
     private final String currentLastName;
@@ -52,7 +53,7 @@ public final class VillagerLastNameScreen extends Screen {
         }
         for (int i = 0; i < this.lastNames.size(); i++) {
             if (this.lastNames.get(i).equalsIgnoreCase(this.currentLastName)) {
-                this.selected = i;
+                this.selected = i + 1;
                 break;
             }
         }
@@ -109,7 +110,7 @@ public final class VillagerLastNameScreen extends Screen {
             String current = currentLastName.isBlank() ? "Current: unknown" : "Current: " + currentLastName;
             gg.drawString(this.font, current, textX, y, 0xFFE0E0E0, false);
             y += 13;
-            gg.drawString(this.font, "Choose a family name from this tree.", textX, y, 0xFFAAAAAA, false);
+            gg.drawString(this.font, "Choose New or a family name from this tree.", textX, y, 0xFFAAAAAA, false);
 
             String line = !status.isBlank() ? status : message;
             if (!line.isBlank()) {
@@ -136,11 +137,13 @@ public final class VillagerLastNameScreen extends Screen {
         int visibleRows = Math.max(1, (h - 4) / ROW_H);
         for (int i = 0; i < visibleRows; i++) {
             int idx = scrollRow + i;
-            if (idx < 0 || idx >= lastNames.size()) break;
+            if (idx < 0 || idx >= optionCount()) break;
 
             int rowY = y + 2 + i * ROW_H;
             boolean selectedRow = idx == selected;
-            boolean currentRow = lastNames.get(idx).equalsIgnoreCase(currentLastName);
+            String label = optionLabel(idx);
+            boolean newRow = idx == 0;
+            boolean currentRow = !newRow && label.equalsIgnoreCase(currentLastName);
             boolean hover = mouseX >= x && mouseX < x + w - SCROLLBAR_W && mouseY >= rowY && mouseY < rowY + ROW_H;
 
             if (selectedRow) {
@@ -149,12 +152,8 @@ public final class VillagerLastNameScreen extends Screen {
                 gg.fill(x + 2, rowY, x + w - SCROLLBAR_W - 2, rowY + ROW_H - 2, 0x442F2F2F);
             }
 
-            int color = currentRow ? 0xFF6EEA7A : 0xFFE8E8E8;
-            gg.drawString(this.font, lastNames.get(idx), x + 8, rowY + 6, color, false);
-        }
-
-        if (lastNames.isEmpty()) {
-            gg.drawCenteredString(this.font, "No family names available", x + w / 2, y + h / 2 - 4, 0xFFAAAAAA);
+            int color = newRow ? 0xFFFFCC66 : currentRow ? 0xFF6EEA7A : 0xFFE8E8E8;
+            gg.drawString(this.font, label, x + 8, rowY + 6, color, false);
         }
 
         drawScrollbar(gg, x, y, w, h, visibleRows);
@@ -193,7 +192,7 @@ public final class VillagerLastNameScreen extends Screen {
         }
 
         int row = scrollRow + (int) ((mouseY - y - 2) / ROW_H);
-        if (row >= 0 && row < lastNames.size()) {
+        if (row >= 0 && row < optionCount()) {
             selected = row;
             updateButtons();
             return true;
@@ -204,7 +203,7 @@ public final class VillagerLastNameScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         if (super.mouseScrolled(mouseX, mouseY, scrollX, scrollY)) return true;
-        if (lastNames.isEmpty()) return false;
+        if (optionCount() <= 1) return false;
         if (scrollY > 0) scrollRow--;
         if (scrollY < 0) scrollRow++;
         clampScroll();
@@ -231,11 +230,15 @@ public final class VillagerLastNameScreen extends Screen {
 
     private void applySelected() {
         try {
-            if (selected < 0 || selected >= lastNames.size()) {
+            if (selected < 0 || selected >= optionCount()) {
                 status = "Select a family name first";
                 return;
             }
-            ClientNetwork.sendToServer(new PacketVillagerLastNameChange(villagerEntityId, lastNames.get(selected)));
+            if (selected == 0) {
+                ClientNetwork.sendToServer(PacketVillagerLastNameChange.generateNew(villagerEntityId));
+            } else {
+                ClientNetwork.sendToServer(new PacketVillagerLastNameChange(villagerEntityId, lastNames.get(selected - 1)));
+            }
             Minecraft mc = Minecraft.getInstance();
             if (mc != null) mc.setScreen(null);
         } catch (Throwable ignored) {
@@ -245,7 +248,7 @@ public final class VillagerLastNameScreen extends Screen {
 
     private void updateButtons() {
         if (applyButton != null) {
-            applyButton.active = selected >= 0 && selected < lastNames.size();
+            applyButton.active = selected >= 0 && selected < optionCount();
         }
     }
 
@@ -256,7 +259,7 @@ public final class VillagerLastNameScreen extends Screen {
     }
 
     private boolean canScroll() {
-        return lastNames.size() > visibleRows();
+        return optionCount() > visibleRows();
     }
 
     private int visibleRows() {
@@ -264,7 +267,7 @@ public final class VillagerLastNameScreen extends Screen {
     }
 
     private int maxScroll() {
-        return Math.max(0, lastNames.size() - visibleRows());
+        return Math.max(0, optionCount() - visibleRows());
     }
 
     private int scrollbarX() {
@@ -272,7 +275,7 @@ public final class VillagerLastNameScreen extends Screen {
     }
 
     private int thumbH() {
-        return Math.max(12, (listH() - 2) * visibleRows() / Math.max(visibleRows(), lastNames.size()));
+        return Math.max(12, (listH() - 2) * visibleRows() / Math.max(visibleRows(), optionCount()));
     }
 
     private int thumbY() {
@@ -299,6 +302,17 @@ public final class VillagerLastNameScreen extends Screen {
             if (existing.equalsIgnoreCase(name)) return;
         }
         lastNames.add(name);
+    }
+
+    private int optionCount() {
+        return lastNames.size() + 1;
+    }
+
+    private String optionLabel(int idx) {
+        if (idx == 0) return NEW_LAST_NAME_OPTION;
+        int nameIdx = idx - 1;
+        if (nameIdx < 0 || nameIdx >= lastNames.size()) return "";
+        return lastNames.get(nameIdx);
     }
 
     private int left() {
