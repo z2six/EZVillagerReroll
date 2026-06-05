@@ -11,9 +11,11 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.nbt.Tag;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 import java.util.Map;
@@ -49,6 +51,9 @@ public final class VillagerReleaseService {
             if (vill == null || !(vill.level() instanceof ServerLevel level)) return false;
             if (isReleasing(vill)) return false;
 
+            String before = describeReleaseState(vill);
+            closeTradingContainerIfOpen(vill, actor);
+            clearTradingPlayer(vill);
             try { VillagerBrain.setManualFarmingActive(vill, false); } catch (Throwable ignored) {}
             try { VillagerBrain.clearPrevModeForManualFarming(vill); } catch (Throwable ignored) {}
             try { VillagerBrain.combatOff(vill); } catch (Throwable ignored) {}
@@ -61,14 +66,15 @@ public final class VillagerReleaseService {
             try { vill.setDeltaMovement(0.0, 0.0, 0.0); } catch (Throwable ignored) {}
 
             boolean changed = RecruitService.unmarkRecruited(vill);
+            clearTradingPlayer(vill);
 
             try {
                 level.playSound(null, vill.blockPosition(), SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 0.7F, 0.95F);
                 level.sendParticles(ParticleTypes.HAPPY_VILLAGER, vill.getX(), vill.getY() + 1.0, vill.getZ(), 12, 0.3, 0.35, 0.3, 0.01);
             } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Villager released from service by {} for villager={} changed={}",
-                    actor == null ? "unknown" : actor.getGameProfile().getName(), vill.getUUID(), changed);
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Villager released from service by {} for villager={} changed={} before=[{}] after=[{}]",
+                    actor == null ? "unknown" : actor.getGameProfile().getName(), vill.getUUID(), changed, before, describeReleaseState(vill));
             return changed;
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerReleaseService.releaseFromService failed", t);
@@ -85,6 +91,9 @@ public final class VillagerReleaseService {
                 return;
             }
 
+            String before = describeReleaseState(vill);
+            closeTradingContainerIfOpen(vill, actor);
+            clearTradingPlayer(vill);
             CompoundTag pd = vill.getPersistentData();
             long now = level.getGameTime();
             pd.putBoolean(K_RELEASED_NO_RESPAWN, true);
@@ -108,8 +117,8 @@ public final class VillagerReleaseService {
                 level.sendParticles(ParticleTypes.ENCHANT, vill.getX(), vill.getY() + 0.9, vill.getZ(), 32, 0.35, 0.55, 0.35, 0.05);
             } catch (Throwable ignored) {}
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Release started by {} for villager={}",
-                    actor == null ? "unknown" : actor.getGameProfile().getName(), vill.getUUID());
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Shoo-away release started by {} for villager={} before=[{}] after=[{}]",
+                    actor == null ? "unknown" : actor.getGameProfile().getName(), vill.getUUID(), before, describeReleaseState(vill));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerReleaseService.beginRelease failed", t);
         }
@@ -241,6 +250,65 @@ public final class VillagerReleaseService {
             SCHEDULED.remove(villagerUuid);
             ACTIVE.remove(villagerUuid);
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerReleaseService scheduled step failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void closeTradingContainerIfOpen(Villager vill, ServerPlayer actor) {
+        try {
+            if (vill == null || actor == null) return;
+            if (!(actor.containerMenu instanceof MerchantMenu menu)) return;
+            Object trader = ((MerchantMenuAccessor) menu).ezvr$getTrader();
+            boolean sameTrader = trader == vill;
+            if (!sameTrader && trader instanceof Entity entity) {
+                sameTrader = vill.getUUID().equals(entity.getUUID());
+            }
+            if (!sameTrader) return;
+            actor.closeContainer();
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Closed active merchant container during release (player={} villager={})",
+                    actor.getGameProfile().getName(), vill.getUUID());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] closeTradingContainerIfOpen failed (soft): {}", t.toString());
+        }
+    }
+
+    private static void clearTradingPlayer(Villager vill) {
+        try {
+            if (vill != null) vill.setTradingPlayer(null);
+        } catch (Throwable ignored) {}
+    }
+
+    private static String describeReleaseState(Villager vill) {
+        try {
+            if (vill == null) return "villager=null";
+            String profession = "unknown";
+            try { profession = String.valueOf(vill.getVillagerData().getProfession()); } catch (Throwable ignored) {}
+            String mode = "unknown";
+            try {
+                VillagerBrain.Mode m = VillagerBrain.getMode(vill);
+                mode = m == null ? "null" : m.id;
+            } catch (Throwable ignored) {}
+            UUID follow = null;
+            try { follow = VillagerBrain.getFollowPlayer(vill); } catch (Throwable ignored) {}
+            UUID owner = null;
+            try { owner = RecruitService.getRecruiterUuid(vill); } catch (Throwable ignored) {}
+            boolean recruited = false;
+            try { recruited = RecruitService.isRecruited(vill); } catch (Throwable ignored) {}
+            boolean trading = false;
+            try { trading = vill.getTradingPlayer() != null; } catch (Throwable ignored) {}
+            boolean busy = false;
+            try { busy = SearchService.isBusy(vill); } catch (Throwable ignored) {}
+            boolean awaitingPayment = false;
+            try { awaitingPayment = SearchService.isAwaitingPayment(vill); } catch (Throwable ignored) {}
+            return "profession=" + profession
+                    + ", recruited=" + recruited
+                    + ", owner=" + owner
+                    + ", mode=" + mode
+                    + ", follow=" + follow
+                    + ", tradingPlayer=" + trading
+                    + ", busy=" + busy
+                    + ", awaitingPayment=" + awaitingPayment;
+        } catch (Throwable t) {
+            return "describeFailed=" + t;
         }
     }
 

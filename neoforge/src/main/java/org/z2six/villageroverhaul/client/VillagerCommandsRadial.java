@@ -7,6 +7,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -385,7 +386,15 @@ final class VillagerCommandsRadial {
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         clearRadialPause(villagerEntityId);
-        mc.setScreen(new ReleaseConfirmScreen(parent, villagerEntityId));
+        Screen returnParent = parent;
+        if (parent instanceof MerchantScreen) {
+            try {
+                if (mc.player != null) mc.player.closeContainer();
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Release confirm opened from MerchantScreen; closed merchant container first (villagerEntityId={})", villagerEntityId);
+            } catch (Throwable ignored) {}
+            returnParent = null;
+        }
+        mc.setScreen(new ReleaseConfirmScreen(returnParent, villagerEntityId));
     }
 
     private static final class ReleaseConfirmScreen extends Screen {
@@ -482,7 +491,9 @@ final class VillagerCommandsRadial {
         private void confirmRelease() {
             try {
                 this.confirmed = true;
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Client sending release command (villagerEntityId={} shooAway={})", this.villagerEntityId, this.shooAway);
                 ClientNetwork.sendToServer(new PacketVillagerReleaseCommand(this.villagerEntityId, this.shooAway));
+                ClientUI.markVillagerReleasedLocally(this.villagerEntityId);
                 showClientToast(this.shooAway ? "Shooing villager away..." : "Villager released from service.");
                 Minecraft mc = Minecraft.getInstance();
                 if (mc != null) mc.setScreen(null);

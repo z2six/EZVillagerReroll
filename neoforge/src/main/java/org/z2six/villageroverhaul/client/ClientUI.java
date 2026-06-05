@@ -3071,6 +3071,23 @@ public final class ClientUI {
         } catch (Throwable ignored) {}
     }
 
+    public static void markVillagerReleasedLocally(int villagerEntityId) {
+        try {
+            if (villagerEntityId <= 0) return;
+            long now = System.currentTimeMillis();
+            RECRUIT_STATE.put(villagerEntityId, new RecruitStateSnap(false, false, "", now));
+            MODE_ID.put(villagerEntityId, "neutral");
+            MODE_AT.put(villagerEntityId, now);
+            MANUAL_FARMING_ENABLED.put(villagerEntityId, false);
+            PATROL_SETUP_SUPPRESS_UNTIL_MS.remove(villagerEntityId);
+            if (PENDING_QUICK_VILLAGER_ID == villagerEntityId) {
+                PENDING_QUICK_VILLAGER_ID = -1;
+                PENDING_QUICK_AT_MS = 0L;
+            }
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Client marked villager as released locally (villagerEntityId={})", villagerEntityId);
+        } catch (Throwable ignored) {}
+    }
+
     public static String getRecruiterNameForVillager(int villagerEntityId) {
         try {
             RecruitStateSnap snap = RECRUIT_STATE.get(villagerEntityId);

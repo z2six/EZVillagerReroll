@@ -1194,8 +1194,11 @@ public final class ServerHandlers {
             }
 
             if (msg.command() == PacketVillagerCommand.Command.RELEASE) {
-                org.z2six.villageroverhaul.server.VillagerReleaseService.releaseFromService(vill, sp);
+                boolean changed = org.z2six.villageroverhaul.server.VillagerReleaseService.releaseFromService(vill, sp);
                 ctx.reply(new PacketVillagerModeData(vill.getId(), "neutral"));
+                ctx.reply(new PacketRecruitGateData(vill.getId(), true, false, false, ""));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Legacy release command applied (player={} villager={} changed={})",
+                        sp.getGameProfile().getName(), vill.getUUID(), changed);
                 return;
             }
 
@@ -1244,16 +1247,30 @@ public final class ServerHandlers {
             if (vill == null) return;
 
             if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Release command denied (player={} villager={} shooAway={} recruited={} mode={})",
+                        sp.getGameProfile().getName(), vill.getUUID(), msg.shooAway(),
+                        org.z2six.villageroverhaul.server.RecruitService.isRecruited(vill),
+                        VillagerBrain.getMode(vill).id);
                 VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerReleaseCommand denied (player={} villager={} shooAway={})",
                         sp.getGameProfile().getName(), vill.getUUID(), msg.shooAway());
                 return;
             }
 
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] Release command received (player={} villager={} entityId={} shooAway={} profession={} recruited={} mode={})",
+                    sp.getGameProfile().getName(), vill.getUUID(), vill.getId(), msg.shooAway(),
+                    vill.getVillagerData().getProfession(),
+                    org.z2six.villageroverhaul.server.RecruitService.isRecruited(vill),
+                    VillagerBrain.getMode(vill).id);
+
             if (msg.shooAway()) {
                 org.z2six.villageroverhaul.server.VillagerReleaseService.beginRelease(vill, sp);
+                ctx.reply(new PacketRecruitGateData(vill.getId(), true, false, false, ""));
             } else {
-                org.z2six.villageroverhaul.server.VillagerReleaseService.releaseFromService(vill, sp);
+                boolean changed = org.z2six.villageroverhaul.server.VillagerReleaseService.releaseFromService(vill, sp);
                 ctx.reply(new PacketVillagerModeData(vill.getId(), "neutral"));
+                ctx.reply(new PacketRecruitGateData(vill.getId(), true, false, false, ""));
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] Release command finished (player={} villager={} changed={})",
+                        sp.getGameProfile().getName(), vill.getUUID(), changed);
             }
 
         } catch (Throwable t) {
