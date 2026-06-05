@@ -44,6 +44,38 @@ public final class VillagerReleaseService {
 
     private VillagerReleaseService() {}
 
+    public static boolean releaseFromService(Villager vill, ServerPlayer actor) {
+        try {
+            if (vill == null || !(vill.level() instanceof ServerLevel level)) return false;
+            if (isReleasing(vill)) return false;
+
+            try { VillagerBrain.setManualFarmingActive(vill, false); } catch (Throwable ignored) {}
+            try { VillagerBrain.clearPrevModeForManualFarming(vill); } catch (Throwable ignored) {}
+            try { VillagerBrain.combatOff(vill); } catch (Throwable ignored) {}
+            try { VillagerBrain.clearAllPatrolData(vill); } catch (Throwable ignored) {}
+            try { VillagerBrain.neutral(vill); } catch (Throwable ignored) {}
+            try { VillagerBrain.setUiPaused(vill, false); } catch (Throwable ignored) {}
+            try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+            try { vill.setNoAi(false); } catch (Throwable ignored) {}
+            try { vill.setInvulnerable(false); } catch (Throwable ignored) {}
+            try { vill.setDeltaMovement(0.0, 0.0, 0.0); } catch (Throwable ignored) {}
+
+            boolean changed = RecruitService.unmarkRecruited(vill);
+
+            try {
+                level.playSound(null, vill.blockPosition(), SoundEvents.VILLAGER_YES, SoundSource.NEUTRAL, 0.7F, 0.95F);
+                level.sendParticles(ParticleTypes.HAPPY_VILLAGER, vill.getX(), vill.getY() + 1.0, vill.getZ(), 12, 0.3, 0.35, 0.3, 0.01);
+            } catch (Throwable ignored) {}
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Villager released from service by {} for villager={} changed={}",
+                    actor == null ? "unknown" : actor.getGameProfile().getName(), vill.getUUID(), changed);
+            return changed;
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerReleaseService.releaseFromService failed", t);
+            return false;
+        }
+    }
+
     public static void beginRelease(Villager vill, ServerPlayer actor) {
         try {
             if (vill == null || !(vill.level() instanceof ServerLevel level)) return;

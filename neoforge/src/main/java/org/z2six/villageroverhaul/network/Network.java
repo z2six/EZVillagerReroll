@@ -69,6 +69,7 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeQ
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerReleaseCommand;
 import org.z2six.villageroverhaul.network.naming.PacketOpenVillagerLastNameScreen;
 import org.z2six.villageroverhaul.network.naming.PacketVillagerLastNameChange;
 import org.z2six.villageroverhaul.network.patrol.*;
@@ -106,6 +107,7 @@ import org.z2six.villageroverhaul.logic.PaymentUtil;
 import org.z2six.villageroverhaul.server.RecruitService;
 import org.z2six.villageroverhaul.server.TradeLockService;
 import org.z2six.villageroverhaul.server.VillagerGenderService;
+import org.z2six.villageroverhaul.server.VillagerAgeService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
 public final class Network {
@@ -395,6 +397,8 @@ public final class Network {
             // Villager AI
             r.playToServer(PacketVillagerCommand.TYPE, PacketVillagerCommand.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerCommandServer(msg, ctx));
+            r.playToServer(PacketVillagerReleaseCommand.TYPE, PacketVillagerReleaseCommand.STREAM_CODEC,
+                    (msg, ctx) -> handleVillagerReleaseCommandServer(msg, ctx));
             r.playToServer(PacketVillagerCombatCommand.TYPE, PacketVillagerCombatCommand.STREAM_CODEC,
                     (msg, ctx) -> handleVillagerCombatCommandServer(msg, ctx));
             r.playToServer(PacketVillagerManualFarmingModeCommand.TYPE, PacketVillagerManualFarmingModeCommand.STREAM_CODEC,
@@ -621,6 +625,16 @@ public final class Network {
                 ServerHandlers.handleVillagerCommand(msg, ctx);
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerCommand handler error", t);
+            }
+        });
+    }
+
+    private static void handleVillagerReleaseCommandServer(PacketVillagerReleaseCommand msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            try {
+                ServerHandlers.handleVillagerReleaseCommand(msg, ctx);
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerReleaseCommand handler error", t);
             }
         });
     }
@@ -862,8 +876,10 @@ public final class Network {
                 int eff = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_EFFICIENCY));
                 int pw  = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_PLANT_WHISPERER));
                 int rng = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
+                VillagerAgeService.AgeDisplay age = VillagerAgeService.getDisplay(ent);
 
-                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng, genderId));
+                ctx.reply(new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng, genderId,
+                        age.birthDateText(), age.ageText()));
 
             } catch (Throwable t) {
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] VillagerStatsQuery handler error", t);

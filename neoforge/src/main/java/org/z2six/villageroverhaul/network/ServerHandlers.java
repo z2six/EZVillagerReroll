@@ -84,6 +84,7 @@ import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeData;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerModeQuery;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerReleaseCommand;
 import org.z2six.villageroverhaul.network.naming.PacketVillagerLastNameChange;
 import org.z2six.villageroverhaul.network.patrol.*;
 import org.z2six.villageroverhaul.network.recruit.*;
@@ -1193,7 +1194,8 @@ public final class ServerHandlers {
             }
 
             if (msg.command() == PacketVillagerCommand.Command.RELEASE) {
-                org.z2six.villageroverhaul.server.VillagerReleaseService.beginRelease(vill, sp);
+                org.z2six.villageroverhaul.server.VillagerReleaseService.releaseFromService(vill, sp);
+                ctx.reply(new PacketVillagerModeData(vill.getId(), "neutral"));
                 return;
             }
 
@@ -1230,6 +1232,32 @@ public final class ServerHandlers {
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerCommand failed", t);
+        }
+    }
+
+    public static void handleVillagerReleaseCommand(PacketVillagerReleaseCommand msg, IPayloadContext ctx) {
+        try {
+            if (msg == null) return;
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+
+            Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
+            if (vill == null) return;
+
+            if (!org.z2six.villageroverhaul.server.VillagerAccessGate.canUseControls(vill, sp)) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] handleVillagerReleaseCommand denied (player={} villager={} shooAway={})",
+                        sp.getGameProfile().getName(), vill.getUUID(), msg.shooAway());
+                return;
+            }
+
+            if (msg.shooAway()) {
+                org.z2six.villageroverhaul.server.VillagerReleaseService.beginRelease(vill, sp);
+            } else {
+                org.z2six.villageroverhaul.server.VillagerReleaseService.releaseFromService(vill, sp);
+                ctx.reply(new PacketVillagerModeData(vill.getId(), "neutral"));
+            }
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] handleVillagerReleaseCommand failed", t);
         }
     }
 

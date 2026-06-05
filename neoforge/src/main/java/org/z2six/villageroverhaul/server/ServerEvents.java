@@ -1442,9 +1442,11 @@ public final class ServerEvents {
             int genderId = (merchant instanceof Villager villager)
                     ? VillagerGenderService.ensureAssigned(villager)
                     : VillagerGenderService.GENDER_UNKNOWN;
+            VillagerAgeService.AgeDisplay age = VillagerAgeService.getDisplay(merchant);
 
             sp.connection.send(new ClientboundCustomPayloadPacket(
-                    new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng, genderId)
+                    new PacketVillagerStatsData(id, true, g, t, i, h, vit, agi, str, arm, mot, eff, pw, rng, genderId,
+                            age.birthDateText(), age.ageText())
             ));
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] Sent villager stats snapshot to {} for entityId={} uuid={}",

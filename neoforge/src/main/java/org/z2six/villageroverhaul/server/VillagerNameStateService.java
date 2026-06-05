@@ -21,14 +21,16 @@ public final class VillagerNameStateService {
         if (villager == null) {
             return;
         }
-        applyTrackedName(villager, VillagerNameGenerator.createFirstName(villager.getUUID()), VillagerNameGenerator.createLastName(villager.getUUID()));
+        int genderId = VillagerGenderService.ensureAssigned(villager);
+        applyTrackedName(villager, VillagerNameGenerator.createFirstName(villager.getUUID(), genderId), VillagerNameGenerator.createLastName(villager.getUUID()));
     }
 
     public static void assignGeneratedName(Villager villager, String lastName) {
         if (villager == null) {
             return;
         }
-        applyTrackedName(villager, VillagerNameGenerator.createFirstName(villager.getUUID()), lastName);
+        int genderId = VillagerGenderService.ensureAssigned(villager);
+        applyTrackedName(villager, VillagerNameGenerator.createFirstName(villager.getUUID(), genderId), lastName);
     }
 
     public static void applyTrackedName(Villager villager, String firstName, String lastName) {
@@ -60,7 +62,8 @@ public final class VillagerNameStateService {
             return false;
         }
 
-        String expectedFirstName = VillagerNameGenerator.createFirstName(villager.getUUID());
+        int genderId = VillagerGenderService.ensureAssigned(villager);
+        String expectedFirstName = VillagerNameGenerator.createFirstName(villager.getUUID(), genderId);
         if (!expectedFirstName.equals(firstName)) {
             return false;
         }

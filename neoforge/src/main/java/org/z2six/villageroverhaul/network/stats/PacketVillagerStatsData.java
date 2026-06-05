@@ -30,7 +30,9 @@ public record PacketVillagerStatsData(
         int efficiency,
         int plantWhisperer,
         int ranger,
-        int genderId
+        int genderId,
+        String birthDateText,
+        String ageText
 ) implements CustomPacketPayload {
 
     public static final Type<PacketVillagerStatsData> TYPE =
@@ -46,6 +48,8 @@ public record PacketVillagerStatsData(
                     int g = 0, t = 0, i = 0, h = 0;
                     int v = 0, a = 0, s = 0, ar = 0;
                     int m = 0, e = 0, pw = 0, r = 0, genderId = -1;
+                    String birthDateText = "";
+                    String ageText = "";
 
                     try { id = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { ok = buf.readBoolean(); } catch (Throwable ignored) {}
@@ -67,8 +71,10 @@ public record PacketVillagerStatsData(
                     try { pw = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { r = buf.readVarInt(); } catch (Throwable ignored) {}
                     try { genderId = buf.readVarInt(); } catch (Throwable ignored) {}
+                    try { birthDateText = buf.readUtf(512); } catch (Throwable ignored) {}
+                    try { ageText = buf.readUtf(512); } catch (Throwable ignored) {}
 
-                    return new PacketVillagerStatsData(id, ok, g, t, i, h, v, a, s, ar, m, e, pw, r, genderId);
+                    return new PacketVillagerStatsData(id, ok, g, t, i, h, v, a, s, ar, m, e, pw, r, genderId, birthDateText, ageText);
                 }
 
                 @Override
@@ -91,15 +97,23 @@ public record PacketVillagerStatsData(
                     buf.writeVarInt(d.plantWhisperer());
                     buf.writeVarInt(d.ranger());
                     buf.writeVarInt(d.genderId());
+                    buf.writeUtf(limitText(d.birthDateText(), 512), 512);
+                    buf.writeUtf(limitText(d.ageText(), 512), 512);
                 }
             };
 
     public static PacketVillagerStatsData missing(int entityId) {
-        return new PacketVillagerStatsData(entityId, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1);
+        return new PacketVillagerStatsData(entityId, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, "", "");
     }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {
         return TYPE;
+    }
+
+    private static String limitText(String text, int maxChars) {
+        if (text == null) return "";
+        if (maxChars <= 0) return "";
+        return text.length() <= maxChars ? text : text.substring(0, maxChars);
     }
 }

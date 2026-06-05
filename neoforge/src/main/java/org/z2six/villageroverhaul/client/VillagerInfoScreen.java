@@ -53,6 +53,7 @@ import org.z2six.villageroverhaul.network.trades.PacketVillagerTradesQuery;
 import org.z2six.villageroverhaul.network.respawn.PacketOpenRespawnInfoScreen;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnExecute;
 import org.z2six.villageroverhaul.network.respawn.PacketRespawnPurge;
+import org.z2six.villageroverhaul.server.VillagerAgeService;
 import org.z2six.villageroverhaul.server.VillagerGenderService;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
@@ -89,6 +90,8 @@ public final class VillagerInfoScreen extends Screen {
     private boolean hasStats = false;
     private boolean statsUnavailable = false;
     private int genderId = VillagerGenderService.GENDER_UNKNOWN;
+    private String birthDateText = "";
+    private String ageText = "";
 
     // Merchant stats
     private int generosity = 0;
@@ -760,6 +763,8 @@ public final class VillagerInfoScreen extends Screen {
                 this.statsUnavailable = true;
                 this.hasStats = false;
                 this.genderId = VillagerGenderService.GENDER_UNKNOWN;
+                this.birthDateText = "";
+                this.ageText = "";
                 return;
             }
 
@@ -781,6 +786,8 @@ public final class VillagerInfoScreen extends Screen {
             this.plantWhisperer = VillagerStatsService.clampPoints(snap.plantWhisperer());
             this.ranger = VillagerStatsService.clampPoints(snap.ranger());
             this.genderId = snap.genderId();
+            this.birthDateText = snap.birthDateText() == null ? "" : snap.birthDateText();
+            this.ageText = snap.ageText() == null ? "" : snap.ageText();
 
             this.hasStats = true;
             this.statsUnavailable = false;
@@ -798,6 +805,8 @@ public final class VillagerInfoScreen extends Screen {
                 this.hasStats = false;
                 this.statsUnavailable = true;
                 this.genderId = VillagerGenderService.GENDER_UNKNOWN;
+                this.birthDateText = "";
+                this.ageText = "";
                 return;
             }
 
@@ -818,6 +827,9 @@ public final class VillagerInfoScreen extends Screen {
             this.plantWhisperer = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_PLANT_WHISPERER));
             this.ranger = VillagerStatsService.clampPoints(root.getInt(VillagerStatsService.K_RANGER));
             this.genderId = VillagerGenderService.getGenderIdFromPersistentData(pd);
+            VillagerAgeService.AgeDisplay age = VillagerAgeService.describeFromPersistentData(pd, currentClientGameTimeForAge());
+            this.birthDateText = age.birthDateText() == null ? "" : age.birthDateText();
+            this.ageText = age.ageText() == null ? "" : age.ageText();
 
             this.hasStats = true;
             this.statsUnavailable = false;
@@ -825,6 +837,18 @@ public final class VillagerInfoScreen extends Screen {
             this.hasStats = false;
             this.statsUnavailable = true;
             this.genderId = VillagerGenderService.GENDER_UNKNOWN;
+            this.birthDateText = "";
+            this.ageText = "";
+        }
+    }
+
+    private long currentClientGameTimeForAge() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc == null || mc.level == null) return -1L;
+            return mc.level.getDayTime();
+        } catch (Throwable ignored) {
+            return -1L;
         }
     }
 
@@ -2082,6 +2106,10 @@ public final class VillagerInfoScreen extends Screen {
             return out;
         }
 
+        out.add(Component.literal("General").withStyle(ChatFormatting.YELLOW));
+        appendGeneralOverview(out);
+
+        out.add(Component.literal(""));
         out.add(Component.literal("Trades").withStyle(ChatFormatting.YELLOW));
         appendTradesOverview(out);
 
@@ -2243,6 +2271,21 @@ public final class VillagerInfoScreen extends Screen {
         }
 
         return out;
+    }
+
+    private void appendGeneralOverview(List<Component> out) {
+        try {
+            if (out == null) return;
+            out.add(Component.literal("Date of birth: ").append(Component.literal(displayAgeValue(this.birthDateText)).withStyle(ChatFormatting.DARK_GRAY)));
+            out.add(Component.literal("Age: ").append(Component.literal(displayAgeValue(this.ageText)).withStyle(ChatFormatting.DARK_GRAY)));
+        } catch (Throwable ignored) {}
+    }
+
+    private String displayAgeValue(String value) {
+        try {
+            if (value != null && !value.isBlank()) return value;
+        } catch (Throwable ignored) {}
+        return this.respawnMode ? "(unavailable)" : "(syncing...)";
     }
 
     private void appendTradesOverview(List<Component> out) {

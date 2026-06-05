@@ -920,6 +920,14 @@ public final class VillagerBrain {
         } catch (Throwable ignored) {}
     }
 
+    public static void clearAllPatrolData(Villager vill) {
+        try {
+            if (vill == null) return;
+            CompoundTag root = getOrCreateRoot(vill);
+            root.remove(K_PATROL);
+        } catch (Throwable ignored) {}
+    }
+
     public static boolean hasAnyPatrolData(Villager vill) {
         try {
             if (vill == null) return false;

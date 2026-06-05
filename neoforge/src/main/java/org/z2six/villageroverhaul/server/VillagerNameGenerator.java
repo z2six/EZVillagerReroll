@@ -9,7 +9,7 @@ final class VillagerNameGenerator {
     private static final int TARGET_FIRST_NAME_COUNT = 4096;
     private static final int TARGET_LAST_NAME_COUNT = 4096;
 
-    private static final String[] CURATED_FIRST_NAMES = {
+    private static final String[] CURATED_MALE_FIRST_NAMES = {
             "Aelric", "Aldric", "Alaric", "Alwyn", "Ansel", "Aric", "Arlen", "Armand",
             "Baldric", "Beren", "Beric", "Bram", "Brandel", "Brennar", "Caelan", "Cedric",
             "Corin", "Dain", "Darian", "Dariann", "Edric", "Edwin", "Eldric", "Elric",
@@ -17,25 +17,30 @@ final class VillagerNameGenerator {
             "Garrick", "Godric", "Hadrian", "Halric", "Iagan", "Ivor", "Jareth", "Kael",
             "Leoric", "Lucan", "Lysander", "Merric", "Niall", "Orrin", "Osric", "Percival",
             "Quentin", "Roderic", "Rowan", "Soren", "Tarian", "Theron", "Tristan", "Ulric",
-            "Vaelin", "Wulfric", "Yrden", "Aislin", "Alena", "Alinor", "Amara", "Anwen",
+            "Vaelin", "Wulfric", "Yrden",
+            "Aeron", "Alder", "Amon", "Arden", "Bastian", "Cassian", "Cyran", "Darianel",
+            "Eldon", "Fenris", "Gideon", "Hadar", "Isen", "Jorren", "Kieran", "Lorcan",
+            "Marek", "Nicen", "Orlan", "Peregrin", "Quillan", "Ronan", "Stellan", "Torin",
+            "Bellamy", "Celwyn", "Farin", "Idris", "Perrin",
+            "Alden", "Borin", "Caedmon", "Dorian", "Ewan", "Finley", "Hollis", "Jory",
+            "Linden", "Marlow", "Oren", "Quincy", "Riven", "Silas", "Tobin", "Wystan"
+    };
+
+    private static final String[] CURATED_FEMALE_FIRST_NAMES = {
+            "Aislin", "Alena", "Alinor", "Amara", "Anwen",
             "Arabella", "Aveline", "Beatrice", "Briallen", "Brienna", "Caelia", "Catrin", "Celesse",
             "Clarimond", "Damaris", "Delphine", "Eira", "Elara", "Elenora", "Elowen", "Emmeline",
             "Eowyn", "Fiora", "Gwendolyn", "Helena", "Ilyana", "Isolde", "Jessamine", "Kaelin",
             "Lavinia", "Leora", "Liora", "Lyra", "Mabyn", "Maelis", "Maris", "Melisande",
             "Mirelle", "Nerys", "Odette", "Oriane", "Rosalind", "Rowena", "Sabine", "Selene",
             "Seraphine", "Sylvaine", "Thalia", "Valeria", "Verena", "Vesper", "Yseult", "Ysella",
-            "Aeron", "Alder", "Amon", "Arden", "Bastian", "Cassian", "Cyran", "Darianel",
-            "Eldon", "Fenris", "Gideon", "Hadar", "Isen", "Jorren", "Kieran", "Lorcan",
-            "Marek", "Nicen", "Orlan", "Peregrin", "Quillan", "Ronan", "Stellan", "Torin",
             "Ariadne", "Briona", "Calista", "Daphne", "Elysia", "Freya", "Giselle", "Honora",
             "Illyria", "Jocelyn", "Kerensa", "Luneth", "Meridia", "Nimue", "Ophelia", "Petra",
-            "Aderyn", "Althea", "Aravel", "Astrid", "Avalyn", "Bellamy", "Beryl", "Briar",
-            "Calanthe", "Celwyn", "Della", "Edda", "Elspeth", "Esme", "Farin", "Fenella",
-            "Gilda", "Halwen", "Idris", "Iona", "Jessa", "Keira", "Laurel", "Linnea",
-            "Maera", "Maeve", "Mirren", "Nelda", "Odelia", "Orla", "Perrin", "Rhea",
-            "Sancia", "Seren", "Tilda", "Vaila", "Willa", "Wynne", "Ylva", "Zephyra",
-            "Alden", "Borin", "Caedmon", "Dorian", "Ewan", "Finley", "Hollis", "Jory",
-            "Linden", "Marlow", "Oren", "Quincy", "Riven", "Silas", "Tobin", "Wystan"
+            "Aderyn", "Althea", "Aravel", "Astrid", "Avalyn", "Beryl", "Briar",
+            "Calanthe", "Della", "Edda", "Elspeth", "Esme", "Fenella",
+            "Gilda", "Halwen", "Iona", "Jessa", "Keira", "Laurel", "Linnea",
+            "Maera", "Maeve", "Mirren", "Nelda", "Odelia", "Orla", "Rhea",
+            "Sancia", "Seren", "Tilda", "Vaila", "Willa", "Wynne", "Ylva", "Zephyra"
     };
 
     private static final String[] CURATED_LAST_NAMES = {
@@ -92,17 +97,25 @@ final class VillagerNameGenerator {
             "u", "ul", "un", "ur", "y", "yl", "yn"
     };
 
-    private static final String[] FIRST_SUFFIXES = {
+    private static final String[] MALE_FIRST_SUFFIXES = {
             "ad", "ael", "aen", "aeth", "ain", "al", "am", "an",
-            "ar", "ard", "as", "ath", "av", "ayn", "ea", "ela",
-            "el", "en", "ena", "enor", "er", "erin", "ess", "eth",
-            "ia", "ian", "iel", "ik", "il", "in", "ion", "ir",
-            "is", "ith", "iv", "lar", "len", "lia", "line", "lon",
-            "lor", "lys", "mir", "na", "ner", "or", "os", "ric",
+            "ar", "ard", "as", "ath", "av", "ayn", "el", "en",
+            "er", "eth", "ian", "iel", "ik", "il", "in", "ion",
+            "ir", "is", "ith", "iv", "lar", "len", "lon", "lor",
+            "mir", "ner", "or", "os", "ric",
             "rid", "rin", "ron", "ser", "sian", "ta", "ter", "thas",
             "ther", "ton", "tyr", "var", "vel", "vian", "win", "wyr",
-            "wyn", "wen", "well", "wick", "ley", "low", "nell", "rell",
-            "yn"
+            "wyn", "well", "wick", "ley", "low", "rell", "yn"
+    };
+
+    private static final String[] FEMALE_FIRST_SUFFIXES = {
+            "a", "ae", "aine", "ara", "aria", "ava", "ea", "ela",
+            "elle", "ena", "enor", "era", "erin", "ess",
+            "ia", "ila", "ina", "ira", "la",
+            "lia", "lina", "line", "lys", "ma", "mira", "na",
+            "nara", "nell", "nora", "ora", "ra", "ria", "riel", "rina",
+            "sa", "sera", "thia", "va", "vela", "ven",
+            "wen", "yra"
     };
 
     private static final String[] LAST_PREFIXES = {
@@ -141,7 +154,9 @@ final class VillagerNameGenerator {
             "yard", "wind", "wood", "worth", "wright"
     };
 
-    private static final String[] FIRST_NAMES = buildFirstNames();
+    private static final String[] MALE_FIRST_NAMES = buildFirstNames(CURATED_MALE_FIRST_NAMES, MALE_FIRST_SUFFIXES, CURATED_FEMALE_FIRST_NAMES);
+    private static final String[] FEMALE_FIRST_NAMES = buildFirstNames(CURATED_FEMALE_FIRST_NAMES, FEMALE_FIRST_SUFFIXES, MALE_FIRST_NAMES);
+    private static final String[] FIRST_NAMES = buildCombinedFirstNames();
     private static final String[] LAST_NAMES = buildLastNames();
 
     private VillagerNameGenerator() {
@@ -152,8 +167,17 @@ final class VillagerNameGenerator {
     }
 
     static String createFirstName(UUID villagerId) {
+        return createFirstName(villagerId, VillagerGenderService.GENDER_UNKNOWN);
+    }
+
+    static String createFirstName(UUID villagerId, int genderId) {
         long firstSeed = mix64(villagerId.getMostSignificantBits() ^ villagerId.getLeastSignificantBits());
-        return FIRST_NAMES[(int) Long.remainderUnsigned(firstSeed, FIRST_NAMES.length)];
+        String[] names = switch (genderId) {
+            case VillagerGenderService.GENDER_MALE -> MALE_FIRST_NAMES;
+            case VillagerGenderService.GENDER_FEMALE -> FEMALE_FIRST_NAMES;
+            default -> FIRST_NAMES;
+        };
+        return names[(int) Long.remainderUnsigned(firstSeed, names.length)];
     }
 
     static String createLastName(UUID villagerId) {
@@ -180,10 +204,19 @@ final class VillagerNameGenerator {
         return lastName.isEmpty() ? null : lastName;
     }
 
-    private static String[] buildFirstNames() {
+    private static String[] buildFirstNames(String[] curatedNames, String[] suffixes, String[] excludedNames) {
         LinkedHashSet<String> names = new LinkedHashSet<>(TARGET_FIRST_NAME_COUNT * 2);
-        addAll(names, CURATED_FIRST_NAMES);
-        addGeneratedFirstNames(names);
+        LinkedHashSet<String> excluded = new LinkedHashSet<>();
+        addAll(excluded, excludedNames);
+        addAll(names, curatedNames, excluded);
+        addGeneratedFirstNames(names, suffixes, excluded);
+        return names.toArray(String[]::new);
+    }
+
+    private static String[] buildCombinedFirstNames() {
+        LinkedHashSet<String> names = new LinkedHashSet<>(TARGET_FIRST_NAME_COUNT * 4);
+        addAll(names, MALE_FIRST_NAMES);
+        addAll(names, FEMALE_FIRST_NAMES);
         return names.toArray(String[]::new);
     }
 
@@ -194,15 +227,15 @@ final class VillagerNameGenerator {
         return names.toArray(String[]::new);
     }
 
-    private static void addGeneratedFirstNames(Set<String> names) {
+    private static void addGeneratedFirstNames(Set<String> names, String[] suffixes, Set<String> excludedNames) {
         for (String prefix : FIRST_PREFIXES) {
-            for (String suffix : FIRST_SUFFIXES) {
+            for (String suffix : suffixes) {
                 if (names.size() >= TARGET_FIRST_NAME_COUNT) {
                     return;
                 }
 
                 String candidate = joinFlowing(prefix, suffix);
-                if (isValidFirstName(candidate)) {
+                if (isValidFirstName(candidate) && !excludedNames.contains(candidate)) {
                     names.add(candidate);
                 }
             }
@@ -210,13 +243,13 @@ final class VillagerNameGenerator {
 
         for (String prefix : FIRST_PREFIXES) {
             for (String middle : FIRST_MIDDLES) {
-                for (String suffix : FIRST_SUFFIXES) {
+                for (String suffix : suffixes) {
                     if (names.size() >= TARGET_FIRST_NAME_COUNT) {
                         return;
                     }
 
                     String candidate = joinFlowing(joinFlowing(prefix, middle), suffix);
-                    if (isValidFirstName(candidate)) {
+                    if (isValidFirstName(candidate) && !excludedNames.contains(candidate)) {
                         names.add(candidate);
                     }
                 }
@@ -255,8 +288,14 @@ final class VillagerNameGenerator {
     }
 
     private static void addAll(Set<String> names, String[] values) {
+        addAll(names, values, Set.of());
+    }
+
+    private static void addAll(Set<String> names, String[] values, Set<String> excludedNames) {
         for (String value : values) {
-            names.add(value);
+            if (!excludedNames.contains(value)) {
+                names.add(value);
+            }
         }
     }
 

@@ -38,6 +38,7 @@ public final class VillagerStatsEvents {
 
             // 1) Ensure NBT stat points exist
             VillagerStatsService.ensureStats(entity);
+            VillagerAgeService.ensureBirthData(entity);
 
             // 2) Apply attribute modifiers (vitality/agility/strength/armor)
             VillagerCombatAttributeService.applyCombatModifiers(entity);

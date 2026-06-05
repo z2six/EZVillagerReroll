@@ -167,4 +167,24 @@ public final class RecruitService {
             return false;
         }
     }
+
+    public static boolean unmarkRecruited(Entity vill) {
+        try {
+            if (vill == null) return false;
+
+            CompoundTag pd = vill.getPersistentData();
+            if (pd == null) return false;
+
+            pd.remove(TAG_RECRUITED);
+            pd.remove(TAG_RECRUITED_BY);
+            pd.remove(TAG_RECRUITED_BY_NAME);
+            pd.remove(TAG_RECRUITED_AT);
+
+            return true;
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] RecruitService.unmarkRecruited failed", t);
+            return false;
+        }
+    }
 }

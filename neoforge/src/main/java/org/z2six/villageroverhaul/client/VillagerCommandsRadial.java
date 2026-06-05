@@ -3,15 +3,19 @@ package org.z2six.villageroverhaul.client;
 import com.google.gson.JsonObject;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.ConfirmScreen;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
 import org.z2six.villageroverhaul.network.customcommands.PacketCcBeginTeaching;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCombatCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerManualFarmingModeCommand;
+import org.z2six.villageroverhaul.network.modes.PacketVillagerReleaseCommand;
 import org.z2six.villageroverhaul.network.modes.PacketVillagerUiPause;
 
 import java.lang.reflect.Constructor;
@@ -111,7 +115,7 @@ final class VillagerCommandsRadial {
                 () -> sendMovementCommand(villagerEntityId,
                         "neutral".equals(movementMode) ? PacketVillagerCommand.Command.IDLE : PacketVillagerCommand.Command.NEUTRAL,
                         "neutral".equals(movementMode) ? "Idle" : "Neutral")));
-        root.add(action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Release", "Permanently remove this villager", "minecraft:ender_pearl",
+        root.add(action(menuItemCtor, iconItem, withActive, actionInterface, commandType, "Release", "Free from service or shoo away", "minecraft:ender_pearl",
                 false,
                 () -> openReleaseConfirm(parent, villagerEntityId)));
         root.add(category(menuItemCtor, iconItem, withActive,
@@ -381,40 +385,120 @@ final class VillagerCommandsRadial {
         Minecraft mc = Minecraft.getInstance();
         if (mc == null) return;
         clearRadialPause(villagerEntityId);
-        final boolean[] releaseConfirmed = new boolean[] { false };
-        mc.setScreen(new ConfirmScreen(confirmed -> {
+        mc.setScreen(new ReleaseConfirmScreen(parent, villagerEntityId));
+    }
+
+    private static final class ReleaseConfirmScreen extends Screen {
+        private static final int PANEL_W = 286;
+
+        private final Screen parent;
+        private final int villagerEntityId;
+        private boolean shooAway;
+        private boolean confirmed;
+        private int pauseTick;
+        private Button shooAwayButton;
+        private Button confirmButton;
+
+        private ReleaseConfirmScreen(Screen parent, int villagerEntityId) {
+            super(Component.literal("Release from oath?"));
+            this.parent = parent;
+            this.villagerEntityId = villagerEntityId;
+        }
+
+        @Override
+        protected void init() {
+            int cx = this.width / 2;
+            int y = Math.max(28, this.height / 2 - 70);
+
+            this.shooAwayButton = this.addRenderableWidget(Button.builder(shooAwayLabel(), b -> {
+                        this.shooAway = !this.shooAway;
+                        if (this.shooAwayButton != null) this.shooAwayButton.setMessage(shooAwayLabel());
+                        if (this.confirmButton != null) this.confirmButton.setMessage(confirmLabel());
+                    })
+                    .bounds(cx - PANEL_W / 2, y + 72, PANEL_W, 20)
+                    .build());
+
+            this.confirmButton = this.addRenderableWidget(Button.builder(confirmLabel(), b -> confirmRelease())
+                    .bounds(cx - PANEL_W / 2, y + 100, 134, 20)
+                    .build());
+
+            this.addRenderableWidget(Button.builder(Component.literal("Keep oath"), b -> cancelRelease())
+                    .bounds(cx + PANEL_W / 2 - 134, y + 100, 134, 20)
+                    .build());
+        }
+
+        @Override
+        public void renderBackground(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
+            gg.fill(0, 0, this.width, this.height, 0xC0101010);
+        }
+
+        @Override
+        public void render(GuiGraphics gg, int mouseX, int mouseY, float partialTick) {
+            this.renderBackground(gg, mouseX, mouseY, partialTick);
+
+            Font font = Minecraft.getInstance().font;
+            int cx = this.width / 2;
+            int y = Math.max(28, this.height / 2 - 70);
+
+            gg.drawCenteredString(font, this.title, cx, y, 0xFFFFFFFF);
+
+            List<FormattedCharSequence> lines = font.split(bodyText(), PANEL_W);
+            int lineY = y + 24;
+            for (FormattedCharSequence line : lines) {
+                gg.drawString(font, line, cx - PANEL_W / 2, lineY, 0xFFBDBDBD, false);
+                lineY += 11;
+            }
+
+            super.render(gg, mouseX, mouseY, partialTick);
+        }
+
+        @Override
+        public void tick() {
+            super.tick();
+            if ((this.pauseTick++ % 20) == 0) sendUiPause(this.villagerEntityId, true);
+        }
+
+        @Override
+        public void removed() {
+            super.removed();
+            if (!this.confirmed) sendUiPause(this.villagerEntityId, false);
+        }
+
+        private Component bodyText() {
+            if (this.shooAway) {
+                return Component.literal("Shoo away sends the villager beyond your hearth. Their spirit will not answer a Spawn Anchor.");
+            }
+            return Component.literal("This frees the villager from your service. They return to Neutral and may swear service again later.");
+        }
+
+        private Component shooAwayLabel() {
+            return Component.literal((this.shooAway ? "[x] " : "[ ] ") + "Shoo away");
+        }
+
+        private Component confirmLabel() {
+            return Component.literal(this.shooAway ? "Shoo away" : "Release");
+        }
+
+        private void confirmRelease() {
             try {
-                if (confirmed) {
-                    releaseConfirmed[0] = true;
-                    ClientNetwork.sendToServer(new PacketVillagerCommand(villagerEntityId, PacketVillagerCommand.Command.RELEASE));
-                    showClientToast("Releasing villager...");
-                    mc.setScreen(null);
-                } else {
-                    sendUiPause(villagerEntityId, false);
-                    mc.setScreen(parent);
-                }
+                this.confirmed = true;
+                ClientNetwork.sendToServer(new PacketVillagerReleaseCommand(this.villagerEntityId, this.shooAway));
+                showClientToast(this.shooAway ? "Shooing villager away..." : "Villager released from service.");
+                Minecraft mc = Minecraft.getInstance();
+                if (mc != null) mc.setScreen(null);
             } catch (Throwable t) {
-                sendUiPause(villagerEntityId, false);
+                sendUiPause(this.villagerEntityId, false);
                 VillagerOverhaul.LOG().error("[VillagerOverhaul] Release confirmation failed", t);
             }
-        }, Component.literal("Release villager?"),
-                Component.literal("This permanently removes the villager and it cannot be revived from a Spawn Anchor."),
-                Component.literal("Release"),
-                Component.literal("Cancel")) {
-            private int pauseTick;
+        }
 
-            @Override
-            public void tick() {
-                super.tick();
-                if ((pauseTick++ % 20) == 0) sendUiPause(villagerEntityId, true);
-            }
-
-            @Override
-            public void removed() {
-                super.removed();
-                if (!releaseConfirmed[0]) sendUiPause(villagerEntityId, false);
-            }
-        });
+        private void cancelRelease() {
+            try {
+                sendUiPause(this.villagerEntityId, false);
+                Minecraft mc = Minecraft.getInstance();
+                if (mc != null) mc.setScreen(this.parent);
+            } catch (Throwable ignored) {}
+        }
     }
 
     private static void sendUiPause(int villagerEntityId, boolean paused) {
