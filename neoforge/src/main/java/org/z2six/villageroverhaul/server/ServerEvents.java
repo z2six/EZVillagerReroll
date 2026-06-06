@@ -813,6 +813,7 @@ public final class ServerEvents {
                 if (!CustomCommandsService.isExecuting(vill)) continue;
 
                 try { CustomCommandsService.stopExecution(vill); } catch (Throwable ignored) {}
+                try { org.z2six.villageroverhaul.server.ai.VillagerSeatService.dismountIfSeated(vill, "cc_stop"); } catch (Throwable ignored) {}
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                 queueVillagerChatFeedback(villagerFeedback, vill, whisperFeedback, confirmText);
                 if (relayers.contains(vill.getUUID())) {

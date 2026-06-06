@@ -12,6 +12,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.server.ai.VillagerSeatService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -1190,6 +1191,7 @@ public final class CustomCommandsService {
     public static void startExecution(Villager vill, int actionIndex) {
         try {
             if (vill == null) return;
+            try { VillagerSeatService.dismountIfSeated(vill, "cc_start"); } catch (Throwable ignored) {}
             CompoundTag root = getOrCreateRoot(vill);
             CompoundTag st = root.contains(K_STATE, Tag.TAG_COMPOUND) ? root.getCompound(K_STATE) : new CompoundTag();
             st.putBoolean(K_EXEC_ACTIVE, true);
@@ -1203,6 +1205,7 @@ public final class CustomCommandsService {
     public static void queueExecution(Villager vill, int actionIndex, long delayUntilGameTime) {
         try {
             if (vill == null) return;
+            try { VillagerSeatService.dismountIfSeated(vill, "cc_queue"); } catch (Throwable ignored) {}
             CompoundTag root = getOrCreateRoot(vill);
             CompoundTag st = root.contains(K_STATE, Tag.TAG_COMPOUND) ? root.getCompound(K_STATE) : new CompoundTag();
             st.putBoolean(K_EXEC_ACTIVE, true);

@@ -267,6 +267,9 @@ public final class VillagerBrain {
             }
 
             root.putString(K_COMBAT_MODE, mode.id);
+            if (mode != CombatMode.OFF) {
+                try { VillagerSeatService.dismountIfSeated(vill, "combat_" + mode.id); } catch (Throwable ignored) {}
+            }
 
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] CombatMode set (villager={}, mode={})", vill.getUUID(), mode.id);
         } catch (Throwable t) {
@@ -1343,6 +1346,9 @@ public final class VillagerBrain {
             if (vill == null || mode == null) return;
             CompoundTag root = getOrCreateRoot(vill);
             root.putString(K_MODE, mode.id);
+            if (mode == Mode.FOLLOW || mode == Mode.PATROL_SETUP || mode == Mode.PATROL || mode == Mode.TRADING) {
+                try { VillagerSeatService.dismountIfSeated(vill, "mode_" + mode.id); } catch (Throwable ignored) {}
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -1559,6 +1565,9 @@ public final class VillagerBrain {
     public static void setStorageActive(Villager vill, boolean active) {
         try {
             if (vill == null) return;
+            if (active) {
+                try { VillagerSeatService.dismountIfSeated(vill, "storage"); } catch (Throwable ignored) {}
+            }
             CompoundTag root = getOrCreateRoot(vill);
             if (active) root.putBoolean(K_STORAGE_ACTIVE, true);
             else root.remove(K_STORAGE_ACTIVE);
@@ -1579,6 +1588,9 @@ public final class VillagerBrain {
     public static void setManualFarmingActive(Villager vill, boolean active) {
         try {
             if (vill == null) return;
+            if (active) {
+                try { VillagerSeatService.dismountIfSeated(vill, "manual_farming"); } catch (Throwable ignored) {}
+            }
             CompoundTag root = getOrCreateRoot(vill);
             if (active) {
                 root.putBoolean(K_MANUAL_FARMING_ACTIVE, true);
@@ -1657,6 +1669,9 @@ public final class VillagerBrain {
     public static void setCombatEngaged(Villager vill, boolean engaged) {
         try {
             if (vill == null) return;
+            if (engaged) {
+                try { VillagerSeatService.dismountIfSeated(vill, "combat_engaged"); } catch (Throwable ignored) {}
+            }
             if (engaged) vill.getPersistentData().putBoolean("ezvr_combat_engaged", true);
             else vill.getPersistentData().remove("ezvr_combat_engaged");
         } catch (Throwable ignored) {}

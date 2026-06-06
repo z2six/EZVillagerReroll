@@ -173,6 +173,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
 
         setPartVisibility(baseHumanoidModel, slot);
         copyVillagerPoseIntoHumanoid(this.getParentModel(), baseHumanoidModel);
+        applyPassengerLegPoseIfNeeded(vill, baseHumanoidModel);
 
         boolean useDriverArms = false;
         try {
@@ -228,6 +229,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                     if (base.rightLeg != null && hm.rightLeg != null) copyPartRot(base.rightLeg, hm.rightLeg);
                     if (base.leftLeg != null && hm.leftLeg != null) copyPartRot(base.leftLeg, hm.leftLeg);
                 }
+                applyPassengerLegPoseIfNeeded(vill, hm);
             } catch (Throwable ignored) {}
         }
 
@@ -244,6 +246,12 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         try {
             if (extensions != null) {
                 extensions.setupModelAnimations(vill, stack, slot, armorModel, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            if (humanoidArmorModel != null) {
+                applyPassengerLegPoseIfNeeded(vill, humanoidArmorModel);
             }
         } catch (Throwable ignored) {}
 
@@ -1077,6 +1085,29 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         if (vLA != null && humanoid.leftArm != null) copyPartRot(vLA, humanoid.leftArm);
         if (vRL != null && humanoid.rightLeg != null) copyPartRot(vRL, humanoid.rightLeg);
         if (vLL != null && humanoid.leftLeg != null) copyPartRot(vLL, humanoid.leftLeg);
+    }
+
+    private static void applyPassengerLegPoseIfNeeded(Villager villager, HumanoidModel<?> humanoid) {
+        try {
+            if (villager == null || humanoid == null || !villager.isPassenger()) return;
+            applyPassengerLegPose(humanoid);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void applyPassengerLegPose(HumanoidModel<?> humanoid) {
+        if (humanoid == null) return;
+        try {
+            if (humanoid.rightLeg != null) {
+                humanoid.rightLeg.xRot = -1.4137167F;
+                humanoid.rightLeg.yRot = (float) (Math.PI / 10.0D);
+                humanoid.rightLeg.zRot = 0.07853982F;
+            }
+            if (humanoid.leftLeg != null) {
+                humanoid.leftLeg.xRot = -1.4137167F;
+                humanoid.leftLeg.yRot = (float) (-Math.PI / 10.0D);
+                humanoid.leftLeg.zRot = -0.07853982F;
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static void copyPartRot(ModelPart from, ModelPart to) {

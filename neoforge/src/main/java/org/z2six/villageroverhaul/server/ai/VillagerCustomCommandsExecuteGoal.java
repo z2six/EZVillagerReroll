@@ -205,6 +205,7 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             } catch (Throwable ignored) {}
 
             if (stepIndex < 0 || stepIndex >= action.steps().size()) {
+                try { VillagerSeatService.dismountIfCurrentActivityRequiresIt(vill, "cc_complete_activity"); } catch (Throwable ignored) {}
                 CustomCommandsService.stopExecution(vill);
                 vill.getNavigation().stop();
                 return;
@@ -215,6 +216,10 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
                 stepIndex++;
                 stepStartGameTime = now;
                 return;
+            }
+
+            if (VillagerSeatService.isMacroSeated(vill) && VillagerSeatService.shouldDismountBeforeStep(step.type())) {
+                VillagerSeatService.dismountIfSeated(vill, "cc_step_" + step.type().name().toLowerCase(java.util.Locale.ROOT));
             }
 
             // Timeout: do NOT count time spent in explicit WAIT/LOOK steps, otherwise long waits/looks will wrongly fail & retry.
@@ -302,6 +307,7 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
         lookHoldStartGameTime = 0L;
         try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
         if (action == null || action.steps() == null || stepIndex >= action.steps().size()) {
+            try { VillagerSeatService.dismountIfCurrentActivityRequiresIt(vill, "cc_complete_activity"); } catch (Throwable ignored) {}
             CustomCommandsService.stopExecution(vill);
         }
     }
@@ -483,6 +489,7 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             GameProfile profile = new GameProfile(fpUuid, "VO_CC");
             var fp = FakePlayerFactory.get(level, profile);
 
+            try { VillagerSeatService.clearFakePlayerRiding(fp); } catch (Throwable ignored) {}
             try { fp.moveTo(vill.getX(), vill.getY(), vill.getZ(), vill.getYRot(), vill.getXRot()); } catch (Throwable ignored) {}
             ItemStack prev = ItemStack.EMPTY;
             try { prev = fp.getMainHandItem().copy(); } catch (Throwable ignored) { prev = ItemStack.EMPTY; }
@@ -503,6 +510,15 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
                 } catch (Throwable ignored) {}
             }
 
+            boolean seated = false;
+            try { seated = VillagerSeatService.tryTransferFakePlayerVehicleToVillager(fp, vill, pos); } catch (Throwable ignored) { seated = false; }
+            if (!seated) {
+                try { seated = VillagerSeatService.tryMountVillagerOnNearbySeatEntity(level, pos, vill, "after_fake_player_use"); } catch (Throwable ignored) { seated = false; }
+            }
+            if (!seated) {
+                try { VillagerSeatService.trySeatVillagerViaEntityInside(level, pos, vill); } catch (Throwable ignored) {}
+                try { VillagerSeatService.tryMountVillagerOnNearbySeatEntity(level, pos, vill, "after_entity_inside"); } catch (Throwable ignored) {}
+            }
             try { fp.setItemInHand(InteractionHand.MAIN_HAND, prev); } catch (Throwable ignored) {}
             return res != null && res.consumesAction();
         } catch (Throwable ignored) {
@@ -561,8 +577,14 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
             );
             GameProfile profile = new GameProfile(fpUuid, "VO_CC");
             var fp = FakePlayerFactory.get(level, profile);
+            try { VillagerSeatService.clearFakePlayerRiding(fp); } catch (Throwable ignored) {}
             try { fp.moveTo(vill.getX(), vill.getY(), vill.getZ(), vill.getYRot(), vill.getXRot()); } catch (Throwable ignored) {}
             try { fp.interactOn(target, InteractionHand.MAIN_HAND); } catch (Throwable ignored) {}
+            boolean seated = false;
+            try { seated = VillagerSeatService.tryTransferFakePlayerVehicleToVillager(fp, vill, target.blockPosition()); } catch (Throwable ignored) { seated = false; }
+            if (!seated) {
+                try { VillagerSeatService.tryMountVillagerOnNearbySeatEntity(level, target.blockPosition(), vill, "after_fake_player_entity_use"); } catch (Throwable ignored) {}
+            }
         } catch (Throwable ignored) {}
 
         advance();
