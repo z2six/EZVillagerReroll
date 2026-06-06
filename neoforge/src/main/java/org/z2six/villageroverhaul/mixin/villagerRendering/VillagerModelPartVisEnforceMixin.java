@@ -3,9 +3,11 @@ package org.z2six.villageroverhaul.mixin.villagerRendering;
 
 import net.minecraft.client.model.VillagerModel;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.z2six.villageroverhaul.client.render.ArmorEditorRenderContext;
 import org.z2six.villageroverhaul.client.render.ClientPartVisibilityRules;
 
 /**
@@ -22,8 +24,7 @@ public abstract class VillagerModelPartVisEnforceMixin {
             require = 0
     )
     private void vo$partvis_setupAnim_state_tail(Object state, CallbackInfo ci) {
-        if (!ClientPartVisibilityRules.hasAny()) return;
-        ClientPartVisibilityRules.applyToModel(this);
+        vo$applyVisibilityRules();
     }
 
     // Older signature (entity + floats) - if present, we hook it too.
@@ -33,8 +34,7 @@ public abstract class VillagerModelPartVisEnforceMixin {
             require = 0
     )
     private void vo$partvis_setupAnim_entity_tail(Object villager, float limbSwing, float limbSwingAmount, float ageInTicks, float netHeadYaw, float headPitch, CallbackInfo ci) {
-        if (!ClientPartVisibilityRules.hasAny()) return;
-        ClientPartVisibilityRules.applyToModel(this);
+        vo$applyVisibilityRules();
     }
 
     // Vanilla uses hatVisible(...) to re-toggle hat/hat_rim etc.
@@ -44,7 +44,25 @@ public abstract class VillagerModelPartVisEnforceMixin {
             require = 0
     )
     private void vo$partvis_hatVisible_tail(boolean visible, CallbackInfo ci) {
-        if (!ClientPartVisibilityRules.hasAny()) return;
-        ClientPartVisibilityRules.applyToModel(this);
+        if (ClientPartVisibilityRules.hasAny()) {
+            ClientPartVisibilityRules.applyToModel(this);
+        } else if (!ArmorEditorRenderContext.active()) {
+            ArmorEditorRenderContext.restoreCoreVillagerModelParts(this);
+        }
+        if (ArmorEditorRenderContext.active()) {
+            ArmorEditorRenderContext.applyToVillagerModel(this);
+        }
+    }
+
+    @Unique
+    private void vo$applyVisibilityRules() {
+        if (ClientPartVisibilityRules.hasAny()) {
+            ClientPartVisibilityRules.applyToModel(this);
+        } else if (!ArmorEditorRenderContext.active()) {
+            ArmorEditorRenderContext.restoreCoreVillagerModelParts(this);
+        }
+        if (ArmorEditorRenderContext.active()) {
+            ArmorEditorRenderContext.applyToVillagerModel(this);
+        }
     }
 }

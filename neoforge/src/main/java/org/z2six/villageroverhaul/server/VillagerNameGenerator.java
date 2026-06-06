@@ -7,7 +7,7 @@ import org.jetbrains.annotations.Nullable;
 
 final class VillagerNameGenerator {
     private static final int TARGET_FIRST_NAME_COUNT = 4096;
-    private static final int TARGET_LAST_NAME_COUNT = 4096;
+    private static final int TARGET_LAST_NAME_COUNT = 32768;
 
     private static final String[] CURATED_MALE_FIRST_NAMES = {
             "Aelric", "Aldric", "Alaric", "Alwyn", "Ansel", "Aric", "Arlen", "Armand",
@@ -133,7 +133,23 @@ final class VillagerNameGenerator {
             "Vale", "West", "White", "Wild", "Willow", "Wind", "Winter", "Wolf",
             "Apple", "Barley", "Bell", "Birch", "Clover", "Fennel", "Honey", "Ivy",
             "Meadow", "Mill", "Orchard", "Pepper", "Plum", "Sage", "Salt", "Seed",
-            "Spruce", "Thatch", "Wheat", "Wood", "Yew", "Wren"
+            "Spruce", "Thatch", "Wheat", "Wood", "Yew", "Wren",
+            "Alder", "Anvil", "Argent", "Arrow", "Aster", "Bail", "Banner", "Barrow",
+            "Beacon", "Bitter", "Bracken", "Bramble", "Brass", "Bridge", "Burrow", "Cairn",
+            "Carver", "Castle", "Chapel", "Charter", "Clay", "Clear", "Cobble", "Corbel",
+            "Crag", "Crest", "Dagger", "Dale", "Dapple", "Drift", "Dry", "Ebon",
+            "Elm", "Fable", "Fallow", "Fenn", "Gable", "Garnet", "Gilded", "Glass",
+            "Gloom", "Gorse", "Grain", "Grange", "Gravel", "Hallow", "Hammer", "Harrow",
+            "Heather", "Henge", "Hob", "Holly", "Humble", "Juniper", "Kettle", "Kindle",
+            "Knight", "Lambent", "Laurel", "Linen", "Long", "Mallow", "Mason", "Mellow",
+            "Merry", "Mire", "Morrow", "Nettle", "New", "Old", "Oriel", "Pale",
+            "Pearl", "Pebble", "Pewter", "Poppy", "Proud", "Quarry", "Quiet", "Rain",
+            "Ridge", "Rill", "Sable", "Saffron", "Scarlet", "Seaborn", "Shale", "Sheaf",
+            "Shear", "Shore", "Shrine", "Slate", "Sloe", "Small", "Smoke", "Sparrow",
+            "Spear", "Spindle", "Stag", "Stave", "Sterling", "Stout", "Straw", "Tallow",
+            "Tarn", "Temple", "Thistle", "Tower", "Tumbled", "Under", "Vellum", "Violet",
+            "Warden", "Wax", "Way", "Weather", "Whisper", "Wicker", "Winch", "Wither",
+            "Wooden", "Wool", "Wyvern", "Yellow"
     };
 
     private static final String[] LAST_LINKERS = {
@@ -151,7 +167,19 @@ final class VillagerNameGenerator {
             "ward", "watch", "water", "well", "wharf", "wick", "wild", "wall",
             "bell", "binder", "blossom", "bower", "branch", "brew", "croft", "fall",
             "fen", "grove", "mill", "root", "seed", "smoke", "stead", "whistle",
-            "yard", "wind", "wood", "worth", "wright"
+            "yard", "wind", "wood", "worth", "wright",
+            "abbey", "acre", "anvil", "arbor", "ark", "ash", "bail", "banner",
+            "bastion", "beam", "bend", "bough", "bourne", "braid", "bridge", "burg",
+            "bury", "cairn", "chapel", "charter", "chime", "cliff", "cloak", "copse",
+            "court", "craft", "cross", "dell", "drift", "dusk", "ember", "fane",
+            "feast", "flame", "flax", "flock", "fold", "gale", "garth", "grange",
+            "grave", "green", "harbor", "harp", "harvest", "hedge", "henge", "hill",
+            "hoard", "hook", "kiln", "lace", "lantern", "lock", "loom", "march",
+            "market", "mason", "mirth", "morrow", "motte", "nook", "oath", "path",
+            "pike", "post", "quill", "rain", "rill", "road", "roost", "sail",
+            "scar", "seal", "sheaf", "shrine", "skein", "slate", "spear", "stave",
+            "stock", "strand", "tarn", "thatch", "tower", "vane", "veil", "wade",
+            "wain", "way", "weald", "weave", "wheel", "wold", "wych", "yard"
     };
 
     private static final String[] MALE_FIRST_NAMES = buildFirstNames(CURATED_MALE_FIRST_NAMES, MALE_FIRST_SUFFIXES, CURATED_FEMALE_FIRST_NAMES);

@@ -6,6 +6,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.network.ClientSyncedConfig;
+import org.z2six.villageroverhaul.network.PacketOpenArmorEditorScreen;
 import org.z2six.villageroverhaul.network.tooltip.ClientTooltipCache;
 import org.z2six.villageroverhaul.network.ClientTradeLockCache;
 import org.z2six.villageroverhaul.network.autoReroll.PacketAutoSearchDone;
@@ -64,6 +65,36 @@ public final class ClientNetworkHandlers {
     // -----------------------------------------------------------------------------------------
     // Existing handlers that Network.java already dispatches to (keep resilient).
     // -----------------------------------------------------------------------------------------
+
+    public static void onOpenArmorEditorScreen(Object msg, IPayloadContext ctx) {
+        try {
+            if (msg instanceof PacketOpenArmorEditorScreen p) {
+                onOpenArmorEditorScreen(p, ctx);
+                return;
+            }
+            VillagerOverhaul.LOG().warn("[VillagerOverhaul] onOpenArmorEditorScreen(Object,ctx) got unexpected msg type: {}",
+                    msg == null ? "null" : msg.getClass().getName());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenArmorEditorScreen(Object) failed", t);
+        }
+    }
+
+    public static void onOpenArmorEditorScreen(PacketOpenArmorEditorScreen msg, IPayloadContext ctx) {
+        try {
+            if (ctx == null) return;
+            ctx.enqueueWork(() -> {
+                try {
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc == null) return;
+                    mc.setScreen(new ArmorEditorScreen(mc.screen));
+                } catch (Throwable t) {
+                    VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenArmorEditorScreen failed", t);
+                }
+            });
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().error("[VillagerOverhaul] Client onOpenArmorEditorScreen enqueue failed", t);
+        }
+    }
 
     public static void onTooltipData(PacketTooltipData msg, IPayloadContext ctx) {
         try {

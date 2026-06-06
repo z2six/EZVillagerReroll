@@ -5,6 +5,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -14,6 +15,7 @@ import net.minecraft.world.phys.AABB;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.z2six.villageroverhaul.VillagerOverhaul;
+import org.z2six.villageroverhaul.network.PacketOpenArmorEditorScreen;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 import java.util.ArrayList;
@@ -54,8 +56,30 @@ public final class ServerCommands {
             d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_renamesinglenames")
                     .requires(src -> src != null && src.hasPermission(2))
                     .executes(ctx -> toggleSingleNameRenaming(ctx.getSource())));
+
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_armoreditor")
+                    .requires(src -> src != null && src.hasPermission(2))
+                    .executes(ctx -> openArmorEditor(ctx.getSource())));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] RegisterCommandsEvent failed (server commands may be missing).", t);
+        }
+    }
+
+    private static int openArmorEditor(CommandSourceStack source) {
+        try {
+            if (source == null) return 0;
+            if (!(source.getEntity() instanceof ServerPlayer sp)) {
+                source.sendFailure(Component.literal("Player-only command."));
+                return 0;
+            }
+            sp.connection.send(new ClientboundCustomPayloadPacket(new PacketOpenArmorEditorScreen()));
+            source.sendSuccess(() -> Component.literal("Opening Villager Overhaul armor editor."), false);
+            return 1;
+        } catch (Throwable t) {
+            try {
+                if (source != null) source.sendFailure(Component.literal("Command failed: " + t.getClass().getSimpleName()));
+            } catch (Throwable ignored) {}
+            return 0;
         }
     }
 

@@ -31,8 +31,10 @@ import org.z2six.villageroverhaul.render.VillagerRenderFlags;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -60,50 +62,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
      */
     private static final boolean ENABLE_ARMOR_TRANSFORMS = true;
 
-    /**
-     * Per-slot transform applied to the whole rendered armor for that slot.
-     *
-     * Common uses:
-     * - Helmet higher: HEAD.y += 0.015 .. 0.03
-     * - Chest bigger: CHEST.scaleXYZ = 1.03 .. 1.10
-     * - Legs bigger: LEGS.scaleXYZ = 1.02 .. 1.08
-     * - Push outward to reduce robe clipping: z += 0.01 .. 0.03
-     */
-    // Helmets from many mods are authored strictly for player proportions; villagers have a taller head/nose.
-    // We apply a small uniform scale for *custom* armor models to reduce head clipping.
-    // Single setting for all helmets (vanilla + modded). Tune here.
-    //
-    // From the perspective of player (villager facing the player), variables are as follows:
-    // x = ??? | y = positive = down | z = ???
-    // sx = width | sy = height | sz = depth
-    private static final Transform TX_HEAD  = Transform.of(0.0f, 0.100f, 0.000f, 1.080f, 1.550f, 1.080f);
-    private static final Transform TX_CHEST = Transform.of(0.0f, 0.000f, 0.012f, 1.060f, 1.060f, 1.250f);
-    private static final Transform TX_LEGS  = Transform.of(0.0f, 0.000f, 0.010f, 1.060f, 1.060f, 1.150f);
-    private static final Transform TX_FEET  = Transform.of(0.0f, 0.000f, 0.006f, 1.060f, 1.060f, 1.150f);
-
-    /**
-     * Optional per-part transforms (applied just before rendering each ModelPart).
-     * This is useful to scale body without scaling arms as much, etc.
-     *
-     * Set to Transform.IDENTITY to disable a part override.
-     */
-    // HEAD slot: adjust helmet/hat independently if needed
-    private static final Transform TXP_HEAD_HEAD = Transform.IDENTITY;
-    private static final Transform TXP_HEAD_HAT  = Transform.IDENTITY;
-
-    // CHEST slot: commonly body needs to be bigger than arms
-    private static final Transform TXP_CHEST_BODY = Transform.of(0.0f, 0.000f, 0.000f, 1.070f, 1.070f, 1.070f);
-    private static final Transform TXP_CHEST_RARM = Transform.of(0.0f, 0.000f, 0.000f, 1.020f, 1.020f, 1.020f);
-    private static final Transform TXP_CHEST_LARM = Transform.of(0.0f, 0.000f, 0.000f, 1.020f, 1.020f, 1.020f);
-
-    // LEGS slot: body (hip) vs legs
-    private static final Transform TXP_LEGS_BODY  = Transform.of(0.0f, 0.000f, 0.000f, 1.040f, 1.040f, 1.040f);
-    private static final Transform TXP_LEGS_RLEG  = Transform.of(0.0f, 0.000f, 0.000f, 1.030f, 1.030f, 1.030f);
-    private static final Transform TXP_LEGS_LLEG  = Transform.of(0.0f, 0.000f, 0.000f, 1.030f, 1.030f, 1.030f);
-
-    // FEET slot: boots (legs only)
-    private static final Transform TXP_FEET_RLEG  = Transform.of(0.0f, 0.000f, 0.000f, 1.020f, 1.020f, 1.020f);
-    private static final Transform TXP_FEET_LLEG  = Transform.of(0.0f, 0.000f, 0.000f, 1.020f, 1.020f, 1.020f);
+    // Built-in armor fit defaults now live in ArmorEditorSettings.defaults().
 
     // =========================================================================================
 
@@ -116,6 +75,10 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
 
     private static final Set<String> EZVR_ARMOR_INFO_LOG_ONCE =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Map<Class<?>, Method> EZVR_EXTENDED_MATERIAL_METHODS = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Method> EZVR_GET_PIECES_METHODS = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Method> EZVR_PIECE_RENDER_METHODS = new ConcurrentHashMap<>();
+    private static final Map<ResourceLocation, ResourceLocation> EZVR_ARMOR_TEXTURE_REDIRECT_CACHE = new ConcurrentHashMap<>();
 
     // Cached accessors for villager model parts (reflection, because mappings drift)
     private final PartAccess villagerParts;
@@ -123,6 +86,8 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
     // Cached ModelPart#render overloads (1.21+ variants exist)
     private static volatile Method MODEL_PART_RENDER_5; // (PoseStack, VertexConsumer, int, int, int)
     private static volatile Method MODEL_PART_RENDER_4; // (PoseStack, VertexConsumer, int, int)
+    private static volatile Method MODEL_PART_COMPILE_5; // (PoseStack.Pose, VertexConsumer, int, int, int)
+    private static volatile Field MODEL_PART_CHILDREN_FIELD;
 
     public VillagerHumanoidArmorLayer(RenderLayerParent<Villager, VillagerModel<Villager>> parent,
                                       HumanoidModel<?> innerModel,
@@ -209,13 +174,6 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         setPartVisibility(baseHumanoidModel, slot);
         copyVillagerPoseIntoHumanoid(this.getParentModel(), baseHumanoidModel);
 
-        net.minecraft.client.model.Model armorModel;
-        try {
-            armorModel = ClientHooks.getArmorModel(vill, stack, slot, (HumanoidModel) baseHumanoidModel);
-        } catch (Throwable ignored) {
-            armorModel = baseHumanoidModel;
-        }
-
         boolean useDriverArms = false;
         try {
             if (vill instanceof VillagerOverhaulRenderAccess acc) {
@@ -223,6 +181,29 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
             }
         } catch (Throwable ignored) {
             useDriverArms = false;
+        }
+        try { applyDriverArmsToHumanoidModel(baseHumanoidModel, useDriverArms); } catch (Throwable ignored) {}
+
+        boolean doTx = ENABLE_ARMOR_TRANSFORMS;
+        ArmorEditorTransform slotTx = doTx ? transformForSlot(slot) : ArmorEditorTransform.IDENTITY;
+
+        // Some armor mods replace vanilla HumanoidArmorLayer rendering with their own slot-piece pipeline.
+        // Our villager layer is not HumanoidArmorLayer, so those mixins do not see us. If an item exposes that
+        // generic "extended material -> pieces -> render(...)" shape, let the mod's pieces render themselves.
+        poseStack.pushPose();
+        try {
+            if (renderExtendedArmorPiecesIfPresent(vill, stack, slot, poseStack, buffer, packedLight, partialTick, baseHumanoidModel, doTx)) {
+                return;
+            }
+        } finally {
+            poseStack.popPose();
+        }
+
+        net.minecraft.client.model.Model armorModel;
+        try {
+            armorModel = ClientHooks.getArmorModel(vill, stack, slot, (HumanoidModel) baseHumanoidModel);
+        } catch (Throwable ignored) {
+            armorModel = baseHumanoidModel;
         }
 
         HumanoidModel<?> humanoidArmorModel = null;
@@ -288,6 +269,12 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
             }
         } catch (Throwable ignored) {}
 
+        try {
+            if (humanoidArmorModel != null) {
+                ArmorEditorRenderContext.applyToHumanoidModel(humanoidArmorModel);
+            }
+        } catch (Throwable ignored) {}
+
         ArmorMaterial material;
         try {
             material = armor.getMaterial().value();
@@ -311,14 +298,11 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                 (material == null || material.layers() == null ? -1 : material.layers().size())
         );
 
-        // --- SLOT LEVEL TRANSFORM ---
-        boolean doTx = ENABLE_ARMOR_TRANSFORMS;
-        Transform slotTx = doTx ? transformForSlot(slot) : Transform.IDENTITY;
-
         poseStack.pushPose();
         try {
-            if (doTx && !slotTx.isIdentity()) {
-                slotTx.apply(poseStack);
+            boolean localHumanoidTransforms = armorModel instanceof HumanoidModel<?>;
+            if (!localHumanoidTransforms && doTx && slotTx != null && !slotTx.isIdentity()) {
+                applyTransform(poseStack, slotTx);
             }
 
             List<ArmorMaterial.Layer> layers = material.layers();
@@ -394,6 +378,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                 if (tex == null) {
                     try { tex = layer.texture(innerTexture); } catch (Throwable ignored) { tex = null; }
                 }
+                tex = resolveExistingArmorTexture(tex, stack, slot, innerTexture);
                 if (tex == null) continue;
 
                 ezvr$debugOnce(
@@ -434,7 +419,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                             String.valueOf(slot),
                             String.valueOf(trim.pattern())
                     );
-                    renderTrim(armor.getMaterial(), trim, armorModel, poseStack, buffer, packedLight, innerTexture);
+                    renderTrim(armor.getMaterial(), trim, slot, armorModel, poseStack, buffer, packedLight, innerTexture);
                 }
             } catch (Throwable ignored) {}
 
@@ -462,6 +447,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
 
     private void renderTrim(net.minecraft.core.Holder<ArmorMaterial> armorMaterialHolder,
                             ArmorTrim trim,
+                            EquipmentSlot slot,
                             net.minecraft.client.model.Model armorModel,
                             PoseStack poseStack,
                             MultiBufferSource buffer,
@@ -483,8 +469,297 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
 
             TextureAtlasSprite sprite = this.armorTrimAtlas.getSprite(innerTexture ? trim.innerTexture(armorMaterialHolder) : trim.outerTexture(armorMaterialHolder));
             var vc = sprite.wrap(buffer.getBuffer(Sheets.armorTrimsSheet(trim.pattern().value().decal())));
-            armorModel.renderToBuffer(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
+            if (armorModel instanceof HumanoidModel<?> hm) {
+                renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
+            } else {
+                armorModel.renderToBuffer(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
+            }
         } catch (Throwable ignored) {}
+    }
+
+    private boolean renderExtendedArmorPiecesIfPresent(Villager vill,
+                                                       ItemStack stack,
+                                                       EquipmentSlot slot,
+                                                       PoseStack poseStack,
+                                                       MultiBufferSource buffer,
+                                                       int packedLight,
+                                                       float partialTick,
+                                                       HumanoidModel<?> baseHumanoidModel,
+                                                       boolean applyEditorTransforms) {
+        try {
+            if (vill == null || stack == null || stack.isEmpty() || slot == null || baseHumanoidModel == null) return false;
+
+            Object item = stack.getItem();
+            Method getExtendedMaterial = findNoArgMethodCached(EZVR_EXTENDED_MATERIAL_METHODS, item.getClass(), "getExtendedMaterial");
+            if (getExtendedMaterial == null) return false;
+
+            Object extendedMaterial = getExtendedMaterial.invoke(item);
+            if (extendedMaterial == null) return false;
+
+            Method getPieces = findOneArgMethodCached(EZVR_GET_PIECES_METHODS, extendedMaterial.getClass(), "getPieces", EquipmentSlot.class);
+            if (getPieces == null) return false;
+
+            Object piecesObj = getPieces.invoke(extendedMaterial, slot);
+            if (!(piecesObj instanceof Iterable<?> pieces)) return false;
+
+            boolean renderedAny = false;
+            ModelPartTransformScope transformScope = applyEditorTransforms
+                    ? bakeEditorTransformsIntoHumanoidModel(baseHumanoidModel, slot)
+                    : ModelPartTransformScope.EMPTY;
+            try {
+                for (Object piece : pieces) {
+                    if (piece == null) continue;
+                    Method render = findPieceRenderMethod(piece.getClass());
+                    if (render == null) continue;
+                    try {
+                        render.invoke(piece, poseStack, buffer, packedLight, vill, stack, partialTick, slot, baseHumanoidModel);
+                        renderedAny = true;
+                    } catch (Throwable t) {
+                        ezvr$debugOnce(
+                                "armor_extended_piece_fail:" + String.valueOf(stack.getItem()) + ":" + slot + ":" + piece.getClass().getName(),
+                                "[VillagerOverhaul] Extended armor piece render failed (item={}, slot={}, piece={}, soft={})",
+                                String.valueOf(stack.getItem()),
+                                String.valueOf(slot),
+                                piece.getClass().getName(),
+                                t.toString()
+                        );
+                    }
+                }
+            } finally {
+                transformScope.restore();
+            }
+
+            if (renderedAny) {
+                ezvr$debugOnce(
+                        "armor_extended_pieces:" + String.valueOf(stack.getItem()) + ":" + slot,
+                        "[VillagerOverhaul] Rendered extended armor pieces for item={} slot={} materialClass={}",
+                        String.valueOf(stack.getItem()),
+                        String.valueOf(slot),
+                        extendedMaterial.getClass().getName()
+                );
+            }
+            return renderedAny;
+        } catch (Throwable t) {
+            ezvr$debugOnce(
+                    "armor_extended_piece_path_fail:" + String.valueOf(stack == null ? "null" : stack.getItem()) + ":" + slot,
+                    "[VillagerOverhaul] Extended armor piece path failed (item={}, slot={}, soft={})",
+                    String.valueOf(stack == null ? "null" : stack.getItem()),
+                    String.valueOf(slot),
+                    t.toString()
+            );
+            return false;
+        }
+    }
+
+    private void applyDriverArmsToHumanoidModel(HumanoidModel<?> model, boolean useDriverArms) {
+        try {
+            if (model == null || !useDriverArms) return;
+            if (model.rightArm == null && model.leftArm == null) return;
+            if (armsModel != null) {
+                armsModel.copyArmRotationsTo(model.rightArm, model.leftArm);
+                return;
+            }
+            if (driverHumanoid != null) {
+                if (driverHumanoid.rightArm != null && model.rightArm != null) copyPartRot(driverHumanoid.rightArm, model.rightArm);
+                if (driverHumanoid.leftArm != null && model.leftArm != null) copyPartRot(driverHumanoid.leftArm, model.leftArm);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static ModelPartTransformScope bakeEditorTransformsIntoHumanoidModel(HumanoidModel<?> model, EquipmentSlot slot) {
+        if (!ENABLE_ARMOR_TRANSFORMS || model == null || slot == null) return ModelPartTransformScope.EMPTY;
+
+        List<ModelPartState> states = new ArrayList<>(7);
+        switch (slot) {
+            case HEAD -> {
+                bakeEditorTransformIntoPart(model.head, slot, PartKind.HEAD, states);
+                bakeEditorTransformIntoPart(model.hat, slot, PartKind.HAT, states);
+            }
+            case CHEST -> {
+                bakeEditorTransformIntoPart(model.body, slot, PartKind.BODY, states);
+                bakeEditorTransformIntoPart(model.rightArm, slot, PartKind.RIGHT_ARM, states);
+                bakeEditorTransformIntoPart(model.leftArm, slot, PartKind.LEFT_ARM, states);
+            }
+            case LEGS -> {
+                bakeEditorTransformIntoPart(model.body, slot, PartKind.BODY, states);
+                bakeEditorTransformIntoPart(model.rightLeg, slot, PartKind.RIGHT_LEG, states);
+                bakeEditorTransformIntoPart(model.leftLeg, slot, PartKind.LEFT_LEG, states);
+            }
+            case FEET -> {
+                bakeEditorTransformIntoPart(model.rightLeg, slot, PartKind.RIGHT_LEG, states);
+                bakeEditorTransformIntoPart(model.leftLeg, slot, PartKind.LEFT_LEG, states);
+            }
+            default -> {}
+        }
+
+        if (states.isEmpty()) return ModelPartTransformScope.EMPTY;
+        return new ModelPartTransformScope(states);
+    }
+
+    private static void bakeEditorTransformIntoPart(ModelPart part,
+                                                    EquipmentSlot slot,
+                                                    PartKind kind,
+                                                    List<ModelPartState> states) {
+        if (part == null || states == null) return;
+
+        ArmorEditorTransform slotTx = transformForSlot(slot);
+        ArmorEditorTransform partTx = partTransformFor(slot, kind);
+        if (slotTx == null) slotTx = ArmorEditorTransform.IDENTITY;
+        if (partTx == null) partTx = ArmorEditorTransform.IDENTITY;
+        if (slotTx.isIdentity() && partTx.isIdentity()) return;
+
+        states.add(new ModelPartState(part));
+
+        part.x += (slotTx.x() + partTx.x()) * 16.0f;
+        part.y += (slotTx.y() + partTx.y()) * 16.0f;
+        part.z += (slotTx.z() + partTx.z()) * 16.0f;
+        part.xScale *= slotTx.sx() * partTx.sx();
+        part.yScale *= slotTx.sy() * partTx.sy();
+        part.zScale *= slotTx.sz() * partTx.sz();
+    }
+
+    private static Method findNoArgMethodCached(Map<Class<?>, Method> cache, Class<?> type, String name) {
+        try {
+            if (cache == null || type == null || name == null || name.isBlank()) return null;
+            Method cached = cache.get(type);
+            if (cached != null) return cached;
+            Method found = findMethod(type, name, 0, null);
+            if (found != null) cache.put(type, found);
+            return found;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Method findOneArgMethodCached(Map<Class<?>, Method> cache, Class<?> type, String name, Class<?> argType) {
+        try {
+            if (cache == null || type == null || name == null || name.isBlank() || argType == null) return null;
+            Method cached = cache.get(type);
+            if (cached != null) return cached;
+            Method found = findMethod(type, name, 1, new Class<?>[]{argType});
+            if (found != null) cache.put(type, found);
+            return found;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Method findPieceRenderMethod(Class<?> type) {
+        try {
+            if (type == null) return null;
+            Method cached = EZVR_PIECE_RENDER_METHODS.get(type);
+            if (cached != null) return cached;
+
+            for (Method m : type.getMethods()) {
+                if (!"render".equals(m.getName())) continue;
+                Class<?>[] p = m.getParameterTypes();
+                if (p.length != 8) continue;
+                if (!PoseStack.class.isAssignableFrom(p[0])) continue;
+                if (!MultiBufferSource.class.isAssignableFrom(p[1])) continue;
+                if (p[2] != int.class) continue;
+                if (!LivingEntity.class.isAssignableFrom(p[3])) continue;
+                if (!ItemStack.class.isAssignableFrom(p[4])) continue;
+                if (p[5] != float.class) continue;
+                if (!EquipmentSlot.class.isAssignableFrom(p[6])) continue;
+                if (!HumanoidModel.class.isAssignableFrom(p[7])) continue;
+                try { m.setAccessible(true); } catch (Throwable ignored) {}
+                EZVR_PIECE_RENDER_METHODS.put(type, m);
+                return m;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static Method findMethod(Class<?> type, String name, int arity, Class<?>[] argTypes) {
+        try {
+            List<Method> candidates = new ArrayList<>();
+            Collections.addAll(candidates, type.getMethods());
+            Collections.addAll(candidates, type.getDeclaredMethods());
+            for (Method m : candidates) {
+                if (m == null || !name.equals(m.getName())) continue;
+                Class<?>[] p = m.getParameterTypes();
+                if (p.length != arity) continue;
+                if (argTypes != null) {
+                    boolean ok = true;
+                    for (int i = 0; i < argTypes.length; i++) {
+                        if (argTypes[i] == null) continue;
+                        if (!p[i].isAssignableFrom(argTypes[i]) && !argTypes[i].isAssignableFrom(p[i])) {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if (!ok) continue;
+                }
+                try { m.setAccessible(true); } catch (Throwable ignored) {}
+                return m;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static ResourceLocation resolveExistingArmorTexture(ResourceLocation tex, ItemStack stack, EquipmentSlot slot, boolean innerTexture) {
+        try {
+            if (tex == null) return null;
+            ResourceLocation cached = EZVR_ARMOR_TEXTURE_REDIRECT_CACHE.get(tex);
+            if (cached != null) return cached;
+            if (resourceExists(tex)) {
+                EZVR_ARMOR_TEXTURE_REDIRECT_CACHE.put(tex, tex);
+                return tex;
+            }
+
+            List<ResourceLocation> candidates = fallbackArmorTextureCandidates(tex, stack, slot, innerTexture);
+            for (ResourceLocation candidate : candidates) {
+                if (candidate == null || candidate.equals(tex)) continue;
+                if (resourceExists(candidate)) {
+                    EZVR_ARMOR_TEXTURE_REDIRECT_CACHE.put(tex, candidate);
+                    ezvr$debugOnce(
+                            "armor_texture_redirect:" + tex,
+                            "[VillagerOverhaul] Armor texture missing; redirected {} -> {}",
+                            String.valueOf(tex),
+                            String.valueOf(candidate)
+                    );
+                    return candidate;
+                }
+            }
+
+            EZVR_ARMOR_TEXTURE_REDIRECT_CACHE.put(tex, tex);
+            return tex;
+        } catch (Throwable ignored) {
+            return tex;
+        }
+    }
+
+    private static List<ResourceLocation> fallbackArmorTextureCandidates(ResourceLocation tex, ItemStack stack, EquipmentSlot slot, boolean innerTexture) {
+        List<ResourceLocation> out = new ArrayList<>();
+        try {
+            if (tex == null) return out;
+            String path = tex.getPath();
+            if (path != null && !path.isBlank() && !"minecraft".equals(tex.getNamespace())) {
+                out.add(ResourceLocation.fromNamespaceAndPath("minecraft", path));
+            }
+
+            ResourceLocation syntheticAsset = deriveSyntheticArmorAsset(stack, slot);
+            if (syntheticAsset != null) {
+                String layerPath = "textures/models/armor/" + syntheticAsset.getPath() + "_layer_" + (innerTexture ? "2" : "1") + ".png";
+                out.add(ResourceLocation.fromNamespaceAndPath(syntheticAsset.getNamespace(), layerPath));
+                if (!"minecraft".equals(syntheticAsset.getNamespace())) {
+                    out.add(ResourceLocation.fromNamespaceAndPath("minecraft", layerPath));
+                }
+            }
+        } catch (Throwable ignored) {}
+        return out;
+    }
+
+    private static boolean resourceExists(ResourceLocation location) {
+        try {
+            if (location == null) return false;
+            var mc = net.minecraft.client.Minecraft.getInstance();
+            var rm = mc == null ? null : mc.getResourceManager();
+            if (rm == null) return true;
+            return rm.getResource(location).isPresent();
+        } catch (Throwable ignored) {
+            return true;
+        }
     }
 
     private static ResourceLocation deriveSyntheticArmorAsset(ItemStack stack, EquipmentSlot slot) {
@@ -531,6 +806,52 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         return false;
     }
 
+    private static final class ModelPartTransformScope {
+        static final ModelPartTransformScope EMPTY = new ModelPartTransformScope(List.of());
+
+        private final List<ModelPartState> states;
+
+        ModelPartTransformScope(List<ModelPartState> states) {
+            this.states = states == null ? List.of() : states;
+        }
+
+        void restore() {
+            for (int i = states.size() - 1; i >= 0; i--) {
+                states.get(i).restore();
+            }
+        }
+    }
+
+    private static final class ModelPartState {
+        private final ModelPart part;
+        private final float x;
+        private final float y;
+        private final float z;
+        private final float xScale;
+        private final float yScale;
+        private final float zScale;
+
+        ModelPartState(ModelPart part) {
+            this.part = part;
+            this.x = part.x;
+            this.y = part.y;
+            this.z = part.z;
+            this.xScale = part.xScale;
+            this.yScale = part.yScale;
+            this.zScale = part.zScale;
+        }
+
+        void restore() {
+            if (part == null) return;
+            part.x = x;
+            part.y = y;
+            part.z = z;
+            part.xScale = xScale;
+            part.yScale = yScale;
+            part.zScale = zScale;
+        }
+    }
+
     private static void ezvr$debugOnce(String key, String fmt, Object... args) {
         try {
             if (!VillagerOverhaul.LOG().isDebugEnabled()) return;
@@ -544,49 +865,30 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
     // Per-slot / per-part transform selection
     // -----------------------------------------------------------------------------------------
 
-    private static Transform transformForSlot(EquipmentSlot slot) {
-        if (slot == null) return Transform.IDENTITY;
-        return switch (slot) {
-            case HEAD -> TX_HEAD;
-            case CHEST -> TX_CHEST;
-            case LEGS -> TX_LEGS;
-            case FEET -> TX_FEET;
-            default -> Transform.IDENTITY;
-        };
+    private static ArmorEditorTransform transformForSlot(EquipmentSlot slot) {
+        if (slot == null) return ArmorEditorTransform.IDENTITY;
+        return ArmorEditorRuntimeSettings.slotTransform(slot);
     }
 
-    private static Transform partTransformFor(EquipmentSlot slot, PartKind part) {
-        if (slot == null || part == null) return Transform.IDENTITY;
-
-        return switch (slot) {
-            case HEAD -> switch (part) {
-                case HEAD -> TXP_HEAD_HEAD;
-                case HAT  -> TXP_HEAD_HAT;
-                default -> Transform.IDENTITY;
-            };
-            case CHEST -> switch (part) {
-                case BODY -> TXP_CHEST_BODY;
-                case RIGHT_ARM -> TXP_CHEST_RARM;
-                case LEFT_ARM  -> TXP_CHEST_LARM;
-                default -> Transform.IDENTITY;
-            };
-            case LEGS -> switch (part) {
-                case BODY -> TXP_LEGS_BODY;
-                case RIGHT_LEG -> TXP_LEGS_RLEG;
-                case LEFT_LEG  -> TXP_LEGS_LLEG;
-                default -> Transform.IDENTITY;
-            };
-            case FEET -> switch (part) {
-                case RIGHT_LEG -> TXP_FEET_RLEG;
-                case LEFT_LEG  -> TXP_FEET_LLEG;
-                default -> Transform.IDENTITY;
-            };
-            default -> Transform.IDENTITY;
-        };
+    private static ArmorEditorTransform partTransformFor(EquipmentSlot slot, PartKind part) {
+        if (slot == null || part == null) return ArmorEditorTransform.IDENTITY;
+        return ArmorEditorRuntimeSettings.partTransform(slot, part.toEditorPart());
     }
 
     private enum PartKind {
-        HEAD, HAT, BODY, RIGHT_ARM, LEFT_ARM, RIGHT_LEG, LEFT_LEG
+        HEAD, HAT, BODY, RIGHT_ARM, LEFT_ARM, RIGHT_LEG, LEFT_LEG;
+
+        ArmorEditorSettings.PartKey toEditorPart() {
+            return switch (this) {
+                case HEAD -> ArmorEditorSettings.PartKey.HEAD;
+                case HAT -> ArmorEditorSettings.PartKey.HAT;
+                case BODY -> ArmorEditorSettings.PartKey.BODY;
+                case RIGHT_ARM -> ArmorEditorSettings.PartKey.RIGHT_ARM;
+                case LEFT_ARM -> ArmorEditorSettings.PartKey.LEFT_ARM;
+                case RIGHT_LEG -> ArmorEditorSettings.PartKey.RIGHT_LEG;
+                case LEFT_LEG -> ArmorEditorSettings.PartKey.LEFT_LEG;
+            };
+        }
     }
 
     private static void renderVisiblePartsWithPerPartTransforms(EquipmentSlot slot,
@@ -641,49 +943,60 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                                                 int packedColor) {
         if (part == null) return;
 
-        Transform tx = (ENABLE_ARMOR_TRANSFORMS) ? partTransformFor(slot, kind) : Transform.IDENTITY;
-        if (tx == null) tx = Transform.IDENTITY;
+        ArmorEditorTransform slotTx = (ENABLE_ARMOR_TRANSFORMS) ? transformForSlot(slot) : ArmorEditorTransform.IDENTITY;
+        ArmorEditorTransform partTx = (ENABLE_ARMOR_TRANSFORMS) ? partTransformFor(slot, kind) : ArmorEditorTransform.IDENTITY;
+        if (slotTx == null) slotTx = ArmorEditorTransform.IDENTITY;
+        if (partTx == null) partTx = ArmorEditorTransform.IDENTITY;
 
         poseStack.pushPose();
         try {
-            if (!tx.isIdentity()) {
-                tx.apply(poseStack);
+            if (!renderModelPartWithLocalTransforms(part, poseStack, vc, light, overlay, packedColor, slotTx, partTx)) {
+                if (!slotTx.isIdentity()) applyTransform(poseStack, slotTx);
+                if (!partTx.isIdentity()) applyTransform(poseStack, partTx);
+                invokeModelPartRender(part, poseStack, vc, light, overlay, packedColor);
             }
-            invokeModelPartRender(part, poseStack, vc, light, overlay, packedColor);
         } catch (Throwable ignored) {
         } finally {
             poseStack.popPose();
         }
     }
 
-    private static final class Transform {
-        static final Transform IDENTITY = new Transform(0f, 0f, 0f, 1f, 1f, 1f);
+    private static boolean renderModelPartWithLocalTransforms(ModelPart part,
+                                                              PoseStack poseStack,
+                                                              com.mojang.blaze3d.vertex.VertexConsumer vc,
+                                                              int light,
+                                                              int overlay,
+                                                              int packedColor,
+                                                              ArmorEditorTransform slotTx,
+                                                              ArmorEditorTransform partTx) {
+        try {
+            if (part == null || poseStack == null || vc == null || !part.visible) return true;
+            if (MODEL_PART_COMPILE_5 == null) return false;
 
-        final float x, y, z;
-        final float sx, sy, sz;
-
-        private Transform(float x, float y, float z, float sx, float sy, float sz) {
-            this.x = x;
-            this.y = y;
-            this.z = z;
-            this.sx = sx;
-            this.sy = sy;
-            this.sz = sz;
-        }
-
-        static Transform of(float x, float y, float z, float sx, float sy, float sz) {
-            return new Transform(x, y, z, sx, sy, sz);
-        }
-
-        boolean isIdentity() {
-            return x == 0f && y == 0f && z == 0f && sx == 1f && sy == 1f && sz == 1f;
-        }
-
-        void apply(PoseStack ps) {
+            poseStack.pushPose();
             try {
-                ps.translate(x, y, z);
-                ps.scale(sx, sy, sz);
-            } catch (Throwable ignored) {}
+                part.translateAndRotate(poseStack);
+                if (slotTx != null && !slotTx.isIdentity()) applyTransform(poseStack, slotTx);
+                if (partTx != null && !partTx.isIdentity()) applyTransform(poseStack, partTx);
+
+                if (!part.skipDraw) {
+                    MODEL_PART_COMPILE_5.invoke(part, poseStack.last(), vc, light, overlay, packedColor);
+                }
+
+                Map<String, ModelPart> children = modelPartChildren(part);
+                if (children != null && !children.isEmpty()) {
+                    for (ModelPart child : children.values()) {
+                        if (child != null) {
+                            invokeModelPartRender(child, poseStack, vc, light, overlay, packedColor);
+                        }
+                    }
+                }
+            } finally {
+                poseStack.popPose();
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
@@ -727,6 +1040,18 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
             }
             default -> {}
         }
+
+        try {
+            ArmorEditorRenderContext.applyToHumanoidModel(model);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void applyTransform(PoseStack ps, ArmorEditorTransform tx) {
+        try {
+            if (ps == null || tx == null) return;
+            ps.translate(tx.x(), tx.y(), tx.z());
+            ps.scale(tx.sx(), tx.sy(), tx.sz());
+        } catch (Throwable ignored) {}
     }
 
     private void copyVillagerPoseIntoHumanoid(VillagerModel<Villager> villagerModel, HumanoidModel<?> humanoid) {
@@ -780,17 +1105,49 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         } catch (Throwable ignored) {}
     }
 
+    @SuppressWarnings("unchecked")
+    private static Map<String, ModelPart> modelPartChildren(ModelPart part) {
+        try {
+            if (part == null || MODEL_PART_CHILDREN_FIELD == null) return null;
+            Object value = MODEL_PART_CHILDREN_FIELD.get(part);
+            if (value instanceof Map<?, ?> map) {
+                return (Map<String, ModelPart>) map;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
     private static void warmupModelPartRenderMethods() {
         try {
-            if (MODEL_PART_RENDER_5 != null || MODEL_PART_RENDER_4 != null) return;
+            if (MODEL_PART_RENDER_5 == null || MODEL_PART_RENDER_4 == null) {
+                for (Method m : ModelPart.class.getMethods()) {
+                    if (!"render".equals(m.getName())) continue;
+                    Class<?>[] p = m.getParameterTypes();
+                    if (p.length == 5) {
+                        MODEL_PART_RENDER_5 = m;
+                    } else if (p.length == 4) {
+                        MODEL_PART_RENDER_4 = m;
+                    }
+                }
+            }
 
-            for (Method m : ModelPart.class.getMethods()) {
-                if (!"render".equals(m.getName())) continue;
-                Class<?>[] p = m.getParameterTypes();
-                if (p.length == 5) {
-                    MODEL_PART_RENDER_5 = m;
-                } else if (p.length == 4) {
-                    MODEL_PART_RENDER_4 = m;
+            if (MODEL_PART_COMPILE_5 == null) {
+                for (Method m : ModelPart.class.getDeclaredMethods()) {
+                    if (!"compile".equals(m.getName())) continue;
+                    Class<?>[] p = m.getParameterTypes();
+                    if (p.length != 5) continue;
+                    try { m.setAccessible(true); } catch (Throwable ignored) {}
+                    MODEL_PART_COMPILE_5 = m;
+                    break;
+                }
+            }
+
+            if (MODEL_PART_CHILDREN_FIELD == null) {
+                for (Field f : ModelPart.class.getDeclaredFields()) {
+                    if (!Map.class.isAssignableFrom(f.getType())) continue;
+                    try { f.setAccessible(true); } catch (Throwable ignored) {}
+                    MODEL_PART_CHILDREN_FIELD = f;
+                    break;
                 }
             }
         } catch (Throwable ignored) {}

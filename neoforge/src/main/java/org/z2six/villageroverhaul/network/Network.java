@@ -286,6 +286,9 @@ public final class Network {
                     (msg, ctx) -> ctx.enqueueWork(() -> ServerHandlers.handleCcActionDetailQuery(msg, ctx)));
 
             // ---- Clientbound (must be registered on BOTH sides for handshake) ----
+            r.playToClient(PacketOpenArmorEditorScreen.TYPE, PacketOpenArmorEditorScreen.STREAM_CODEC,
+                    (msg, ctx) -> dispatchToClientHandler("onOpenArmorEditorScreen", msg, ctx));
+
             r.playToClient(PacketTooltipData.TYPE, PacketTooltipData.STREAM_CODEC,
                     (msg, ctx) -> dispatchToClientHandler("onTooltipData", msg, ctx));
             r.playToClient(PacketSyncConfig.TYPE, PacketSyncConfig.STREAM_CODEC,
