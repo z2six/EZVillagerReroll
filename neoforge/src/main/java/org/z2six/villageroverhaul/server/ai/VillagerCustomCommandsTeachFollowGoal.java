@@ -39,6 +39,9 @@ public final class VillagerCustomCommandsTeachFollowGoal extends Goal {
             UUID t = CustomCommandsService.getTeachingPlayer(vill);
             if (t == null) return false;
             teacher = level.getServer().getPlayerList().getPlayer(t);
+            if (teacher != null) {
+                try { VillagerSeatService.dismountIfSeated(vill, "cc_teach_follow"); } catch (Throwable ignored) {}
+            }
             return teacher != null;
         } catch (Throwable ignored) {
             return false;
@@ -66,6 +69,7 @@ public final class VillagerCustomCommandsTeachFollowGoal extends Goal {
     public void start() {
         try {
             if (vill == null) return;
+            try { VillagerSeatService.dismountIfSeated(vill, "cc_teach_follow_start"); } catch (Throwable ignored) {}
             try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}
     }

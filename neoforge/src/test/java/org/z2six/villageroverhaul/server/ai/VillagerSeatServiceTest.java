@@ -47,5 +47,6 @@ class VillagerSeatServiceTest {
         assertFalse(VillagerSeatPolicy.shouldRemainSeatedForActivityName("NEUTRAL", "OFF", true, false, false));
         assertFalse(VillagerSeatPolicy.shouldRemainSeatedForActivityName("NEUTRAL", "OFF", false, true, false));
         assertFalse(VillagerSeatPolicy.shouldRemainSeatedForActivityName("NEUTRAL", "OFF", false, false, true));
+        assertFalse(VillagerSeatPolicy.shouldRemainSeatedForActivityName("NEUTRAL", "OFF", false, false, false, true));
     }
 }

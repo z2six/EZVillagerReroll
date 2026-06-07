@@ -67,7 +67,7 @@ public final class VillagerPatrolGoal extends Goal {
 
         if (!VillagerBrain.hasFinalizedPatrol(vill)) return false;
 
-        return VillagerBrain.getPatrolWaypointCount(vill) >= 2;
+        return VillagerPatrolPolicy.hasUsableWaypoints(VillagerBrain.getPatrolWaypointCount(vill));
     }
 
     @Override
@@ -77,7 +77,7 @@ public final class VillagerPatrolGoal extends Goal {
                 try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
                 return VillagerBrain.getMode(vill) == VillagerBrain.Mode.PATROL
                         && VillagerBrain.hasFinalizedPatrol(vill)
-                        && VillagerBrain.getPatrolWaypointCount(vill) >= 2;
+                        && VillagerPatrolPolicy.hasUsableWaypoints(VillagerBrain.getPatrolWaypointCount(vill));
             }
         } catch (Throwable ignored) {}
         return canUse();
@@ -111,7 +111,7 @@ public final class VillagerPatrolGoal extends Goal {
             }
 
             List<Vec3> waypoints = VillagerBrain.getPatrolWaypoints(vill);
-            if (waypoints == null || waypoints.size() < 2) return;
+            if (waypoints == null || waypoints.isEmpty()) return;
 
             int n = waypoints.size();
             int idx = VillagerBrain.getPatrolIndex(vill);
@@ -127,6 +127,13 @@ public final class VillagerPatrolGoal extends Goal {
 
             // STRICT arrival: must actually be inside the waypoint block (x/z match), y tolerance <= 1
             if (isInWaypointBlock(target)) {
+                if (!VillagerPatrolPolicy.hasMovementWaypoints(n)) {
+                    try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
+                    resetStuck();
+                    resetLegTracking();
+                    recalcCooldown = 0;
+                    return;
+                }
                 resetStuck();
                 resetLegTracking();
                 advance(n);

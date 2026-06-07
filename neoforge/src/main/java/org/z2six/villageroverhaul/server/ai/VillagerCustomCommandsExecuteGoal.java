@@ -681,9 +681,12 @@ public final class VillagerCustomCommandsExecuteGoal extends Goal {
 
     private void swingMainhandOnce(String why) {
         try {
-            ItemStack held = vill.getMainHandItem();
-            if (held == null || held.isEmpty()) held = Items.STICK.getDefaultInstance();
-            VillagerBrain.triggerManualPlantAnimation(vill, held, 10);
+            ItemStack visual = VillagerInteractionVisuals.mainHandVisualForInteract(vill.getMainHandItem());
+            if (visual.isEmpty()) {
+                VillagerBrain.signalSwing(vill, InteractionHand.MAIN_HAND, why);
+                return;
+            }
+            VillagerBrain.triggerManualPlantAnimation(vill, visual, 10);
         } catch (Throwable ignored) {}
     }
 

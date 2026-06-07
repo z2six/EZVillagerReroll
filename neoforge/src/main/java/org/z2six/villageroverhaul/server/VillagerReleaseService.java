@@ -17,6 +17,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.mixin.MerchantMenuAccessor;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
+import org.z2six.villageroverhaul.server.ai.VillagerSeatService;
 
 import java.util.Map;
 import java.util.Set;
@@ -54,6 +55,7 @@ public final class VillagerReleaseService {
             String before = describeReleaseState(vill);
             closeTradingContainerIfOpen(vill, actor);
             clearTradingPlayer(vill);
+            try { VillagerSeatService.dismountIfSeated(vill, "release"); } catch (Throwable ignored) {}
             try { VillagerBrain.setManualFarmingActive(vill, false); } catch (Throwable ignored) {}
             try { VillagerBrain.clearPrevModeForManualFarming(vill); } catch (Throwable ignored) {}
             try { VillagerBrain.combatOff(vill); } catch (Throwable ignored) {}
@@ -94,6 +96,7 @@ public final class VillagerReleaseService {
             String before = describeReleaseState(vill);
             closeTradingContainerIfOpen(vill, actor);
             clearTradingPlayer(vill);
+            try { VillagerSeatService.dismountIfSeated(vill, "release_begin"); } catch (Throwable ignored) {}
             CompoundTag pd = vill.getPersistentData();
             long now = level.getGameTime();
             pd.putBoolean(K_RELEASED_NO_RESPAWN, true);

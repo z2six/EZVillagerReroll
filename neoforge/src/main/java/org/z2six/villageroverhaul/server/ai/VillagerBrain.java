@@ -816,7 +816,7 @@ public final class VillagerBrain {
             ensureAttached(vill);
             prepareForManualControl(vill);
 
-            if (!hasFinalizedPatrol(vill) || getPatrolWaypointCount(vill) < 2) {
+            if (!hasFinalizedPatrol(vill) || !VillagerPatrolPolicy.hasUsableWaypoints(getPatrolWaypointCount(vill))) {
                 setMode(vill, Mode.NEUTRAL);
                 return false;
             }
@@ -871,7 +871,7 @@ public final class VillagerBrain {
             patrol.putString(K_PATROL_ROUTE, rt.id);
             patrol.putBoolean(K_PATROL_FINALIZED, true);
 
-            if (getPatrolWaypointCount(vill) < 2) {
+            if (!VillagerPatrolPolicy.hasUsableWaypoints(getPatrolWaypointCount(vill))) {
                 setMode(vill, Mode.NEUTRAL);
                 return;
             }
@@ -947,7 +947,8 @@ public final class VillagerBrain {
         try {
             if (vill == null) return false;
             CompoundTag patrol = getOrCreatePatrol(vill);
-            return patrol.getBoolean(K_PATROL_FINALIZED) && getPatrolWaypointCount(vill) >= 2;
+            return patrol.getBoolean(K_PATROL_FINALIZED)
+                    && VillagerPatrolPolicy.hasUsableWaypoints(getPatrolWaypointCount(vill));
         } catch (Throwable t) {
             return false;
         }
@@ -1023,7 +1024,7 @@ public final class VillagerBrain {
             patrol.putInt(K_PATROL_INDEX, 0);
             patrol.putInt(K_PATROL_DIR, 1);
 
-            if (getPatrolWaypointCount(vill) < 2) {
+            if (!VillagerPatrolPolicy.hasUsableWaypoints(getPatrolWaypointCount(vill))) {
                 setMode(vill, Mode.NEUTRAL);
                 return false;
             }
@@ -1098,10 +1099,9 @@ public final class VillagerBrain {
             prepareForManualControl(vill);
 
             CompoundTag patrol = getOrCreatePatrol(vill);
-            migrateSinglePatrolToSavedRoutesIfNeeded(patrol);
 
             ListTag current = patrol.getList(K_PATROL_WAYPOINTS, Tag.TAG_COMPOUND);
-            if (current == null || current.size() < 2) return false;
+            if (current == null || !VillagerPatrolPolicy.hasUsableWaypoints(current.size())) return false;
 
             UUID id = java.util.UUID.randomUUID();
             String n = sanitizeRouteName(name);
@@ -1112,8 +1112,9 @@ public final class VillagerBrain {
             rt.putString(K_ROUTE_TYPE, type.id);
             rt.put(K_ROUTE_WAYPOINTS, current.copy());
 
-            ListTag list = patrol.getList(K_PATROL_ROUTES, Tag.TAG_COMPOUND);
-            if (list == null) list = new ListTag();
+            ListTag list = patrol.contains(K_PATROL_ROUTES, Tag.TAG_LIST)
+                    ? patrol.getList(K_PATROL_ROUTES, Tag.TAG_COMPOUND)
+                    : new ListTag();
             if (list.size() >= 64) {
                 // Drop oldest
                 try { list.remove(0); } catch (Throwable ignored) {}
@@ -1153,12 +1154,16 @@ public final class VillagerBrain {
     private static void migrateSinglePatrolToSavedRoutesIfNeeded(CompoundTag patrol) {
         try {
             if (patrol == null) return;
-            if (patrol.contains(K_PATROL_ROUTES, Tag.TAG_LIST)) return;
+            boolean hasSavedRouteList = patrol.contains(K_PATROL_ROUTES, Tag.TAG_LIST);
 
             // If we have a finalized legacy route, convert it to a saved route list so the UI can manage it.
             ListTag wps = patrol.getList(K_PATROL_WAYPOINTS, Tag.TAG_COMPOUND);
-            if (wps == null || wps.size() < 2) return;
-            if (!patrol.getBoolean(K_PATROL_FINALIZED)) return;
+            if (!VillagerPatrolPolicy.shouldMigrateLegacySingleRoute(
+                    hasSavedRouteList,
+                    patrol.getBoolean(K_PATROL_FINALIZED),
+                    wps == null ? 0 : wps.size(),
+                    false
+            )) return;
 
             PatrolRouteType type = PatrolRouteType.fromId(patrol.getString(K_PATROL_ROUTE));
 
@@ -1754,33 +1759,13 @@ public final class VillagerBrain {
                 }
             } catch (Throwable ignored) {}
 
-            ItemStack visual = (visualMainHand == null) ? ItemStack.EMPTY : visualMainHand.copy();
-            if (visual.isEmpty()) return;
-            visual.setCount(1);
-
-            // Save previous mainhand once for this animation session.
-            if (!MANUAL_PLANT_ANIM_PREV_MAIN.containsKey(vill)) {
-                ItemStack prev = vill.getMainHandItem();
-                MANUAL_PLANT_ANIM_PREV_MAIN.put(vill, prev == null ? ItemStack.EMPTY : prev.copy());
-            }
-
-            // Apply visual item so custom arms layer is enabled client-side.
-            notifyManualHandSet(vill, EquipmentSlot.MAINHAND, visual, "manual_plant_anim_visual_set");
-            vill.setItemInHand(InteractionHand.MAIN_HAND, visual);
-            MANUAL_PLANT_ANIM_VISUAL_MAIN.put(vill, visual.copy());
-
-            long until = sl.getGameTime() + Math.max(1, ticks);
-            MANUAL_PLANT_ANIM_UNTIL.put(vill, until);
-            MANUAL_PLANT_ANIM_VILLS.add(vill);
-
-            // Force an immediate render-flag update so the very next frame can show arms (otherwise it waits for next tickRenderDecisions pass).
-            try { tickRenderDecisions(vill); } catch (Throwable ignored) {}
-
-            // Trigger the custom swing anim (client uses our synced swing-seq, not vanilla swing state).
+            // Trigger the custom swing anim without materializing a render-only item in the villager's real inventory.
             signalSwing(vill, InteractionHand.MAIN_HAND, "manual_plant_anim");
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [manual_farm] plant_anim start villager={} entityId={} item={} ticks={} until={}",
-                    vill.getUUID(), vill.getId(), String.valueOf(visual.getItem()), ticks, until);
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [manual_farm] plant_anim swing_only_no_visual_item villager={} entityId={} item={} ticks={}",
+                    vill.getUUID(), vill.getId(),
+                    String.valueOf(visualMainHand == null || visualMainHand.isEmpty() ? "empty" : visualMainHand.getItem()),
+                    ticks);
 
         } catch (Throwable ignored) {}
     }

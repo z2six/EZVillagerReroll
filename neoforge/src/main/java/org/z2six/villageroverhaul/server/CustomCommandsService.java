@@ -217,6 +217,7 @@ public final class CustomCommandsService {
     public static void beginTeaching(ServerPlayer sp, Villager vill, int editIndex) {
         try {
             if (sp == null || vill == null) return;
+            try { VillagerSeatService.dismountIfSeated(vill, "cc_teach_start"); } catch (Throwable ignored) {}
             TeachSession s = new TeachSession(sp.getUUID(), vill.getId(), vill.getUUID(), editIndex);
 
             if (editIndex >= 0) {

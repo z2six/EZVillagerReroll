@@ -44,7 +44,8 @@ public final class VillagerSeatService {
                     combatMode == null ? null : combatMode.name(),
                     VillagerBrain.isCombatEngaged(vill),
                     VillagerBrain.isStorageActive(vill),
-                    VillagerBrain.isManualFarmingActive(vill)
+                    VillagerBrain.isManualFarmingActive(vill),
+                    org.z2six.villageroverhaul.server.CustomCommandsService.isVillagerTeaching(vill)
             );
         } catch (Throwable ignored) {
             return false;

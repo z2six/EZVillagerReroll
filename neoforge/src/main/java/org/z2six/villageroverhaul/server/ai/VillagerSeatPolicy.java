@@ -24,7 +24,16 @@ final class VillagerSeatPolicy {
                                                      boolean combatEngaged,
                                                      boolean storageActive,
                                                      boolean manualFarmingActive) {
-        if (combatEngaged || storageActive || manualFarmingActive) return false;
+        return shouldRemainSeatedForActivityName(modeName, combatModeName, combatEngaged, storageActive, manualFarmingActive, false);
+    }
+
+    static boolean shouldRemainSeatedForActivityName(String modeName,
+                                                     String combatModeName,
+                                                     boolean combatEngaged,
+                                                     boolean storageActive,
+                                                     boolean manualFarmingActive,
+                                                     boolean teachingActive) {
+        if (combatEngaged || storageActive || manualFarmingActive || teachingActive) return false;
 
         String combat = normalize(combatModeName);
         if (!combat.isEmpty() && !"OFF".equals(combat)) return false;
