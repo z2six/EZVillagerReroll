@@ -52,10 +52,8 @@ public final class CatalogBuilder {
     /**
      * Generate a single additional offer for the given villager and level using the same ItemListing pool vanilla uses.
      * This is used by Hoarder extra-offer logic to add more trades WITHOUT calling updateTrades() (which can overwrite existing locked offers).
-     *
-     * @param avoidResultKeys ignored; duplicates are allowed intentionally.
      */
-    public static MerchantOffer generateAdditionalOfferForLevel(Villager vill, int lvl, Set<String> avoidResultKeys) {
+    public static MerchantOffer generateAdditionalOfferForLevel(Villager vill, int lvl) {
         try {
             if (vill == null) return null;
 
@@ -71,15 +69,14 @@ public final class CatalogBuilder {
             VillagerTrades.ItemListing[] listings = getListingsForLevel(byProfession, level);
             if (listings == null || listings.length == 0) return null;
 
-            // Try a handful of times to find a non-null offer.
             RandomSource rand;
             try { rand = vill.getRandom(); } catch (Throwable ignored) { rand = RandomSource.create(); }
 
-            int attempts = Math.min(64, listings.length * 2);
-            for (int i = 0; i < attempts; i++) {
+            int start = Math.floorMod(rand.nextInt(), listings.length);
+            for (int i = 0; i < listings.length; i++) {
                 VillagerTrades.ItemListing listing;
                 try {
-                    listing = listings[Math.floorMod(rand.nextInt(), listings.length)];
+                    listing = listings[(start + i) % listings.length];
                 } catch (Throwable t) {
                     listing = null;
                 }

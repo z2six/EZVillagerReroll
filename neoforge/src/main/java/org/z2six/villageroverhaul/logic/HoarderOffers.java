@@ -5,7 +5,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import org.z2six.villageroverhaul.VillagerOverhaul;
@@ -14,17 +13,11 @@ import org.z2six.villageroverhaul.mixin.VillagerAccessor;
 import org.z2six.villageroverhaul.server.CatalogBuilder;
 import org.z2six.villageroverhaul.server.VillagerStatsService;
 
-import java.util.HashSet;
-import java.util.Set;
-
 public final class HoarderOffers {
 
     private static final String NBT_ROOT = "villageroverhaul";
     private static final String NBT_BASELINE = "hoarder_baseline_offers";
     private static final String NBT_APPLIED_DELTA = "hoarder_applied_delta";
-
-    // Safety: avoid runaway updateTrades loops if a modded villager refuses to append more offers.
-    private static final int MAX_UPDATE_TRADES_CALLS = 32;
 
     private HoarderOffers() {}
 
@@ -134,55 +127,20 @@ public final class HoarderOffers {
                 // This avoids “fake offers” that vanilla/other mods don’t understand.
                 int need = target - beforeSize;
 
-                Set<String> avoid = new HashSet<>();
-                try {
-                    for (int i = 0; i < offers.size(); i++) {
-                        MerchantOffer o = offers.get(i);
-                        if (o == null) continue;
-                        ItemStack res = o.getResult();
-                        if (res == null || res.isEmpty()) continue;
-                        avoid.add(CatalogBuilder.keyOf(res));
-                    }
-                } catch (Throwable ignored) {}
-
                 int added = 0;
                 int lvl = 1;
                 try { lvl = vill.getVillagerData().getLevel(); } catch (Throwable ignored) { lvl = 1; }
                 lvl = Math.max(1, Math.min(5, lvl));
 
                 for (int i = 0; i < need; i++) {
-                    MerchantOffer extra = CatalogBuilder.generateAdditionalOfferForLevel(vill, lvl, avoid);
+                    MerchantOffer extra = CatalogBuilder.generateAdditionalOfferForLevel(vill, lvl);
                     if (extra == null) break;
 
                     try {
                         offers.add(extra);
-                        ItemStack res = extra.getResult();
-                        if (res != null && !res.isEmpty()) avoid.add(CatalogBuilder.keyOf(res));
                         added++;
                     } catch (Throwable ignored) {
                         break;
-                    }
-                }
-
-                // Fail-safe: if we couldn't add enough while avoiding duplicates, allow duplicates.
-                // This prevents offer-count shrink (and therefore "missing slot / lost lock index") in edge cases.
-                if (added < need) {
-                    int stillNeed = need - added;
-                    int dupAdded = 0;
-                    for (int i = 0; i < stillNeed; i++) {
-                        MerchantOffer extra = CatalogBuilder.generateAdditionalOfferForLevel(vill, lvl, null);
-                        if (extra == null) break;
-                        try {
-                            offers.add(extra);
-                            dupAdded++;
-                            added++;
-                        } catch (Throwable ignored) {
-                            break;
-                        }
-                    }
-                    if (dupAdded > 0) {
-                        VillagerOverhaul.LOG().debug("[VillagerOverhaul] [hoarder] append_relaxed_duplicates villager={} addedDup={} target={} lockMask={}",
-                                vill.getUUID(), dupAdded, target, Long.toUnsignedString(lockMask));
                     }
                 }
 

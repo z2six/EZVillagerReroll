@@ -35,12 +35,14 @@ public final class MapTradeStructureCache {
             }
 
             final long now = safeGameTime(level);
+            final int originBucketX = cacheOriginBucket(origin.getX());
+            final int originBucketZ = cacheOriginBucket(origin.getZ());
             final CacheKey key = new CacheKey(
                     System.identityHashCode(level.getServer()),
                     String.valueOf(level.dimension().location()),
                     safeTagId(destination),
-                    origin.getX(),
-                    origin.getZ(),
+                    originBucketX,
+                    originBucketZ,
                     radius,
                     skipKnown
             );
@@ -69,8 +71,8 @@ public final class MapTradeStructureCache {
                         "[VillagerOverhaul] Cached cartographer structure lookup: dim={} tag={} pos=({}, {}) radius={} result={} took={}ms",
                         key.dimensionId,
                         key.destinationTagId,
-                        key.originX,
-                        key.originZ,
+                        key.originBucketX,
+                        key.originBucketZ,
                         radius,
                         stored == null ? "null" : stored.toShortString(),
                         tookMs
@@ -105,12 +107,16 @@ public final class MapTradeStructureCache {
         }
     }
 
+    static int cacheOriginBucket(int blockCoordinate) {
+        return Math.floorDiv(blockCoordinate, 16);
+    }
+
     private record CacheKey(
             int serverIdentity,
             String dimensionId,
             String destinationTagId,
-            int originX,
-            int originZ,
+            int originBucketX,
+            int originBucketZ,
             int radius,
             boolean skipKnown
     ) {}
