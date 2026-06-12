@@ -188,16 +188,16 @@ public final class ClientCommands {
                 return 0;
             }
 
-            VillagerOverhaul.LOG().debug("================================================================================");
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VO MODEL DUMP for villager={} entityId={} depth={} maxLines={}",
+            VillagerOverhaul.LOG().info("================================================================================");
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VO MODEL DUMP for villager={} entityId={} depth={} maxLines={}",
                     target.getUUID(), target.getId(), maxDepth, maxLines);
-            VillagerOverhaul.LOG().debug("================================================================================");
+            VillagerOverhaul.LOG().info("================================================================================");
 
             int lines = dumpTree(root, maxDepth, maxLines);
 
-            VillagerOverhaul.LOG().debug("================================================================================");
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VO MODEL DUMP END (lines={})", lines);
-            VillagerOverhaul.LOG().debug("================================================================================");
+            VillagerOverhaul.LOG().info("================================================================================");
+            VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] VO MODEL DUMP END (lines={})", lines);
+            VillagerOverhaul.LOG().info("================================================================================");
 
             clientMsg("Dumped villager model to log (" + lines + " lines). Search for \"VO MODEL DUMP\".");
             return 1;
@@ -478,7 +478,7 @@ public final class ClientCommands {
                 Map<String, ModelPart> children = getChildrenMap(part);
                 int childCount = (children == null) ? -1 : children.size();
 
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] PART path='{}' visible={} childCount={} rot=({}, {}, {}) pos=({}, {}, {})",
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] PART path='{}' visible={} childCount={} rot=({}, {}, {}) pos=({}, {}, {})",
                         path,
                         safeVisible(part),
                         childCount,
@@ -499,7 +499,7 @@ public final class ClientCommands {
             }
 
             if (lines >= maxLines) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] (stopped: reached maxLines={})", maxLines);
+                VillagerOverhaul.LOG().info("[VillagerOverhaul] [client] (stopped: reached maxLines={})", maxLines);
             }
 
         } catch (Throwable t) {
