@@ -4,6 +4,7 @@ package org.z2six.villageroverhaul.mixin.villagerRendering;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
@@ -15,6 +16,8 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
+import org.z2six.villageroverhaul.server.VillagerGenderService;
 import org.z2six.villageroverhaul.server.ai.VillagerBrain;
 
 /**
@@ -50,6 +53,17 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
     private static final EntityDataAccessor<Byte> EZVR_RELEASE_ALPHA =
             SynchedEntityData.defineId(Villager.class, EntityDataSerializers.BYTE);
 
+    @Unique
+    private static final EntityDataAccessor<Byte> EZVR_FACTION =
+            SynchedEntityData.defineId(Villager.class, EntityDataSerializers.BYTE);
+
+    @Unique
+    private static final EntityDataAccessor<Byte> EZVR_GENDER_ID =
+            SynchedEntityData.defineId(Villager.class, EntityDataSerializers.BYTE);
+
+    @Unique
+    private static final String EZVR_NBT_FACTION = "VillagerOverhaulFaction";
+
     @Inject(method = "defineSynchedData", at = @At("TAIL"))
     private void ezvr$defineSynchedData(SynchedEntityData.Builder builder, CallbackInfo ci) {
         try {
@@ -61,9 +75,34 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
             builder.define(EZVR_COMBAT_LOADOUT_MAIN, ItemStack.EMPTY);
             builder.define(EZVR_COMBAT_LOADOUT_OFF, ItemStack.EMPTY);
             builder.define(EZVR_RELEASE_ALPHA, (byte) 255);
+            builder.define(EZVR_FACTION, VillagerFactionService.FACTION_UNASSIGNED);
+            builder.define(EZVR_GENDER_ID, (byte) VillagerGenderService.GENDER_UNKNOWN);
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerRenderStateMixin#defineSynchedData failed (soft): {}", t.toString());
+        }
+    }
+
+    @Inject(method = "addAdditionalSaveData", at = @At("TAIL"))
+    private void ezvr$addAdditionalSaveData(CompoundTag tag, CallbackInfo ci) {
+        try {
+            if (tag == null) return;
+            tag.putByte(EZVR_NBT_FACTION, ezvr$getFaction());
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerRenderStateMixin#addAdditionalSaveData failed (soft): {}", t.toString());
+        }
+    }
+
+    @Inject(method = "readAdditionalSaveData", at = @At("TAIL"))
+    private void ezvr$readAdditionalSaveData(CompoundTag tag, CallbackInfo ci) {
+        try {
+            if (tag == null || !tag.contains(EZVR_NBT_FACTION)) {
+                ezvr$setFaction(VillagerFactionService.FACTION_HUMAN);
+                return;
+            }
+            ezvr$setFaction(tag.getByte(EZVR_NBT_FACTION));
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerRenderStateMixin#readAdditionalSaveData failed (soft): {}", t.toString());
         }
     }
 
@@ -76,6 +115,13 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
 
             // VillagerBrain is the ONLY authority that decides what the client should render.
             VillagerBrain.tickRenderDecisions(self);
+            int genderId = VillagerGenderService.getGenderId(self);
+            if (genderId == VillagerGenderService.GENDER_UNKNOWN) {
+                genderId = VillagerGenderService.ensureAssigned(self);
+            }
+            if (genderId == VillagerGenderService.GENDER_MALE || genderId == VillagerGenderService.GENDER_FEMALE) {
+                ezvr$setGenderId((byte) genderId);
+            }
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerRenderStateMixin#tick failed (soft): {}", t.toString());
@@ -125,6 +171,48 @@ public final class VillagerRenderStateMixin implements VillagerOverhaulRenderAcc
             Villager self = (Villager) (Object) this;
             if (self.getEntityData() == null) return;
             self.getEntityData().set(EZVR_RELEASE_ALPHA, alpha);
+        } catch (Throwable ignored) {}
+    }
+
+    @Override
+    public byte ezvr$getFaction() {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return VillagerFactionService.FACTION_UNASSIGNED;
+            Byte b = self.getEntityData().get(EZVR_FACTION);
+            return b == null ? VillagerFactionService.FACTION_UNASSIGNED : b;
+        } catch (Throwable ignored) {
+            return VillagerFactionService.FACTION_UNASSIGNED;
+        }
+    }
+
+    @Override
+    public void ezvr$setFaction(byte faction) {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return;
+            self.getEntityData().set(EZVR_FACTION, faction);
+        } catch (Throwable ignored) {}
+    }
+
+    @Override
+    public byte ezvr$getGenderId() {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return (byte) VillagerGenderService.GENDER_UNKNOWN;
+            Byte b = self.getEntityData().get(EZVR_GENDER_ID);
+            return b == null ? (byte) VillagerGenderService.GENDER_UNKNOWN : b;
+        } catch (Throwable ignored) {
+            return (byte) VillagerGenderService.GENDER_UNKNOWN;
+        }
+    }
+
+    @Override
+    public void ezvr$setGenderId(byte genderId) {
+        try {
+            Villager self = (Villager) (Object) this;
+            if (self.getEntityData() == null) return;
+            self.getEntityData().set(EZVR_GENDER_ID, genderId);
         } catch (Throwable ignored) {}
     }
 

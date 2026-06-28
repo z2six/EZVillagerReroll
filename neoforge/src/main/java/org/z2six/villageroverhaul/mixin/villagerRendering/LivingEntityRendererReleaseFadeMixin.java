@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
 
 @Mixin(LivingEntityRenderer.class)
 public abstract class LivingEntityRendererReleaseFadeMixin<T extends LivingEntity> {
@@ -38,6 +39,7 @@ public abstract class LivingEntityRendererReleaseFadeMixin<T extends LivingEntit
             require = 0
     )
     private boolean ezvr$releaseFadeBodyVisible(boolean original) {
+        if (VillagerFactionService.isDwarf(EZVR_RENDERING.get())) return false;
         return ezvr$releaseAlpha(EZVR_RENDERING.get()) < 255 ? false : original;
     }
 
@@ -48,6 +50,7 @@ public abstract class LivingEntityRendererReleaseFadeMixin<T extends LivingEntit
             require = 0
     )
     private boolean ezvr$releaseFadeTranslucent(boolean original) {
+        if (VillagerFactionService.isDwarf(EZVR_RENDERING.get())) return false;
         return ezvr$releaseAlpha(EZVR_RENDERING.get()) < 255 ? true : original;
     }
 

@@ -9,6 +9,9 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import org.z2six.villageroverhaul.config.ServerConfig;
 import org.z2six.villageroverhaul.farming.FarmingSettings;
 import org.z2six.villageroverhaul.logic.VillagerTraitEffects;
@@ -259,6 +262,30 @@ public final class FarmingSettingsService {
 
             BlockPos p = gp.pos();
             return new RegisteredWorkstation(dim, p.getX(), p.getY(), p.getZ());
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static Block expectedVanillaWorkstationBlock(Villager vill) {
+        try {
+            if (vill == null || vill.getVillagerData() == null) return null;
+            VillagerProfession profession = vill.getVillagerData().getProfession();
+            if (profession == null || profession == VillagerProfession.NONE || profession == VillagerProfession.NITWIT) return null;
+            if (profession == VillagerProfession.ARMORER) return Blocks.BLAST_FURNACE;
+            if (profession == VillagerProfession.BUTCHER) return Blocks.SMOKER;
+            if (profession == VillagerProfession.CARTOGRAPHER) return Blocks.CARTOGRAPHY_TABLE;
+            if (profession == VillagerProfession.CLERIC) return Blocks.BREWING_STAND;
+            if (profession == VillagerProfession.FARMER) return Blocks.COMPOSTER;
+            if (profession == VillagerProfession.FISHERMAN) return Blocks.BARREL;
+            if (profession == VillagerProfession.FLETCHER) return Blocks.FLETCHING_TABLE;
+            if (profession == VillagerProfession.LEATHERWORKER) return Blocks.CAULDRON;
+            if (profession == VillagerProfession.LIBRARIAN) return Blocks.LECTERN;
+            if (profession == VillagerProfession.MASON) return Blocks.STONECUTTER;
+            if (profession == VillagerProfession.SHEPHERD) return Blocks.LOOM;
+            if (profession == VillagerProfession.TOOLSMITH) return Blocks.SMITHING_TABLE;
+            if (profession == VillagerProfession.WEAPONSMITH) return Blocks.GRINDSTONE;
+            return null;
         } catch (Throwable ignored) {
             return null;
         }

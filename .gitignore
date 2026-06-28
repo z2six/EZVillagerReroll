@@ -3217,3 +3217,4 @@ neoforge/src/neoforge/
 /neoforge/.eclipse/
 /.tmp_mcsources/
 /neoforge/src/.gradle_user/
+/neoforge/src/test/resources/org/z2six/villageroverhaul/client/render/armor-editor-defaults-export.txt

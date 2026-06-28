@@ -105,6 +105,7 @@ public final class ServerEvents {
             bus.addListener(ServerEvents::onLivingIncomingDamage);
 
             // villager/merchant stat initialization
+            VillagerFactionService.register(bus);
             VillagerStatsEvents.register(bus);
 
             // Villager history counters

@@ -28,6 +28,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.api.VillagerOverhaulSwingAccess;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
@@ -186,8 +187,86 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
             if (!shouldRenderCustomArms(villager)) return;
 
+            float swingProg = updateArmPose(villager, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch, null);
+
+            poseStack.pushPose();
+            try {
+                if (ENABLE_ARMS_TRANSFORM) {
+                    poseStack.translate(ARMS_TX, ARMS_TY, ARMS_TZ);
+                    poseStack.scale(ARMS_SCALE, ARMS_SCALE, ARMS_SCALE);
+                }
+
+                var vc = buffer.getBuffer(RenderType.entityCutoutNoCull(ARMS_TEXTURE));
+                armsModel.renderArms(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, PACKED_COLOR);
+            } finally {
+                poseStack.popPose();
+            }
+
+            logClientSwingProof(villager, swingProg);
+
+        } catch (Throwable t) {
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VillagerHumanoidArmsLayer.render failed (soft): {}", t.toString());
+        }
+    }
+
+    public void updateDwarfArmPose(Villager villager,
+                                   float limbSwing,
+                                   float limbSwingAmount,
+                                   float partialTick,
+                                   float ageInTicks,
+                                   float netHeadYaw,
+                                   float headPitch,
+                                   DwarfVillagerModel dwarfModel) {
+        updateArmPose(villager, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch, dwarfModel);
+    }
+
+    private HumanoidModel<LivingEntity> getDriverModel() {
+        try {
+            if (!USE_PLAYERMODEL_DRIVER_FOR_VANILLA_EAT) return injectedDriverHumanoid;
+
+            PlayerModel<LivingEntity> pd = playerDriver;
+            if (pd != null) return pd;
+
+            try {
+                Minecraft mc = Minecraft.getInstance();
+                if (mc == null) return injectedDriverHumanoid;
+
+                ModelPart root = mc.getEntityModels().bakeLayer(ModelLayers.PLAYER);
+                pd = new PlayerModel<>(root, false);
+                playerDriver = pd;
+                return pd;
+            } catch (Throwable t) {
+                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] ArmsLayer PlayerModel init failed (soft): {}", t.toString());
+                return injectedDriverHumanoid;
+            }
+        } catch (Throwable ignored) {
+            return injectedDriverHumanoid;
+        }
+    }
+
+    private static boolean shouldRenderCustomArms(Villager v) {
+        try {
+            if (VillagerFactionService.isDwarf(v)) return false;
+            if (v instanceof VillagerOverhaulRenderAccess acc) {
+                return VillagerRenderFlags.renderCustomArms(acc.ezvr$getRenderFlags());
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private float updateArmPose(Villager villager,
+                               float limbSwing,
+                               float limbSwingAmount,
+                               float partialTick,
+                               float ageInTicks,
+                               float netHeadYaw,
+                               float headPitch,
+                               DwarfVillagerModel dwarfModelOrNull) {
+        try {
+            if (villager == null) return 0.0F;
+
             HumanoidModel<LivingEntity> driver = getDriverModel();
-            if (driver == null) return;
+            if (driver == null) return 0.0F;
 
             if (!ezvr$driverLogged) {
                 ezvr$driverLogged = true;
@@ -217,60 +296,18 @@ public final class VillagerHumanoidArmsLayer extends RenderLayer<Villager, Villa
 
             applyManualSwingToDriverArms(driver, villager, swingProg);
 
-            // Copy to custom arms model
-            armsModel.setArmRotationsFromHumanoid(driver.rightArm, driver.leftArm);
-
-            poseStack.pushPose();
-            try {
-                if (ENABLE_ARMS_TRANSFORM) {
-                    poseStack.translate(ARMS_TX, ARMS_TY, ARMS_TZ);
-                    poseStack.scale(ARMS_SCALE, ARMS_SCALE, ARMS_SCALE);
-                }
-
-                var vc = buffer.getBuffer(RenderType.entityCutoutNoCull(ARMS_TEXTURE));
-                armsModel.renderArms(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, PACKED_COLOR);
-            } finally {
-                poseStack.popPose();
+            // Copy to custom arms model so armor can reuse the same pose, even for dwarves.
+            if (armsModel != null) {
+                armsModel.setArmRotationsFromHumanoid(driver.rightArm, driver.leftArm);
             }
-
-            logClientSwingProof(villager, swingProg);
-
+            if (dwarfModelOrNull != null) {
+                dwarfModelOrNull.setArmRotationsFromHumanoid(driver.rightArm, driver.leftArm);
+            }
+            return swingProg;
         } catch (Throwable t) {
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] VillagerHumanoidArmsLayer.render failed (soft): {}", t.toString());
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] updateArmPose failed (soft): {}", t.toString());
+            return 0.0F;
         }
-    }
-
-    private HumanoidModel<LivingEntity> getDriverModel() {
-        try {
-            if (!USE_PLAYERMODEL_DRIVER_FOR_VANILLA_EAT) return injectedDriverHumanoid;
-
-            PlayerModel<LivingEntity> pd = playerDriver;
-            if (pd != null) return pd;
-
-            try {
-                Minecraft mc = Minecraft.getInstance();
-                if (mc == null) return injectedDriverHumanoid;
-
-                ModelPart root = mc.getEntityModels().bakeLayer(ModelLayers.PLAYER);
-                pd = new PlayerModel<>(root, false);
-                playerDriver = pd;
-                return pd;
-            } catch (Throwable t) {
-                VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] ArmsLayer PlayerModel init failed (soft): {}", t.toString());
-                return injectedDriverHumanoid;
-            }
-        } catch (Throwable ignored) {
-            return injectedDriverHumanoid;
-        }
-    }
-
-    private static boolean shouldRenderCustomArms(Villager v) {
-        try {
-            if (v instanceof VillagerOverhaulRenderAccess acc) {
-                return VillagerRenderFlags.renderCustomArms(acc.ezvr$getRenderFlags());
-            }
-        } catch (Throwable ignored) {}
-        return false;
     }
 
     private static float computeSeqDrivenSwingProgress(Villager v, float partialTick) {

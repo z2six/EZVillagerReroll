@@ -29,8 +29,9 @@ public final class ClientRenderEvents {
             if (e == null) return;
 
             e.registerLayerDefinition(VillagerCombatArmsModel.LAYER_LOCATION, VillagerCombatArmsModel::createBodyLayer);
+            e.registerLayerDefinition(DwarfVillagerModel.LAYER_LOCATION, DwarfVillagerModel::createBodyLayer);
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Registered VillagerCombatArmsModel layer definition.");
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] Registered villager custom layer definitions.");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] ClientRenderEvents.onRegisterLayerDefinitions failed", t);
@@ -75,10 +76,14 @@ public final class ClientRenderEvents {
 
             // --- Arms model (shared between arms + held-item layers) ---
             VillagerCombatArmsModel armsModel = new VillagerCombatArmsModel(e.getEntityModels().bakeLayer(VillagerCombatArmsModel.LAYER_LOCATION));
+            VillagerHumanoidArmsLayer armsLayer = new VillagerHumanoidArmsLayer(villagerRenderer, armsModel, driverHumanoid);
+
+            DwarfVillagerModel dwarfModel = new DwarfVillagerModel(e.getEntityModels().bakeLayer(DwarfVillagerModel.LAYER_LOCATION));
+            villagerRenderer.addLayer(new DwarfVillagerLayer(villagerRenderer, dwarfModel, armsLayer));
 
             // --- Custom arms (renders the geometry) ---
             // Add BEFORE armor so armor renders on top of the arms skin.
-            villagerRenderer.addLayer(new VillagerHumanoidArmsLayer(villagerRenderer, armsModel, driverHumanoid));
+            villagerRenderer.addLayer(armsLayer);
 
             // --- Armor layer ---
             HumanoidModel<LivingEntity> innerArmor = new HumanoidModel<>(e.getEntityModels().bakeLayer(ModelLayers.PLAYER_INNER_ARMOR));
@@ -86,7 +91,7 @@ public final class ClientRenderEvents {
             villagerRenderer.addLayer(new VillagerHumanoidArmorLayer(villagerRenderer, innerArmor, outerArmor, driverHumanoid, armsModel));
 
             // --- Held items (renders mainhand + offhand anchored to the custom arms pose) ---
-            villagerRenderer.addLayer(new VillagerHumanoidHeldItemLayer(villagerRenderer, armsModel));
+            villagerRenderer.addLayer(new VillagerHumanoidHeldItemLayer(villagerRenderer, armsModel, dwarfModel));
 
             // --- Holstered loadout (renders while NOT holding items) ---
             villagerRenderer.addLayer(new VillagerHolsteredLoadoutLayer(villagerRenderer));

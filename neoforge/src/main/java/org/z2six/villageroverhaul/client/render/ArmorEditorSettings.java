@@ -32,10 +32,10 @@ public final class ArmorEditorSettings {
     public static ArmorEditorSettings defaults() {
         ArmorEditorSettings s = new ArmorEditorSettings();
 
-        s.slotTransforms.put(SlotKey.HEAD, new ArmorEditorTransform(0.0f, 0.000f, 0.005f, 1.000f, 1.200f, 1.000f));
-        s.slotTransforms.put(SlotKey.CHEST, new ArmorEditorTransform(0.0f, 0.000f, 0.012f, 1.000f, 1.060f, 1.270f));
-        s.slotTransforms.put(SlotKey.LEGS, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 0.930f, 1.060f, 1.180f));
-        s.slotTransforms.put(SlotKey.FEET, new ArmorEditorTransform(0.0f, 0.000f, 0.006f, 0.960f, 1.060f, 0.920f));
+        s.slotTransforms.put(SlotKey.HEAD, new ArmorEditorTransform(0.000f, 0.025f, 0.005f, 1.000f, 1.250f, 1.000f));
+        s.slotTransforms.put(SlotKey.CHEST, new ArmorEditorTransform(0.000f, 0.000f, 0.012f, 1.000f, 1.060f, 1.270f));
+        s.slotTransforms.put(SlotKey.LEGS, new ArmorEditorTransform(0.000f, -0.325f, 0.000f, 1.040f, 1.060f, 1.180f));
+        s.slotTransforms.put(SlotKey.FEET, new ArmorEditorTransform(0.000f, -0.095f, 0.026f, 1.030f, 1.060f, 1.070f));
 
         for (SlotKey slot : SlotKey.values()) {
             EnumMap<PartKey, ArmorEditorTransform> parts = new EnumMap<>(PartKey.class);
@@ -46,17 +46,53 @@ public final class ArmorEditorSettings {
         }
 
         s.setPartTransform(SlotKey.CHEST, PartKey.BODY, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 1.070f, 1.070f, 1.070f));
-        s.setPartTransform(SlotKey.CHEST, PartKey.RIGHT_ARM, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 1.020f, 1.020f, 1.020f));
-        s.setPartTransform(SlotKey.CHEST, PartKey.LEFT_ARM, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 1.020f, 1.020f, 1.020f));
+        s.setPartTransform(SlotKey.CHEST, PartKey.RIGHT_ARM, new ArmorEditorTransform(0.070f, -0.180f, -0.070f, 1.020f, 0.970f, 0.800f));
+        s.setPartTransform(SlotKey.CHEST, PartKey.LEFT_ARM, new ArmorEditorTransform(-0.070f, -0.180f, -0.070f, 1.020f, 0.970f, 0.800f));
 
         s.setPartTransform(SlotKey.LEGS, PartKey.BODY, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 1.040f, 1.040f, 1.040f));
-        s.setPartTransform(SlotKey.LEGS, PartKey.RIGHT_LEG, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 1.030f, 1.030f, 1.030f));
-        s.setPartTransform(SlotKey.LEGS, PartKey.LEFT_LEG, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 1.030f, 1.030f, 1.030f));
+        s.setPartTransform(SlotKey.LEGS, PartKey.RIGHT_LEG, new ArmorEditorTransform(0.050f, 0.000f, 0.000f, 1.030f, 1.030f, 1.030f));
+        s.setPartTransform(SlotKey.LEGS, PartKey.LEFT_LEG, new ArmorEditorTransform(-0.050f, 0.000f, 0.000f, 1.030f, 1.030f, 1.030f));
 
         s.setPartTransform(SlotKey.FEET, PartKey.RIGHT_LEG, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 1.020f, 1.020f, 1.020f));
         s.setPartTransform(SlotKey.FEET, PartKey.LEFT_LEG, new ArmorEditorTransform(0.0f, 0.000f, 0.000f, 1.020f, 1.020f, 1.020f));
 
         return s;
+    }
+
+    public static ArmorEditorSettings dwarfDefaults() {
+        ArmorEditorSettings s = defaults();
+        s.setSlotTransform(SlotKey.HEAD, new ArmorEditorTransform(0.000f, 0.305f, -0.169f, 1.190f, 1.250f, 1.300f));
+        s.setSlotTransform(SlotKey.CHEST, new ArmorEditorTransform(0.000f, 0.165f, 0.093f, 1.450f, 1.110f, 1.910f));
+        s.setSlotTransform(SlotKey.LEGS, new ArmorEditorTransform(0.000f, -0.150f, 0.005f, 1.300f, 0.790f, 1.250f));
+        s.setSlotTransform(SlotKey.FEET, new ArmorEditorTransform(0.000f, -0.145f, 0.001f, 1.220f, 0.760f, 1.170f));
+        s.setPartTransform(SlotKey.CHEST, PartKey.RIGHT_ARM, new ArmorEditorTransform(-0.075f, -0.095f, -0.090f, 0.850f, 1.050f, 0.680f));
+        s.setPartTransform(SlotKey.CHEST, PartKey.LEFT_ARM, new ArmorEditorTransform(0.075f, -0.095f, -0.090f, 0.850f, 1.050f, 0.680f));
+        resetIndividualLegParts(s);
+        return s;
+    }
+
+    public static ArmorEditorSettings moddedDefaults() {
+        ArmorEditorSettings s = defaults();
+        s.setSlotTransform(SlotKey.CHEST, new ArmorEditorTransform(0.000f, 0.000f, 0.002f, 1.000f, 1.060f, 1.270f));
+        s.setSlotTransform(SlotKey.FEET, new ArmorEditorTransform(0.000f, -0.075f, 0.006f, 0.960f, 1.060f, 1.070f));
+        return s;
+    }
+
+    public static ArmorEditorSettings dwarfModdedDefaults() {
+        ArmorEditorSettings s = defaults();
+        s.setSlotTransform(SlotKey.HEAD, new ArmorEditorTransform(0.000f, 0.280f, -0.169f, 1.200f, 1.250f, 1.300f));
+        s.setSlotTransform(SlotKey.CHEST, new ArmorEditorTransform(0.000f, 0.165f, 0.093f, 1.450f, 1.110f, 2.310f));
+        s.setSlotTransform(SlotKey.LEGS, new ArmorEditorTransform(0.000f, 0.045f, 0.005f, 1.700f, 0.540f, 1.350f));
+        s.setSlotTransform(SlotKey.FEET, new ArmorEditorTransform(0.000f, -0.345f, 0.001f, 1.390f, 1.060f, 1.320f));
+        ArmorEditorTransform chestArm = new ArmorEditorTransform(0.000f, -0.095f, -0.090f, 0.850f, 1.050f, 0.680f);
+        s.setPartTransform(SlotKey.CHEST, PartKey.RIGHT_ARM, chestArm);
+        s.setPartTransform(SlotKey.CHEST, PartKey.LEFT_ARM, chestArm);
+        return s;
+    }
+
+    private static void resetIndividualLegParts(ArmorEditorSettings settings) {
+        settings.setPartTransform(SlotKey.LEGS, PartKey.RIGHT_LEG, new ArmorEditorTransform(0.000f, 0.000f, 0.000f, 1.030f, 1.030f, 1.030f));
+        settings.setPartTransform(SlotKey.LEGS, PartKey.LEFT_LEG, new ArmorEditorTransform(0.000f, 0.000f, 0.000f, 1.030f, 1.030f, 1.030f));
     }
 
     public ArmorEditorSettings copy() {
@@ -106,8 +142,12 @@ public final class ArmorEditorSettings {
     }
 
     public String exportHardcodeLines() {
+        return exportHardcodeLines(null);
+    }
+
+    public String exportHardcodeLines(String header) {
         StringBuilder sb = new StringBuilder(2048);
-        sb.append("[VillagerOverhaul] Armor editor export\n");
+        sb.append(header == null || header.isBlank() ? "[VillagerOverhaul] Armor editor export" : header).append('\n');
         for (SlotKey slot : SlotKey.values()) {
             sb.append("slot ")
                     .append(slot.name())

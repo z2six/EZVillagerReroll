@@ -15,6 +15,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
 
 @Mixin(RenderLayer.class)
 public abstract class RenderLayerReleaseFadeMixin {
@@ -86,6 +87,9 @@ public abstract class RenderLayerReleaseFadeMixin {
                                                                               int originalColor) {
         EZVR_LAYER_ENTITY.set(entity);
         int alpha = ezvr$releaseAlpha(entity);
+        if (VillagerFactionService.isDwarf(entity)) {
+            return;
+        }
         int packed = color;
         if (alpha < 255) {
             int rgb = color & 0x00FFFFFF;

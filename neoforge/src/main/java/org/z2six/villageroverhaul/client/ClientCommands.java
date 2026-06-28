@@ -148,9 +148,15 @@ public final class ClientCommands {
                                             ))))));
 
             d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_holster_tweak")
-                    .executes(ctx -> openHolsterTweak()));
+                    .executes(ctx -> openWeaponEditor()));
 
-            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest, /vo_eat_test, /vo_waist, /vo_holster_tweak");
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_holstertweak")
+                    .executes(ctx -> openWeaponEditor()));
+
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_weaponeditor")
+                    .executes(ctx -> openWeaponEditor()));
+
+            VillagerOverhaul.LOG().debug("[VillagerOverhaul] [client] Registered client commands: /vo_modeldump, /vo_partvis, /vo_blocktest, /vo_eat_test, /vo_waist, /vo_holster_tweak, /vo_holstertweak, /vo_weaponeditor");
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] [client] RegisterClientCommandsEvent failed.", t);
@@ -334,14 +340,14 @@ public final class ClientCommands {
         }
     }
 
-    private static int openHolsterTweak() {
+    private static int openWeaponEditor() {
         try {
             Minecraft mc = Minecraft.getInstance();
             if (mc == null) return 0;
-            mc.setScreen(new HolsterTweakScreen(mc.screen));
+            mc.setScreen(new WeaponEditorScreen(mc.screen));
             return 1;
         } catch (Throwable t) {
-            clientMsg("vo_holster_tweak failed: " + t);
+            clientMsg("vo_weaponeditor failed: " + t);
             return 0;
         }
     }

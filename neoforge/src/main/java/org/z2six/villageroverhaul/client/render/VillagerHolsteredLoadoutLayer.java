@@ -20,6 +20,7 @@ import net.minecraft.world.item.UseAnim;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
 
 import java.lang.reflect.Method;
 
@@ -342,8 +343,9 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
                 flags = acc.ezvr$getRenderFlags();
             }
 
-            // Only show holstered loadout while using vanilla crossed arms (i.e., NOT custom arms).
-            if (VillagerRenderFlags.renderCustomArms(flags)) return;
+            boolean dwarf = VillagerFactionService.isDwarf(villager);
+            boolean customArmsFlag = VillagerRenderFlags.renderCustomArms(flags);
+            if (!HolsteredLoadoutRenderPolicy.shouldRenderWhileHandsEmpty(dwarf, customArmsFlag)) return;
 
             if (!(villager instanceof VillagerOverhaulRenderAccess acc)) return;
             ItemStack loadoutMain = acc.ezvr$getCombatLoadoutMain();
@@ -356,7 +358,7 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
             ModelPart body = resolveBodyPart(getParentModel());
 
             if (ENABLE_WAIST && loadoutMain != null && !loadoutMain.isEmpty()) {
-                HolsterTransform waist = getWaistTransform(loadoutMain);
+                HolsterTransform waist = getWaistTransform(loadoutMain, dwarf);
                 renderOne(
                         villager,
                         loadoutMain,
@@ -402,7 +404,11 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
     }
 
     private static HolsterTransform getWaistTransform(ItemStack stack) {
-        return getWaistTransform(ezvr$getWaistProfileForStack(stack));
+        return getWaistTransform(stack, false);
+    }
+
+    private static HolsterTransform getWaistTransform(ItemStack stack, boolean dwarf) {
+        return getWaistTransform(ezvr$getWaistProfileForStack(stack), dwarf);
     }
 
     public static WaistProfile ezvr$getWaistProfileForStack(ItemStack stack) {
@@ -423,6 +429,22 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
     }
 
     private static HolsterTransform getWaistTransform(WaistProfile profile) {
+        return getWaistTransform(profile, false);
+    }
+
+    private static HolsterTransform getWaistTransform(WaistProfile profile, boolean dwarf) {
+        if (dwarf) {
+            HolsterWaistDefaults.Transform t = HolsterWaistDefaults.dwarfTransform(toWaistDefaultsProfile(profile));
+            return new HolsterTransform(
+                    t.tx(), t.ty(), t.tz(),
+                    t.rxDeg(), t.ryDeg(), t.rzDeg(),
+                    t.scale(),
+                    t.spinDeg(),
+                    spinAxis(t.spinAxis()),
+                    t.rollDeg(),
+                    spinAxis(t.rollAxis())
+            );
+        }
         return switch (profile == null ? WaistProfile.DEFAULT : profile) {
             case DEFAULT -> new HolsterTransform(
                     WAIST_TX, WAIST_TY, WAIST_TZ,
@@ -452,6 +474,23 @@ public final class VillagerHolsteredLoadoutLayer extends RenderLayer<Villager, V
                     WAIST_CROSSBOW_ROLL_AXIS
             );
         };
+    }
+
+    private static HolsterWaistDefaults.Profile toWaistDefaultsProfile(WaistProfile profile) {
+        return switch (profile == null ? WaistProfile.DEFAULT : profile) {
+            case DEFAULT -> HolsterWaistDefaults.Profile.DEFAULT;
+            case BOW -> HolsterWaistDefaults.Profile.BOW;
+            case CROSSBOW -> HolsterWaistDefaults.Profile.CROSSBOW;
+        };
+    }
+
+    private static SpinAxis spinAxis(String raw) {
+        try {
+            if (raw == null || raw.isBlank()) return SpinAxis.Z;
+            return SpinAxis.valueOf(raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (Throwable ignored) {
+            return SpinAxis.Z;
+        }
     }
 
     private static void renderOne(Villager villager,

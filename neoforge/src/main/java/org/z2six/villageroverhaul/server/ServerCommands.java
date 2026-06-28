@@ -5,10 +5,13 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
@@ -60,8 +63,81 @@ public final class ServerCommands {
             d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_armoreditor")
                     .requires(src -> src != null && src.hasPermission(2))
                     .executes(ctx -> openArmorEditor(ctx.getSource())));
+
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_spawndwarf")
+                    .requires(src -> src != null && src.hasPermission(2))
+                    .executes(ctx -> spawnDwarf(ctx.getSource())));
+
+            d.register(LiteralArgumentBuilder.<CommandSourceStack>literal("vo_resetfactions")
+                    .requires(src -> src != null && src.hasPermission(2))
+                    .executes(ctx -> resetFactions(ctx.getSource(), 32.0))
+                    .then(com.mojang.brigadier.builder.RequiredArgumentBuilder.<CommandSourceStack, Double>argument(
+                                    "radius", DoubleArgumentType.doubleArg(1.0, 512.0))
+                            .executes(ctx -> resetFactions(ctx.getSource(), DoubleArgumentType.getDouble(ctx, "radius")))));
         } catch (Throwable t) {
             VillagerOverhaul.LOG().error("[VillagerOverhaul] RegisterCommandsEvent failed (server commands may be missing).", t);
+        }
+    }
+
+    private static int resetFactions(CommandSourceStack source, double radius) {
+        try {
+            if (source == null) return 0;
+            if (!(source.getEntity() instanceof ServerPlayer sp)) {
+                source.sendFailure(Component.literal("Player-only command."));
+                return 0;
+            }
+            if (!(sp.level() instanceof ServerLevel level)) return 0;
+
+            double r = Math.max(1.0, Math.min(512.0, radius));
+            AABB box = sp.getBoundingBox().inflate(r, r, r);
+            List<Villager> villagers = level.getEntitiesOfClass(Villager.class, box, v -> true);
+            int changed = 0;
+            for (Villager vill : villagers) {
+                if (vill instanceof org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess acc) {
+                    acc.ezvr$setFaction(VillagerFactionService.FACTION_HUMAN);
+                    changed++;
+                }
+            }
+
+            int count = changed;
+            source.sendSuccess(() -> Component.literal("Reset faction to human for " + count + " villager(s)."), true);
+            return changed;
+        } catch (Throwable t) {
+            try {
+                if (source != null) source.sendFailure(Component.literal("Command failed: " + t.getClass().getSimpleName()));
+            } catch (Throwable ignored) {}
+            return 0;
+        }
+    }
+
+    private static int spawnDwarf(CommandSourceStack source) {
+        try {
+            if (source == null) return 0;
+            if (!(source.getEntity() instanceof ServerPlayer sp)) {
+                source.sendFailure(Component.literal("Player-only command."));
+                return 0;
+            }
+            if (!(sp.level() instanceof ServerLevel level)) return 0;
+
+            BlockPos pos = sp.blockPosition();
+            Villager vill = EntityType.VILLAGER.spawn(level, v -> {
+                if (v instanceof org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess acc) {
+                    acc.ezvr$setFaction(VillagerFactionService.FACTION_DWARF);
+                }
+            }, pos, MobSpawnType.COMMAND, true, false);
+
+            if (vill == null) {
+                source.sendFailure(Component.literal("Failed to spawn dwarf villager."));
+                return 0;
+            }
+
+            source.sendSuccess(() -> Component.literal("Spawned dwarf villager."), true);
+            return 1;
+        } catch (Throwable t) {
+            try {
+                if (source != null) source.sendFailure(Component.literal("Command failed: " + t.getClass().getSimpleName()));
+            } catch (Throwable ignored) {}
+            return 0;
         }
     }
 

@@ -14,6 +14,7 @@ import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.client.render.VillagerHatVisibilityEnforcer;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -49,6 +50,10 @@ public abstract class VillagerModelVisibilityMixin {
 
     // NEW: Hat resolution (root.head.hat)
     @Unique private VillagerHatVisibilityEnforcer.ResolvedHat ezvr$hatResolved = null;
+    @Unique private ModelPart ezvr$headPart = null;
+    @Unique private ModelPart ezvr$bodyPart = null;
+    @Unique private ModelPart ezvr$leftLegPart = null;
+    @Unique private ModelPart ezvr$rightLegPart = null;
 
     // Current entity context when renderToBuffer is called (no entity param).
     @Unique private AbstractVillager ezvr$ctxVillager = null;
@@ -223,6 +228,11 @@ public abstract class VillagerModelVisibilityMixin {
                 // Robe/outer layer: prefer "jacket" (confirmed), fallback "bodywear"
                 ezvr$resolveRobe(root);
 
+                ezvr$headPart = ezvr$getDirectChild(root, "head");
+                ezvr$bodyPart = ezvr$getDirectChild(root, "body");
+                ezvr$leftLegPart = ezvr$getDirectChild(root, "left_leg");
+                ezvr$rightLegPart = ezvr$getDirectChild(root, "right_leg");
+
                 // NEW: Hat resolve (root.head.hat)
                 ezvr$hatResolved = VillagerHatVisibilityEnforcer.resolve(root);
 
@@ -243,13 +253,18 @@ public abstract class VillagerModelVisibilityMixin {
 
             boolean showRobe = VillagerRenderFlags.renderBodywear(flags);
             boolean showCrossedArms = !VillagerRenderFlags.renderCustomArms(flags);
+            boolean dwarf = VillagerFactionService.isDwarf(villager);
 
             // Enforce
-            if (ezvr$crossedArmsPart != null) ezvr$crossedArmsPart.visible = showCrossedArms;
-            if (ezvr$robePart != null) ezvr$robePart.visible = showRobe;
+            if (ezvr$headPart != null) ezvr$headPart.visible = !dwarf;
+            if (ezvr$bodyPart != null) ezvr$bodyPart.visible = !dwarf;
+            if (ezvr$leftLegPart != null) ezvr$leftLegPart.visible = !dwarf;
+            if (ezvr$rightLegPart != null) ezvr$rightLegPart.visible = !dwarf;
+            if (ezvr$crossedArmsPart != null) ezvr$crossedArmsPart.visible = !dwarf && showCrossedArms;
+            if (ezvr$robePart != null) ezvr$robePart.visible = !dwarf && showRobe;
 
             // NEW: enforce hat visibility
-            VillagerHatVisibilityEnforcer.apply(ezvr$hatResolved, flags);
+            if (!dwarf) VillagerHatVisibilityEnforcer.apply(ezvr$hatResolved, flags);
 
             // DEBUG-only, throttled, per-UUID (NO INFO SPAM)
             if (VillagerOverhaul.LOG().isDebugEnabled()) {
@@ -429,5 +444,14 @@ public abstract class VillagerModelVisibilityMixin {
             }
         } catch (Throwable ignored) {}
         return null;
+    }
+
+    @Unique
+    private static ModelPart ezvr$getDirectChild(ModelPart root, String name) {
+        try {
+            return root == null ? null : root.getChild(name);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 }

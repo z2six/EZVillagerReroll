@@ -18,17 +18,24 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
+import org.z2six.villageroverhaul.client.render.ArmorEditorArmorKind;
+import org.z2six.villageroverhaul.client.render.ArmorEditorArmorKindPolicy;
+import org.z2six.villageroverhaul.client.render.ArmorEditorProfile;
 import org.z2six.villageroverhaul.client.render.ArmorEditorRuntimeSettings;
 import org.z2six.villageroverhaul.client.render.ArmorEditorSettings;
 import org.z2six.villageroverhaul.client.render.ArmorEditorTransform;
+import org.z2six.villageroverhaul.client.render.ArmorEditorTransformTarget;
+import org.z2six.villageroverhaul.client.render.ArmorRandomCycle;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
+import org.z2six.villageroverhaul.server.VillagerGenderService;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.Random;
 
 public final class ArmorEditorScreen extends Screen {
     private static final int PAD = 8;
@@ -51,8 +58,11 @@ public final class ArmorEditorScreen extends Screen {
     };
 
     private final Screen parent;
-    private ArmorEditorSettings committed;
-    private ArmorEditorSettings working;
+    private final EnumMap<ArmorEditorProfile, EnumMap<ArmorEditorArmorKind, ArmorEditorSettings>> committed = new EnumMap<>(ArmorEditorProfile.class);
+    private final EnumMap<ArmorEditorProfile, EnumMap<ArmorEditorArmorKind, ArmorEditorSettings>> working = new EnumMap<>(ArmorEditorProfile.class);
+    private ArmorEditorProfile selectedProfile = ArmorEditorProfile.VILLAGER;
+    private ArmorEditorArmorKind selectedArmorKind = ArmorEditorArmorKind.VANILLA;
+    private boolean hideDwarfBodyShapeWithChest = true;
     private boolean dirty = false;
 
     private Villager previewVillager;
@@ -61,11 +71,17 @@ public final class ArmorEditorScreen extends Screen {
     private final List<String> armorButtonIds = new ArrayList<>();
     private final List<Button> paramButtons = new ArrayList<>();
     private final List<Button> slotButtons = new ArrayList<>();
+    private final List<Button> targetButtons = new ArrayList<>();
+    private Button profileButton;
+    private Button armorKindButton;
+    private Button bodyShapeButton;
 
     private final EnumMap<EquipmentSlot, String> equippedArmorIds = new EnumMap<>(EquipmentSlot.class);
+    private final EnumMap<EquipmentSlot, ArmorRandomCycle> randomCycles = new EnumMap<>(EquipmentSlot.class);
 
     private String status = "";
     private EquipmentSlot selectedSlot = EquipmentSlot.HEAD;
+    private ArmorEditorTransformTarget selectedTarget = ArmorEditorTransformTarget.slot();
     private Param selectedParam = Param.X;
     private int armorScroll = 0;
 
@@ -99,9 +115,19 @@ public final class ArmorEditorScreen extends Screen {
     public ArmorEditorScreen(Screen parent) {
         super(Component.literal("Villager Armor Editor"));
         this.parent = parent;
-        this.committed = ArmorEditorRuntimeSettings.snapshot();
-        this.working = this.committed.copy();
-        ArmorEditorRuntimeSettings.applyTransient(this.working);
+        for (ArmorEditorProfile profile : ArmorEditorProfile.values()) {
+            for (ArmorEditorArmorKind armorKind : ArmorEditorArmorKind.values()) {
+                ArmorEditorSettings snapshot = ArmorEditorRuntimeSettings.snapshot(profile, armorKind);
+                putSettings(this.committed, profile, armorKind, snapshot);
+                putSettings(this.working, profile, armorKind, snapshot.copy());
+                ArmorEditorRuntimeSettings.applyTransient(profile, armorKind, snapshot);
+            }
+        }
+        Random random = new Random();
+        for (EquipmentSlot slot : ARMOR_SLOTS) {
+            randomCycles.put(slot, new ArmorRandomCycle(random));
+        }
+        this.hideDwarfBodyShapeWithChest = ArmorEditorRuntimeSettings.hideDwarfBodyShapeWithChest();
     }
 
     @Override
@@ -111,6 +137,7 @@ public final class ArmorEditorScreen extends Screen {
         armorButtonIds.clear();
         paramButtons.clear();
         slotButtons.clear();
+        targetButtons.clear();
 
         int topY = PAD;
         int x = PAD;
@@ -126,6 +153,18 @@ public final class ArmorEditorScreen extends Screen {
         x += 64;
         addRenderableWidget(Button.builder(Component.literal("Reset All"), b -> resetAll())
                 .pos(x, topY).size(82, 20).build());
+        x += 88;
+        profileButton = Button.builder(Component.literal(""), b -> cycleProfile())
+                .pos(x, topY).size(92, 20).build();
+        addRenderableWidget(profileButton);
+        x += 98;
+        armorKindButton = Button.builder(Component.literal(""), b -> cycleArmorKind())
+                .pos(x, topY).size(104, 20).build();
+        addRenderableWidget(armorKindButton);
+        x += 110;
+        bodyShapeButton = Button.builder(Component.literal(""), b -> toggleDwarfBodyShapeHide())
+                .pos(x, topY).size(116, 20).build();
+        addRenderableWidget(bodyShapeButton);
 
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .pos(this.width - PAD - 62, topY).size(62, 20).build());
@@ -134,7 +173,9 @@ public final class ArmorEditorScreen extends Screen {
         initRightPanel();
         ensureArmorSelection();
         updateSlotButtons();
+        updateTargetButtons();
         updateParamButtons();
+        updateProfileButtons();
         updateArmorButtons();
         updatePreviewEquipment();
     }
@@ -150,7 +191,19 @@ public final class ArmorEditorScreen extends Screen {
         y += 22;
         addSlotButton("Legs", EquipmentSlot.LEGS, x, y, sw);
         addSlotButton("Feet", EquipmentSlot.FEET, x + sw + 6, y, sw);
-        y += 34;
+        y += 30;
+
+        int targetW = (w - 9) / 4;
+        for (int i = 0; i < 4; i++) {
+            final int buttonIndex = i;
+            Button btn = Button.builder(Component.literal(""), b -> selectTarget(buttonIndex))
+                    .pos(x + i * (targetW + 3), y)
+                    .size(targetW, 18)
+                    .build();
+            addRenderableWidget(btn);
+            targetButtons.add(btn);
+        }
+        y += 28;
 
         int bw = (w - 10) / 3;
         Param[] params = Param.values();
@@ -174,14 +227,14 @@ public final class ArmorEditorScreen extends Screen {
                 .pos(x, y).size(34, 20).build());
         addRenderableWidget(Button.builder(Component.literal("+"), b -> adjustSelected(1.0f))
                 .pos(x + 40, y).size(34, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("Reset Target"), b -> resetTarget())
-                .pos(x + 80, y).size(w - 80, 20).build());
     }
 
     private void addSlotButton(String label, EquipmentSlot slot, int x, int y, int w) {
         Button btn = Button.builder(Component.literal(label), b -> {
                     selectedSlot = slot;
+                    normalizeSelectedTarget();
                     updateSlotButtons();
+                    updateTargetButtons();
                     updateArmorButtons();
                 })
                 .pos(x, y)
@@ -255,12 +308,14 @@ public final class ArmorEditorScreen extends Screen {
         int lx = leftX() + PAD;
         int ly = leftInfoY();
         int lw = LEFT_W - PAD * 2;
-        gg.fill(lx - 3, ly - 4, lx + lw + 3, Math.min(panelY() + panelH() - PAD, ly + 76), 0xAA050505);
+        gg.fill(lx - 3, ly - 4, lx + lw + 3, Math.min(panelY() + panelH() - PAD, ly + 89), 0xAA050505);
         gg.drawString(this.font, "Editing", lx, ly, 0xFFFFFFFF, false);
         ly += 13;
-        gg.drawString(this.font, cleanSlotLabel(selectedSlot) + " item transform", lx, ly, 0xFFCCCCCC, false);
+        gg.drawString(this.font, profileLabel(selectedProfile) + " / " + armorKindLabel(selectedArmorKind), lx, ly, 0xFFCCCCCC, false);
         ly += 13;
-        gg.drawString(this.font, "Adjusts the equipped armor slot", lx, ly, 0xFFCCCCCC, false);
+        gg.drawString(this.font, cleanSlotLabel(selectedSlot) + " " + selectedTarget.label() + " transform", lx, ly, 0xFFCCCCCC, false);
+        ly += 13;
+        gg.drawString(this.font, selectedTarget.slotTarget() ? "Adjusts the equipped armor slot" : "Adjusts only this armor model part", lx, ly, 0xFFCCCCCC, false);
         ly += 18;
 
         ArmorEditorTransform tx = currentTransform();
@@ -315,15 +370,17 @@ public final class ArmorEditorScreen extends Screen {
             int x2 = centerX + scissorHalfW;
             int y2 = centerY + scissorHalfH;
 
-            InventoryScreen.renderEntityInInventoryFollowsAngle(
-                    gg,
-                    x1, y1, x2, y2,
-                    Math.max(12, Math.round(previewZoom)),
-                    0.0f,
-                    previewYaw / 20.0f,
-                    previewPitch / 20.0f,
-                    villager
-            );
+            try (ArmorEditorRuntimeSettings.Scope ignored = ArmorEditorRuntimeSettings.pushArmorKind(selectedArmorKind)) {
+                InventoryScreen.renderEntityInInventoryFollowsAngle(
+                        gg,
+                        x1, y1, x2, y2,
+                        Math.max(12, Math.round(previewZoom)),
+                        0.0f,
+                        previewYaw / 20.0f,
+                        previewPitch / 20.0f,
+                        villager
+                );
+            }
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] ArmorEditorScreen preview render failed (soft): {}", t.toString());
         }
@@ -368,6 +425,10 @@ public final class ArmorEditorScreen extends Screen {
 
             if (villager instanceof VillagerOverhaulRenderAccess acc) {
                 boolean hideHat = !villager.getItemBySlot(EquipmentSlot.HEAD).isEmpty();
+                acc.ezvr$setFaction(selectedProfile == ArmorEditorProfile.DWARF
+                        ? VillagerFactionService.FACTION_DWARF
+                        : VillagerFactionService.FACTION_HUMAN);
+                acc.ezvr$setGenderId((byte) VillagerGenderService.GENDER_MALE);
                 acc.ezvr$setRenderFlags(VillagerRenderFlags.pack(false, true, hideHat));
             }
         } catch (Throwable ignored) {}
@@ -379,10 +440,16 @@ public final class ArmorEditorScreen extends Screen {
         EquipmentSlot slot = armorSlot(armor);
         if (!isArmorSlot(slot)) return;
 
-        selectedSlot = slot;
+        ArmorEditorArmorKind armorKind = ArmorEditorArmorKindPolicy.armorKindForItemId(id);
+        if (armorKind != selectedArmorKind) {
+            selectedArmorKind = armorKind;
+            removeEquippedArmorNotMatching(armorKind);
+        }
         equippedArmorIds.put(slot, id == null ? "" : id.trim());
-        status = "Equipped " + cleanSlotLabel(slot) + " armor";
+        status = "Equipped " + armorKindLabel(armorKind) + " " + cleanSlotLabel(slot) + " armor";
         updateSlotButtons();
+        updateTargetButtons();
+        updateProfileButtons();
         updateArmorButtons();
         updatePreviewEquipment();
     }
@@ -405,18 +472,18 @@ public final class ArmorEditorScreen extends Screen {
         try {
             boolean equippedAny = false;
             for (EquipmentSlot slot : ARMOR_SLOTS) {
-                List<String> ids = allArmorIdsForSlot(slot, "");
+                List<String> ids = allArmorIdsForSlot(slot, "", selectedArmorKind);
                 if (ids.isEmpty()) {
                     equippedArmorIds.remove(slot);
                     continue;
                 }
-                String id = ids.get(ThreadLocalRandom.current().nextInt(ids.size()));
+                String id = nextRandomArmorId(slot, ids);
                 equippedArmorIds.put(slot, id);
                 equippedAny = true;
             }
-            selectedSlot = EquipmentSlot.HEAD;
-            status = equippedAny ? "Random armor equipped" : "No armor items found";
+            status = equippedAny ? "Random " + armorKindLabel(selectedArmorKind) + " armor equipped" : "No " + armorKindLabel(selectedArmorKind) + " armor items found";
             updateSlotButtons();
+            updateTargetButtons();
             updateArmorButtons();
             updatePreviewEquipment();
         } catch (Throwable ignored) {
@@ -426,18 +493,18 @@ public final class ArmorEditorScreen extends Screen {
 
     private void randomizeSelectedSlot() {
         try {
-            List<String> ids = allArmorIdsForSlot(selectedSlot, "");
+            List<String> ids = allArmorIdsForSlot(selectedSlot, "", selectedArmorKind);
             if (ids.isEmpty()) {
                 equippedArmorIds.remove(selectedSlot);
-                status = "No " + cleanSlotLabel(selectedSlot).toLowerCase(Locale.ROOT) + " armor found";
+                status = "No " + armorKindLabel(selectedArmorKind) + " " + cleanSlotLabel(selectedSlot).toLowerCase(Locale.ROOT) + " armor found";
                 updateArmorButtons();
                 updatePreviewEquipment();
                 return;
             }
 
-            String id = ids.get(ThreadLocalRandom.current().nextInt(ids.size()));
+            String id = nextRandomArmorId(selectedSlot, ids);
             equippedArmorIds.put(selectedSlot, id);
-            status = "Randomized " + cleanSlotLabel(selectedSlot) + " slot";
+            status = "Randomized " + armorKindLabel(selectedArmorKind) + " " + cleanSlotLabel(selectedSlot) + " slot";
             updateArmorButtons();
             updatePreviewEquipment();
         } catch (Throwable ignored) {
@@ -455,8 +522,23 @@ public final class ArmorEditorScreen extends Screen {
         }
         if (hasAny) return;
 
-        List<String> ids = allArmorIds("");
+        List<String> ids = allArmorIdsForSlot(selectedSlot, "", selectedArmorKind);
         if (!ids.isEmpty()) selectArmor(ids.get(0));
+    }
+
+    private String nextRandomArmorId(EquipmentSlot slot, List<String> ids) {
+        ArmorRandomCycle cycle = randomCycles.computeIfAbsent(slot, ignored -> new ArmorRandomCycle(new Random()));
+        return cycle.next(ids, equippedArmorIds.get(slot));
+    }
+
+    private void removeEquippedArmorNotMatching(ArmorEditorArmorKind armorKind) {
+        ArmorEditorArmorKind kind = armorKind == null ? ArmorEditorArmorKind.VANILLA : armorKind;
+        for (EquipmentSlot slot : ARMOR_SLOTS) {
+            String id = equippedArmorIds.get(slot);
+            if (id != null && ArmorEditorArmorKindPolicy.armorKindForItemId(id) != kind) {
+                equippedArmorIds.remove(slot);
+            }
+        }
     }
 
     private void adjustSelected(float dir) {
@@ -469,45 +551,62 @@ public final class ArmorEditorScreen extends Screen {
             ArmorEditorTransform tx = currentTransform().adjust(selectedParam.label, delta);
             ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(selectedSlot);
             if (slotKey == null) return;
-            working.setSlotTransform(slotKey, tx);
+            if (selectedTarget.armsTarget()) {
+                currentWorking().setPartTransform(slotKey, ArmorEditorSettings.PartKey.RIGHT_ARM, tx);
+                currentWorking().setPartTransform(slotKey, ArmorEditorSettings.PartKey.LEFT_ARM, tx);
+            } else if (selectedTarget.legsTarget()) {
+                currentWorking().setPartTransform(slotKey, ArmorEditorSettings.PartKey.RIGHT_LEG, tx);
+                currentWorking().setPartTransform(slotKey, ArmorEditorSettings.PartKey.LEFT_LEG, tx);
+            } else if (selectedTarget.partTarget() != null) {
+                currentWorking().setPartTransform(slotKey, selectedTarget.partTarget(), tx);
+            } else {
+                currentWorking().setSlotTransform(slotKey, tx);
+            }
             dirty = true;
             status = "Unsaved changes";
-            ArmorEditorRuntimeSettings.applyTransient(working);
+            ArmorEditorRuntimeSettings.applyTransient(selectedProfile, selectedArmorKind, currentWorking());
         } catch (Throwable ignored) {}
     }
 
     private ArmorEditorTransform currentTransform() {
         ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(selectedSlot);
         if (slotKey == null) return ArmorEditorTransform.IDENTITY;
-        return working.slotTransform(slotKey);
-    }
-
-    private void resetTarget() {
-        ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(selectedSlot);
-        if (slotKey == null) return;
-        working.resetSlot(slotKey);
-        dirty = true;
-        status = "Target reset";
-        ArmorEditorRuntimeSettings.applyTransient(working);
+        if (selectedTarget.armsTarget()) {
+            return currentWorking().partTransform(slotKey, ArmorEditorSettings.PartKey.RIGHT_ARM);
+        }
+        if (selectedTarget.legsTarget()) {
+            return currentWorking().partTransform(slotKey, ArmorEditorSettings.PartKey.RIGHT_LEG);
+        }
+        if (selectedTarget.partTarget() != null) {
+            return currentWorking().partTransform(slotKey, selectedTarget.partTarget());
+        }
+        return currentWorking().slotTransform(slotKey);
     }
 
     private void resetAll() {
-        working = ArmorEditorSettings.defaults();
+        putSettings(working, selectedProfile, selectedArmorKind, profileDefaults());
         dirty = true;
-        status = "All armor settings reset";
-        ArmorEditorRuntimeSettings.applyTransient(working);
+        status = profileLabel(selectedProfile) + " " + armorKindLabel(selectedArmorKind) + " armor settings reset";
+        ArmorEditorRuntimeSettings.applyTransient(selectedProfile, selectedArmorKind, currentWorking());
     }
 
     private void applySession() {
-        ArmorEditorRuntimeSettings.save(working);
-        committed = working.copy();
+        for (ArmorEditorProfile profile : ArmorEditorProfile.values()) {
+            for (ArmorEditorArmorKind armorKind : ArmorEditorArmorKind.values()) {
+                ArmorEditorSettings settings = settingsIn(working, profile, armorKind);
+                if (settings == null) settings = defaultsFor(profile, armorKind);
+                ArmorEditorRuntimeSettings.save(profile, armorKind, settings);
+                putSettings(committed, profile, armorKind, settings.copy());
+            }
+        }
         dirty = false;
-        status = "Applied for this session";
+        VillagerOverhaul.LOG().info("{}", exportAllWorking());
+        status = "Applied all armor settings and exported to latest.log";
     }
 
     private void logExport() {
         try {
-            String export = working.exportHardcodeLines();
+            String export = exportAllWorking();
             VillagerOverhaul.LOG().info("{}", export);
             status = "Export written to latest.log";
         } catch (Throwable t) {
@@ -522,11 +621,18 @@ public final class ArmorEditorScreen extends Screen {
                 status = "Clipboard unavailable";
                 return;
             }
-            mc.keyboardHandler.setClipboard(working.exportHardcodeLines());
+            mc.keyboardHandler.setClipboard(exportAllWorking());
             status = "Export copied";
         } catch (Throwable t) {
             status = "Clipboard export failed";
         }
+    }
+
+    private String exportAllWorking() {
+        return ArmorEditorRuntimeSettings.exportAllHardcodeLines((profile, armorKind) -> {
+            ArmorEditorSettings settings = settingsIn(working, profile, armorKind);
+            return settings == null ? defaultsFor(profile, armorKind) : settings;
+        });
     }
 
     private void updateSlotButtons() {
@@ -535,6 +641,41 @@ public final class ArmorEditorScreen extends Screen {
             Button b = slotButtons.get(i);
             b.setMessage(Component.literal((slot == selectedSlot ? "> " : "") + cleanSlotLabel(slot)));
         }
+    }
+
+    private void updateTargetButtons() {
+        ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(selectedSlot);
+        selectedTarget = ArmorEditorTransformTarget.normalizeForSlot(slotKey, selectedTarget);
+        List<ArmorEditorTransformTarget> targets = ArmorEditorTransformTarget.targetsForSlot(slotKey);
+        for (int i = 0; i < targetButtons.size(); i++) {
+            Button b = targetButtons.get(i);
+            if (i < targets.size()) {
+                ArmorEditorTransformTarget target = targets.get(i);
+                b.visible = true;
+                b.active = true;
+                b.setMessage(Component.literal((target.equals(selectedTarget) ? "> " : "") + target.label()));
+            } else {
+                b.visible = false;
+                b.active = false;
+                b.setMessage(Component.literal(""));
+            }
+        }
+    }
+
+    private void selectTarget(int buttonIndex) {
+        ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(selectedSlot);
+        List<ArmorEditorTransformTarget> targets = ArmorEditorTransformTarget.targetsForSlot(slotKey);
+        if (buttonIndex < 0 || buttonIndex >= targets.size()) return;
+        selectedTarget = targets.get(buttonIndex);
+        status = "Editing " + selectedTarget.label() + " transform";
+        updateTargetButtons();
+    }
+
+    private void normalizeSelectedTarget() {
+        selectedTarget = ArmorEditorTransformTarget.normalizeForSlot(
+                ArmorEditorRuntimeSettings.slotKey(selectedSlot),
+                selectedTarget
+        );
     }
 
     private void updateParamButtons() {
@@ -546,6 +687,119 @@ public final class ArmorEditorScreen extends Screen {
                 b.setMessage(Component.literal((selected ? "> " : "") + p.label));
             } catch (Throwable ignored) {}
         }
+    }
+
+    private void updateProfileButtons() {
+        if (profileButton != null) {
+            profileButton.setMessage(Component.literal("Model: " + profileLabel(selectedProfile)));
+        }
+        if (armorKindButton != null) {
+            armorKindButton.setMessage(Component.literal("Armor: " + armorKindLabel(selectedArmorKind)));
+        }
+        if (bodyShapeButton != null) {
+            bodyShapeButton.visible = selectedProfile == ArmorEditorProfile.DWARF;
+            bodyShapeButton.active = selectedProfile == ArmorEditorProfile.DWARF;
+            bodyShapeButton.setMessage(Component.literal(hideDwarfBodyShapeWithChest ? "Chest hides shape" : "Chest shows shape"));
+        }
+    }
+
+    private void cycleProfile() {
+        selectedProfile = selectedProfile == ArmorEditorProfile.DWARF ? ArmorEditorProfile.VILLAGER : ArmorEditorProfile.DWARF;
+        ArmorEditorRuntimeSettings.applyTransient(selectedProfile, selectedArmorKind, currentWorking());
+        status = "Editing " + profileLabel(selectedProfile) + " armor";
+        updateProfileButtons();
+        updateSlotButtons();
+        updateTargetButtons();
+        updateParamButtons();
+        updatePreviewEquipment();
+    }
+
+    private void cycleArmorKind() {
+        selectedArmorKind = selectedArmorKind == ArmorEditorArmorKind.MODDED ? ArmorEditorArmorKind.VANILLA : ArmorEditorArmorKind.MODDED;
+        switchEquippedArmorToKind(selectedArmorKind);
+        ArmorEditorRuntimeSettings.applyTransient(selectedProfile, selectedArmorKind, currentWorking());
+        status = "Editing " + profileLabel(selectedProfile) + " " + armorKindLabel(selectedArmorKind) + " armor";
+        updateProfileButtons();
+        updateSlotButtons();
+        updateTargetButtons();
+        updateParamButtons();
+        updateArmorButtons();
+        updatePreviewEquipment();
+    }
+
+    private void switchEquippedArmorToKind(ArmorEditorArmorKind armorKind) {
+        ArmorEditorArmorKind kind = armorKind == null ? ArmorEditorArmorKind.VANILLA : armorKind;
+        for (EquipmentSlot slot : ARMOR_SLOTS) {
+            List<String> ids = allArmorIdsForSlot(slot, "", kind);
+            if (ids.isEmpty()) {
+                equippedArmorIds.remove(slot);
+                continue;
+            }
+            equippedArmorIds.put(slot, nextRandomArmorId(slot, ids));
+        }
+    }
+
+    private void toggleDwarfBodyShapeHide() {
+        hideDwarfBodyShapeWithChest = !hideDwarfBodyShapeWithChest;
+        ArmorEditorRuntimeSettings.setHideDwarfBodyShapeWithChest(hideDwarfBodyShapeWithChest);
+        status = hideDwarfBodyShapeWithChest ? "Chest armor hides belly/breasts" : "Chest armor shows belly/breasts";
+        updateProfileButtons();
+    }
+
+    private ArmorEditorSettings currentWorking() {
+        ArmorEditorSettings settings = settingsIn(working, selectedProfile, selectedArmorKind);
+        if (settings == null) {
+            settings = profileDefaults();
+            putSettings(working, selectedProfile, selectedArmorKind, settings);
+        }
+        return settings;
+    }
+
+    private ArmorEditorSettings profileDefaults() {
+        return defaultsFor(selectedProfile, selectedArmorKind);
+    }
+
+    private static ArmorEditorSettings defaultsFor(ArmorEditorProfile profile, ArmorEditorArmorKind armorKind) {
+        if (profile == ArmorEditorProfile.DWARF) {
+            return armorKind == ArmorEditorArmorKind.MODDED
+                    ? ArmorEditorSettings.dwarfModdedDefaults()
+                    : ArmorEditorSettings.dwarfDefaults();
+        }
+        return armorKind == ArmorEditorArmorKind.MODDED
+                ? ArmorEditorSettings.moddedDefaults()
+                : ArmorEditorSettings.defaults();
+    }
+
+    private static ArmorEditorSettings settingsIn(EnumMap<ArmorEditorProfile, EnumMap<ArmorEditorArmorKind, ArmorEditorSettings>> map,
+                                                  ArmorEditorProfile profile,
+                                                  ArmorEditorArmorKind armorKind) {
+        if (map == null) return null;
+        EnumMap<ArmorEditorArmorKind, ArmorEditorSettings> byKind = map.get(profile == null ? ArmorEditorProfile.VILLAGER : profile);
+        if (byKind == null) return null;
+        return byKind.get(armorKind == null ? ArmorEditorArmorKind.VANILLA : armorKind);
+    }
+
+    private static void putSettings(EnumMap<ArmorEditorProfile, EnumMap<ArmorEditorArmorKind, ArmorEditorSettings>> map,
+                                    ArmorEditorProfile profile,
+                                    ArmorEditorArmorKind armorKind,
+                                    ArmorEditorSettings settings) {
+        if (map == null) return;
+        ArmorEditorProfile p = profile == null ? ArmorEditorProfile.VILLAGER : profile;
+        ArmorEditorArmorKind k = armorKind == null ? ArmorEditorArmorKind.VANILLA : armorKind;
+        EnumMap<ArmorEditorArmorKind, ArmorEditorSettings> byKind = map.computeIfAbsent(p, ignored -> new EnumMap<>(ArmorEditorArmorKind.class));
+        if (settings == null) {
+            byKind.remove(k);
+        } else {
+            byKind.put(k, settings);
+        }
+    }
+
+    private static String profileLabel(ArmorEditorProfile profile) {
+        return profile == ArmorEditorProfile.DWARF ? "Dwarf" : "Villager";
+    }
+
+    private static String armorKindLabel(ArmorEditorArmorKind armorKind) {
+        return armorKind == ArmorEditorArmorKind.MODDED ? "Modded" : "Vanilla";
     }
 
     private void updateArmorButtons() {
@@ -594,6 +848,10 @@ public final class ArmorEditorScreen extends Screen {
     }
 
     private static List<String> allArmorIdsForSlot(EquipmentSlot slot, String query) {
+        return allArmorIdsForSlot(slot, query, null);
+    }
+
+    private static List<String> allArmorIdsForSlot(EquipmentSlot slot, String query, ArmorEditorArmorKind armorKind) {
         String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         List<String> ids = new ArrayList<>();
         try {
@@ -603,6 +861,7 @@ public final class ArmorEditorScreen extends Screen {
                 if (!(item instanceof ArmorItem armor)) continue;
                 if (armorSlot(armor) != slot) continue;
                 String s = id.toString();
+                if (armorKind != null && ArmorEditorArmorKindPolicy.armorKindForItemId(s) != armorKind) continue;
                 if (!q.isBlank() && !s.toLowerCase(Locale.ROOT).contains(q)) continue;
                 ids.add(s);
             }
@@ -687,12 +946,6 @@ public final class ArmorEditorScreen extends Screen {
             updateArmorButtons();
             return true;
         }
-        if (isInside(mouseX, mouseY, leftX(), panelY(), LEFT_W, panelH())) {
-            if (scrollY != 0.0) {
-                adjustSelected(scrollY > 0.0 ? 1.0f : -1.0f);
-                return true;
-            }
-        }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
@@ -747,29 +1000,6 @@ public final class ArmorEditorScreen extends Screen {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 258) {
-            Param[] params = Param.values();
-            selectedParam = params[(selectedParam.ordinal() + 1) % params.length];
-            updateParamButtons();
-            return true;
-        }
-        if (keyCode == 257) {
-            logExport();
-            return true;
-        }
-        if (keyCode == 82) {
-            resetTarget();
-            return true;
-        }
-        if (Screen.hasControlDown() && keyCode == 83) {
-            applySession();
-            return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
     public void onClose() {
         Minecraft mc = Minecraft.getInstance();
         if (mc != null) mc.setScreen(parent);
@@ -778,8 +1008,13 @@ public final class ArmorEditorScreen extends Screen {
     @Override
     public void removed() {
         if (dirty) {
-            ArmorEditorRuntimeSettings.applyTransient(committed);
+            for (ArmorEditorProfile profile : ArmorEditorProfile.values()) {
+                for (ArmorEditorArmorKind armorKind : ArmorEditorArmorKind.values()) {
+                    ArmorEditorRuntimeSettings.applyTransient(profile, armorKind, settingsIn(committed, profile, armorKind));
+                }
+            }
         }
+        ArmorEditorRuntimeSettings.setHideDwarfBodyShapeWithChest(true);
         super.removed();
     }
 
@@ -824,7 +1059,7 @@ public final class ArmorEditorScreen extends Screen {
     }
 
     private int leftInfoY() {
-        return Math.min(panelY() + panelH() - 86, panelY() + 194);
+        return Math.min(panelY() + panelH() - 99, panelY() + 194);
     }
 
     private String fit(String text, int maxWidth) {

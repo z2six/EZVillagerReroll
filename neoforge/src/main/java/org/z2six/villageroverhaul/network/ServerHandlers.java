@@ -1776,7 +1776,8 @@ public final class ServerHandlers {
             if (msg == null) return;
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
 
-            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule) return;
+            if (!org.z2six.villageroverhaul.config.ServerConfig.enableFarmingModule
+                    && !org.z2six.villageroverhaul.config.ServerConfig.enableMerchantModule) return;
 
             Villager vill = resolveVillagerFor(sp, msg.villagerEntityId());
             if (vill == null) return;
@@ -1792,15 +1793,14 @@ public final class ServerHandlers {
             if (level == null) return;
             if (pos == null) return;
 
-            FarmingSettingsService.RegisteredWorkstation vanillaWs = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
-            if (vanillaWs == null) {
-                try { ctx.reply(new PacketFarmingOverlayText("Villager has no vanilla workstation memory", 2600)); } catch (Throwable ignored) {}
+            var expectedBlock = FarmingSettingsService.expectedVanillaWorkstationBlock(vill);
+            if (expectedBlock == null) {
+                try { ctx.reply(new PacketFarmingOverlayText("Villager has no vanilla profession workstation type", 2600)); } catch (Throwable ignored) {}
                 return;
             }
 
-            var vanillaState = level.getBlockState(new BlockPos(vanillaWs.x(), vanillaWs.y(), vanillaWs.z()));
             var requestedState = level.getBlockState(pos);
-            if (vanillaState == null || requestedState == null || vanillaState.getBlock() != requestedState.getBlock()) {
+            if (requestedState == null || requestedState.getBlock() != expectedBlock) {
                 try { ctx.reply(new PacketFarmingOverlayText("Registered block must match the vanilla workstation block type", 3200)); } catch (Throwable ignored) {}
                 return;
             }

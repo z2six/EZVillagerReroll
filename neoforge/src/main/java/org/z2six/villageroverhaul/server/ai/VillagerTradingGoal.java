@@ -300,7 +300,7 @@ public final class VillagerTradingGoal extends Goal {
             return;
         }
 
-        FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+        FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getEffectiveWorkstation(level, vill);
         BlockPos anchorPos = resolveReturnAnchorStandPos(level, ws);
         if (anchorPos == null) {
             finishHallTrip();
@@ -325,7 +325,7 @@ public final class VillagerTradingGoal extends Goal {
     }
 
     private void tickWorkstationPhase(ServerLevel level) {
-        FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+        FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getEffectiveWorkstation(level, vill);
         BlockPos anchorPos = resolveReturnAnchorStandPos(level, ws);
         if (anchorPos == null) {
             try { vill.getNavigation().stop(); } catch (Throwable ignored) {}
@@ -561,7 +561,7 @@ public final class VillagerTradingGoal extends Goal {
                 return Vec3.atBottomCenterOf(resolveHallStandPos(level, hall));
             }
             if (phase == Phase.RETURN_FROM_HALL) {
-                FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+                FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getEffectiveWorkstation(level, vill);
                 if (ws == null) return null;
                 return Vec3.atBottomCenterOf(resolveWorkstationStandPos(level, ws));
             }
@@ -899,7 +899,7 @@ public final class VillagerTradingGoal extends Goal {
     private Vec3 getWorkstationReturnTarget() {
         try {
             if (!(vill.level() instanceof ServerLevel level)) return null;
-            FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+            FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getEffectiveWorkstation(level, vill);
             BlockPos anchor = resolveReturnAnchorStandPos(level, ws);
             return anchor == null ? null : Vec3.atBottomCenterOf(anchor);
         } catch (Throwable ignored) {

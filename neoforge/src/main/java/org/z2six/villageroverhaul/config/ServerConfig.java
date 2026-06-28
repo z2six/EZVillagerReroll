@@ -30,6 +30,12 @@ public final class ServerConfig {
     public static final ModConfigSpec.BooleanValue ENABLE_FARMING_MODULE;
 
     // ---------------------------------------------------------------------
+    // FACTIONS
+    // ---------------------------------------------------------------------
+
+    public static final ModConfigSpec.IntValue DWARF_VILLAGER_CHANCE_PCT;
+
+    // ---------------------------------------------------------------------
     // CUSTOM COMMANDS
     // ---------------------------------------------------------------------
 
@@ -207,6 +213,20 @@ public final class ServerConfig {
         ENABLE_FARMING_MODULE =
                 B.comment("Enable Farming module (deposit/withdraw, manual farming).")
                         .define("enableFarmingModule", true);
+
+        B.pop();
+
+        B.push("factions");
+
+        DWARF_VILLAGER_CHANCE_PCT =
+                B.comment("""
+                        Chance that a newly joined/spawned villager is assigned the dwarf faction.
+                        This is server-authoritative and hot-reloaded with the rest of the server config.
+                        DEVELOPMENT FEATURE: do not enable this in normal worlds yet.
+                        Dwarf villagers are still experimental and may break existing worlds, villagers, saves, or rendering.
+                        Keep this at 0 unless you are intentionally testing the unfinished faction system.
+                        """)
+                        .defineInRange("dwarfVillagerChancePct", 0, 0, 100);
 
         B.pop();
 
@@ -762,6 +782,7 @@ public final class ServerConfig {
     public static boolean enableMerchantModule = true;
     public static boolean enableCombatModule = true;
     public static boolean enableFarmingModule = true;
+    public static int dwarfVillagerChancePct = 0;
     public static int customCommandsChatRadius = 26;
     public static boolean localizedChatEnabled = false;
     public static int localizedChatRange = 26;
@@ -863,6 +884,7 @@ public final class ServerConfig {
             enableMerchantModule = ENABLE_MERCHANT_MODULE.get();
             enableCombatModule = ENABLE_COMBAT_MODULE.get();
             enableFarmingModule = ENABLE_FARMING_MODULE.get();
+            dwarfVillagerChancePct = Math.max(0, Math.min(100, DWARF_VILLAGER_CHANCE_PCT.get()));
             customCommandsChatRadius = Math.max(1, Math.min(128, CUSTOM_COMMANDS_CHAT_RADIUS.get()));
             localizedChatEnabled = LOCALIZED_CHAT_ENABLED.get();
             localizedChatRange = Math.max(1, Math.min(256, LOCALIZED_CHAT_RANGE.get()));
@@ -992,9 +1014,10 @@ public final class ServerConfig {
             cfgHash = computeHash();
 
             VillagerOverhaul.LOG().debug(
-                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} modules=[merchant={},combat={},farming={}] costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} maxAutoSearchCost=[enabled={},mult={}] recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} breedingStatMutationChancePct={} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
+                    "[VillagerOverhaul] ServerConfig {} OK | v={} hash={} modules=[merchant={},combat={},farming={}] dwarfVillagerChancePct={} costSpec='{}' preferWallet={} freeOffers={} costPerOffer={} maxDeductibleLockedOffers={} autoHourlyThreshold={} autoHourlyDiscountOrIncreasePct={} maxAutoSearchCost=[enabled={},mult={}] recruitCost=[{},{}] cooldownTicks={} cooldownTicksAuto={} perVillagerDaily={} allowAfterTradeUsed={} manualRerollXpPerOffer={} autoSearchXpPerOffer={} farmingPlantItemsPerXp={} farmingPlantXp={} traitBounds={}/{} {}/{} {}/{} breedingStatMutationChancePct={} combatBounds=vitality[{}/{}] agility[{}/{}] strength[{}/{}] armor[{}/{}] hoarderClamp=[{},{}] legacyLevelCosts={}",
                     reason, cfgVersion, cfgHash,
                     enableMerchantModule, enableCombatModule, enableFarmingModule,
+                    dwarfVillagerChancePct,
                     costSpec, preferWallet,
                     freeOffers, costPerOffer, maxDeductibleLockedOffers,
                     autoHourlyThreshold, autoHourlyDiscountOrIncreasePct,
@@ -1069,6 +1092,7 @@ public final class ServerConfig {
         h = 31 * h + (enableMerchantModule ? 1 : 0);
         h = 31 * h + (enableCombatModule ? 1 : 0);
         h = 31 * h + (enableFarmingModule ? 1 : 0);
+        h = 31 * h + dwarfVillagerChancePct;
         h = 31 * h + Objects.hashCode(costSpec);
         h = 31 * h + (preferWallet ? 1 : 0);
         h = 31 * h + (autoPreferLCIfPresent ? 1 : 0);

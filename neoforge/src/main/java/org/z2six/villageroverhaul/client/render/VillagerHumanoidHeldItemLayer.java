@@ -16,36 +16,26 @@ import net.minecraft.world.item.ItemStack;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
 
 public final class VillagerHumanoidHeldItemLayer extends RenderLayer<Villager, VillagerModel<Villager>> {
 
-    // =========================================================================================
-    // TWEAKS (if alignment feels off)
-    // =========================================================================================
-
     private static final boolean ENABLE_ITEM_TRANSFORM = true;
 
-    /** Extra translation after translateToHand() */
-    private static final float ITX = 0.0f;
-    private static final float ITY = 0.0f;
-    private static final float ITZ = -0.05f;
-
-    /** Extra rotation after translateToHand() */
-    private static final float IRX_DEG = -90.0f;
-    private static final float IRY_DEG = 180.0f;
-    private static final float IRZ_DEG = 0.0f;
-
-    /** Uniform scale tweak */
-    private static final float ISCALE = 1.0f;
-
-    // =========================================================================================
-
     private final VillagerCombatArmsModel armsModel;
+    private final DwarfVillagerModel dwarfModel;
 
     public VillagerHumanoidHeldItemLayer(RenderLayerParent<Villager, VillagerModel<Villager>> parent,
                                          VillagerCombatArmsModel armsModel) {
+        this(parent, armsModel, null);
+    }
+
+    public VillagerHumanoidHeldItemLayer(RenderLayerParent<Villager, VillagerModel<Villager>> parent,
+                                         VillagerCombatArmsModel armsModel,
+                                         DwarfVillagerModel dwarfModel) {
         super(parent);
         this.armsModel = armsModel;
+        this.dwarfModel = dwarfModel;
     }
 
     @Override
@@ -61,22 +51,23 @@ public final class VillagerHumanoidHeldItemLayer extends RenderLayer<Villager, V
                        float headPitch) {
         try {
             if (villager == null || poseStack == null || buffer == null) return;
-            if (armsModel == null) return;
 
-            // Only render held items when we are using custom humanoid arms
-            if (!shouldRenderCustomArms(villager)) return;
+            HeldItemRenderAnchor anchor = renderAnchor(villager);
+            if (anchor == HeldItemRenderAnchor.NONE) return;
+            if (anchor == HeldItemRenderAnchor.CUSTOM_ARMS && armsModel == null) return;
+            if (anchor == HeldItemRenderAnchor.DWARF_ARMS && dwarfModel == null) return;
 
             ItemStack main = villager.getMainHandItem();
             ItemStack off  = villager.getOffhandItem();
 
             if (main != null && !main.isEmpty()) {
                 HumanoidArm mainArm = villager.getMainArm();
-                renderOneHand(villager, main, mainArm, poseStack, buffer, packedLight);
+                renderOneHand(villager, main, mainArm, anchor, poseStack, buffer, packedLight);
             }
 
             if (off != null && !off.isEmpty()) {
                 HumanoidArm offArm = (villager.getMainArm() == HumanoidArm.RIGHT) ? HumanoidArm.LEFT : HumanoidArm.RIGHT;
-                renderOneHand(villager, off, offArm, poseStack, buffer, packedLight);
+                renderOneHand(villager, off, offArm, anchor, poseStack, buffer, packedLight);
             }
 
         } catch (Throwable t) {
@@ -87,6 +78,7 @@ public final class VillagerHumanoidHeldItemLayer extends RenderLayer<Villager, V
     private void renderOneHand(Villager villager,
                                ItemStack stack,
                                HumanoidArm arm,
+                               HeldItemRenderAnchor anchor,
                                PoseStack poseStack,
                                MultiBufferSource buffer,
                                int packedLight) {
@@ -106,15 +98,17 @@ public final class VillagerHumanoidHeldItemLayer extends RenderLayer<Villager, V
 
             poseStack.pushPose();
             try {
-                // Move to the villager's animated hand pivot (custom arms)
-                armsModel.translateToHand(arm, poseStack);
+                translateToHand(anchor, arm, poseStack);
 
                 if (ENABLE_ITEM_TRANSFORM) {
-                    poseStack.translate(ITX, ITY, ITZ);
-                    poseStack.mulPose(Axis.XP.rotationDegrees(IRX_DEG));
-                    poseStack.mulPose(Axis.YP.rotationDegrees(IRY_DEG));
-                    if (IRZ_DEG != 0.0f) poseStack.mulPose(Axis.ZP.rotationDegrees(IRZ_DEG));
-                    if (ISCALE != 1.0f) poseStack.scale(ISCALE, ISCALE, ISCALE);
+                    ArmorEditorProfile modelProfile = anchor == HeldItemRenderAnchor.DWARF_ARMS
+                            ? ArmorEditorProfile.DWARF
+                            : ArmorEditorProfile.VILLAGER;
+                    WeaponEditorTransform tx = WeaponEditorState.heldTransform(
+                            modelProfile,
+                            WeaponEditorState.heldProfileFor(stack)
+                    );
+                    applyWeaponTransform(poseStack, tx);
                 }
 
                 // Render the item model (weapon/tool/etc) in third-person hand context
@@ -144,12 +138,35 @@ public final class VillagerHumanoidHeldItemLayer extends RenderLayer<Villager, V
         }
     }
 
-    private static boolean shouldRenderCustomArms(Villager v) {
+    private static HeldItemRenderAnchor renderAnchor(Villager v) {
         try {
+            boolean dwarf = VillagerFactionService.isDwarf(v);
+            boolean customArms = false;
             if (v instanceof VillagerOverhaulRenderAccess acc) {
-                return VillagerRenderFlags.renderCustomArms(acc.ezvr$getRenderFlags());
+                customArms = VillagerRenderFlags.renderCustomArms(acc.ezvr$getRenderFlags());
             }
-        } catch (Throwable ignored) {}
-        return false;
+            return HeldItemRenderPolicy.anchorFor(dwarf, customArms);
+        } catch (Throwable ignored) {
+            return HeldItemRenderAnchor.NONE;
+        }
+    }
+
+    private void translateToHand(HeldItemRenderAnchor anchor, HumanoidArm arm, PoseStack poseStack) {
+        if (anchor == HeldItemRenderAnchor.DWARF_ARMS) {
+            dwarfModel.translateToHand(arm, poseStack);
+        } else {
+            armsModel.translateToHand(arm, poseStack);
+        }
+    }
+
+    private static void applyWeaponTransform(PoseStack poseStack, WeaponEditorTransform tx) {
+        if (poseStack == null || tx == null) return;
+        poseStack.translate(tx.tx(), tx.ty(), tx.tz());
+        if (tx.rxDeg() != 0.0f) poseStack.mulPose(Axis.XP.rotationDegrees(tx.rxDeg()));
+        if (tx.ryDeg() != 0.0f) poseStack.mulPose(Axis.YP.rotationDegrees(tx.ryDeg()));
+        if (tx.rzDeg() != 0.0f) poseStack.mulPose(Axis.ZP.rotationDegrees(tx.rzDeg()));
+        if (tx.sx() != 1.0f || tx.sy() != 1.0f || tx.sz() != 1.0f) {
+            poseStack.scale(tx.sx(), tx.sy(), tx.sz());
+        }
     }
 }

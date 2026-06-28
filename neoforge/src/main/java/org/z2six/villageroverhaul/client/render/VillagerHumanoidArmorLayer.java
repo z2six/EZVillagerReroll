@@ -13,6 +13,7 @@ import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
@@ -28,6 +29,7 @@ import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
 import org.z2six.villageroverhaul.VillagerOverhaul;
 import org.z2six.villageroverhaul.api.VillagerOverhaulRenderAccess;
 import org.z2six.villageroverhaul.render.VillagerRenderFlags;
+import org.z2six.villageroverhaul.server.VillagerFactionService;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -127,11 +129,16 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         try {
             if (villager == null) return;
 
-            // Match vanilla HumanoidArmorLayer order
-            renderArmorSlot(villager, EquipmentSlot.CHEST, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
-            renderArmorSlot(villager, EquipmentSlot.LEGS, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
-            renderArmorSlot(villager, EquipmentSlot.FEET, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
-            renderArmorSlot(villager, EquipmentSlot.HEAD, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+            ArmorEditorProfile profile = VillagerFactionService.isDwarf(villager)
+                    ? ArmorEditorProfile.DWARF
+                    : ArmorEditorProfile.VILLAGER;
+            try (ArmorEditorRuntimeSettings.Scope ignored = ArmorEditorRuntimeSettings.pushProfile(profile)) {
+                // Match vanilla HumanoidArmorLayer order
+                renderArmorSlot(villager, EquipmentSlot.CHEST, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+                renderArmorSlot(villager, EquipmentSlot.LEGS, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+                renderArmorSlot(villager, EquipmentSlot.FEET, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+                renderArmorSlot(villager, EquipmentSlot.HEAD, poseStack, buffer, packedLight, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+            }
 
         } catch (Throwable t) {
             VillagerOverhaul.LOG().debug("[VillagerOverhaul] VillagerHumanoidArmorLayer render failed (soft): {}", t.toString());
@@ -158,6 +165,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         if (stack == null || stack.isEmpty()) return;
         if (!(stack.getItem() instanceof ArmorItem armor)) return;
         if (armor.getEquipmentSlot() != slot) return;
+        ArmorEditorSettings.SlotKey slotKeyForPivotPolicy = ArmorEditorRuntimeSettings.slotKey(slot);
 
         // In vanilla terminology: leggings use the "inner" texture/model.
         boolean innerTexture = (slot == EquipmentSlot.LEGS);
@@ -173,26 +181,38 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
 
         setPartVisibility(baseHumanoidModel, slot);
         copyVillagerPoseIntoHumanoid(this.getParentModel(), baseHumanoidModel);
+        boolean extendedPieceArmor = hasExtendedArmorPieces(stack, slot);
+        ArmorModelTransformPolicy.RenderKind baseRenderKind = extendedPieceArmor
+                ? ArmorModelTransformPolicy.RenderKind.EXTENDED_PIECES
+                : ArmorModelTransformPolicy.RenderKind.VANILLA_HUMANOID;
+        if (!ArmorHeadPivotPolicy.preserveNativeHeadPivot(slotKeyForPivotPolicy, baseRenderKind, headPivot(baseHumanoidModel), entityHeadPivot(slot))) {
+            applyHeadArmorPivot(baseHumanoidModel, slot);
+        }
+        applyDwarfArmorLimbPivots(baseHumanoidModel, slot);
         applyPassengerLegPoseIfNeeded(vill, baseHumanoidModel);
 
-        boolean useDriverArms = false;
+        boolean dwarf = VillagerFactionService.isDwarf(vill);
+        byte renderFlags = VillagerRenderFlags.defaultFlags();
         try {
             if (vill instanceof VillagerOverhaulRenderAccess acc) {
-                useDriverArms = VillagerRenderFlags.renderCustomArms(acc.ezvr$getRenderFlags());
+                renderFlags = acc.ezvr$getRenderFlags();
             }
         } catch (Throwable ignored) {
-            useDriverArms = false;
+            renderFlags = VillagerRenderFlags.defaultFlags();
         }
+        boolean useDriverArms = ArmorArmAnimationPolicy.shouldAnimateArmorArms(dwarf, VillagerRenderFlags.renderCustomArms(renderFlags));
         try { applyDriverArmsToHumanoidModel(baseHumanoidModel, useDriverArms); } catch (Throwable ignored) {}
 
         boolean doTx = ENABLE_ARMOR_TRANSFORMS;
-        ArmorEditorTransform slotTx = doTx ? transformForSlot(slot) : ArmorEditorTransform.IDENTITY;
 
         // Some armor mods replace vanilla HumanoidArmorLayer rendering with their own slot-piece pipeline.
         // Our villager layer is not HumanoidArmorLayer, so those mixins do not see us. If an item exposes that
         // generic "extended material -> pieces -> render(...)" shape, let the mod's pieces render themselves.
         poseStack.pushPose();
-        try {
+        ArmorEditorArmorKind extendedArmorKind = ArmorEditorRuntimeSettings.armorKindOverrideActive()
+                ? ArmorEditorRuntimeSettings.activeArmorKind()
+                : ArmorEditorArmorKind.MODDED;
+        try (ArmorEditorRuntimeSettings.Scope armorKindScope = ArmorEditorRuntimeSettings.pushDetectedArmorKind(extendedArmorKind)) {
             if (renderExtendedArmorPiecesIfPresent(vill, stack, slot, poseStack, buffer, packedLight, partialTick, baseHumanoidModel, doTx)) {
                 return;
             }
@@ -208,8 +228,14 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         }
 
         HumanoidModel<?> humanoidArmorModel = null;
+        boolean customHumanoidArmorModel = false;
+        ArmorModelTransformPolicy.RenderKind armorRenderKind = ArmorModelTransformPolicy.RenderKind.CUSTOM_MODEL;
         if (armorModel instanceof HumanoidModel<?> hm) {
             humanoidArmorModel = hm;
+            customHumanoidArmorModel = hm != baseHumanoidModel;
+            armorRenderKind = customHumanoidArmorModel
+                    ? ArmorModelTransformPolicy.RenderKind.CUSTOM_HUMANOID
+                    : ArmorModelTransformPolicy.RenderKind.VANILLA_HUMANOID;
 
             // Critical for modded armor: many armor models default to all parts hidden.
             try { setPartVisibility(hm, slot); } catch (Throwable ignored) {}
@@ -231,6 +257,10 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                 }
                 applyPassengerLegPoseIfNeeded(vill, hm);
             } catch (Throwable ignored) {}
+            if (!ArmorHeadPivotPolicy.preserveNativeHeadPivot(slotKeyForPivotPolicy, armorRenderKind, headPivot(hm), entityHeadPivot(slot))) {
+                applyHeadArmorPivot(hm, slot);
+            }
+            applyDwarfArmorLimbPivots(hm, slot);
         }
 
         // Ensure any replacement model also has correct young/riding state (covers non-humanoid Model impls too).
@@ -246,6 +276,16 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
         try {
             if (extensions != null) {
                 extensions.setupModelAnimations(vill, stack, slot, armorModel, limbSwing, limbSwingAmount, partialTick, ageInTicks, netHeadYaw, headPitch);
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            if (humanoidArmorModel != null) {
+                applyHeadPoseToHumanoidModel(baseHumanoidModel, humanoidArmorModel, slot);
+                if (!ArmorHeadPivotPolicy.preserveNativeHeadPivot(slotKeyForPivotPolicy, armorRenderKind, headPivot(humanoidArmorModel), entityHeadPivot(slot))) {
+                    applyHeadArmorPivot(humanoidArmorModel, slot);
+                }
+                applyDwarfArmorLimbPivots(humanoidArmorModel, slot);
             }
         } catch (Throwable ignored) {}
 
@@ -306,13 +346,11 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                 (material == null || material.layers() == null ? -1 : material.layers().size())
         );
 
+        ArmorEditorArmorKind armorKind = ArmorEditorRuntimeSettings.armorKindOverrideActive()
+                ? ArmorEditorRuntimeSettings.activeArmorKind()
+                : armorKindForRenderKind(armorRenderKind, stack);
         poseStack.pushPose();
-        try {
-            boolean localHumanoidTransforms = armorModel instanceof HumanoidModel<?>;
-            if (!localHumanoidTransforms && doTx && slotTx != null && !slotTx.isIdentity()) {
-                applyTransform(poseStack, slotTx);
-            }
-
+        try (ArmorEditorRuntimeSettings.Scope armorKindScope = ArmorEditorRuntimeSettings.pushDetectedArmorKind(armorKind)) {
             List<ArmorMaterial.Layer> layers = material.layers();
             if (layers == null || layers.isEmpty()) {
                 // Some mods don't populate ArmorMaterial.layers() (or rely on legacy armor texture hooks).
@@ -405,9 +443,9 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                     // Use our per-part transforms for ANY humanoid armor model so villager-fit scaling is consistent.
                     // Most modded armor models attach extra bits as children of body/arms/head/legs, so they render too.
                     if (armorModel instanceof HumanoidModel<?> hm) {
-                        renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, overlay, packedColor);
+                        renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, overlay, packedColor, armorRenderKind);
                     } else {
-                        armorModel.renderToBuffer(poseStack, vc, packedLight, overlay, packedColor);
+                        renderWholeModelWithTransform(slot, armorModel, poseStack, vc, packedLight, overlay, packedColor);
                     }
 
                 } catch (Throwable t) {
@@ -427,7 +465,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                             String.valueOf(slot),
                             String.valueOf(trim.pattern())
                     );
-                    renderTrim(armor.getMaterial(), trim, slot, armorModel, poseStack, buffer, packedLight, innerTexture);
+                    renderTrim(armor.getMaterial(), trim, slot, armorModel, poseStack, buffer, packedLight, innerTexture, armorRenderKind);
                 }
             } catch (Throwable ignored) {}
 
@@ -442,14 +480,30 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                     );
                     var vc = buffer.getBuffer(RenderType.armorEntityGlint());
                     if (armorModel instanceof HumanoidModel<?> hm) {
-                        renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, overlay, 0xFFFFFFFF);
+                        renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, overlay, 0xFFFFFFFF, armorRenderKind);
                     } else {
-                        armorModel.renderToBuffer(poseStack, vc, packedLight, overlay, 0xFFFFFFFF);
+                        renderWholeModelWithTransform(slot, armorModel, poseStack, vc, packedLight, overlay, 0xFFFFFFFF);
                     }
                 }
             } catch (Throwable ignored) {}
         } finally {
             poseStack.popPose();
+        }
+    }
+
+    private static ArmorEditorArmorKind armorKindForRenderKind(ArmorModelTransformPolicy.RenderKind renderKind, ItemStack stack) {
+        return renderKind == ArmorModelTransformPolicy.RenderKind.VANILLA_HUMANOID && !isModdedArmorItem(stack)
+                ? ArmorEditorArmorKind.VANILLA
+                : ArmorEditorArmorKind.MODDED;
+    }
+
+    private static boolean isModdedArmorItem(ItemStack stack) {
+        try {
+            if (stack == null || stack.isEmpty()) return false;
+            ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+            return id != null && !"minecraft".equals(id.getNamespace());
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
@@ -460,7 +514,8 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                             PoseStack poseStack,
                             MultiBufferSource buffer,
                             int packedLight,
-                            boolean innerTexture) {
+                            boolean innerTexture,
+                            ArmorModelTransformPolicy.RenderKind renderKind) {
         try {
             if (trim == null || armorMaterialHolder == null || armorModel == null) return;
 
@@ -478,11 +533,56 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
             TextureAtlasSprite sprite = this.armorTrimAtlas.getSprite(innerTexture ? trim.innerTexture(armorMaterialHolder) : trim.outerTexture(armorMaterialHolder));
             var vc = sprite.wrap(buffer.getBuffer(Sheets.armorTrimsSheet(trim.pattern().value().decal())));
             if (armorModel instanceof HumanoidModel<?> hm) {
-                renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
+                renderVisiblePartsWithPerPartTransforms(slot, hm, poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF, renderKind);
             } else {
-                armorModel.renderToBuffer(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
+                renderWholeModelWithTransform(slot, armorModel, poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
             }
         } catch (Throwable ignored) {}
+    }
+
+    private static void renderWholeModelWithTransform(EquipmentSlot slot,
+                                                      net.minecraft.client.model.Model armorModel,
+                                                      PoseStack poseStack,
+                                                      com.mojang.blaze3d.vertex.VertexConsumer vc,
+                                                      int light,
+                                                      int overlay,
+                                                      int packedColor) {
+        if (armorModel == null) return;
+        ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(slot);
+        ArmorEditorTransform tx = ENABLE_ARMOR_TRANSFORMS
+                ? ArmorModelTransformPolicy.forWholeCustomModel(slotKey, transformForSlot(slot), ArmorEditorTransform.IDENTITY)
+                : ArmorEditorTransform.IDENTITY;
+
+        poseStack.pushPose();
+        try {
+            if (tx != null && !tx.isIdentity()) applyTransform(poseStack, tx);
+            armorModel.renderToBuffer(poseStack, vc, light, overlay, packedColor);
+        } finally {
+            poseStack.popPose();
+        }
+    }
+
+    private static boolean hasExtendedArmorPieces(ItemStack stack, EquipmentSlot slot) {
+        try {
+            if (stack == null || stack.isEmpty() || slot == null) return false;
+            Object item = stack.getItem();
+            if (item == null) return false;
+
+            Method getExtendedMaterial = findNoArgMethodCached(EZVR_EXTENDED_MATERIAL_METHODS, item.getClass(), "getExtendedMaterial");
+            if (getExtendedMaterial == null) return false;
+
+            Object extendedMaterial = getExtendedMaterial.invoke(item);
+            if (extendedMaterial == null) return false;
+
+            Method getPieces = findOneArgMethodCached(EZVR_GET_PIECES_METHODS, extendedMaterial.getClass(), "getPieces", EquipmentSlot.class);
+            if (getPieces == null) return false;
+
+            Object piecesObj = getPieces.invoke(extendedMaterial, slot);
+            if (!(piecesObj instanceof Iterable<?> pieces)) return false;
+            return pieces.iterator().hasNext();
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private boolean renderExtendedArmorPiecesIfPresent(Villager vill,
@@ -512,7 +612,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
 
             boolean renderedAny = false;
             ModelPartTransformScope transformScope = applyEditorTransforms
-                    ? bakeEditorTransformsIntoHumanoidModel(baseHumanoidModel, slot)
+                    ? bakeEditorTransformsIntoHumanoidModel(baseHumanoidModel, slot, true)
                     : ModelPartTransformScope.EMPTY;
             try {
                 for (Object piece : pieces) {
@@ -575,27 +675,33 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
     }
 
     private static ModelPartTransformScope bakeEditorTransformsIntoHumanoidModel(HumanoidModel<?> model, EquipmentSlot slot) {
+        return bakeEditorTransformsIntoHumanoidModel(model, slot, false);
+    }
+
+    private static ModelPartTransformScope bakeEditorTransformsIntoHumanoidModel(HumanoidModel<?> model,
+                                                                                EquipmentSlot slot,
+                                                                                boolean extendedPieceArmor) {
         if (!ENABLE_ARMOR_TRANSFORMS || model == null || slot == null) return ModelPartTransformScope.EMPTY;
 
         List<ModelPartState> states = new ArrayList<>(7);
         switch (slot) {
             case HEAD -> {
-                bakeEditorTransformIntoPart(model.head, slot, PartKind.HEAD, states);
-                bakeEditorTransformIntoPart(model.hat, slot, PartKind.HAT, states);
+                bakeEditorTransformIntoPart(model.head, slot, PartKind.HEAD, states, extendedPieceArmor);
+                bakeEditorTransformIntoPart(model.hat, slot, PartKind.HAT, states, extendedPieceArmor);
             }
             case CHEST -> {
-                bakeEditorTransformIntoPart(model.body, slot, PartKind.BODY, states);
-                bakeEditorTransformIntoPart(model.rightArm, slot, PartKind.RIGHT_ARM, states);
-                bakeEditorTransformIntoPart(model.leftArm, slot, PartKind.LEFT_ARM, states);
+                bakeEditorTransformIntoPart(model.body, slot, PartKind.BODY, states, extendedPieceArmor);
+                bakeEditorTransformIntoPart(model.rightArm, slot, PartKind.RIGHT_ARM, states, extendedPieceArmor);
+                bakeEditorTransformIntoPart(model.leftArm, slot, PartKind.LEFT_ARM, states, extendedPieceArmor);
             }
             case LEGS -> {
-                bakeEditorTransformIntoPart(model.body, slot, PartKind.BODY, states);
-                bakeEditorTransformIntoPart(model.rightLeg, slot, PartKind.RIGHT_LEG, states);
-                bakeEditorTransformIntoPart(model.leftLeg, slot, PartKind.LEFT_LEG, states);
+                bakeEditorTransformIntoPart(model.body, slot, PartKind.BODY, states, extendedPieceArmor);
+                bakeEditorTransformIntoPart(model.rightLeg, slot, PartKind.RIGHT_LEG, states, extendedPieceArmor);
+                bakeEditorTransformIntoPart(model.leftLeg, slot, PartKind.LEFT_LEG, states, extendedPieceArmor);
             }
             case FEET -> {
-                bakeEditorTransformIntoPart(model.rightLeg, slot, PartKind.RIGHT_LEG, states);
-                bakeEditorTransformIntoPart(model.leftLeg, slot, PartKind.LEFT_LEG, states);
+                bakeEditorTransformIntoPart(model.rightLeg, slot, PartKind.RIGHT_LEG, states, extendedPieceArmor);
+                bakeEditorTransformIntoPart(model.leftLeg, slot, PartKind.LEFT_LEG, states, extendedPieceArmor);
             }
             default -> {}
         }
@@ -607,23 +713,35 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
     private static void bakeEditorTransformIntoPart(ModelPart part,
                                                     EquipmentSlot slot,
                                                     PartKind kind,
-                                                    List<ModelPartState> states) {
+                                                    List<ModelPartState> states,
+                                                    boolean extendedPieceArmor) {
         if (part == null || states == null) return;
 
         ArmorEditorTransform slotTx = transformForSlot(slot);
         ArmorEditorTransform partTx = partTransformFor(slot, kind);
         if (slotTx == null) slotTx = ArmorEditorTransform.IDENTITY;
         if (partTx == null) partTx = ArmorEditorTransform.IDENTITY;
-        if (slotTx.isIdentity() && partTx.isIdentity()) return;
+        ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(slot);
+        ArmorEditorTransform tx = extendedPieceArmor
+                ? ArmorModelTransformPolicy.forExtendedArmorPieces(slotKey, slotTx, partTx)
+                : new ArmorEditorTransform(
+                        slotTx.x() + partTx.x(),
+                        slotTx.y() + partTx.y(),
+                        slotTx.z() + partTx.z(),
+                        slotTx.sx() * partTx.sx(),
+                        slotTx.sy() * partTx.sy(),
+                        slotTx.sz() * partTx.sz()
+                );
+        if (tx.isIdentity()) return;
 
         states.add(new ModelPartState(part));
 
-        part.x += (slotTx.x() + partTx.x()) * 16.0f;
-        part.y += (slotTx.y() + partTx.y()) * 16.0f;
-        part.z += (slotTx.z() + partTx.z()) * 16.0f;
-        part.xScale *= slotTx.sx() * partTx.sx();
-        part.yScale *= slotTx.sy() * partTx.sy();
-        part.zScale *= slotTx.sz() * partTx.sz();
+        part.x += tx.x() * 16.0f;
+        part.y += tx.y() * 16.0f;
+        part.z += tx.z() * 16.0f;
+        part.xScale *= tx.sx();
+        part.yScale *= tx.sy();
+        part.zScale *= tx.sz();
     }
 
     private static Method findNoArgMethodCached(Map<Class<?>, Method> cache, Class<?> type, String name) {
@@ -905,37 +1023,38 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                                                                 com.mojang.blaze3d.vertex.VertexConsumer vc,
                                                                 int light,
                                                                 int overlay,
-                                                                int packedColor) {
+                                                                int packedColor,
+                                                                ArmorModelTransformPolicy.RenderKind renderKind) {
         try {
             if (model == null) return;
 
             // HEAD
             if (model.head != null && model.head.visible) {
-                renderPartWithTransform(slot, PartKind.HEAD, model.head, poseStack, vc, light, overlay, packedColor);
+                renderPartWithTransform(slot, PartKind.HEAD, model.head, poseStack, vc, light, overlay, packedColor, renderKind);
             }
             if (model.hat != null && model.hat.visible) {
-                renderPartWithTransform(slot, PartKind.HAT, model.hat, poseStack, vc, light, overlay, packedColor);
+                renderPartWithTransform(slot, PartKind.HAT, model.hat, poseStack, vc, light, overlay, packedColor, renderKind);
             }
 
             // BODY
             if (model.body != null && model.body.visible) {
-                renderPartWithTransform(slot, PartKind.BODY, model.body, poseStack, vc, light, overlay, packedColor);
+                renderPartWithTransform(slot, PartKind.BODY, model.body, poseStack, vc, light, overlay, packedColor, renderKind);
             }
 
             // ARMS
             if (model.rightArm != null && model.rightArm.visible) {
-                renderPartWithTransform(slot, PartKind.RIGHT_ARM, model.rightArm, poseStack, vc, light, overlay, packedColor);
+                renderPartWithTransform(slot, PartKind.RIGHT_ARM, model.rightArm, poseStack, vc, light, overlay, packedColor, renderKind);
             }
             if (model.leftArm != null && model.leftArm.visible) {
-                renderPartWithTransform(slot, PartKind.LEFT_ARM, model.leftArm, poseStack, vc, light, overlay, packedColor);
+                renderPartWithTransform(slot, PartKind.LEFT_ARM, model.leftArm, poseStack, vc, light, overlay, packedColor, renderKind);
             }
 
             // LEGS
             if (model.rightLeg != null && model.rightLeg.visible) {
-                renderPartWithTransform(slot, PartKind.RIGHT_LEG, model.rightLeg, poseStack, vc, light, overlay, packedColor);
+                renderPartWithTransform(slot, PartKind.RIGHT_LEG, model.rightLeg, poseStack, vc, light, overlay, packedColor, renderKind);
             }
             if (model.leftLeg != null && model.leftLeg.visible) {
-                renderPartWithTransform(slot, PartKind.LEFT_LEG, model.leftLeg, poseStack, vc, light, overlay, packedColor);
+                renderPartWithTransform(slot, PartKind.LEFT_LEG, model.leftLeg, poseStack, vc, light, overlay, packedColor, renderKind);
             }
 
         } catch (Throwable ignored) {}
@@ -948,19 +1067,21 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                                                 com.mojang.blaze3d.vertex.VertexConsumer vc,
                                                 int light,
                                                 int overlay,
-                                                int packedColor) {
+                                                int packedColor,
+                                                ArmorModelTransformPolicy.RenderKind renderKind) {
         if (part == null) return;
 
         ArmorEditorTransform slotTx = (ENABLE_ARMOR_TRANSFORMS) ? transformForSlot(slot) : ArmorEditorTransform.IDENTITY;
         ArmorEditorTransform partTx = (ENABLE_ARMOR_TRANSFORMS) ? partTransformFor(slot, kind) : ArmorEditorTransform.IDENTITY;
         if (slotTx == null) slotTx = ArmorEditorTransform.IDENTITY;
         if (partTx == null) partTx = ArmorEditorTransform.IDENTITY;
+        ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(slot);
+        ArmorEditorTransform tx = ArmorModelTransformPolicy.forRenderKind(slotKey, renderKind, slotTx, partTx);
 
         poseStack.pushPose();
         try {
-            if (!renderModelPartWithLocalTransforms(part, poseStack, vc, light, overlay, packedColor, slotTx, partTx)) {
-                if (!slotTx.isIdentity()) applyTransform(poseStack, slotTx);
-                if (!partTx.isIdentity()) applyTransform(poseStack, partTx);
+            if (!renderModelPartWithLocalTransforms(part, poseStack, vc, light, overlay, packedColor, tx)) {
+                if (!tx.isIdentity()) applyTransform(poseStack, tx);
                 invokeModelPartRender(part, poseStack, vc, light, overlay, packedColor);
             }
         } catch (Throwable ignored) {
@@ -975,8 +1096,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
                                                               int light,
                                                               int overlay,
                                                               int packedColor,
-                                                              ArmorEditorTransform slotTx,
-                                                              ArmorEditorTransform partTx) {
+                                                              ArmorEditorTransform tx) {
         try {
             if (part == null || poseStack == null || vc == null || !part.visible) return true;
             if (MODEL_PART_COMPILE_5 == null) return false;
@@ -984,8 +1104,7 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
             poseStack.pushPose();
             try {
                 part.translateAndRotate(poseStack);
-                if (slotTx != null && !slotTx.isIdentity()) applyTransform(poseStack, slotTx);
-                if (partTx != null && !partTx.isIdentity()) applyTransform(poseStack, partTx);
+                if (tx != null && !tx.isIdentity()) applyTransform(poseStack, tx);
 
                 if (!part.skipDraw) {
                     MODEL_PART_COMPILE_5.invoke(part, poseStack.last(), vc, light, overlay, packedColor);
@@ -1059,6 +1178,67 @@ public final class VillagerHumanoidArmorLayer extends RenderLayer<Villager, Vill
             if (ps == null || tx == null) return;
             ps.translate(tx.x(), tx.y(), tx.z());
             ps.scale(tx.sx(), tx.sy(), tx.sz());
+        } catch (Throwable ignored) {}
+    }
+
+    private static void applyHeadArmorPivot(HumanoidModel<?> model, EquipmentSlot slot) {
+        try {
+            if (model == null) return;
+            ArmorHeadPivot pivot = entityHeadPivot(slot);
+            if (pivot == null) pivot = ArmorHeadPivot.IDENTITY;
+            if (model.head != null) {
+                model.head.x = pivot.x();
+                model.head.y = pivot.y();
+                model.head.z = pivot.z();
+            }
+            if (model.hat != null) {
+                model.hat.x = pivot.x();
+                model.hat.y = pivot.y();
+                model.hat.z = pivot.z();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static ArmorHeadPivot entityHeadPivot(EquipmentSlot slot) {
+        ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(slot);
+        return DwarfArmorGeometry.headArmorPivotFor(ArmorEditorRuntimeSettings.activeProfile(), slotKey);
+    }
+
+    private static ArmorHeadPivot headPivot(HumanoidModel<?> model) {
+        try {
+            if (model == null || model.head == null) return null;
+            return new ArmorHeadPivot(model.head.x, model.head.y, model.head.z);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static void applyDwarfArmorLimbPivots(HumanoidModel<?> model, EquipmentSlot slot) {
+        try {
+            if (model == null) return;
+            ArmorEditorSettings.SlotKey slotKey = ArmorEditorRuntimeSettings.slotKey(slot);
+            ArmorEditorProfile profile = ArmorEditorRuntimeSettings.activeProfile();
+            applyArmorPartPivot(model.rightArm, DwarfArmorGeometry.limbArmorPivotFor(profile, slotKey, ArmorEditorSettings.PartKey.RIGHT_ARM));
+            applyArmorPartPivot(model.leftArm, DwarfArmorGeometry.limbArmorPivotFor(profile, slotKey, ArmorEditorSettings.PartKey.LEFT_ARM));
+            applyArmorPartPivot(model.rightLeg, DwarfArmorGeometry.limbArmorPivotFor(profile, slotKey, ArmorEditorSettings.PartKey.RIGHT_LEG));
+            applyArmorPartPivot(model.leftLeg, DwarfArmorGeometry.limbArmorPivotFor(profile, slotKey, ArmorEditorSettings.PartKey.LEFT_LEG));
+        } catch (Throwable ignored) {}
+    }
+
+    private static void applyArmorPartPivot(ModelPart part, ArmorPartPivot pivot) {
+        try {
+            if (part == null || pivot == null || pivot == ArmorPartPivot.IDENTITY) return;
+            part.x = pivot.x();
+            part.y = pivot.y();
+            part.z = pivot.z();
+        } catch (Throwable ignored) {}
+    }
+
+    private static void applyHeadPoseToHumanoidModel(HumanoidModel<?> source, HumanoidModel<?> target, EquipmentSlot slot) {
+        try {
+            if (source == null || target == null || slot != EquipmentSlot.HEAD) return;
+            if (source.head != null && target.head != null) copyPartRot(source.head, target.head);
+            if (target.hat != null && target.head != null) copyPartRot(target.head, target.hat);
         } catch (Throwable ignored) {}
     }
 

@@ -124,7 +124,7 @@ public final class TradingHallService {
         try {
             if (level == null || vill == null || hallPos == null) return false;
 
-            FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getVanillaJobSiteWorkstation(level, vill);
+            FarmingSettingsService.RegisteredWorkstation ws = FarmingSettingsService.getEffectiveWorkstation(level, vill);
             Vec3Like anchor;
             if (ws != null) {
                 anchor = new Vec3Like(ws.x() + 0.5D, ws.y() + 0.5D, ws.z() + 0.5D);
